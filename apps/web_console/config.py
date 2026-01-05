@@ -1,7 +1,7 @@
 """
 Web Console Configuration.
 
-Centralized configuration for the Streamlit web console, including
+Centralized configuration for the Web Console backend utilities, including
 execution gateway API URLs, authentication settings, and UI defaults.
 
 Environment Variables:
@@ -50,7 +50,6 @@ SERVICE_URLS: dict[str, str] = {
     "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8005"),
     "reconciler": os.getenv("RECONCILER_URL", "http://localhost:8006"),
     "risk_manager": os.getenv("RISK_MANAGER_URL", "http://localhost:8007"),
-    # Note: web_console excluded - Streamlit doesn't expose /health endpoint
     # TODO: Enable after deploying metrics_server.py sidecar
 }
 
@@ -138,8 +137,8 @@ AUDIT_LOG_DETAILS_TRUNCATE_LENGTH = 100
 # Database Connection Pool Configuration (M7 Fix)
 # ============================================================================
 
-# Pool size configuration - defaults optimized for Streamlit's per-session model
-# Each Streamlit session may share the pool via module-level singleton
+# Pool size configuration - defaults optimized for per-session model
+# Each session may share the pool via module-level singleton
 DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 

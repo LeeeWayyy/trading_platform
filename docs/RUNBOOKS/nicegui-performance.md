@@ -1,72 +1,222 @@
-# NiceGUI Performance Tuning Guide
+# NiceGUI Performance Runbook
 
-Last updated: 2026-01-03
+**Last Updated:** 2026-01-04
+**Related:** [nicegui-architecture](../CONCEPTS/nicegui-architecture.md)
 
-## Scope
+## Key Metrics to Monitor
 
-This runbook covers performance tuning for the NiceGUI trading console with a
-focus on WebSocket throughput, Redis Pub/Sub efficiency, AG Grid rendering, and
-long-lived session memory stability.
+| Metric | Target | Alert Threshold |
+|--------|--------|-----------------|
+| Page Load Time | <500ms | >1s |
+| API Response Time | <100ms | >500ms |
+| WebSocket Latency | <50ms | >200ms |
+| Active Connections | <1000 | >800 |
+| Memory Usage | <1GB | >1.5GB |
+| CPU Usage | <50% | >80% |
 
-## Connection Pool Sizing
+## Prometheus Metrics
 
-### HTTP client (AsyncTradingClient)
-- Keep timeouts tight to avoid pile-ups (connect ~2s, total ~5s).
-- Limit retries at the client layer; do not allow unbounded retries.
-- Prefer connection reuse by keeping the AsyncClient alive for the app lifespan.
+```python
+# Custom metrics in apps/web_console_ng/core/metrics.py
 
-### Redis connections
-- For Sentinel: tune `REDIS_POOL_MAX_CONNECTIONS` to match expected WS sessions.
-- Rule of thumb: pool max connections ~20-30% of peak WS sessions.
-- Avoid closing the shared Redis store in per-client cleanup.
+from prometheus_client import Counter, Histogram, Gauge
 
-## Redis Pub/Sub Optimization
+# Request metrics
+REQUEST_LATENCY = Histogram(
+    'nicegui_request_latency_seconds',
+    'Request latency',
+    ['path']
+)
 
-- Use a single listener task per channel per client session.
-- Apply backpressure with bounded queues to avoid memory growth.
-- Conflate multiple updates into the latest update (reduces UI churn).
-- Prefer JSON payloads with stable schema to minimize decode errors.
-- Ensure Pub/Sub reconnect logic cleans up old pubsub instances.
+# Connection metrics
+ACTIVE_CONNECTIONS = Gauge(
+    'nicegui_active_connections',
+    'Active WebSocket connections'
+)
 
-## AG Grid Performance Tips
+# Error metrics
+ERROR_COUNT = Counter(
+    'nicegui_errors_total',
+    'Total errors',
+    ['type']
+)
+```
 
-- Always set `getRowId` for stable row identity.
-- Use `applyTransaction` instead of full rowData replacement.
-- Avoid per-row JS calls in timers; batch updates in one JS execution.
-- Keep column renderers lightweight (avoid heavy DOM work per cell).
-- Use `autoHeight` only if required; consider fixed-height with virtual scroll for large data.
+## Grafana Dashboard Setup
 
-## Memory Management for Long Sessions
+### Essential Panels
 
-- Register all per-client timers with the client lifecycle manager.
-- Cancel timers and tasks on disconnect to prevent leaks.
-- Avoid storing per-client state in module-level globals unless keyed by client_id.
-- Cache shared market data only if entitlement-neutral and single-worker.
-- For multi-worker, move shared caches to Redis or a dedicated service.
+1. **Request Rate**: `rate(nicegui_requests_total[5m])`
+2. **Error Rate**: `rate(nicegui_errors_total[5m])`
+3. **Latency P95**: `histogram_quantile(0.95, nicegui_request_latency_seconds)`
+4. **Active Connections**: `nicegui_active_connections`
+5. **Memory Usage**: `container_memory_usage_bytes{name="web-console-ng"}`
 
-## Monitoring Recommendations
+## Performance Targets (SLOs)
 
-### Server-side
-- Track active WS connections and per-client memory consumption.
-- Emit Pub/Sub listener lag metrics (queue size, drop counts).
-- Capture UI update latency (server publish time vs client receipt).
+| Metric | SLO | Measurement Window |
+|--------|-----|-------------------|
+| Availability | 99.9% | Monthly |
+| Page Load P95 | <800ms | Daily |
+| API P99 | <500ms | Daily |
+| Error Rate | <0.1% | Daily |
 
-### Client-side
-- Track P&L update latency using `Date.now()` vs server `_server_ts`.
-- Log reconnect events and disconnect durations.
-- Use a periodic health check timer to catch stalled UI updates.
+## Bottleneck Identification
 
-## Load and Soak Testing
+### Database Bottlenecks
 
-- Use `tests/load/web_console_dashboard.js` for staged load (100 users).
-- Use `tests/load/web_console_soak.js` for 4-hour stability testing.
-- Run in `AUTH_TYPE=dev` or `AUTH_TYPE=basic` (k6 cannot handle mTLS/OAuth2).
-- Verify WS session cookie is present before WS connect.
+```sql
+-- Slow queries
+SELECT query, mean_time, calls
+FROM pg_stat_statements
+ORDER BY mean_time DESC
+LIMIT 10;
 
-## Troubleshooting Checklist
+-- Missing indexes
+SELECT relname, seq_scan, idx_scan
+FROM pg_stat_user_tables
+WHERE seq_scan > idx_scan
+ORDER BY seq_scan DESC;
+```
 
-- High WS connect times: check reverse proxy timeouts and TLS termination.
-- Missing updates: confirm Redis Pub/Sub connectivity and channel names.
-- UI freezes: confirm AG Grid updates are batched and not full re-renders.
-- Memory growth: confirm timers are canceled and listeners are cleaned up.
+### Redis Bottlenecks
 
+```bash
+# Slow commands
+redis-cli -h $REDIS_HOST slowlog get 10
+
+# Memory analysis
+redis-cli -h $REDIS_HOST memory doctor
+```
+
+### Application Bottlenecks
+
+```python
+# Profile endpoint
+import time
+
+async def profiled_handler() -> None:
+    start = time.perf_counter()
+    
+    db_start = time.perf_counter()
+    data = await fetch_data()
+    db_time = time.perf_counter() - db_start
+    
+    render_start = time.perf_counter()
+    render_page(data)
+    render_time = time.perf_counter() - render_start
+    
+    total = time.perf_counter() - start
+    logger.info(f"total={total:.3f}s db={db_time:.3f}s render={render_time:.3f}s")
+```
+
+## Optimization Techniques
+
+### 1. Database Query Optimization
+
+```python
+# BAD: N+1 queries
+for order in orders:
+    trades = await fetch_trades(order.id)
+
+# GOOD: Batch query
+order_ids = [o.id for o in orders]
+trades = await fetch_trades_batch(order_ids)
+```
+
+### 2. Caching
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=100)
+def get_static_config() -> dict:
+    return load_config()
+```
+
+### 3. Lazy Loading
+
+```python
+# Only load data when tab is selected
+with ui.tab_panel(tab_details):
+    async def load_details() -> None:
+        data = await fetch_details()
+        render_details(data)
+    
+    ui.button("Load Details", on_click=load_details)
+```
+
+### 4. Pagination
+
+```python
+# Paginate large datasets
+PAGE_SIZE = 50
+
+async def fetch_page(offset: int) -> list:
+    return await db.fetch(
+        "SELECT * FROM orders LIMIT $1 OFFSET $2",
+        PAGE_SIZE, offset
+    )
+```
+
+## Load Testing Procedures
+
+```bash
+# Using locust
+locust -f locustfile.py --host=http://localhost:8080
+
+# Using wrk
+wrk -t12 -c400 -d30s http://localhost:8080/api/positions
+```
+
+### Sample Locustfile
+
+```python
+from locust import HttpUser, task, between
+
+class WebConsoleUser(HttpUser):
+    wait_time = between(1, 3)
+    
+    @task(3)
+    def view_dashboard(self):
+        self.client.get("/")
+    
+    @task(1)
+    def view_positions(self):
+        self.client.get("/positions")
+```
+
+## Resource Sizing Guidelines
+
+| Users | CPU | Memory | Instances |
+|-------|-----|--------|-----------|
+| <100 | 1 | 1GB | 1 |
+| 100-500 | 2 | 2GB | 2 |
+| 500-1000 | 2 | 4GB | 3 |
+| >1000 | 4 | 4GB | 4+ |
+
+## Alert Configuration
+
+```yaml
+# Prometheus alerting rules
+groups:
+  - name: nicegui
+    rules:
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, nicegui_request_latency_seconds) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+      
+      - alert: HighErrorRate
+        expr: rate(nicegui_errors_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+      
+      - alert: HighConnectionCount
+        expr: nicegui_active_connections > 800
+        for: 5m
+        labels:
+          severity: warning
+```

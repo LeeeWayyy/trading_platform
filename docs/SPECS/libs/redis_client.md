@@ -92,6 +92,6 @@ publisher.publish(SignalEvent(...))
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
-- **Source Files:** `libs/redis_client/client.py`, `libs/redis_client/feature_cache.py`, `libs/redis_client/event_publisher.py`
+- **Last Updated:** 2026-01-04
+- **Source Files:** `libs/redis_client/client.py`, `libs/redis_client/feature_cache.py`, `libs/redis_client/event_publisher.py`, `libs/redis_client/keys.py`
 - **ADRs:** `docs/ADRs/0009-redis-integration.md`

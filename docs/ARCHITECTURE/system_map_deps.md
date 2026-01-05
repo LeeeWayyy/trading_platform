@@ -88,13 +88,9 @@ flowchart TB
   svc_signal_service -.-> lib_redis_client
   svc_signal_service -.-> lib_web_console_auth
   svc_signal_service -.-> strat_alpha_baseline
-  svc_web_console -.-> lib_admin
   svc_web_console -.-> lib_alerts
   svc_web_console -.-> lib_alpha
   svc_web_console -.-> lib_backtest
-  svc_web_console -.-> lib_data_providers
-  svc_web_console -.-> lib_data_quality
-  svc_web_console -.-> lib_factors
   svc_web_console -.-> lib_models
   svc_web_console -.-> lib_redis_client
   svc_web_console -.-> lib_risk

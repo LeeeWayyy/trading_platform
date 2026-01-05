@@ -347,7 +347,7 @@ services:
     extends: web_console
     container_name: trading_platform_web_console_dev
     ports:
-      - "8501:8501"
+      - "8080:8080"
     environment:
       # Override to use internal Docker network (all services run in Docker)
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
@@ -409,7 +409,7 @@ services:
       - OAUTH2_LOGOUT_URL=/logout
       # Session encryption key (AES-256-GCM) - Generate with: python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY not set}
-      # Shared secret for internal refresh (Streamlit → auth_service via nginx)
+      # Shared secret for internal refresh (Web Console → auth_service via nginx)
       # NO DEFAULT - must be explicitly configured in production
       - INTERNAL_REFRESH_SECRET=${INTERNAL_REFRESH_SECRET:-}
       # CA bundle to trust nginx self-signed cert for internal HTTPS

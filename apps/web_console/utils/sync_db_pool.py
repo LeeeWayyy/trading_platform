@@ -4,8 +4,8 @@ This module provides sync connection pools separate from the async pools in db_p
 BacktestJobQueue uses synchronous `with pool.connection():` syntax, requiring a sync pool.
 
 Design Notes:
-- Uses @st.cache_resource to persist pools across Streamlit reruns
-- Small max_size (5) to avoid resource contention during reloads
+- Uses lru_cache to persist pools (singleton pattern)
+- Small max_size (5) to avoid resource contention
 - Redis URL built from env vars for container compatibility
 """
 
@@ -14,10 +14,10 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import redis
-import streamlit as st
 from psycopg_pool import ConnectionPool
 
 if TYPE_CHECKING:
@@ -44,14 +44,14 @@ def _get_redis_url() -> str:
     return f"redis://{host}:{port}/{db}"
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def get_sync_db_pool() -> ConnectionPool:
     """Get synchronous psycopg connection pool for BacktestJobQueue.
 
     CRITICAL: This is separate from the async pool in db_pool.py because
     BacktestJobQueue uses synchronous `with pool.connection():` syntax.
 
-    The pool is cached via @st.cache_resource to persist across Streamlit reruns.
+    The pool is cached via lru_cache to persist as a singleton.
     Uses small max_size to avoid resource contention.
 
     Returns:
@@ -68,7 +68,7 @@ def get_sync_db_pool() -> ConnectionPool:
     return pool
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def get_sync_redis_client() -> redis.Redis:
     """Get synchronous Redis client for BacktestJobQueue.
 
@@ -93,18 +93,18 @@ def get_job_queue() -> Generator[BacktestJobQueue, None, None]:
         BacktestJobQueue: Configured job queue instance
 
     Note:
-        Does not close the cached pool - Streamlit pages reuse this singleton.
+        Does not close the cached pool - reuses singleton.
     """
     # Import here to avoid circular imports
     from libs.backtest.job_queue import BacktestJobQueue
 
-    redis = get_sync_redis_client()
+    redis_client = get_sync_redis_client()
     pool = get_sync_db_pool()
-    queue = BacktestJobQueue(redis, pool)
+    queue = BacktestJobQueue(redis_client, pool)
     try:
         yield queue
     finally:
-        # Do not close the cached pool; Streamlit pages reuse this singleton
+        # Do not close the cached pool; reuses this singleton
         pass
 
 

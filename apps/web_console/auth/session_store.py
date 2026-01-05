@@ -3,7 +3,7 @@
 Component 1 of P2T3 Phase 3 (OAuth2/OIDC Authentication).
 
 This module provides a Redis-backed session store with AES-256-GCM encryption
-for OAuth2 tokens. Tokens are NEVER stored in Streamlit session_state to prevent
+for OAuth2 tokens. Tokens are NEVER stored in client session state to prevent
 XSS attacks and process memory exposure.
 
 Security Design:
@@ -90,7 +90,7 @@ class RedisSessionStore:
     Security:
     - Encryption key: 32-byte key from AWS Secrets Manager
     - Dual-key rotation: Primary + secondary key support for zero-downtime rotation
-    - Never store tokens in Streamlit session_state (CI validates)
+    - Never store tokens in client session state (CI validates)
 
     Example:
         >>> store = RedisSessionStore(redis_client, encryption_key)

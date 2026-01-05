@@ -783,7 +783,7 @@ python scripts/generate_certs.py
 
 Expected output files:
 ```bash
-ls -1 apps/web_console/certs/jwt_private.key apps/web_console/certs/jwt_public.pem
+ls -1 apps/web_console_ng/certs/jwt_private.key apps/web_console_ng/certs/jwt_public.pem
 ```
 
 Rebuild the web console to pick up the keys:
@@ -810,7 +810,7 @@ PYTHONPATH=. python3 -c "from apps.signal_service.main import app"
 ```
 
 #### Web Console: `API Error: pnl_realtime - 401 Unauthorized`
-Symptom: Streamlit shows `401 Unauthorized` for
+Symptom: NiceGUI shows `401 Unauthorized` for
 `/api/v1/positions/pnl/realtime` (and dashboard widgets fail to load).
 
 Cause: Execution Gateway requires `X-User-Role` + `X-User-Id` headers.
@@ -843,7 +843,7 @@ Symptom: Clicking "Login with Auth0" refreshes and returns to the same page.
 
 Cause (most common):
 - `WEB_CONSOLE_AUTH_TYPE=dev` (Auth0 flow is not active).
-- `OAUTH2_LOGIN_URL` not set (defaults to `/login`, which just reloads the Streamlit login page).
+- `OAUTH2_LOGIN_URL` not set (defaults to `/login`, which just reloads the login page).
 - Auth0 values are placeholders and auth_service/nginx OAuth2 stack is not running.
 
 Fix (choose one):
@@ -903,7 +903,7 @@ docker logs --tail=50 trading_platform_web_console_dev
 ```
 
 #### Web Console: ModuleNotFoundError (aiosmtplib / rq / boto3 / hvac)
-Symptom: Streamlit page errors like:
+Symptom: NiceGUI page errors like:
 `ModuleNotFoundError: No module named 'aiosmtplib'` (alerts),
 `No module named 'rq'` (backtest),
 `No module named 'boto3'` or `hvac` (secrets backends).
@@ -1020,7 +1020,7 @@ python -m playwright install chromium
 Run the e2e smoke tests:
 ```bash
 # Requires dev auth; uses WEB_CONSOLE_USER/PASSWORD from .env
-RUN_E2E=1 WEB_CONSOLE_URL=http://localhost:8501 pytest tests/e2e/web_console -v -m e2e
+RUN_E2E=1 WEB_CONSOLE_URL=http://localhost:8080 pytest tests/e2e/web_console_ng -v -m e2e
 ```
 
 #### Circuit Breaker Won't Reset
@@ -1058,15 +1058,15 @@ except Exception as e:
 ```
 
 #### Web Console Docker Container Errors
-If the Web Console starts but shows `ModuleNotFoundError` when accessing http://localhost:8501:
+If the Web Console starts but shows `ModuleNotFoundError` when accessing http://localhost:8080:
 
 ```bash
 # Check container logs for import errors
-docker logs trading_platform_web_console_dev 2>&1 | tail -30
+docker logs trading_platform_web_console_ng 2>&1 | tail -30
 
 # Common error 1: ModuleNotFoundError: No module named 'prometheus_client'
 # Solution: Dependency should be in requirements.txt - rebuild the image
-docker compose --profile dev up -d web_console_dev --build
+docker compose --profile dev up -d web_console_ng --build
 
 # Common error 2: ModuleNotFoundError: No module named 'libs'
 # The Dockerfile must include COPY libs /app/libs to include shared libraries
@@ -1078,10 +1078,10 @@ docker compose --profile dev up -d web_console_dev --build
 # FastAPI is only imported at runtime when FastAPI-specific functions are called
 
 # Verify container is healthy after rebuild
-curl -s http://localhost:8501/_stcore/health  # Should return "ok"
+curl -s http://localhost:8080/health  # Should return "ok"
 
-# If you see streamlit command not found:
-# The Dockerfile uses "python -m streamlit" instead of "streamlit" directly
+# If you see uvicorn command not found:
+# The Dockerfile uses "python -m uvicorn" instead of "uvicorn" directly
 # because pip --target doesn't install scripts to PATH
 ```
 

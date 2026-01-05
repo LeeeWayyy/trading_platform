@@ -25,15 +25,15 @@ The web console supports two deployment modes:
 
 ### Dev Mode (Default)
 ```
-User → http://localhost:8501 → Streamlit (no nginx, basic auth)
+User → http://localhost:8080 → NiceGUI (no nginx, basic auth)
 ```
 - **Usage:** `docker compose --profile dev up -d`
-- **Port:** 8501 (direct access)
+- **Port:** 8080 (direct access)
 - **Auth:** Username/password (WEB_CONSOLE_AUTH_TYPE=dev)
 
 ### mTLS Mode (Production)
 ```
-User → https://localhost:443 → Nginx (mTLS + HTTPS) → http://web_console:8501 → Streamlit
+User → https://localhost:443 → Nginx (mTLS + HTTPS) → http://web_console_ng:8080 → NiceGUI
 ```
 - **Usage:** `docker compose --profile mtls up -d`
 - **Ports:** 443 (HTTPS), 80 (redirect to HTTPS)
@@ -44,9 +44,11 @@ User → https://localhost:443 → Nginx (mTLS + HTTPS) → http://web_console:8
 - Three-layer rate limiting (connection, IP, DN-based)
 - JWT-DN binding contract (prevents token replay)
 - Header spoofing prevention (X-SSL-Client-Verify validation)
-- WebSocket support for Streamlit (3600s timeout)
+- WebSocket support for NiceGUI real-time updates (3600s timeout)
 - OCSP stapling for certificate validation
 - TLS 1.3 with Mozilla Intermediate cipher suite
+
+> **Note:** The web console was migrated from Streamlit to NiceGUI in P5T9. See [ADR-0031](../ADRs/ADR-0031-nicegui-migration.md) for details.
 
 ---
 
@@ -316,17 +318,17 @@ docker compose --profile mtls up -d
 
 ### WebSocket Connections Dropping After 2 Minutes
 
-**Symptom:** Streamlit shows "Connection lost" after idle period
+**Symptom:** NiceGUI shows "Connection lost" or dashboard stops updating after idle period
 
-**Root Cause:** nginx proxy_read_timeout too short
+**Root Cause:** nginx proxy_read_timeout too short for WebSocket connections
 
 **Fix:**
 ```bash
 # Verify WebSocket location exists in nginx.conf
-docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep -A 10 "_stcore/stream"
+docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep -A 10 "socket.io"
 
 # Expected output:
-# location /_stcore/stream {
+# location /socket.io/ {
 #   proxy_read_timeout 3600s;  # 1 hour
 #   proxy_send_timeout 3600s;
 #   proxy_buffering off;
@@ -334,7 +336,7 @@ docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep -A 10 "
 # }
 
 # If missing or incorrect:
-# 1. Update apps/web_console/nginx/nginx.conf
+# 1. Update apps/web_console_ng/nginx/nginx.conf
 # 2. Rebuild nginx image: docker compose --profile mtls build nginx_mtls
 # 3. Restart: docker compose --profile mtls up -d nginx_mtls
 ```
@@ -354,8 +356,9 @@ docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep "X-SSL-
 # proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
 # proxy_set_header X-SSL-Client-S-DN $ssl_client_s_dn;
 
-# Test header visibility in Streamlit
-# Add debug logging to apps/web_console/auth.py _get_request_headers()
+# Test header visibility in NiceGUI
+# Add debug logging to apps/web_console_ng/auth/middleware.py
+# Check request.headers for X-SSL-Client-* headers
 # Verify headers appear in logs
 ```
 
@@ -366,10 +369,10 @@ docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep "X-SSL-
 # 2. Rebuild nginx: docker compose --profile mtls build nginx_mtls
 # 3. Restart: docker compose --profile mtls up -d nginx_mtls
 
-# If headers present but not accessible in Streamlit:
-# 1. Check Streamlit version: docker exec trading_platform_web_console_mtls python3 -c "import streamlit; print(streamlit.__version__)"
-# 2. Verify >= 1.28.0 (required for session_info API)
-# 3. Upgrade if needed: Update apps/web_console/requirements.txt
+# If headers present but not accessible in NiceGUI:
+# 1. Check NiceGUI version: docker exec trading_platform_web_console_ng python3 -c "import nicegui; print(nicegui.__version__)"
+# 2. Verify middleware correctly extracts headers from request object
+# 3. Check apps/web_console_ng/auth/middleware.py for header handling
 ```
 
 ### OCSP Stapling Not Working

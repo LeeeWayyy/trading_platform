@@ -603,7 +603,7 @@ MANUAL TESTS (not automated):
    - Access https://localhost:443 with valid client cert
    - Login to web console
    - Leave browser idle for >2 minutes (up to 1 hour)
-   - Verify: Streamlit connection stays alive (no "Connection lost")
+   - Verify: NiceGUI connection stays alive (no "Connection lost")
    - Check nginx logs for WebSocket upgrade: docker logs trading_platform_nginx | grep Upgrade
 
 3. Generate Certificates with Proper SANs:
@@ -629,13 +629,13 @@ def test_proxied_endpoint_reaches_python_app(valid_client_cert: tuple[Path, Path
     Critical test to verify that auth.py is actually executed.
     Previous tests hit /health which nginx serves directly without proxying.
 
-    This test hits the root path / which proxies to Streamlit Python app,
+    This test hits the root path / which proxies to the NiceGUI Python app,
     ensuring the mTLS authentication logic in auth.py is executed.
     """
     cert_path, key_path = valid_client_cert
 
     try:
-        # Hit root path (proxied to Streamlit)
+        # Hit root path (proxied to NiceGUI web console)
         # This should trigger auth.py's _mtls_auth() function
         response = requests.get(
             "https://localhost:443/",
@@ -644,7 +644,7 @@ def test_proxied_endpoint_reaches_python_app(valid_client_cert: tuple[Path, Path
             timeout=10,
         )
 
-        # Streamlit app should respond (200 or 403 depending on auth state)
+        # NiceGUI app should respond (200 or 403 depending on auth state)
         # The key is that we got a response from the Python application,
         # not just nginx's static /health endpoint
         assert response.status_code in [200, 403], (
@@ -652,14 +652,22 @@ def test_proxied_endpoint_reaches_python_app(valid_client_cert: tuple[Path, Path
             "This proves the request reached the Python layer and auth.py was executed."
         )
 
-        # If we got 200, verify it's actually Streamlit content
+        # If we got 200, verify it's actually NiceGUI application content
         if response.status_code == 200:
-            # Streamlit apps typically have these markers in HTML
-            assert (
-                "streamlit" in response.text.lower()
-                or "st-" in response.text  # Streamlit CSS classes
-                or "<script" in response.text  # Streamlit loads JS
-            ), "Response doesn't look like Streamlit app (auth.py may not have executed)"
+            # NiceGUI apps serve HTML with specific markers:
+            # - /__nicegui__/ resource paths for static assets
+            # - vue.js or quasar framework references
+            # - nicegui in meta/script tags
+            response_lower = response.text.lower()
+            is_nicegui = (
+                "/__nicegui__/" in response.text  # NiceGUI static asset path
+                or "nicegui" in response_lower  # NiceGUI reference
+                or "quasar" in response_lower  # Quasar framework used by NiceGUI
+            )
+            assert is_nicegui, (
+                "Response doesn't look like NiceGUI app (missing /__nicegui__/ path, "
+                "'nicegui', or 'quasar' markers). auth.py may not have executed."
+            )
 
     except requests.exceptions.SSLError as e:
         # If SSL handshake fails, it means mTLS is working at nginx level

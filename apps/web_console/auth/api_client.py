@@ -1,18 +1,18 @@
 """Secure API client that fetches access tokens from Redis (Component 3).
 
 CRITICAL SECURITY (Codex Critical #1 Fix):
-This module provides the ONLY secure way to fetch access tokens in Streamlit.
-Tokens are NEVER stored in st.session_state - they are always fetched from
+This module provides the ONLY secure way to fetch access tokens in the Web Console.
+Tokens are NEVER stored in client session state - they are always fetched from
 encrypted Redis storage when needed for API calls.
 
-Usage in Streamlit pages:
+Usage in Web Console pages:
     from apps.web_console.auth.api_client import call_api_with_auth
 
     # Make authenticated API call
     response = await call_api_with_auth(
         url="https://api.trading-platform.local/positions",
         method="GET",
-        session_id=st.context.cookies.get("session_id"),
+        session_id=session_id,
         session_store=get_session_store(),
         client_ip=get_client_ip(),
         user_agent=get_user_agent(),
@@ -37,8 +37,8 @@ async def get_access_token_from_redis(
 ) -> str | None:
     """Fetch access token from Redis session store.
 
-    CRITICAL: This is the ONLY way to get access tokens in Streamlit.
-    Tokens are NEVER stored in st.session_state.
+    CRITICAL: This is the ONLY way to get access tokens in the Web Console.
+    Tokens are NEVER stored in client session state.
 
     Args:
         session_id: Session ID from HttpOnly cookie
@@ -75,7 +75,7 @@ async def call_api_with_auth(
     """Call API with OAuth2 bearer token from Redis.
 
     Fetches access token from encrypted Redis storage and adds it to the
-    Authorization header. Tokens are NEVER exposed to Streamlit session_state.
+    Authorization header. Tokens are NEVER exposed to client session state.
 
     Args:
         url: API endpoint URL

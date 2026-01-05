@@ -359,6 +359,10 @@ Educational explanations of trading and ML concepts:
 | [zen-mcp-clink-optimization-proposal.md](./CONCEPTS/zen-mcp-clink-optimization-proposal.md) | Clink optimization proposal | Advanced |
 | [zen-mcp-integration-proposal.md](./CONCEPTS/zen-mcp-integration-proposal.md) | Zen-MCP integration design | Advanced |
 | [circuit-breaker-ui.md](./CONCEPTS/circuit-breaker-ui.md) | Circuit breaker dashboard with step-up confirmation | Intermediate |
+| [nicegui-architecture.md](./CONCEPTS/nicegui-architecture.md) | NiceGUI event-driven architecture patterns | Intermediate |
+| [nicegui-auth.md](./CONCEPTS/nicegui-auth.md) | NiceGUI authentication and session management | Advanced |
+| [nicegui-components.md](./CONCEPTS/nicegui-components.md) | NiceGUI reusable UI components | Intermediate |
+| [nicegui-realtime.md](./CONCEPTS/nicegui-realtime.md) | NiceGUI real-time updates and WebSocket patterns | Intermediate |
 | [system-health-monitoring.md](./CONCEPTS/system-health-monitoring.md) | System health monitor with graceful degradation | Intermediate |
 | [alerting.md](./CONCEPTS/alerting.md) | Alert configuration and notification channels | Intermediate |
 | [alert-delivery.md](./CONCEPTS/alert-delivery.md) | Alert delivery service with retry and poison queue | Intermediate |
@@ -583,7 +587,9 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-12-28, Runbook] [data-sync-ops.md](./RUNBOOKS/data-sync-ops.md) - Data sync operations and troubleshooting
 - [CURRENT, 2025-12-28, Runbook] [dataset-explorer-ops.md](./RUNBOOKS/dataset-explorer-ops.md) - Dataset explorer operational procedures
 - [CURRENT, 2025-12-21, Runbook] [circuit-breaker-ops.md](./RUNBOOKS/circuit-breaker-ops.md) - Circuit breaker operations, trip/reset procedures, and troubleshooting
-- [CURRENT, 2026-01-02, Runbook] [nicegui-performance.md](./RUNBOOKS/nicegui-performance.md) - NiceGUI performance tuning, connection pools, Redis optimization, and memory management
+- [CURRENT, 2026-01-04, Runbook] [nicegui-deployment.md](./RUNBOOKS/nicegui-deployment.md) - NiceGUI Docker deployment, scaling, and nginx configuration
+- [CURRENT, 2026-01-04, Runbook] [nicegui-troubleshooting.md](./RUNBOOKS/nicegui-troubleshooting.md) - NiceGUI common errors, WebSocket debugging, and Redis diagnostics
+- [CURRENT, 2026-01-04, Runbook] [nicegui-performance.md](./RUNBOOKS/nicegui-performance.md) - NiceGUI performance tuning, connection pools, Redis optimization, and memory management
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 
@@ -625,7 +631,7 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-11-15, Research] [research/automated-planning-research.md](../docs/AI/Research/automated-planning-research.md) - Automated planning system research
 
 **apps/ (Application-Level Documentation):**
-- [CURRENT, 2025-11-21, Guide] [../apps/web_console/certs/README.md](../apps/web_console/certs/README.md) - Web console certificate management and rotation guide
+- [CURRENT, 2026-01-04, Guide] [../apps/web_console/README.md](../apps/web_console/README.md) - Legacy web console backend services (shared with NiceGUI)
 
 **infra/ (Infrastructure Configuration):**
 - [CURRENT, 2025-11-27, Dashboard] [../infra/grafana/dashboards/oauth2-sessions-spec.md](../infra/grafana/dashboards/oauth2-sessions-spec.md) - OAuth2 session monitoring Grafana dashboard specification
@@ -856,6 +862,6 @@ Example: `- [CURRENT, 2025-01-15, Standard] [CODING_STANDARDS.md](./STANDARDS/CO
 
 ---
 
-**Last Updated:** 2026-01-02
+**Last Updated:** 2026-01-04
 **Maintained By:** Development Team
 **Format Version:** 1.2 (Added metadata, Quick Links, Update Policy - P1T13)

@@ -7,6 +7,9 @@ See Codex Review Issue #6 for test harness usage.
 import pytest
 import requests
 
+# Mark all tests in this module as e2e (require full system setup)
+pytestmark = pytest.mark.e2e
+
 
 @pytest.fixture()
 def nginx_base_url():
@@ -14,10 +17,40 @@ def nginx_base_url():
     return "https://localhost:443"
 
 
+def _is_nginx_oauth2_available(base_url: str) -> bool:
+    """Check if nginx with OAuth2 profile is available and responding correctly.
+
+    Returns True only if nginx responds properly without requiring mTLS.
+    When mTLS is configured, nginx returns 400 "No required SSL certificate was sent"
+    which means the OAuth2 profile tests cannot run.
+    """
+    try:
+        response = requests.get(f"{base_url}/", verify=False, timeout=2)
+        server = response.headers.get("Server", "")
+
+        # Check if nginx is running
+        if "nginx" not in server.lower():
+            return False
+
+        # If nginx returns 400 with SSL certificate error, mTLS is enabled
+        # OAuth2 tests require non-mTLS nginx setup (docker-compose --profile oauth2)
+        if response.status_code == 400 and "SSL certificate" in response.text:
+            return False
+
+        # OAuth2 profile should return 200, 302, or 401 for /
+        return response.status_code in [200, 302, 401]
+    except Exception:
+        return False
+
+
+@pytest.mark.e2e()
 def test_nginx_routes_login_to_auth_service(nginx_base_url):
     """Test /login routes to auth_service."""
     # Note: This test requires Nginx + auth_service running
     # Use docker-compose --profile oauth2 up -d
+
+    if not _is_nginx_oauth2_available(nginx_base_url):
+        pytest.skip("Nginx OAuth2 profile not running (requires docker-compose --profile oauth2)")
 
     try:
         response = requests.get(
@@ -38,6 +71,9 @@ def test_nginx_routes_callback_to_auth_service(nginx_base_url):
     # Send invalid callback (missing code/state)
     # Should return 400 Bad Request from auth_service
 
+    if not _is_nginx_oauth2_available(nginx_base_url):
+        pytest.skip("Nginx OAuth2 profile not running (requires docker-compose --profile oauth2)")
+
     try:
         response = requests.get(
             f"{nginx_base_url}/callback",
@@ -55,6 +91,9 @@ def test_nginx_routes_logout_to_auth_service(nginx_base_url):
     # Send logout without session cookie
     # Should redirect to Auth0 logout (or return error)
 
+    if not _is_nginx_oauth2_available(nginx_base_url):
+        pytest.skip("Nginx OAuth2 profile not running (requires docker-compose --profile oauth2)")
+
     try:
         response = requests.post(
             f"{nginx_base_url}/logout",
@@ -71,6 +110,9 @@ def test_nginx_routes_logout_to_auth_service(nginx_base_url):
 
 def test_nginx_csp_report_rate_limiting(nginx_base_url):
     """Test /csp-report endpoint has rate limiting (Codex Review Issue #5)."""
+    if not _is_nginx_oauth2_available(nginx_base_url):
+        pytest.skip("Nginx OAuth2 profile not running (requires docker-compose --profile oauth2)")
+
     # Send 15 CSP reports rapidly (limit is 10/min)
     responses = []
     try:
@@ -100,6 +142,9 @@ def test_nginx_csp_report_rate_limiting(nginx_base_url):
 
 def test_nginx_csp_report_payload_size_limit(nginx_base_url):
     """Test /csp-report rejects large payloads (Codex Review Issue #5)."""
+    if not _is_nginx_oauth2_available(nginx_base_url):
+        pytest.skip("Nginx OAuth2 profile not running (requires docker-compose --profile oauth2)")
+
     # Send CSP report with 20KB payload (limit is 10KB)
     large_payload = {
         "csp-report": {
@@ -134,6 +179,9 @@ def test_nginx_blocks_forged_x_forwarded_for(nginx_base_url):
     NOTE: This test simulates an attacker sending forged X-Forwarded-For from untrusted IP.
     Nginx should ignore forged header and use actual client IP.
     """
+    if not _is_nginx_oauth2_available(nginx_base_url):
+        pytest.skip("Nginx OAuth2 profile not running (requires docker-compose --profile oauth2)")
+
     # Send request with forged X-Forwarded-For header
     # Nginx should ignore this because request comes from untrusted IP
     try:
