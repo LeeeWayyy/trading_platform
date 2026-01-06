@@ -54,6 +54,58 @@ Use this checklist to set up the trading platform from scratch.
 
 ---
 
+### A.0 Local Development Walkthrough (Full Stack)
+
+Use this when you want **all local dev services** running (web console + APIs + workers).
+
+#### Step 1: Ensure JWT keys for Web Console ↔ Execution Gateway
+The execution gateway validates web console JWTs. Missing keys cause dashboard 500s.
+
+```bash
+source .venv/bin/activate
+python3 scripts/ensure_web_console_jwt_keys.py
+```
+
+Keys are generated in `apps/web_console_ng/certs` and are **git-ignored**.
+
+#### Step 2: Start all services
+```bash
+# Full stack (dev APIs + web console + workers)
+docker compose --profile dev --profile workers up -d
+```
+
+If you only want a single backtest worker (dev default), use:
+```bash
+docker compose --profile dev up -d
+```
+
+Alternatively, `make up-dev` will run the JWT key check and start the dev stack.
+
+#### Step 3: Verify health
+```bash
+docker compose --profile dev ps
+curl -f http://localhost:8002/health
+curl -f http://localhost:8001/health
+curl -f http://localhost:8003/health
+```
+
+#### Step 4: Access services
+- Web Console: http://localhost:8080
+- Execution Gateway: http://localhost:8002
+- Signal Service: http://localhost:8001
+- Orchestrator: http://localhost:8003
+- Grafana: http://localhost:3000
+- Prometheus: http://localhost:9090
+
+#### Step 5: Login (dev auth)
+Set these in `.env` and restart the web console if changed:
+```
+WEB_CONSOLE_USER=admin
+WEB_CONSOLE_PASSWORD=changeme
+```
+
+---
+
 ### A.1 Prerequisites
 
 #### Hardware Requirements
@@ -91,7 +143,7 @@ Ensure the following ports are accessible:
 | 8002 | Execution Gateway | HTTP | Internal/localhost |
 | 8003 | Orchestrator | HTTP | Internal/localhost |
 | 8004 | Market Data Service | HTTP | Internal/localhost |
-| 8501 | Web Console (dev) | HTTP | localhost |
+| 8080 | Web Console (dev) | HTTP | localhost |
 | 3000 | Grafana | HTTP | localhost |
 | 9090 | Prometheus | HTTP | localhost |
 | 3100 | Loki | HTTP | Internal |
@@ -468,10 +520,10 @@ Expected response for each:
 
 #### Starting Web Console (Optional)
 ```bash
-# Development mode (port 8501)
+# Development mode (port 8080)
 docker compose --profile dev up -d web_console_dev
 
-# Access at: http://localhost:8501
+# Access at: http://localhost:8080
 ```
 
 ---
@@ -1062,11 +1114,11 @@ If the Web Console starts but shows `ModuleNotFoundError` when accessing http://
 
 ```bash
 # Check container logs for import errors
-docker logs trading_platform_web_console_ng 2>&1 | tail -30
+docker logs trading_platform_web_console_dev 2>&1 | tail -30
 
 # Common error 1: ModuleNotFoundError: No module named 'prometheus_client'
 # Solution: Dependency should be in requirements.txt - rebuild the image
-docker compose --profile dev up -d web_console_ng --build
+docker compose --profile dev up -d --build web_console_dev
 
 # Common error 2: ModuleNotFoundError: No module named 'libs'
 # The Dockerfile must include COPY libs /app/libs to include shared libraries
@@ -1078,7 +1130,7 @@ docker compose --profile dev up -d web_console_ng --build
 # FastAPI is only imported at runtime when FastAPI-specific functions are called
 
 # Verify container is healthy after rebuild
-curl -s http://localhost:8080/health  # Should return "ok"
+curl -s http://localhost:8080/healthz  # Should return JSON with status: "alive"
 
 # If you see uvicorn command not found:
 # The Dockerfile uses "python -m uvicorn" instead of "uvicorn" directly

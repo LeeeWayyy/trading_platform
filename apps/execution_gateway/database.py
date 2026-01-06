@@ -278,6 +278,20 @@ class DatabaseClient:
         self._pool.close()
         logger.info("DatabaseClient connection pool closed")
 
+    def _recreate_pool(self) -> None:
+        """Recreate the connection pool after a hard disconnect."""
+        try:
+            self._pool.close()
+        except Exception as exc:  # pragma: no cover - defensive cleanup
+            logger.warning("DatabaseClient pool close failed", extra={"error": str(exc)})
+        self._pool = ConnectionPool(
+            self.db_conn_string,
+            min_size=DB_POOL_MIN_SIZE,
+            max_size=DB_POOL_MAX_SIZE,
+            timeout=DB_POOL_TIMEOUT,
+        )
+        logger.warning("DatabaseClient connection pool recreated")
+
     def _execute_with_conn(
         self,
         conn: psycopg.Connection | None,
@@ -1257,7 +1271,7 @@ class DatabaseClient:
 
         where_clause = " AND ".join(filters)
 
-        try:
+        def _execute() -> tuple[list[OrderDetail], int]:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
@@ -1281,6 +1295,8 @@ class DatabaseClient:
 
             return [OrderDetail(**row) for row in rows], total
 
+        try:
+            return _execute()
         except (OperationalError, DatabaseError) as exc:
             logger.error(
                 "Database error fetching pending orders",
@@ -1292,6 +1308,9 @@ class DatabaseClient:
                     "error": str(exc),
                 },
             )
+            if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
+                self._recreate_pool()
+                return _execute()
             raise
 
     def update_order_status(

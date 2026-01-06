@@ -8,6 +8,15 @@ from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from apps.web_console_ng import config
+
+app.config.title = config.PAGE_TITLE
+app.config.viewport = "width=device-width, initial-scale=1"
+app.config.favicon = None
+app.config.dark = None
+app.config.language = "en-US"
+app.config.tailwind = True
+app.config.prod_js = not config.DEBUG
+app.config.reconnect_timeout = 3.0
 from apps.web_console_ng.auth.audit import AuthAuditLogger
 from apps.web_console_ng.auth.middleware import AuthMiddleware, SessionMiddleware
 from apps.web_console_ng.auth.session_store import get_session_store
@@ -34,7 +43,15 @@ state_manager = get_state_manager()
 trading_client = AsyncTradingClient.get()
 
 # Import routes after audit logger + session store are configured.
+from apps.web_console_ng.auth import logout as auth_logout  # noqa: E402,F401
 from apps.web_console_ng.auth import routes as auth_routes  # noqa: E402,F401
+from apps.web_console_ng.auth.routes import auth_api_router  # noqa: E402
+
+# Register FastAPI router for HTTP-only endpoints (login POST for cookie setting)
+app.include_router(auth_api_router)
+
+# Import pages to trigger @ui.page decorator registration (including /login, /dashboard, etc.)
+from apps.web_console_ng import pages  # noqa: E402,F401
 
 # Middleware added in LIFO order: TrustedHost -> Admission -> Session -> Auth.
 # AdmissionControlMiddleware MUST run before Session/Auth to enforce capacity limits
@@ -53,15 +70,26 @@ app.add_static_files("/static", "apps/web_console_ng/static")
 ui.add_head_html('<script src="/static/js/aggrid_renderers.js"></script>')
 ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
 
-# Register lifespan handler BEFORE startup hooks run.
-# This ensures graceful-drain and single-worker checks are active when the app starts.
 setup_health_endpoint()
+setup_connection_handlers()
+
+
+# Compatibility redirect: NiceGUI 2.x uses /_nicegui_ws/socket.io/ for WebSocket,
+# but old cached browser JavaScript may try /socket.io/ directly.
+# Return a clear error message to prompt browser cache refresh.
+@app.get("/socket.io/{path:path}")
+@app.post("/socket.io/{path:path}")
+async def socket_io_redirect(path: str = "") -> dict[str, str]:
+    """Handle requests to old socket.io path with helpful error message."""
+    return {
+        "error": "socket.io path changed",
+        "message": "Please refresh your browser (Ctrl+Shift+R) to clear cache",
+        "new_path": "/_nicegui_ws/socket.io/",
+    }
 
 
 async def startup() -> None:
-    """Startup hook wiring C3 connection recovery components."""
-    # Register NiceGUI lifecycle hooks for client ID generation, metrics, handshake coordination
-    setup_connection_handlers()
+    """Startup hook for async resource initialization."""
     if db_pool is not None:
         await db_pool.open()
     await trading_client.startup()
@@ -103,7 +131,7 @@ app.on_startup(startup)
 app.on_shutdown(shutdown)
 
 
-if __name__ == "__main__":
+if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
         host=config.HOST,
         port=config.PORT,
@@ -111,4 +139,5 @@ if __name__ == "__main__":
         reload=config.DEBUG,
         show=False,
         reconnect_timeout=3.0,
+        storage_secret=config.STORAGE_SECRET,
     )

@@ -227,7 +227,11 @@ class AsyncTradingClient:
         headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.get("/api/v1/kill-switch/status", headers=headers)
         resp.raise_for_status()
-        return self._json_dict(resp)
+        payload = self._json_dict(resp)
+        state = str(payload.get("state", "")).upper()
+        if state == "ACTIVE":
+            payload["state"] = "DISENGAGED"
+        return payload
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
     async def fetch_circuit_breaker_status(
@@ -277,9 +281,28 @@ class AsyncTradingClient:
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
-    async def fetch_market_prices(self) -> list[dict[str, Any]]:
-        """Fetch market prices (GET - idempotent, entitlement-neutral)."""
-        resp = await self._client.get("/api/v1/market_prices")
+    async def fetch_account_info(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch account info (buying power, cash, portfolio value)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/account", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_market_prices(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch market prices (GET - idempotent, requires auth)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/market_prices", headers=headers)
         resp.raise_for_status()
         payload = resp.json()
         if not isinstance(payload, list):

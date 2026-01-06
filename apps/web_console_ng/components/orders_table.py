@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any
 
 import httpx
@@ -117,36 +118,41 @@ def create_orders_table() -> ui.aggrid:
             "field": "limit_price",
             "headerName": "Price",
             # Handle null/undefined and Decimal strings from API
-            "valueFormatter": "x => (x.value == null) ? 'MKT' : '$' + Number(x.value).toFixed(2)",
+            ":valueFormatter": "x => (x.value == null) ? 'MKT' : '$' + Number(x.value).toFixed(2)",
         },
         {
             "field": "status",
             "headerName": "Status",
-            "cellRenderer": "statusBadgeRenderer",
+            ":cellRenderer": "window.statusBadgeRenderer",
             "width": 100,
         },
         {
             "field": "created_at",
             "headerName": "Time (UTC)",
-            "valueFormatter": "x => new Date(x.value).toLocaleTimeString('en-US', {timeZone: 'UTC', hour12: false})",
+            ":valueFormatter": "x => new Date(x.value).toLocaleTimeString('en-US', {timeZone: 'UTC', hour12: false})",
         },
         {
             "field": "actions",
             "headerName": "",
             "width": 80,
-            "cellRenderer": "cancelButtonRenderer",
+            ":cellRenderer": "window.cancelButtonRenderer",
         },
     ]
 
-    return ui.aggrid(
+    grid = ui.aggrid(
         {
             "columnDefs": column_defs,
             "rowData": [],
             "domLayout": "autoHeight",
-            "getRowId": "data => data.client_order_id",
-            "onGridReady": "params => { window._ordersGridApi = params.api; }",
+            ":getRowId": "params => params.data.client_order_id",
+            ":onGridReady": "params => { window._ordersGridApi = params.api; }",
         }
     ).classes("w-full")
+
+    grid._ready_event = asyncio.Event()
+    grid.on("gridReady", lambda _: grid._ready_event.set())
+
+    return grid
 
 
 async def update_orders_table(
@@ -208,8 +214,14 @@ async def update_orders_table(
     valid_orders = [order for order in orders if order.get("client_order_id")]
     current_ids = {order["client_order_id"] for order in valid_orders}
 
+    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():
+        grid.options["rowData"] = valid_orders
+        grid.update()
+        return current_ids
+
     if previous_order_ids is None:
-        await grid.run_grid_method("api.setRowData", valid_orders)
+        # Fire-and-forget to avoid UI timeouts when the browser is busy.
+        grid.run_grid_method("setRowData", valid_orders, timeout=5)
         return current_ids
 
     added_orders = [o for o in valid_orders if o["client_order_id"] not in previous_order_ids]
@@ -218,9 +230,11 @@ async def update_orders_table(
         {"client_order_id": oid} for oid in (previous_order_ids - current_ids)
     ]
 
-    await grid.run_grid_method(
-        "api.applyTransaction",
+    # Fire-and-forget to avoid UI timeouts when the browser is busy.
+    grid.run_grid_method(
+        "applyTransaction",
         {"add": added_orders, "update": updated_orders, "remove": removed_orders},
+        timeout=5,
     )
 
     # Cleanup synthetic_id_map to prevent unbounded growth in long-running sessions

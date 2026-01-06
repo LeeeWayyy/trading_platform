@@ -24,6 +24,17 @@ DEBUG = os.getenv("WEB_CONSOLE_NG_DEBUG", "false").lower() in {"1", "true", "yes
 PAGE_TITLE = os.getenv("WEB_CONSOLE_NG_PAGE_TITLE", "Trading Platform - Web Console (NiceGUI)")
 POD_NAME = os.getenv("POD_NAME", "nicegui-0")
 
+# NiceGUI storage secret (required for app.storage.user)
+# SECURITY: In production, set NICEGUI_STORAGE_SECRET to a random 32+ character string.
+# In DEBUG mode, a default is provided for local development only.
+_DEFAULT_STORAGE_SECRET = "dev-storage-secret-do-not-use-in-prod" if DEBUG else ""
+STORAGE_SECRET = os.getenv("NICEGUI_STORAGE_SECRET", _DEFAULT_STORAGE_SECRET).strip()
+if not STORAGE_SECRET and not DEBUG:
+    raise ValueError(
+        "NICEGUI_STORAGE_SECRET must be set in production. "
+        "Generate a random 32+ character string for this value."
+    )
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================

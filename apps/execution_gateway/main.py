@@ -102,6 +102,9 @@ from apps.execution_gateway.schemas import (
     PerformanceRequest,
     Position,
     PositionsResponse,
+    AccountInfoResponse,
+    CircuitBreakerStatusResponse,
+    MarketPricePoint,
     RealtimePnLResponse,
     RealtimePositionPnL,
     ReconciliationForceCompleteRequest,
@@ -2907,6 +2910,19 @@ async def submit_order(
 
                 _record_order_metrics(order, start_time, "blocked")
 
+                if missing_fields:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "Fat-finger data unavailable",
+                            "message": (
+                                "Order rejected: market data unavailable for fat-finger checks "
+                                f"(missing: {', '.join(sorted(missing_fields))})"
+                            ),
+                            **fat_finger_result.to_response(),
+                        },
+                    )
+
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
@@ -4037,6 +4053,11 @@ async def get_positions(
         _tracked_position_symbols.clear()
         _tracked_position_symbols.update(current_symbols)
 
+    # Fill unrealized P&L if missing but prices are available (local dev parity).
+    for pos in positions:
+        if pos.unrealized_pl is None and pos.current_price is not None:
+            pos.unrealized_pl = (pos.current_price - pos.avg_entry_price) * pos.qty
+
     # Calculate totals
     total_unrealized_pl = sum(
         ((pos.unrealized_pl or Decimal("0")) for pos in positions), Decimal("0")
@@ -4278,6 +4299,76 @@ async def get_realtime_pnl(
         total_unrealized_pl_pct=total_unrealized_pl_pct,
         realtime_prices_available=realtime_count,
         timestamp=datetime.now(UTC),
+    )
+
+
+@app.get("/api/v1/account", response_model=AccountInfoResponse, tags=["Account"])
+@require_permission(Permission.VIEW_PNL)
+async def get_account_info(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> AccountInfoResponse:
+    """Return account info from Alpaca (buying power, cash, etc.)."""
+    if DRY_RUN or not alpaca_client:
+        return AccountInfoResponse()
+
+    account = await asyncio.to_thread(alpaca_client.get_account_info)
+    if not account:
+        return AccountInfoResponse()
+
+    return AccountInfoResponse(**account)
+
+
+@app.get("/api/v1/market_prices", response_model=list[MarketPricePoint], tags=["MarketData"])
+@require_permission(Permission.VIEW_PNL)
+async def get_market_prices(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> list[MarketPricePoint]:
+    """Return market price snapshots for current positions."""
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies and not has_permission(
+        user.get("user"), Permission.VIEW_ALL_STRATEGIES
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
+
+    if has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
+        db_positions = db_client.get_all_positions()
+    else:
+        db_positions = db_client.get_positions_for_strategies(authorized_strategies)
+
+    symbols = [pos.symbol for pos in db_positions]
+    prices = _batch_fetch_realtime_prices_from_redis(symbols, redis_client)
+
+    points: list[MarketPricePoint] = []
+    for symbol in symbols:
+        price, ts = prices.get(symbol, (None, None))
+        points.append(MarketPricePoint(symbol=symbol, mid=price, timestamp=ts))
+
+    return points
+
+
+@app.get(
+    "/api/v1/circuit-breaker/status",
+    response_model=CircuitBreakerStatusResponse,
+    tags=["Risk"],
+)
+@require_permission(Permission.VIEW_CIRCUIT_BREAKER)
+async def get_circuit_breaker_status(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> CircuitBreakerStatusResponse:
+    """Return circuit breaker status for UI health badges."""
+    if recovery_manager.is_circuit_breaker_unavailable() or recovery_manager.circuit_breaker is None:
+        return CircuitBreakerStatusResponse(state="UNAVAILABLE")
+
+    try:
+        status = recovery_manager.circuit_breaker.get_status()
+    except RuntimeError:
+        return CircuitBreakerStatusResponse(state="UNAVAILABLE")
+
+    return CircuitBreakerStatusResponse(
+        state=str(status.get("state", "UNKNOWN")).upper(),
+        tripped_at=status.get("tripped_at"),
+        trip_reason=status.get("trip_reason"),
+        trip_details=status.get("trip_details"),
     )
 
 

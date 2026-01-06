@@ -458,10 +458,17 @@ class ServerSessionStore:
             return False
         key_id, sig = signature.split(":", 1)
         if key_id not in self.signing_keys:
+            logger.warning(
+                "Cookie signature verification failed: key_id='%s' not found in signing_keys",
+                key_id,
+            )
             return False
         key = self.signing_keys[key_id]
         expected = hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(sig, expected)
+        if not hmac.compare_digest(sig, expected):
+            logger.warning("Cookie signature verification failed: signature mismatch")
+            return False
+        return True
 
     def verify_cookie(self, cookie_value: str) -> str | None:
         """Return session_id if cookie signature is valid, otherwise None."""

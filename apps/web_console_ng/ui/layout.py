@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
 
+import httpx
 from nicegui import app, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user
@@ -21,6 +22,86 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
     @wraps(page_func)
     async def wrapper(*args: Any, **kwargs: Any) -> None:
+        ui.add_head_html(
+            """
+            <script>
+            (function () {
+              if (window.__tpTradingStateListenerAdded) return;
+              window.__tpTradingStateListenerAdded = true;
+              window.addEventListener('trading_state_change', (event) => {
+                const detail = (event && event.detail) || {};
+                const killSwitch = detail.killSwitch;
+                const killSwitchState = detail.killSwitchState;
+                const circuitBreaker = detail.circuitBreaker;
+                const circuitBreakerState = detail.circuitBreakerState;
+                const ksEl = document.getElementById('kill-switch-badge');
+                if (ksEl) {
+                  if (typeof killSwitchState === 'string') {
+                    const state = killSwitchState.toUpperCase();
+                    if (state === 'ENGAGED') {
+                      ksEl.textContent = 'KILL SWITCH ENGAGED';
+                      ksEl.classList.add('bg-red-500', 'text-white');
+                      ksEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
+                    } else if (state === 'DISENGAGED') {
+                      ksEl.textContent = 'TRADING ACTIVE';
+                      ksEl.classList.add('bg-green-500', 'text-white');
+                      ksEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
+                    } else {
+                      ksEl.textContent = `STATE: ${state || 'UNKNOWN'}`;
+                      ksEl.classList.add('bg-yellow-500', 'text-black');
+                      ksEl.classList.remove('bg-red-500', 'bg-green-500', 'text-white');
+                    }
+                  } else if (typeof killSwitch === 'boolean') {
+                    if (killSwitch) {
+                      ksEl.textContent = 'KILL SWITCH ENGAGED';
+                      ksEl.classList.add('bg-red-500', 'text-white');
+                      ksEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
+                    } else {
+                      ksEl.textContent = 'TRADING ACTIVE';
+                      ksEl.classList.add('bg-green-500', 'text-white');
+                      ksEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
+                    }
+                  }
+                }
+                const cbEl = document.getElementById('circuit-breaker-badge');
+                if (cbEl) {
+                  if (typeof circuitBreakerState === 'string') {
+                    const state = circuitBreakerState.toUpperCase();
+                    if (state === 'TRIPPED') {
+                      cbEl.textContent = 'CIRCUIT TRIPPED';
+                      cbEl.classList.add('bg-red-500', 'text-white');
+                      cbEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
+                    } else if (state === 'OPEN') {
+                      cbEl.textContent = 'CIRCUIT OK';
+                      cbEl.classList.add('bg-green-500', 'text-white');
+                      cbEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
+                    } else if (state === 'QUIET_PERIOD') {
+                      cbEl.textContent = 'CIRCUIT QUIET PERIOD';
+                      cbEl.classList.add('bg-yellow-500', 'text-black');
+                      cbEl.classList.remove('bg-red-500', 'bg-green-500', 'text-white');
+                    } else {
+                      cbEl.textContent = `CIRCUIT: ${state || 'UNKNOWN'}`;
+                      cbEl.classList.add('bg-yellow-500', 'text-black');
+                      cbEl.classList.remove('bg-red-500', 'bg-green-500', 'text-white');
+                    }
+                  } else if (typeof circuitBreaker === 'boolean') {
+                    if (circuitBreaker) {
+                      cbEl.textContent = 'CIRCUIT TRIPPED';
+                      cbEl.classList.add('bg-red-500', 'text-white');
+                      cbEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
+                    } else {
+                      cbEl.textContent = 'CIRCUIT OK';
+                      cbEl.classList.add('bg-green-500', 'text-white');
+                      cbEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
+                    }
+                  }
+                }
+              });
+            })();
+            </script>
+            """
+        )
+
         user = get_current_user()
         user_role = str(user.get("role", "viewer"))
         user_name = str(user.get("username", "Unknown"))
@@ -48,7 +129,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_items = [
                     ("Dashboard", "/", "dashboard", None),
                     ("Manual Controls", "/manual-order", "edit", None),
-                    ("Kill Switch", "/kill-switch", "warning", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
@@ -91,56 +171,53 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             ui.space()
 
             with ui.row().classes("gap-4 items-center"):
-                kill_switch_badge = ui.label("Checking...").classes(
-                    "px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black"
+                kill_switch_button = ui.button(
+                    "KILL SWITCH: UNKNOWN",
+                ).classes("px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black").props(
+                    "id=kill-switch-badge unelevated"
                 )
+                circuit_breaker_badge = ui.label("Circuit: Unknown").classes(
+                    "px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black"
+                ).props("id=circuit-breaker-badge")
                 # Connection status is derived from kill-switch polling, not a websocket heartbeat.
                 connection_badge = ui.label("Connected").classes(
                     "px-2 py-1 rounded text-xs bg-green-500 text-white"
-                )
+                ).props("id=connection-badge")
 
                 with ui.row().classes("items-center gap-2"):
                     ui.label(user_name).classes("text-sm")
                     ui.badge(user_role).classes("bg-blue-500 text-white")
 
                 async def logout() -> None:
-                    try:
-                        result = await ui.run_javascript(
-                            """
-                            (async () => {
-                              const getCookie = (name) => {
-                                const match = document.cookie
-                                  .split('; ')
-                                  .find((row) => row.startsWith(`${name}=`));
-                                return match ? match.split('=')[1] : '';
-                              };
-                              const csrf = getCookie('ng_csrf');
-                              const resp = await fetch('/auth/logout', {
-                                method: 'POST',
-                                headers: { 'X-CSRF-Token': csrf || '' },
-                              });
-                              if (!resp.ok) {
-                                return { error: true, status: resp.status };
-                              }
-                              return await resp.json();
-                            })();
-                            """
-                        )
-                    except Exception:
-                        ui.notify("Logout failed. Please try again.", type="negative")
-                        return
-
-                    if isinstance(result, dict) and result.get("error"):
-                        ui.notify("Logout failed. Please refresh and try again.", type="negative")
-                        return
-
-                    logout_url = None
-                    if isinstance(result, dict):
-                        logout_url = result.get("logout_url")
-                    if logout_url:
-                        ui.navigate.to(logout_url)
-                        return
-                    ui.navigate.to("/login")
+                    # Fire-and-forget logout. Handle redirect fully in the browser
+                    # to avoid server-side JS timeouts.
+                    ui.run_javascript(
+                        """
+                        (async () => {
+                          const getCookie = (name) => {
+                            const match = document.cookie
+                              .split('; ')
+                              .find((row) => row.startsWith(`${name}=`));
+                            return match ? match.split('=')[1] : '';
+                          };
+                          const csrf = getCookie('ng_csrf');
+                          try {
+                            const resp = await fetch('/auth/logout', {
+                              method: 'POST',
+                              headers: { 'X-CSRF-Token': csrf || '' },
+                            });
+                            let logoutUrl = null;
+                            if (resp.ok) {
+                              const data = await resp.json().catch(() => null);
+                              logoutUrl = data && data.logout_url ? data.logout_url : null;
+                            }
+                            window.location.href = logoutUrl || '/login';
+                          } catch (e) {
+                            window.location.href = '/login';
+                          }
+                        })();
+                        """
+                    )
 
                 ui.button(icon="logout", on_click=logout).props("flat color=white").tooltip(
                     "Logout"
@@ -151,19 +228,83 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             await page_func(*args, **kwargs)
 
         last_kill_switch_state: str | None = None
+        kill_switch_state: str | None = None
+        kill_switch_action_in_progress = False
+
+        async def toggle_kill_switch() -> None:
+            nonlocal kill_switch_action_in_progress, kill_switch_state
+            if kill_switch_action_in_progress:
+                return
+            kill_switch_action_in_progress = True
+            kill_switch_button.disable()
+            try:
+                try:
+                    status = await client.fetch_kill_switch_status(
+                        user_id, role=user_role, strategies=user_strategies
+                    )
+                    state = str(status.get("state", "UNKNOWN")).upper()
+                    kill_switch_state = state
+                except httpx.HTTPStatusError as exc:
+                    ui.notify(
+                        f"Kill switch status failed: HTTP {exc.response.status_code}",
+                        type="negative",
+                    )
+                    state = "UNKNOWN"
+                except httpx.RequestError:
+                    ui.notify("Kill switch status failed: network error", type="negative")
+                    state = "UNKNOWN"
+                if state == "ENGAGED":
+                    await client.disengage_kill_switch(
+                        user_id, role=user_role, strategies=user_strategies
+                    )
+                    ui.notify("Kill switch disengaged", type="positive")
+                elif state == "DISENGAGED":
+                    await client.engage_kill_switch(
+                        user_id,
+                        reason="Manual toggle from header",
+                        role=user_role,
+                        strategies=user_strategies,
+                    )
+                    ui.notify("Kill switch engaged", type="negative")
+                else:
+                    ui.notify("Kill switch state unknown; refresh status", type="warning")
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 400:
+                    ui.notify("Kill switch already in requested state", type="warning")
+                else:
+                    ui.notify(
+                        f"Kill switch action failed: HTTP {exc.response.status_code}",
+                        type="negative",
+                    )
+            except httpx.RequestError:
+                ui.notify("Kill switch action failed: network error", type="negative")
+            finally:
+                await update_global_status()
+                kill_switch_action_in_progress = False
+                kill_switch_button.enable()
+
+        kill_switch_button.on_click(toggle_kill_switch)
 
         async def update_global_status() -> None:
-            nonlocal last_kill_switch_state
+            nonlocal last_kill_switch_state, kill_switch_state
             try:
                 # Pass full auth context for production with INTERNAL_TOKEN_SECRET
                 status = await client.fetch_kill_switch_status(
                     user_id, role=user_role, strategies=user_strategies
                 )
                 state = str(status.get("state", "UNKNOWN")).upper()
+                kill_switch_state = state if state else "UNKNOWN"
+                try:
+                    cb_status = await client.fetch_circuit_breaker_status(
+                        user_id, role=user_role, strategies=user_strategies
+                    )
+                    cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
+                except Exception:
+                    cb_state = "UNKNOWN"
 
                 if state == "ENGAGED":
-                    kill_switch_badge.set_text("KILL SWITCH ENGAGED")
-                    kill_switch_badge.classes(
+                    kill_switch_button.set_text("KILL SWITCH: ENGAGED")
+                    kill_switch_button.classes(
                         "bg-red-500 text-white",
                         remove="bg-green-500 bg-yellow-500 text-black",
                     )
@@ -171,15 +312,40 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         ui.notify("Kill switch engaged", type="negative")
                 elif state == "DISENGAGED":
                     # Only show "TRADING ACTIVE" for explicit DISENGAGED state
-                    kill_switch_badge.set_text("TRADING ACTIVE")
-                    kill_switch_badge.classes(
+                    kill_switch_button.set_text("KILL SWITCH: DISENGAGED")
+                    kill_switch_button.classes(
                         "bg-green-500 text-white",
                         remove="bg-red-500 bg-yellow-500 text-black",
                     )
                 else:
                     # Unknown/invalid state - show warning
-                    kill_switch_badge.set_text(f"STATE: {state}")
-                    kill_switch_badge.classes(
+                    kill_switch_button.set_text(f"KILL SWITCH: {state}")
+                    kill_switch_button.classes(
+                        "bg-yellow-500 text-black",
+                        remove="bg-red-500 bg-green-500 text-white",
+                    )
+
+                if cb_state == "TRIPPED":
+                    circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
+                    circuit_breaker_badge.classes(
+                        "bg-red-500 text-white",
+                        remove="bg-green-500 bg-yellow-500 text-black",
+                    )
+                elif cb_state == "OPEN":
+                    circuit_breaker_badge.set_text("CIRCUIT OK")
+                    circuit_breaker_badge.classes(
+                        "bg-green-500 text-white",
+                        remove="bg-red-500 bg-yellow-500 text-black",
+                    )
+                elif cb_state == "QUIET_PERIOD":
+                    circuit_breaker_badge.set_text("CIRCUIT QUIET PERIOD")
+                    circuit_breaker_badge.classes(
+                        "bg-yellow-500 text-black",
+                        remove="bg-red-500 bg-green-500 text-white",
+                    )
+                else:
+                    circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
+                    circuit_breaker_badge.classes(
                         "bg-yellow-500 text-black",
                         remove="bg-red-500 bg-green-500 text-white",
                     )
@@ -195,6 +361,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 kill_switch_badge.classes(
                     "bg-yellow-500 text-black",
                     remove="bg-red-500 bg-green-500",
+                )
+                circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
+                circuit_breaker_badge.classes(
+                    "bg-yellow-500 text-black",
+                    remove="bg-red-500 bg-green-500 text-white",
                 )
                 connection_badge.set_text("Disconnected")
                 connection_badge.classes(

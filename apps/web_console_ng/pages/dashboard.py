@@ -40,6 +40,20 @@ from apps.web_console_ng.ui.layout import main_layout
 logger = logging.getLogger(__name__)
 
 
+def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) -> None:
+    """Dispatch trading state changes to the browser (fire-and-forget)."""
+    try:
+        payload = json.dumps(update)
+        ui.run_javascript(
+            f"window.dispatchEvent(new CustomEvent('trading_state_change', {{ detail: {payload} }}));"
+        )
+    except Exception as exc:
+        logger.warning(
+            "trading_state_dispatch_failed",
+            extra={"client_id": client_id, "error": type(exc).__name__},
+        )
+
+
 class MarketPriceCache:
     """Shared cache for market prices across all client sessions.
 
@@ -55,7 +69,14 @@ class MarketPriceCache:
     _in_flight: asyncio.Task[list[dict[str, Any]]] | None = None
 
     @classmethod
-    async def get_prices(cls, client: AsyncTradingClient) -> list[dict[str, Any]]:
+    async def get_prices(
+        cls,
+        client: AsyncTradingClient,
+        *,
+        user_id: str,
+        role: str | None,
+        strategies: list[str] | None,
+    ) -> list[dict[str, Any]]:
         """Get market prices, using cache if fresh.
 
         Returns a copy to prevent cross-session mutation.
@@ -76,7 +97,13 @@ class MarketPriceCache:
                 if not callable(fetch_prices):
                     logger.warning("market_prices_fetch_missing", extra={"reason": "method_missing"})
                     return [dict(p) for p in cls._prices]
-                cls._in_flight = asyncio.create_task(fetch_prices())
+                cls._in_flight = asyncio.create_task(
+                    fetch_prices(
+                        user_id,
+                        role=role,
+                        strategies=strategies,
+                    )
+                )
                 task = cls._in_flight
 
         try:
@@ -134,14 +161,39 @@ async def dashboard(client: Client) -> None:
         ui.navigate.to("/login")
         return
 
+    lifecycle = ClientLifecycleManager.get()
+
+    # Get or generate client_id (may not be set yet if WebSocket hasn't connected)
     client_id = client.storage.get("client_id")
     if not isinstance(client_id, str) or not client_id:
-        ui.notify("Session error - please refresh", type="negative")
-        return
+        client_id = lifecycle.generate_client_id()
+        client.storage["client_id"] = client_id
+        logger.debug("dashboard_generated_client_id", extra={"client_id": client_id})
 
     realtime = RealtimeUpdater(client_id, client)
-    lifecycle = ClientLifecycleManager.get()
     timers: list[ui.timer] = []
+
+    def _coerce_float(value: Any, default: float = 0.0) -> float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.replace(",", "").strip())
+            except ValueError:
+                return default
+        return default
+
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value.replace(",", "").strip()))
+            except ValueError:
+                return default
+        return default
 
     # Metric cards
     with ui.row().classes("w-full gap-4 mb-6 flex-wrap"):
@@ -190,7 +242,7 @@ async def dashboard(client: Client) -> None:
     async def load_initial_data() -> None:
         nonlocal position_symbols, order_ids
         try:
-            pnl_data, positions, orders = await asyncio.gather(
+            pnl_data, positions, orders, account_info = await asyncio.gather(
                 trading_client.fetch_realtime_pnl(
                     user_id,
                     role=user_role,
@@ -202,6 +254,11 @@ async def dashboard(client: Client) -> None:
                     strategies=user_strategies,
                 ),
                 trading_client.fetch_open_orders(
+                    user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                ),
+                trading_client.fetch_account_info(
                     user_id,
                     role=user_role,
                     strategies=user_strategies,
@@ -222,10 +279,13 @@ async def dashboard(client: Client) -> None:
             ui.notify("Failed to load dashboard: network error", type="negative")
             return
 
-        pnl_card.update(pnl_data.get("total_unrealized_pl", 0))
-        positions_card.update(pnl_data.get("total_positions", 0))
-        realized_card.update(pnl_data.get("realized_pl_today", 0))
-        bp_card.update(pnl_data.get("buying_power", 0))
+        pnl_card.update(_coerce_float(pnl_data.get("total_unrealized_pl", 0)))
+        positions_card.update(_coerce_int(pnl_data.get("total_positions", 0)))
+        realized_card.update(_coerce_float(pnl_data.get("realized_pl_today", 0)))
+        buying_power = account_info.get("buying_power")
+        if buying_power is None:
+            buying_power = pnl_data.get("buying_power", 0)
+        bp_card.update(_coerce_float(buying_power))
         async with grid_update_lock:
             position_symbols = await update_positions_grid(
                 positions_grid,
@@ -268,13 +328,13 @@ async def dashboard(client: Client) -> None:
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols
         if "total_unrealized_pl" in data:
-            pnl_card.update(data["total_unrealized_pl"])
+            pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
         if "total_positions" in data:
-            positions_card.update(data["total_positions"])
+            positions_card.update(_coerce_int(data["total_positions"]))
         if "realized_pl_today" in data:
-            realized_card.update(data["realized_pl_today"])
+            realized_card.update(_coerce_float(data["realized_pl_today"]))
         if "buying_power" in data:
-            bp_card.update(data["buying_power"])
+            bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
             async with grid_update_lock:
                 position_symbols = await update_positions_grid(
@@ -285,12 +345,6 @@ async def dashboard(client: Client) -> None:
                 )
         if "event" in data:
             await activity_feed.add_item(data["event"])
-
-    async def _dispatch_trading_state(update: dict[str, Any]) -> None:
-        payload = json.dumps(update)
-        await ui.run_javascript(
-            f"window.dispatchEvent(new CustomEvent('trading_state_change', {{ detail: {payload} }}));"
-        )
 
     def _extract_event_detail(args: Any) -> dict[str, Any]:
         if isinstance(args, dict):
@@ -305,13 +359,12 @@ async def dashboard(client: Client) -> None:
         state = str(data.get("state", "")).upper()
         # Update cached state for instant UI responses (fail-closed: treat unknown as engaged)
         kill_switch_engaged = state != "DISENGAGED"
-        await _dispatch_trading_state({"killSwitch": state == "ENGAGED"})
+        dispatch_trading_state_event(client_id, {"killSwitchState": state})
 
     async def on_circuit_breaker_update(data: dict[str, Any]) -> None:
         logger.info("circuit_breaker_update", extra={"client_id": client_id, "data": data})
         state = str(data.get("state", "")).upper()
-        tripped = state in {"TRIPPED", "OPEN", "ENGAGED", "ON"}
-        await _dispatch_trading_state({"circuitBreaker": tripped})
+        dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
 
     async def on_orders_update(data: dict[str, Any]) -> None:
         nonlocal order_ids
@@ -360,7 +413,12 @@ async def dashboard(client: Client) -> None:
     await realtime.subscribe(fills_channel(user_id), on_fill_event)
 
     async def update_market_data() -> None:
-        _ = await MarketPriceCache.get_prices(trading_client)
+        _ = await MarketPriceCache.get_prices(
+            trading_client,
+            user_id=user_id,
+            role=user_role,
+            strategies=user_strategies,
+        )
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
     timers.append(market_timer)

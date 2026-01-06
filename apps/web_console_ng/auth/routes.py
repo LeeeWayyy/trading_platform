@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlencode
 
+from fastapi import APIRouter, Request
 from nicegui import app, ui
 from redis import exceptions as redis_exceptions
 from starlette.requests import Request as StarletteRequest
+from starlette.responses import RedirectResponse, Response
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_router import get_auth_handler
@@ -14,6 +17,82 @@ from apps.web_console_ng.auth.rate_limiter import AuthRateLimiter
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
 
 logger = logging.getLogger(__name__)
+
+# Use FastAPI APIRouter for proper HTTP route handling
+auth_api_router = APIRouter()
+
+
+@auth_api_router.post("/auth/login")
+async def login_post(request: Request) -> Response:
+    """Handle login form submission and set session cookie.
+
+    This endpoint exists because cookies can only be set in HTTP responses,
+    not from WebSocket event handlers (NiceGUI button clicks).
+    """
+    form_data = await request.form()
+    username = form_data.get("username", "")
+    password = form_data.get("password", "")
+    auth_type = form_data.get("auth_type", config.AUTH_TYPE)
+    next_url = form_data.get("next", "/")
+
+    client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
+    user_agent = request.headers.get("user-agent", "")
+
+    # Validate inputs
+    if not username or not password:
+        params = urlencode({"error": "Username and password required", "next": next_url})
+        return RedirectResponse(f"/login?{params}", status_code=303)
+
+    try:
+        handler = get_auth_handler(str(auth_type))
+    except ValueError as e:
+        params = urlencode({"error": str(e), "next": next_url})
+        return RedirectResponse(f"/login?{params}", status_code=303)
+
+    result = await handler.authenticate(
+        username=str(username),
+        password=str(password),
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    if result.success:
+        if result.requires_mfa:
+            # Store pending cookie and redirect to MFA
+            # Note: For MFA, we'd need to store state in Redis, simplified here
+            params = urlencode({"pending": "mfa", "next": next_url})
+            return RedirectResponse(f"/mfa-verify?{params}", status_code=303)
+
+        # Create redirect response with cookies
+        redirect_to = sanitize_redirect_path(next_url)
+        response = RedirectResponse(redirect_to, status_code=303)
+
+        # Set session cookie
+        cookie_cfg = CookieConfig.from_env()
+        if result.cookie_value:
+            response.set_cookie(
+                key=cookie_cfg.get_cookie_name(),
+                value=result.cookie_value,
+                **cookie_cfg.get_cookie_flags(),
+            )
+        if result.csrf_token:
+            response.set_cookie(
+                key="ng_csrf",
+                value=result.csrf_token,
+                **cookie_cfg.get_csrf_flags(),
+            )
+
+        logger.info("Login successful for user: %s", username)
+        return response
+    else:
+        error_msg = result.error_message or "Login failed"
+        if result.locked_out:
+            error_msg = f"Account locked. Try again in {result.lockout_remaining} seconds."
+        elif result.rate_limited:
+            error_msg = f"Too many attempts. Wait {result.retry_after} seconds."
+
+        params = urlencode({"error": error_msg, "next": next_url})
+        return RedirectResponse(f"/login?{params}", status_code=303)
 
 
 @ui.page("/auth/callback")
@@ -26,7 +105,22 @@ async def auth_callback(code: str, state: str) -> None:
     to the double-submit cookie pattern used on other endpoints.
     """
     # Get request info for validation - use same IP extraction as requires_auth
-    request: StarletteRequest = app.storage.request  # type: ignore[attr-defined]
+    from nicegui import storage, ui as nicegui_ui
+
+    # Get request from NiceGUI context
+    request: StarletteRequest | None = None
+    try:
+        request = storage.request_contextvar.get()
+    except (LookupError, AttributeError):
+        pass
+    if request is None:
+        try:
+            request = nicegui_ui.context.client.request
+        except (AttributeError, RuntimeError):
+            pass
+    if request is None:
+        ui.label("Error: No request context").classes("text-red-500")
+        return
     client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
     user_agent = request.headers.get("user-agent", "")
 

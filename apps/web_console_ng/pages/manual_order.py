@@ -40,13 +40,15 @@ async def manual_order_page(client: Client) -> None:
         ui.navigate.to("/")
         return
 
+    lifecycle = ClientLifecycleManager.get()
+
+    # Get or generate client_id (may not be set yet if WebSocket hasn't connected)
     client_id = client.storage.get("client_id")
     if not isinstance(client_id, str) or not client_id:
-        ui.notify("Session error - please refresh", type="negative")
-        return
+        client_id = lifecycle.generate_client_id()
+        client.storage["client_id"] = client_id
 
     realtime = RealtimeUpdater(client_id, client)
-    lifecycle = ClientLifecycleManager.get()
     submitting = False
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
 
@@ -104,7 +106,7 @@ async def manual_order_page(client: Client) -> None:
         def on_order_type_change(e: Any) -> None:
             limit_price_container.set_visibility(e.value == "limit")
 
-        order_type_select.on("update:model-value", on_order_type_change)
+        order_type_select.on_value_change(on_order_type_change)
 
         reason_input = ui.textarea(
             "Reason (required)",

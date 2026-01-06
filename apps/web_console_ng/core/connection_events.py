@@ -137,12 +137,36 @@ def setup_connection_handlers() -> None:
         logger.info("ws_client_disconnected", extra={"client_id": client_id})
 
     @app.on_exception
-    async def on_client_exception(client: Client, exception: Exception) -> None:
-        client_id = client.storage.get("client_id")
-        client.storage["had_exception"] = True
+    async def on_client_exception(*args: Any, **kwargs: Any) -> None:
+        client: Client | None = None
+        exception: Exception | None = None
+
+        for arg in args:
+            if isinstance(arg, Client):
+                client = arg
+            elif isinstance(arg, Exception):
+                exception = arg
+
+        if client is None:
+            maybe_client = kwargs.get("client")
+            if isinstance(maybe_client, Client):
+                client = maybe_client
+
+        if exception is None:
+            maybe_exc = kwargs.get("exception")
+            if isinstance(maybe_exc, Exception):
+                exception = maybe_exc
+
+        client_id = client.storage.get("client_id") if client is not None else None
+        if client is not None:
+            client.storage["had_exception"] = True
+
         logger.error(
             "ws_client_exception",
-            extra={"client_id": client_id, "error": str(exception)},
+            extra={
+                "client_id": client_id,
+                "error": str(exception) if exception else "unknown_exception",
+            },
         )
 
         metrics = _get_metrics()

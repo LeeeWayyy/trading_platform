@@ -1,24 +1,49 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_result import AuthResult
 from apps.web_console_ng.auth.providers.base import AuthProvider
-
-# In a real implementation, this would call a backend service or database.
-# For now, we reuse the DEV_USERS map but treat it as a backend validation in dev.
-# In production, basic auth should be disabled or backed by an external auth service.
-from apps.web_console_ng.auth.providers.dev import DEV_USERS
 from apps.web_console_ng.auth.rate_limiter import AuthRateLimiter
 from apps.web_console_ng.auth.session_store import get_session_store
 
 logger = logging.getLogger(__name__)
 
 
+def _get_basic_auth_user() -> dict[str, Any]:
+    """Build basic auth user from environment variables.
+
+    Uses WEB_CONSOLE_USER/PASSWORD from .env for credentials,
+    and WEB_CONSOLE_DEV_ROLE/USER_ID/STRATEGIES for RBAC context.
+    """
+    username = os.getenv("WEB_CONSOLE_USER", "admin")
+    password = os.getenv("WEB_CONSOLE_PASSWORD", "changeme")
+    role = config.DEV_ROLE or "admin"
+    user_id = config.DEV_USER_ID or username
+    strategies = config.DEV_STRATEGIES or ["alpha_baseline"]
+
+    return {
+        "username": username,
+        "password": password,
+        "user_id": user_id,
+        "role": role,
+        "strategies": strategies,
+    }
+
+
 class BasicAuthHandler(AuthProvider):
-    """Basic username/password authentication handler."""
+    """Basic username/password authentication handler.
+
+    Authenticates using credentials from environment variables:
+    - WEB_CONSOLE_USER: Username (default: admin)
+    - WEB_CONSOLE_PASSWORD: Password (default: changeme)
+    - WEB_CONSOLE_DEV_ROLE: Role for RBAC (default: admin)
+    - WEB_CONSOLE_DEV_USER_ID: User ID (default: same as username)
+    - WEB_CONSOLE_DEV_STRATEGIES: Comma-separated strategy IDs
+    """
 
     def __init__(self) -> None:
         self._rate_limiter = AuthRateLimiter()
@@ -73,11 +98,10 @@ class BasicAuthHandler(AuthProvider):
                 retry_after=retry_after,
             )
 
-        # TODO: Replace with actual backend API call
-        # user = await backend_client.validate_credentials(username, password)
-        user = DEV_USERS.get(username)
+        # Validate against env-configured user
+        expected_user = _get_basic_auth_user()
 
-        if not user or user["password"] != password:
+        if username != expected_user["username"] or password != expected_user["password"]:
             # Record failure and check if now locked
             is_allowed, retry_after, reason = await self._rate_limiter.record_failure(
                 client_ip, username
@@ -96,10 +120,10 @@ class BasicAuthHandler(AuthProvider):
 
         session_store = get_session_store()
         user_data = {
-            "user_id": username,
-            "username": username,
-            "role": user["role"],
-            "strategies": user["strategies"],
+            "user_id": expected_user["user_id"],
+            "username": expected_user["username"],
+            "role": expected_user["role"],
+            "strategies": expected_user["strategies"],
             "auth_method": "basic",
         }
 
