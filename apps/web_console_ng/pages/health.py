@@ -127,40 +127,45 @@ async def health_page() -> None:
     latency_data: dict[str, Any] = {}
     latency_stale: bool = False
 
+    fetch_lock = asyncio.Lock()
+
     async def fetch_health_data() -> None:
         nonlocal service_statuses, connectivity, latency_data, latency_stale
-        try:
-            # ⚠️ HealthMonitorService is ASYNC - call methods directly (see Note #31)
-            # DO NOT use run.io_bound - it returns un-awaited coroutine
-            statuses, conn, latencies = await asyncio.gather(
-                health_service.get_all_services_status(),
-                health_service.get_connectivity(),
-                health_service.get_latency_metrics(),
-                return_exceptions=True,
-            )
+        if fetch_lock.locked():
+            return
+        async with fetch_lock:
+            try:
+                # ⚠️ HealthMonitorService is ASYNC - call methods directly (see Note #31)
+                # DO NOT use run.io_bound - it returns un-awaited coroutine
+                statuses, conn, latencies = await asyncio.gather(
+                    health_service.get_all_services_status(),
+                    health_service.get_connectivity(),
+                    health_service.get_latency_metrics(),
+                    return_exceptions=True,
+                )
 
-            if isinstance(statuses, BaseException):
-                logger.warning("service_status_fetch_failed", extra={"error": str(statuses)})
-                service_statuses = {}
-            else:
-                service_statuses = dict(statuses)
+                if isinstance(statuses, BaseException):
+                    logger.warning("service_status_fetch_failed", extra={"error": str(statuses)})
+                    service_statuses = {}
+                else:
+                    service_statuses = dict(statuses)
 
-            if isinstance(conn, BaseException):
-                logger.warning("connectivity_fetch_failed", extra={"error": str(conn)})
-                connectivity = None
-            else:
-                connectivity = conn
+                if isinstance(conn, BaseException):
+                    logger.warning("connectivity_fetch_failed", extra={"error": str(conn)})
+                    connectivity = None
+                else:
+                    connectivity = conn
 
-            if isinstance(latencies, BaseException):
-                logger.warning("latency_fetch_failed", extra={"error": str(latencies)})
-                latency_data = {}
-                latency_stale = True
-            else:
-                latency_tuple = latencies  # type: tuple[dict[str, Any], bool, Any]
-                latency_data, latency_stale, _ = latency_tuple
+                if isinstance(latencies, BaseException):
+                    logger.warning("latency_fetch_failed", extra={"error": str(latencies)})
+                    latency_data = {}
+                    latency_stale = True
+                else:
+                    latency_tuple = latencies  # type: tuple[dict[str, Any], bool, Any]
+                    latency_data, latency_stale, _ = latency_tuple
 
-        except Exception as e:
-            logger.exception("health_data_fetch_failed", extra={"error": str(e)})
+            except Exception as e:
+                logger.exception("health_data_fetch_failed", extra={"error": str(e)})
 
     # Initial fetch
     await fetch_health_data()
@@ -288,6 +293,18 @@ async def health_page() -> None:
                 ui.label("(data may be stale)").classes("text-sm text-yellow-600")
             return
 
+        has_latency = False
+        for metrics in latency_data.values():
+            if any(
+                getattr(metrics, name, None) is not None for name in ("p50_ms", "p95_ms", "p99_ms")
+            ):
+                has_latency = True
+                break
+
+        if not has_latency:
+            ui.label("Latency metrics pending (no data yet)").classes("text-gray-500")
+            return
+
         # Build table data
         columns = [
             {"name": "service", "label": "Service", "field": "service", "sortable": True},
@@ -298,9 +315,9 @@ async def health_page() -> None:
 
         rows = []
         for service_name, metrics in latency_data.items():
-            p50 = getattr(metrics, "p50", None)
-            p95 = getattr(metrics, "p95", None)
-            p99 = getattr(metrics, "p99", None)
+            p50 = getattr(metrics, "p50_ms", None)
+            p95 = getattr(metrics, "p95_ms", None)
+            p99 = getattr(metrics, "p99_ms", None)
 
             rows.append({
                 "service": service_name,

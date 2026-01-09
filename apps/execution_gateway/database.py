@@ -88,6 +88,7 @@ T = TypeVar("T")
 
 # Order statuses treated as pending/active for manual controls and monitoring
 PENDING_STATUSES: tuple[str, ...] = (
+    "new",
     "pending_new",
     "submitted",
     "submitted_unconfirmed",
@@ -1039,6 +1040,39 @@ class DatabaseClient:
             logger.error(f"Database error fetching order: {e}")
             raise
 
+    def get_filled_orders_missing_fills(self, limit: int = 200) -> list[OrderDetail]:
+        """
+        Return filled/partially_filled orders that lack fill metadata.
+
+        Used by reconciliation to backfill fills when webhooks are unavailable.
+        """
+        limit = max(1, min(int(limit), 500))
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM orders
+                        WHERE status IN ('filled', 'partially_filled')
+                          AND filled_qty > 0
+                          AND filled_avg_price IS NOT NULL
+                          AND (
+                                metadata IS NULL
+                                OR NOT (metadata ? 'fills')
+                                OR jsonb_array_length(metadata->'fills') = 0
+                              )
+                        ORDER BY updated_at DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
+                    rows = cur.fetchall()
+                    return [OrderDetail(**row) for row in rows]
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching orders missing fills: {e}")
+            raise
+
     def get_order_ids_by_client_ids(self, client_order_ids: list[str]) -> set[str]:
         """
         Return existing client_order_ids for the provided list.
@@ -1307,6 +1341,93 @@ class DatabaseClient:
                     "offset": offset,
                     "error": str(exc),
                 },
+            )
+            if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
+                self._recreate_pool()
+                return _execute()
+            raise
+
+    def get_recent_fills(
+        self,
+        *,
+        strategy_ids: list[str] | None,
+        limit: int = 50,
+        lookback_hours: int = 24,
+    ) -> list[dict[str, Any]]:
+        """
+        Return recent fill events from order metadata.
+
+        Args:
+            strategy_ids: Optional list of strategies to scope results (fail-closed when empty)
+            limit: Max rows to return (default 50)
+            lookback_hours: Time window for order scan (default 24h, prevents unbounded expansion)
+
+        Returns:
+            List of dicts with fill details for activity feeds.
+
+        Note:
+            SECURITY: Time window constraint prevents DoS via unbounded JSONB array expansion.
+            Without this, a malicious user could trigger expensive queries by setting limit=200
+            and forcing expansion of all historical fills.
+        """
+        if strategy_ids is not None and not strategy_ids:
+            return []
+
+        limit = max(1, min(int(limit), 200))
+        lookback_hours = max(1, min(int(lookback_hours), 168))  # Cap at 7 days
+
+        filters: list[str] = [
+            "o.status IN ('filled', 'partially_filled')",
+            "o.metadata ? 'fills'",
+            "jsonb_array_length(o.metadata->'fills') > 0",
+            # SECURITY: Time window prevents unbounded JSONB expansion (DoS mitigation)
+            # NOTE: Use make_interval() for proper parameterization (not INTERVAL '%s')
+            "o.updated_at >= NOW() - make_interval(hours => %s)",
+        ]
+        params: list[Any] = [lookback_hours]
+
+        if strategy_ids is not None:
+            filters.append("o.strategy_id = ANY(%s)")
+            params.append(strategy_ids)
+
+        where_clause = " AND ".join(filters)
+
+        def _execute() -> list[dict[str, Any]]:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        f"""
+                        SELECT
+                            o.client_order_id,
+                            o.symbol,
+                            o.side,
+                            o.status,
+                            (fill->>'fill_qty')::NUMERIC AS qty,
+                            (fill->>'fill_price')::NUMERIC AS price,
+                            COALESCE((fill->>'realized_pl')::NUMERIC, 0) AS realized_pl,
+                            COALESCE(
+                                NULLIF(fill->>'timestamp', '')::timestamptz,
+                                o.updated_at
+                            ) AS timestamp
+                        FROM orders o,
+                             jsonb_array_elements(o.metadata->'fills') AS fill
+                        WHERE {where_clause}
+                        -- NOTE: Removed timestamp filters to allow COALESCE fallback
+                        -- for legacy/synthetic fills without embedded timestamps
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                        """,
+                        (*params, limit),
+                    )
+                    rows = cur.fetchall()
+            return [dict(row) for row in rows]
+
+        try:
+            return _execute()
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching recent fills",
+                extra={"strategies": strategy_ids, "limit": limit, "error": str(exc)},
             )
             if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
                 self._recreate_pool()

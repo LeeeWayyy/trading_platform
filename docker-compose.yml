@@ -187,6 +187,7 @@ services:
       - DRY_RUN=${DRY_RUN:-true}
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RECONCILIATION_INTERVAL_SECONDS=${RECONCILIATION_INTERVAL_SECONDS:-10}
       # Default to false for local dev to simplify setup. Production should use true.
       - INTERNAL_TOKEN_REQUIRED=${INTERNAL_TOKEN_REQUIRED:-false}
       - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:-}
@@ -230,6 +231,64 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  market_data_service:
+    build:
+      context: .
+      dockerfile: apps/market_data_service/Dockerfile
+    container_name: trading_platform_market_data_service
+    ports:
+      - "8004:8004"
+    environment:
+      - ALPACA_API_KEY=${ALPACA_API_KEY:-${ALPACA_API_KEY_ID:-}}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-${ALPACA_API_SECRET_KEY:-}}
+      - ALPACA_BASE_URL=${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      execution_gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  model_registry:
+    build:
+      context: .
+      dockerfile: apps/model_registry/Dockerfile
+    container_name: trading_platform_model_registry
+    ports:
+      - "8005:8005"
+    environment:
+      - MODEL_REGISTRY_DIR=/app/data/models
+      - MODEL_REGISTRY_PORT=8005
+      - ENVIRONMENT=dev
+      - ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+      - MODEL_REGISTRY_READ_TOKEN=${MODEL_REGISTRY_READ_TOKEN:-}
+      - MODEL_REGISTRY_ADMIN_TOKEN=${MODEL_REGISTRY_ADMIN_TOKEN:-}
+      - MODEL_REGISTRY_TOKEN=${MODEL_REGISTRY_TOKEN:-}
+    volumes:
+      - ./data/models:/app/data/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
       interval: 30s
       timeout: 10s
       start_period: 40s
@@ -329,6 +388,9 @@ services:
       - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-https://web-console.trading-platform.local/callback}
       - OAUTH2_LOGOUT_REDIRECT_URI=${OAUTH2_LOGOUT_REDIRECT_URI:-https://web-console.trading-platform.local/logout}
       - REDIS_SESSION_DB=${REDIS_SESSION_DB:-1}
+      # Health check secret for authenticating /health endpoint (prevents abuse).
+      # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      # When set, health checks require Authorization header: Bearer <secret>
       - HEALTH_CHECK_SECRET=${HEALTH_CHECK_SECRET:-}
     depends_on:
       postgres:
@@ -353,6 +415,8 @@ services:
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
       - ORCHESTRATOR_URL=http://orchestrator:8003
       - SIGNAL_SERVICE_URL=http://signal_service:8001
+      - MARKET_DATA_SERVICE_URL=http://market_data_service:8004
+      - MODEL_REGISTRY_URL=http://model_registry:8005
       - PROMETHEUS_URL=http://prometheus:9090
       # Enable dev mode (allows AUTH_TYPE=dev)
       - WEB_CONSOLE_NG_DEBUG=true
@@ -368,6 +432,9 @@ services:
         condition: service_healthy
       execution_gateway:
         condition: service_healthy
+      # NOTE: market_data_service and orchestrator are runtime dependencies but NOT required.
+      # Dashboard gracefully degrades if unavailable (shows error messages, retries).
+      # Not adding hard dependencies to allow partial stack development.
     profiles:
       - dev
 

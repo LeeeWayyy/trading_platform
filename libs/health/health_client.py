@@ -86,7 +86,21 @@ class HealthClient:
         start = datetime.now(UTC)
         try:
             client = await self._get_client()
-            response = await client.get(f"{url}/health")
+            response = None
+            last_error: Exception | None = None
+
+            # Small retry for transient network/timeout errors to avoid flapping.
+            for attempt in range(2):
+                try:
+                    response = await client.get(f"{url}/health")
+                    break
+                except (httpx.TimeoutException, httpx.RequestError) as exc:
+                    last_error = exc
+                    if attempt == 0:
+                        await asyncio.sleep(0.2)
+                        continue
+                    raise
+
             elapsed_ms = (datetime.now(UTC) - start).total_seconds() * 1000
 
             if response.status_code == 200:
@@ -122,8 +136,10 @@ class HealthClient:
                 )
 
         except httpx.TimeoutException:
+            logger.warning("Health check timeout: %s", service_name)
             return self._handle_error(service_name, start, "Timeout")
         except httpx.RequestError as e:
+            logger.warning("Health check request error: %s (%s)", service_name, e)
             return self._handle_error(service_name, start, str(e))
 
     def _extract_last_operation_timestamp(self, data: dict[str, Any]) -> datetime | None:

@@ -901,6 +901,12 @@ order_placement_duration = Histogram(
     ["symbol", "side"],
 )
 
+# Latency histogram for shared health dashboard (no service prefix)
+order_placement_duration_seconds = Histogram(
+    "order_placement_duration_seconds",
+    "Time taken to place an order",
+)
+
 fat_finger_warnings_total = Counter(
     "execution_gateway_fat_finger_warnings_total",
     "Total fat-finger threshold warnings",
@@ -999,6 +1005,7 @@ def _record_order_metrics(
     duration = time.time() - start_time
     orders_total.labels(symbol=order.symbol, side=order.side, status=status).inc()
     order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+    order_placement_duration_seconds.observe(duration)
 
 
 def _handle_idempotency_race(

@@ -39,6 +39,7 @@ from apps.execution_gateway.schemas_manual_controls import (
     FlattenAllRequest,
     FlattenAllResponse,
     PendingOrdersResponse,
+    RecentFillsResponse,
 )
 from libs.web_console_auth.audit_logger import AuditLogger
 from libs.web_console_auth.gateway_auth import AuthenticatedUser
@@ -61,6 +62,7 @@ RATE_LIMITS = {
     "adjust_position": (10, 60),
     "flatten_all": (1, 300),
     "pending_orders": (10, 60),
+    "recent_fills": (5, 60),  # Tighter limit: fills are higher-cardinality than orders
 }
 
 
@@ -1162,6 +1164,63 @@ async def list_pending_orders(
         total=total,
         limit=limit,
         offset=offset,
+        filtered_by_strategy=filtered_by_strategy,
+        user_strategies=scope_strategies,
+    )
+
+
+@router.get("/orders/recent-fills", response_model=RecentFillsResponse)
+async def list_recent_fills(
+    limit: int = Query(default=50, ge=1, le=200),
+    user: AuthenticatedUser = Depends(get_authenticated_user),
+    db_client: DatabaseClient = Depends(get_db_client),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> RecentFillsResponse:
+    """List recent fill events for activity feed."""
+
+    await _ensure_permission_with_audit(
+        user, Permission.VIEW_TRADES, "list_recent_fills", audit_logger
+    )
+    await _enforce_rate_limit(rate_limiter, user.user_id, "recent_fills", audit_logger)
+
+    scope_strategies = get_authorized_strategies(user)
+    filtered_by_strategy = not has_permission(user, Permission.VIEW_ALL_STRATEGIES)
+
+    # Fail-closed: user with no authorized strategies cannot view fills
+    if filtered_by_strategy and not scope_strategies:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="list_recent_fills",
+            resource_type="orders",
+            resource_id="*",
+            outcome="denied",
+            details={"error": "no_authorized_strategies"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
+        )
+
+    rows = await _db_call(
+        db_client.get_recent_fills,
+        strategy_ids=scope_strategies if filtered_by_strategy else None,
+        limit=limit,
+    )
+
+    await audit_logger.log_action(
+        user_id=user.user_id,
+        action="list_recent_fills",
+        resource_type="orders",
+        resource_id="*",
+        outcome="success",
+        details={"results_count": len(rows), "limit": limit, "filtered": filtered_by_strategy},
+    )
+
+    return RecentFillsResponse(
+        events=rows,
+        total=len(rows),
+        limit=limit,
         filtered_by_strategy=filtered_by_strategy,
         user_strategies=scope_strategies,
     )

@@ -1,0 +1,12 @@
+# Docker-specific requirements for Model Registry Service
+# Excludes pyqlib (not available on ARM64 Linux)
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Data validation
+pydantic>=2.5.0
+
+# Registry storage
+duckdb>=0.10.0

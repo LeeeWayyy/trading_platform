@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -228,6 +229,7 @@ async def dashboard(client: Client) -> None:
             orders_table = create_orders_table()
 
         with ui.card().classes("w-80"):
+            last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
             activity_feed = ActivityFeed()
 
     position_symbols: set[str] | None = None
@@ -239,10 +241,39 @@ async def dashboard(client: Client) -> None:
     grid_update_lock = asyncio.Lock()
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
 
+    def _format_event_time(event: dict[str, Any]) -> dict[str, Any]:
+        """Ensure activity events include a HH:MM time field."""
+        if "time" in event and event.get("time"):
+            return event
+        timestamp = event.get("timestamp")
+        if not timestamp:
+            return event
+        try:
+            ts_str = str(timestamp)
+            if ts_str.endswith("Z"):
+                ts_str = ts_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(ts_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            event["time"] = dt.astimezone(UTC).strftime("%H:%M")
+        except Exception:
+            pass
+        return event
+
+    def _update_last_sync_label(events: list[dict[str, Any]]) -> None:
+        now = datetime.now(UTC)
+        label = now.strftime("%H:%M:%S UTC")
+        if events:
+            # Use most recent fill timestamp for clarity
+            latest = events[0].get("timestamp")
+            if latest:
+                label = f"{str(latest).replace('Z', '')} UTC"
+        last_sync_label.text = f"Last sync: {label}"
+
     async def load_initial_data() -> None:
         nonlocal position_symbols, order_ids
         try:
-            pnl_data, positions, orders, account_info = await asyncio.gather(
+            pnl_data, positions, orders, account_info, recent_fills = await asyncio.gather(
                 trading_client.fetch_realtime_pnl(
                     user_id,
                     role=user_role,
@@ -259,6 +290,11 @@ async def dashboard(client: Client) -> None:
                     strategies=user_strategies,
                 ),
                 trading_client.fetch_account_info(
+                    user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                ),
+                trading_client.fetch_recent_fills(
                     user_id,
                     role=user_role,
                     strategies=user_strategies,
@@ -303,6 +339,10 @@ async def dashboard(client: Client) -> None:
                 user_id=user_id,
                 client_id=client_id,
             )
+        recent_events = recent_fills.get("events", []) if isinstance(recent_fills, dict) else []
+        normalized_events = [_format_event_time(dict(event)) for event in recent_events]
+        _update_last_sync_label(normalized_events)
+        await activity_feed.add_items(normalized_events, highlight=False)
 
     await load_initial_data()
 
@@ -344,7 +384,13 @@ async def dashboard(client: Client) -> None:
                     notified_malformed=notified_malformed,
                 )
         if "event" in data:
-            await activity_feed.add_item(data["event"])
+            # Normalize event time for consistent display (same as fills channel)
+            event = dict(data["event"])
+            event = _format_event_time(event)
+            if "type" not in event:
+                event["type"] = "position_update"  # Enable client-side filtering
+            _update_last_sync_label([event])
+            await activity_feed.add_item(event)
 
     def _extract_event_detail(args: Any) -> dict[str, Any]:
         if isinstance(args, dict):
@@ -382,7 +428,9 @@ async def dashboard(client: Client) -> None:
                 )
 
     async def on_fill_event(data: dict[str, Any]) -> None:
-        await activity_feed.add_item(data)
+        normalized = _format_event_time(dict(data))
+        _update_last_sync_label([normalized])
+        await activity_feed.add_item(normalized)
 
     async def handle_close_position(event: events.GenericEventArguments) -> None:
         detail = _extract_event_detail(event.args)
@@ -391,9 +439,29 @@ async def dashboard(client: Client) -> None:
         if not symbol:
             ui.notify("Cannot close position: missing symbol", type="negative")
             return
-        # Pass cached kill switch state for instant UI response
+
+        # SECURITY: Fetch fresh kill switch state before critical operation
+        # Cached state may be stale (race condition between page load and button click)
+        # Fresh API call ensures we have authoritative state for this decision
+        fresh_ks_state: bool | None = kill_switch_engaged  # Fallback to cached if API fails
+        try:
+            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
+            state = str(ks_status.get("state", "")).upper()
+            # Fail-closed: only mark as safe if explicitly DISENGAGED
+            fresh_ks_state = state != "DISENGAGED"
+            logger.debug(
+                "kill_switch_fresh_check",
+                extra={"client_id": client_id, "state": state, "cached": kill_switch_engaged},
+            )
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            # On API failure, preserve fail-open for risk-reducing closes (use cached or None)
+            logger.warning(
+                "kill_switch_fresh_check_failed",
+                extra={"client_id": client_id, "error": type(exc).__name__},
+            )
+
         await on_close_position(
-            symbol, qty, user_id, user_role, kill_switch_engaged=kill_switch_engaged
+            symbol, qty, user_id, user_role, kill_switch_engaged=fresh_ks_state
         )
 
     async def handle_cancel_order(event: events.GenericEventArguments) -> None:

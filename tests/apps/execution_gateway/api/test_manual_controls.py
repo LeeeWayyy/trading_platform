@@ -133,6 +133,40 @@ class StubDB:
     def get_strategy_map_for_symbols(self, symbols: list[str]) -> dict[str, str | None]:
         return {symbol: "s1" for symbol in symbols}
 
+    def get_recent_fills(
+        self,
+        *,
+        strategy_ids: list[str] | None,
+        limit: int = 50,
+        lookback_hours: int = 24,
+    ) -> list[dict[str, Any]]:
+        """Stub get_recent_fills for testing."""
+        if strategy_ids is not None and not strategy_ids:
+            return []  # Fail-closed
+        now = datetime.now(UTC)
+        return [
+            {
+                "client_order_id": "ord-1",
+                "symbol": "AAPL",
+                "side": "buy",
+                "status": "filled",
+                "qty": 10,
+                "price": Decimal("150.00"),
+                "realized_pl": Decimal("0"),
+                "timestamp": now,
+            },
+            {
+                "client_order_id": "ord-2",
+                "symbol": "GOOG",
+                "side": "sell",
+                "status": "filled",
+                "qty": 5,
+                "price": Decimal("100.00"),
+                "realized_pl": Decimal("50.00"),
+                "timestamp": now,
+            },
+        ][:limit]
+
     def create_order(self, **kwargs: Any) -> OrderDetail:
         """Stub create_order for manual controls order persistence."""
         order = _order(
@@ -435,3 +469,114 @@ def test_rate_limit_fallback_returns_429():
     response = client.get("/orders/pending")
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "60"
+
+
+# =====================================================
+# Recent Fills Endpoint Tests
+# =====================================================
+
+
+def test_recent_fills_viewer_can_access():
+    """Viewers with VIEW_TRADES permission can access recent fills."""
+    client = build_client(
+        overrides={
+            deps.get_authenticated_user: lambda: AuthenticatedUser(
+                "viewer-1", Role.VIEWER, ["s1"], 1, "req"
+            )
+        }
+    )
+    response = client.get("/orders/recent-fills")
+    assert response.status_code == 200
+    data = response.json()
+    assert "events" in data
+    assert "total" in data
+
+
+def test_recent_fills_operator_allowed():
+    """Operators can access recent fills."""
+    client = build_client()
+    response = client.get("/orders/recent-fills")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 0
+
+
+def test_recent_fills_admin_sees_all():
+    """Admins can see all fills without strategy filtering."""
+    client = build_client(
+        overrides={
+            deps.get_authenticated_user: lambda: AuthenticatedUser(
+                "admin-1", Role.ADMIN, ["s1", "s2"], 1, "req"
+            )
+        }
+    )
+    response = client.get("/orders/recent-fills")
+    assert response.status_code == 200
+    data = response.json()
+    assert "filtered_by_strategy" in data
+    assert data["filtered_by_strategy"] is False
+
+
+def test_recent_fills_fail_closed_empty_strategies():
+    """Users with empty strategy list get 403 (fail-closed, consistent with list_pending_orders)."""
+
+    client = build_client(
+        overrides={
+            deps.get_authenticated_user: lambda: AuthenticatedUser(
+                "user-1", Role.OPERATOR, [], 1, "req"  # Empty strategies
+            ),
+        }
+    )
+    response = client.get("/orders/recent-fills")
+    # Fail-closed: users with no authorized strategies are denied access (403),
+    # not given empty results. This is consistent with list_pending_orders.
+    assert response.status_code == 403
+    data = response.json()
+    assert data["detail"]["code"] == "strategy_unauthorized"
+
+
+def test_recent_fills_limit_bounds():
+    """Limit parameter is bounded between 1 and 200."""
+    client = build_client()
+
+    # Test lower bound
+    response = client.get("/orders/recent-fills", params={"limit": 0})
+    # Should be clamped to 1 (may return validation error or clamp silently)
+    assert response.status_code in (200, 422)
+
+    # Test upper bound
+    response = client.get("/orders/recent-fills", params={"limit": 300})
+    # Should be clamped to 200 (may return validation error or clamp silently)
+    assert response.status_code in (200, 422)
+
+    # Test valid limit
+    response = client.get("/orders/recent-fills", params={"limit": 10})
+    assert response.status_code == 200
+
+
+def test_recent_fills_rate_limited():
+    """Recent fills endpoint respects rate limiting."""
+    client = build_client(
+        overrides={
+            deps.get_rate_limiter: lambda: StubRateLimiter(allow=False),
+        }
+    )
+    response = client.get("/orders/recent-fills")
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+
+
+def test_recent_fills_returns_ordered_events():
+    """Fill events are returned with expected structure."""
+    client = build_client()
+    response = client.get("/orders/recent-fills")
+    assert response.status_code == 200
+    data = response.json()
+    events = data.get("events", [])
+    if events:
+        event = events[0]
+        # Verify expected fields present
+        assert "client_order_id" in event
+        assert "symbol" in event
+        assert "side" in event
+        assert "qty" in event

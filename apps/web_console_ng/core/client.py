@@ -264,6 +264,24 @@ class AsyncTradingClient:
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_recent_fills(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Fetch recent fill events for activity feed."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get(
+            "/api/v1/orders/recent-fills",
+            headers=headers,
+            params={"limit": limit},
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
     async def fetch_realtime_pnl(
         self,
         user_id: str,

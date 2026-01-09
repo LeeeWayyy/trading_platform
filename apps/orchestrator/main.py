@@ -188,6 +188,13 @@ orchestration_duration = Histogram(
     buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
 )
 
+# Latency histogram for shared health dashboard (no service prefix)
+orchestration_duration_seconds = Histogram(
+    "orchestration_duration_seconds",
+    "Time taken to complete orchestration workflow",
+    buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
+)
+
 signals_received_total = Counter(
     "orchestrator_signals_received_total",
     "Total number of signals received from Signal Service",
@@ -687,6 +694,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         elapsed = time.time() - run_started
         orchestration_runs_total.labels(status=run_status).inc()
         orchestration_duration.observe(elapsed)
+        orchestration_duration_seconds.observe(elapsed)
 
 
 @app.get(

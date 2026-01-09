@@ -178,6 +178,27 @@ class StrategyScopedPosition(BaseModel):
     strategy_id: str | None = None
 
 
+class RecentFillEvent(BaseModel):
+    """Recent execution/fill event for activity feeds."""
+
+    client_order_id: str
+    symbol: str
+    side: Literal["buy", "sell"]
+    qty: Decimal  # Decimal to support fractional shares from broker/reconciliation
+    price: Decimal
+    realized_pl: Decimal
+    status: Literal["filled", "partially_filled"]
+    timestamp: datetime
+
+
+class RecentFillsResponse(BaseModel):
+    events: list[RecentFillEvent]
+    total: int
+    limit: int
+    filtered_by_strategy: bool
+    user_strategies: list[str]
+
+
 __all__ = [
     "CancelOrderRequest",
     "CancelOrderResponse",
@@ -193,4 +214,6 @@ __all__ = [
     "PendingOrdersParams",
     "ErrorPayload",
     "StrategyScopedPosition",
+    "RecentFillEvent",
+    "RecentFillsResponse",
 ]
