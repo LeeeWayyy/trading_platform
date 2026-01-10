@@ -6,8 +6,8 @@ import asyncio
 import json
 import logging
 import time
-from decimal import Decimal
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
