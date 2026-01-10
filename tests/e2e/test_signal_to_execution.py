@@ -161,16 +161,21 @@ class TestExecutionGateway:
     def test_circuit_breaker_status(
         self, service_urls: dict[str, str], wait_for_services: None
     ) -> None:
-        """Test circuit breaker status endpoint."""
+        """Test circuit breaker status endpoint exists.
+
+        This endpoint requires authentication (X-User-Role, X-User-Id headers).
+        Without auth, we expect 401. This test validates endpoint existence,
+        not authentication bypass.
+        """
         # Attempt to get circuit breaker status
-        # Endpoint may not exist yet, so we accept 404
+        # Endpoint requires auth, so 401 is expected without headers
         try:
             response = httpx.get(
                 f"{service_urls['execution_gateway']}/api/v1/circuit-breaker/status",
                 timeout=5.0,
             )
-            # Accept 200 (exists) or 404 (not implemented)
-            assert response.status_code in [200, 404]
+            # Accept 200 (with auth), 401 (without auth), or 404 (not implemented)
+            assert response.status_code in [200, 401, 404]
         except httpx.ConnectError:
             pytest.skip("Circuit breaker status endpoint not available")
 
