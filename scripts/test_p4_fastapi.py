@@ -105,7 +105,7 @@ def main():
         print_warning("Make sure service is running:")
         print_info("  python -m uvicorn apps.signal_service.main:app --host 0.0.0.0 --port 8001")
         return 1
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Error: {e}")
         tests_failed += 1
         return 1
@@ -141,7 +141,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Health check error: {e}")
         tests_failed += 1
 
@@ -172,7 +172,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Model info error: {e}")
         tests_failed += 1
 
@@ -226,7 +226,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         print_error(f"Signal generation error: {e}")
         import traceback
 
@@ -286,7 +286,7 @@ def main():
     except AssertionError as e:
         print_error(f"Override validation failed: {e}")
         tests_failed += 1
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Signal generation with overrides error: {e}")
         tests_failed += 1
 
@@ -317,7 +317,7 @@ def main():
             print_error(f"Expected 4xx error, got {response.status_code}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Error handling test failed: {e}")
         tests_failed += 1
 
@@ -345,7 +345,7 @@ def main():
             print_error(f"Expected 422 error, got {response.status_code}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Error handling test failed: {e}")
         tests_failed += 1
 
@@ -376,7 +376,7 @@ def main():
             print_error(f"Expected 400 error, got {response.status_code}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Error handling test failed: {e}")
         tests_failed += 1
 
@@ -415,8 +415,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
         sys.exit(1)
-    except Exception as e:
-        print(f"\n{RED}Unexpected error: {e}{NC}")
+    except (ValueError, KeyError, RuntimeError) as e:
+        print(f"\n{RED}Test execution error: {e}{NC}")
         import traceback
 
         traceback.print_exc()

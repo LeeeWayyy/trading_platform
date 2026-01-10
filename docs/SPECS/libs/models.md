@@ -141,6 +141,6 @@ result = registry.promote_model("risk_model", "v1.0.0")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/models/__init__.py`, `libs/models/registry.py`, `libs/models/serialization.py`, `libs/models/loader.py`, `libs/models/manifest.py`, `libs/models/types.py`, `libs/models/backup.py`, `libs/models/compatibility.py`
 - **ADRs:** N/A

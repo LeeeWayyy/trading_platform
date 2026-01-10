@@ -36,8 +36,12 @@ def _qlib_available() -> bool:
     except ImportError as e:
         logger.info(f"Qlib not available ({e}), using local Polars backend")
         return False
-    except Exception as e:
-        logger.warning(f"Qlib import error: {e}, falling back to local backend")
+    except (AttributeError, TypeError) as e:
+        logger.warning(
+            "Qlib import error - invalid module structure",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         return False
 
 
@@ -238,7 +242,31 @@ class LocalMetrics:
             if len(series_pd) <= lag:
                 return float("nan")
             return float(series_pd.autocorr(lag=lag))
-        except Exception:
+        except ValueError as e:
+            logger.warning(
+                "Autocorrelation computation failed - invalid input",
+                extra={
+                    "metric": "autocorrelation",
+                    "lag": lag,
+                    "signal_length": signal.len(),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            return float("nan")
+        except (IndexError, KeyError) as e:
+            logger.warning(
+                "Autocorrelation computation failed - data access error",
+                extra={
+                    "metric": "autocorrelation",
+                    "lag": lag,
+                    "signal_length": signal.len(),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             return float("nan")
 
     @staticmethod

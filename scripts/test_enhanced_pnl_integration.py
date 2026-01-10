@@ -276,7 +276,7 @@ async def main():
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}")
         return 1
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print(f"\n❌ UNEXPECTED ERROR: {e}")
         import traceback
 

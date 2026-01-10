@@ -122,8 +122,17 @@ async def circuit_breaker_page() -> None:
         try:
             # ⚠️ SYNC service - wrap with run.io_bound
             history_data = await run.io_bound(cb_service.get_history, 50)
-        except Exception as e:
-            logger.warning("history_fetch_failed", extra={"error": str(e)})
+        except RuntimeError as e:
+            logger.warning(
+                "circuit_breaker_history_fetch_failed",
+                extra={"error": str(e), "operation": "get_history"},
+            )
+            history_data = []
+        except ValueError as e:
+            logger.warning(
+                "circuit_breaker_history_invalid_data",
+                extra={"error": str(e), "operation": "get_history"},
+            )
             history_data = []
 
     # Initial fetch
@@ -236,9 +245,18 @@ async def circuit_breaker_page() -> None:
                         ui.notify(f"Validation error: {e}", type="negative")
                     except RBACViolation as e:
                         ui.notify(f"Permission denied: {e}", type="negative")
-                    except Exception as e:
-                        logger.exception("circuit_breaker_trip_failed", extra={"error": str(e)})
-                        ui.notify("Failed to trip circuit breaker. Please try again.", type="negative")
+                    except RuntimeError as e:
+                        logger.exception(
+                            "circuit_breaker_trip_failed",
+                            extra={"error": str(e), "operation": "trip", "reason": final_reason},
+                        )
+                        ui.notify("Circuit breaker service error. Please try again.", type="negative")
+                    except ValueError as e:
+                        logger.exception(
+                            "circuit_breaker_trip_invalid_data",
+                            extra={"error": str(e), "operation": "trip", "reason": final_reason},
+                        )
+                        ui.notify("Invalid data provided. Please check inputs.", type="negative")
 
                 ui.button("Trip Circuit Breaker", on_click=do_trip, color="red").classes("mt-2")
             else:
@@ -307,9 +325,18 @@ async def circuit_breaker_page() -> None:
                         ui.notify(f"Validation error: {e}", type="negative")
                     except RBACViolation as e:
                         ui.notify(f"Permission denied: {e}", type="negative")
-                    except Exception as e:
-                        logger.exception("circuit_breaker_reset_failed", extra={"error": str(e)})
-                        ui.notify("Failed to reset circuit breaker. Please try again.", type="negative")
+                    except RuntimeError as e:
+                        logger.exception(
+                            "circuit_breaker_reset_failed",
+                            extra={"error": str(e), "operation": "reset", "reason": reset_reason.value},
+                        )
+                        ui.notify("Circuit breaker service error. Please try again.", type="negative")
+                    except ValueError as e:
+                        logger.exception(
+                            "circuit_breaker_reset_invalid_data",
+                            extra={"error": str(e), "operation": "reset", "reason": reset_reason.value},
+                        )
+                        ui.notify("Invalid data provided. Please check inputs.", type="negative")
 
                 reset_btn = ui.button("Confirm Reset", on_click=do_reset, color="green").classes(
                     "mt-2"

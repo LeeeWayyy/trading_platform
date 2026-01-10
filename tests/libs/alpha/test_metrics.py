@@ -106,6 +106,21 @@ class TestLocalMetrics:
         ac = LocalMetrics.autocorrelation(signal, lag=1)
         assert ac > 0.9
 
+    def test_autocorrelation_insufficient_data(self):
+        """Test autocorrelation returns NaN with insufficient data."""
+        signal = pl.Series([1.0, 2.0, 3.0])
+
+        ac = LocalMetrics.autocorrelation(signal, lag=5)
+        assert math.isnan(ac)
+
+    def test_autocorrelation_with_nulls(self):
+        """Test autocorrelation handles nulls correctly."""
+        signal = pl.Series([1.0, None, 3.0, 4.0, 5.0] * 20)
+
+        ac = LocalMetrics.autocorrelation(signal, lag=1)
+        # Should drop nulls and compute on valid data
+        assert not math.isnan(ac)
+
     def test_long_short_spread_positive(self):
         """Test long/short spread with positive alpha."""
         # Higher signal -> higher returns

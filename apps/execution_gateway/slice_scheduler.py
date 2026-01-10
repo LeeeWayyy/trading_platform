@@ -54,6 +54,10 @@ from typing import Literal
 
 from apscheduler.jobstores.base import JobLookupError  # type: ignore[import-untyped]
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
+from psycopg import DatabaseError as PsycopgDatabaseError
+from psycopg import OperationalError as PsycopgOperationalError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -674,10 +678,13 @@ class SliceScheduler:
                 is_open=bool(clock.get("is_open")),
                 next_open=clock.get("next_open"),
             )
-        except Exception as exc:
+        except (AlpacaConnectionError, AlpacaRejectionError) as exc:
             logger.error(
-                "Failed to fetch market clock; assuming market closed for safety",
-                extra={"error": str(exc)},
+                "Failed to fetch market clock from Alpaca; assuming market closed for safety",
+                extra={
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
             )
             return MarketClockSnapshot(is_open=False, next_open=None)
 
@@ -853,7 +860,7 @@ class SliceScheduler:
                 )
                 return
 
-        except Exception as infra_error:
+        except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as infra_error:
             # Infrastructure failure (PostgreSQL/Redis outage) during pre-submission checks
             # Mark slice as failed to prevent silent job drops
             logger.error(
@@ -864,6 +871,7 @@ class SliceScheduler:
                     "slice_num": slice_detail.slice_num,
                     "client_order_id": slice_detail.client_order_id,
                     "infrastructure_error": str(infra_error),
+                    "error_type": type(infra_error).__name__,
                 },
             )
             # Try to mark slice as failed in DB (best effort)
@@ -876,7 +884,7 @@ class SliceScheduler:
                     source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Infrastructure failure during pre-submission checks: {infra_error}",
                 )
-            except Exception:
+            except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as db_error:
                 # Even marking as failed failed - log and re-raise original error
                 logger.critical(
                     f"Cannot update DB after infrastructure failure: parent={parent_order_id}, "
@@ -885,6 +893,8 @@ class SliceScheduler:
                         "parent_order_id": parent_order_id,
                         "slice_num": slice_detail.slice_num,
                         "client_order_id": slice_detail.client_order_id,
+                        "db_error": str(db_error),
+                        "db_error_type": type(db_error).__name__,
                     },
                 )
             # Re-raise to ensure APScheduler logs the failure
@@ -918,7 +928,7 @@ class SliceScheduler:
                     },
                 )
                 return
-        except Exception as infra_error:
+        except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as infra_error:
             # DB failure at pre-submit guard - mark as failed and re-raise
             logger.error(
                 f"Infrastructure failure at pre-submit guard: parent={parent_order_id}, "
@@ -928,6 +938,7 @@ class SliceScheduler:
                     "slice_num": slice_detail.slice_num,
                     "client_order_id": slice_detail.client_order_id,
                     "infrastructure_error": str(infra_error),
+                    "error_type": type(infra_error).__name__,
                 },
             )
             try:
@@ -939,7 +950,7 @@ class SliceScheduler:
                     source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Infrastructure failure at pre-submit guard: {infra_error}",
                 )
-            except Exception:
+            except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as db_error:
                 logger.critical(
                     f"Cannot update DB after pre-submit guard failure: parent={parent_order_id}, "
                     f"slice={slice_detail.slice_num}",
@@ -947,6 +958,8 @@ class SliceScheduler:
                         "parent_order_id": parent_order_id,
                         "slice_num": slice_detail.slice_num,
                         "client_order_id": slice_detail.client_order_id,
+                        "db_error": str(db_error),
+                        "db_error_type": type(db_error).__name__,
                     },
                 )
             raise
@@ -1013,7 +1026,7 @@ class SliceScheduler:
                         )
                         break  # Success, exit retry loop
 
-                    except Exception as db_error:
+                    except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError, Exception) as db_error:
                         if retry_attempt < max_db_retries - 1:
                             # Retry with exponential backoff
                             wait_time = 2**retry_attempt  # 1s, 2s, 4s
@@ -1026,6 +1039,7 @@ class SliceScheduler:
                                     "client_order_id": slice_detail.client_order_id,
                                     "broker_order_id": broker_response["id"],
                                     "retry_attempt": retry_attempt + 1,
+                                    "db_error_type": type(db_error).__name__,
                                 },
                             )
                             time.sleep(wait_time)
@@ -1070,7 +1084,7 @@ class SliceScheduler:
                                         "awaiting_reconciliation": True,
                                     },
                                 )
-                            except Exception:
+                            except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError, Exception) as final_db_error:
                                 # Even this failed - log and re-raise for visibility
                                 logger.critical(
                                     f"CRITICAL: Cannot update DB at all after broker submission. "
@@ -1079,6 +1093,8 @@ class SliceScheduler:
                                         "parent_order_id": parent_order_id,
                                         "client_order_id": slice_detail.client_order_id,
                                         "broker_order_id": broker_response["id"],
+                                        "final_db_error": str(final_db_error),
+                                        "final_db_error_type": type(final_db_error).__name__,
                                     },
                                 )
                                 # Re-raise to ensure APScheduler logs the failure

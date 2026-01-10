@@ -314,7 +314,16 @@ def _decode_base64_key(value: str, env_name: str) -> bytes:
         raise ValueError(f"{env_name} environment variable not set")
     try:
         key_bytes = base64.b64decode(value)
-    except Exception as exc:  # pragma: no cover - defensive
+    except (binascii.Error, ValueError, TypeError) as exc:
+        # JUSTIFIED: Defensive handler for base64.b64decode edge cases
+        # Base64 decoding can raise multiple exception types (binascii.Error for invalid chars,
+        # ValueError for padding issues, TypeError for non-string input).
+        # All cases indicate invalid configuration that must be rejected.
+        logger.error(
+            "Invalid base64-encoded key in configuration",
+            extra={"env_name": env_name, "error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
+        )
         raise ValueError(f"{env_name} must be base64-encoded: {exc}") from exc
     if len(key_bytes) != 32:
         raise ValueError(f"{env_name} must decode to 32 bytes (got {len(key_bytes)})")

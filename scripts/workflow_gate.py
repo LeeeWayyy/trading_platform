@@ -195,8 +195,17 @@ def state_transaction():
         state = load_state()
         yield state
         save_state(state)  # Only save if no exception
-    except Exception:
-        # On exception, don't save - file remains unchanged
+    except (OSError, PermissionError) as e:
+        # File I/O errors - log and re-raise for caller to handle
+        _log(f"Workflow gate failed - state file I/O error: {e}")
+        raise
+    except json.JSONDecodeError as e:
+        # Corrupted state file - log and re-raise
+        _log(f"Workflow gate failed - corrupted state file: {e}")
+        raise
+    except Exception as e:
+        # Unexpected errors - log with details and re-raise
+        _log(f"Workflow gate failed - unexpected error: {e}")
         raise
     finally:
         _gate._release_lock(lock_fd)
@@ -654,9 +663,21 @@ def cmd_pr_check(args):
                 print("\n✓ All reviewers approved and CI passed!", file=sys.stderr)
                 return 0
             return 1
+    except subprocess.CalledProcessError as e:
+        # Git/gh command failed - log with command details
+        _log(f"PR check failed - git/gh command error: {e.cmd}")
+        _log(f"   Return code: {e.returncode}")
+        _log(f"   Output: {e.output if hasattr(e, 'output') else 'N/A'}")
+        print(json.dumps({"error": f"Command failed: {e.cmd}", "all_approved": False}))
+        return 1
+    except (OSError, FileNotFoundError) as e:
+        # File I/O or path errors - log and output error JSON
+        _log(f"PR check failed - file I/O error: {e}")
+        print(json.dumps({"error": f"File error: {str(e)}", "all_approved": False}))
+        return 1
     except Exception as e:
-        # Report error to stderr, output error JSON to stdout for parsing
-        _log(f"Error checking PR status: {e}")
+        # Unexpected errors - log with full details
+        _log(f"PR check failed - unexpected error: {type(e).__name__}: {e}")
         print(json.dumps({"error": str(e), "all_approved": False}))
         return 1
 
@@ -763,8 +784,14 @@ def cmd_review_create(args):
                 timeout=60,
             )
             diff = diff_result.stdout if diff_result.returncode == 0 else ""
-        except Exception as e:
-            _log(f"Warning: Could not get diff: {e}")
+        except subprocess.TimeoutExpired as e:
+            _log(f"Warning: Git diff timed out after {e.timeout}s")
+            diff = ""
+        except subprocess.CalledProcessError as e:
+            _log(f"Warning: Git diff command failed: {e.cmd}, return code: {e.returncode}")
+            diff = ""
+        except (OSError, FileNotFoundError) as e:
+            _log(f"Warning: Git command not found or I/O error: {e}")
             diff = ""
 
         # Get changed files and resolve to absolute paths (Gemini HIGH fix)
@@ -784,7 +811,14 @@ def cmd_review_create(args):
             file_paths = [
                 str(Path(f).resolve()) for f in files_result.stdout.strip().split("\n") if f
             ]
-        except Exception:
+        except subprocess.TimeoutExpired as e:
+            _log(f"Warning: Git diff --name-only timed out after {e.timeout}s")
+            file_paths = []
+        except subprocess.CalledProcessError as e:
+            _log(f"Warning: Git diff --name-only failed: {e.cmd}, return code: {e.returncode}")
+            file_paths = []
+        except (OSError, FileNotFoundError) as e:
+            _log(f"Warning: Git command not found or path error: {e}")
             file_paths = []
 
         # Create review instructions for each enabled reviewer using AgentInstruction

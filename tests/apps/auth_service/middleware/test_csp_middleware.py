@@ -280,3 +280,135 @@ def test_csp_middleware_adds_report_only_header_on_http_exception():
     # Verify report-only header present on error response
     assert "Content-Security-Policy-Report-Only" in response.headers
     assert "Content-Security-Policy" not in response.headers
+
+
+def test_csp_middleware_handles_os_error():
+    """Test CSP middleware handles OSError during request processing.
+
+    Tests specific exception handling for network errors.
+    """
+
+    app = FastAPI()
+
+    @app.get("/trigger-os-error")
+    async def trigger_os_error():
+        raise OSError("Network connection failed")
+
+    app.add_middleware(
+        CSPMiddleware,
+        auth0_domain="dev-test.us.auth0.com",
+        report_uri="/csp-report",
+        enable_report_only=False,
+    )
+
+    client = TestClient(app)
+    response = client.get("/trigger-os-error")
+
+    # Should return 500 with CSP header
+    assert response.status_code == 500
+    assert "Content-Security-Policy" in response.headers
+
+
+def test_csp_middleware_handles_io_error():
+    """Test CSP middleware handles IOError during request processing.
+
+    Tests specific exception handling for I/O errors.
+    """
+    app = FastAPI()
+
+    @app.get("/trigger-io-error")
+    async def trigger_io_error():
+        raise OSError("Broken pipe")
+
+    app.add_middleware(
+        CSPMiddleware,
+        auth0_domain="dev-test.us.auth0.com",
+        report_uri="/csp-report",
+        enable_report_only=False,
+    )
+
+    client = TestClient(app)
+    response = client.get("/trigger-io-error")
+
+    # Should return 500 with CSP header
+    assert response.status_code == 500
+    assert "Content-Security-Policy" in response.headers
+
+
+def test_csp_middleware_handles_value_error():
+    """Test CSP middleware handles ValueError during request processing.
+
+    Tests specific exception handling for validation errors.
+    """
+    app = FastAPI()
+
+    @app.get("/trigger-value-error")
+    async def trigger_value_error():
+        raise ValueError("Invalid data format")
+
+    app.add_middleware(
+        CSPMiddleware,
+        auth0_domain="dev-test.us.auth0.com",
+        report_uri="/csp-report",
+        enable_report_only=False,
+    )
+
+    client = TestClient(app)
+    response = client.get("/trigger-value-error")
+
+    # Should return 500 with CSP header
+    assert response.status_code == 500
+    assert "Content-Security-Policy" in response.headers
+
+
+def test_csp_middleware_handles_type_error():
+    """Test CSP middleware handles TypeError during request processing.
+
+    Tests specific exception handling for type errors.
+    """
+    app = FastAPI()
+
+    @app.get("/trigger-type-error")
+    async def trigger_type_error():
+        raise TypeError("Expected str, got int")
+
+    app.add_middleware(
+        CSPMiddleware,
+        auth0_domain="dev-test.us.auth0.com",
+        report_uri="/csp-report",
+        enable_report_only=False,
+    )
+
+    client = TestClient(app)
+    response = client.get("/trigger-type-error")
+
+    # Should return 500 with CSP header
+    assert response.status_code == 500
+    assert "Content-Security-Policy" in response.headers
+
+
+def test_csp_middleware_handles_runtime_error():
+    """Test CSP middleware handles RuntimeError during request processing.
+
+    Tests specific exception handling for runtime errors.
+    """
+    app = FastAPI()
+
+    @app.get("/trigger-runtime-error")
+    async def trigger_runtime_error():
+        raise RuntimeError("Application state error")
+
+    app.add_middleware(
+        CSPMiddleware,
+        auth0_domain="dev-test.us.auth0.com",
+        report_uri="/csp-report",
+        enable_report_only=False,
+    )
+
+    client = TestClient(app)
+    response = client.get("/trigger-runtime-error")
+
+    # Should return 500 with CSP header
+    assert response.status_code == 500
+    assert "Content-Security-Policy" in response.headers
+

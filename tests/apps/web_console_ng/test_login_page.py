@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
+
+logger = logging.getLogger(__name__)
 
 # Selenium is optional - tests are skipped if not available
 try:
@@ -27,10 +31,18 @@ def _type_into_input(screen: Screen, label_text: str, value: str) -> None:  # ty
     """Helper to type into a NiceGUI input field by its label."""
     try:
         input_el = screen.find_by_css(f'input[aria-label="{label_text}"]')
-    except Exception:
+    except Exception as e:
+        logger.debug(
+            "Input field not found by aria-label, trying placeholder",
+            extra={"label_text": label_text, "error": str(e)},
+        )
         try:
             input_el = screen.find_by_css(f'input[placeholder="{label_text}"]')
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                "Input field not found by placeholder, trying XPath navigation",
+                extra={"label_text": label_text, "error": str(e)},
+            )
             label_el = screen.find(label_text)
             input_el = label_el.find_element(
                 By.XPATH, ".//ancestor::div[contains(@class, 'q-field')]//input"

@@ -98,9 +98,13 @@ def render_ic_chart(
 
         ui.plotly(fig).classes("w-full")
 
-    except Exception:
-        logger.exception("ic_chart_render_error")
-        ui.notify("Unable to render IC chart. Please try again.", type="negative")
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        logger.warning(
+            "IC chart rendering failed - invalid data",
+            extra={"chart": "ic_chart", "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        ui.label("Chart unavailable - data error").classes("text-gray-500 text-center p-4")
 
 
 __all__ = ["render_ic_chart"]

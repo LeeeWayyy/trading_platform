@@ -255,10 +255,25 @@ class CircuitBreakerService:
         reset_at = datetime.now(UTC).isoformat()
         try:
             self.breaker.update_history_with_reset(reset_at, reset_by=user_id, reset_reason=reason)
-        except Exception as e:
+        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
+            # Redis connectivity issues
             logger.warning(
                 "reset_history_update_failed",
-                extra={"error": str(e), "reset_by": user_id},
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "reset_by": user_id,
+                },
+            )
+        except Exception as e:
+            # Unexpected errors
+            logger.warning(
+                "reset_history_update_failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "reset_by": user_id,
+                },
             )
 
         try:
@@ -272,10 +287,25 @@ class CircuitBreakerService:
                 details=reset_details,
                 outcome="success",
             )
-        except Exception as e:
+        except (psycopg.Error, ConnectionError, TimeoutError) as e:
+            # Database connectivity issues
             logger.warning(
                 "reset_audit_log_failed",
-                extra={"error": str(e), "user_id": user.get("user_id")},
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "user_id": user.get("user_id"),
+                },
+            )
+        except Exception as e:
+            # Unexpected errors
+            logger.warning(
+                "reset_audit_log_failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "user_id": user.get("user_id"),
+                },
             )
 
         CB_RESET_TOTAL.inc()
@@ -301,10 +331,18 @@ class CircuitBreakerService:
         """
         try:
             return self.breaker.get_history(limit=limit)
-        except Exception as e:
+        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
+            # Redis connectivity issues
             logger.warning(
                 "redis_history_unavailable",
-                extra={"error": str(e)},
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            return self._get_history_from_audit(limit=limit)
+        except Exception as e:
+            # Unexpected errors
+            logger.warning(
+                "redis_history_unavailable",
+                extra={"error": str(e), "error_type": type(e).__name__},
             )
             return self._get_history_from_audit(limit=limit)
 

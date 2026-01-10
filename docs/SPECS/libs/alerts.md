@@ -157,6 +157,6 @@ safe_recipient = mask_recipient(recipient, channel_type)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/alerts/__init__.py`, `libs/alerts/alert_manager.py`, `libs/alerts/delivery_service.py`, `libs/alerts/models.py`, `libs/alerts/poison_queue.py`, `libs/alerts/pii.py`, `libs/alerts/dedup.py`
 - **ADRs:** N/A

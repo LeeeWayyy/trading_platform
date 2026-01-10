@@ -93,8 +93,11 @@ def main():
         print_warning("Make sure service is running:")
         print_info("  DRY_RUN=true uvicorn apps.execution_gateway.main:app --port 8002")
         return 1
-    except Exception as e:
-        print_error(f"Error: {e}")
+    except requests.exceptions.RequestException as e:
+        print_error(f"HTTP request error: {e}")
+        tests_failed += 1
+    except (ValueError, KeyError) as e:
+        print_error(f"Invalid response data: {e}")
         tests_failed += 1
 
     # ========================================================================
@@ -129,8 +132,12 @@ def main():
             tests_failed += 1
             return 1
 
-    except Exception as e:
-        print_error(f"Error: {e}")
+    except requests.exceptions.RequestException as e:
+        print_error(f"HTTP request error: {e}")
+        tests_failed += 1
+        return 1
+    except (ValueError, KeyError) as e:
+        print_error(f"Invalid response data: {e}")
         tests_failed += 1
         return 1
 
@@ -157,8 +164,11 @@ def main():
             print_error(f"Idempotency test failed: {response.status_code}")
             tests_failed += 1
 
-    except Exception as e:
-        print_error(f"Error: {e}")
+    except requests.exceptions.RequestException as e:
+        print_error(f"HTTP request error: {e}")
+        tests_failed += 1
+    except (ValueError, KeyError) as e:
+        print_error(f"Invalid response data: {e}")
         tests_failed += 1
 
     # ========================================================================
@@ -182,8 +192,11 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
-        print_error(f"Error: {e}")
+    except requests.exceptions.RequestException as e:
+        print_error(f"HTTP request error: {e}")
+        tests_failed += 1
+    except (ValueError, KeyError) as e:
+        print_error(f"Invalid response data: {e}")
         tests_failed += 1
 
     # ========================================================================
@@ -214,8 +227,11 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
-        print_error(f"Error: {e}")
+    except requests.exceptions.RequestException as e:
+        print_error(f"HTTP request error: {e}")
+        tests_failed += 1
+    except (ValueError, KeyError) as e:
+        print_error(f"Invalid response data: {e}")
         tests_failed += 1
 
     # ========================================================================
@@ -245,8 +261,11 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
-        print_error(f"Error: {e}")
+    except requests.exceptions.RequestException as e:
+        print_error(f"HTTP request error: {e}")
+        tests_failed += 1
+    except (ValueError, KeyError) as e:
+        print_error(f"Invalid response data: {e}")
         tests_failed += 1
 
     # ========================================================================
@@ -289,8 +308,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
         sys.exit(1)
-    except Exception as e:
-        print(f"\n{RED}Unexpected error: {e}{NC}")
+    except (ValueError, RuntimeError) as e:
+        print(f"\n{RED}Test execution error: {e}{NC}")
         import traceback
 
         traceback.print_exc()

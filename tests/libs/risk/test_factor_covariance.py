@@ -433,3 +433,114 @@ class TestPITCorrectness:
         """Dataset version IDs are included in result."""
         assert "crsp" in sample_covariance_result.dataset_version_ids
         assert "compustat" in sample_covariance_result.dataset_version_ids
+
+
+class TestEstimateFactorReturnsErrorHandling:
+    """Tests for error handling in estimate_factor_returns()."""
+
+    def test_skips_day_with_singular_matrix(self, mock_factor_builder, caplog):
+        """Skips day if WLS regression fails with singular matrix."""
+        import logging
+        from unittest.mock import patch
+
+        import pytest
+
+        caplog.set_level(logging.ERROR)
+
+        estimator = FactorCovarianceEstimator(mock_factor_builder)
+
+        # Patch _run_wls_regression to raise LinAlgError
+        with patch.object(
+            estimator, "_run_wls_regression", side_effect=np.linalg.LinAlgError("Singular matrix")
+        ):
+            # Should skip days with singular matrix but raise InsufficientDataError if all days fail
+            with pytest.raises(InsufficientDataError, match="No valid factor returns computed"):
+                estimator.estimate_factor_returns(
+                    start_date=date(2023, 6, 28),
+                    end_date=date(2023, 6, 30),
+                )
+
+            # Check that error was logged with proper structure before the exception
+            assert any("singular matrix" in record.message.lower() for record in caplog.records)
+            assert any(record.levelname == "ERROR" for record in caplog.records)
+
+    def test_skips_day_with_key_error(self, mock_factor_builder, caplog):
+        """Skips day if data access fails with KeyError."""
+        import logging
+        from unittest.mock import patch
+
+        import pytest
+
+        caplog.set_level(logging.ERROR)
+
+        estimator = FactorCovarianceEstimator(mock_factor_builder)
+
+        # Patch to raise KeyError during data access
+        with patch.object(estimator, "_run_wls_regression", side_effect=KeyError("missing_column")):
+            # Should skip days but raise InsufficientDataError if all days fail
+            with pytest.raises(InsufficientDataError, match="No valid factor returns computed"):
+                estimator.estimate_factor_returns(
+                    start_date=date(2023, 6, 28),
+                    end_date=date(2023, 6, 30),
+                )
+
+            # Check error logging
+            assert any("data access error" in record.message.lower() for record in caplog.records)
+            # The 'extra' fields are added directly to the record's attributes
+            assert any(hasattr(record, "error_type") for record in caplog.records)
+
+    def test_skips_day_with_value_error(self, mock_factor_builder, caplog):
+        """Skips day if invalid data causes ValueError."""
+        import logging
+        from unittest.mock import patch
+
+        import pytest
+
+        caplog.set_level(logging.ERROR)
+
+        estimator = FactorCovarianceEstimator(mock_factor_builder)
+
+        # Patch to raise ValueError
+        with patch.object(estimator, "_run_wls_regression", side_effect=ValueError("Invalid data")):
+            # Should skip days but raise InsufficientDataError if all days fail
+            with pytest.raises(InsufficientDataError, match="No valid factor returns computed"):
+                estimator.estimate_factor_returns(
+                    start_date=date(2023, 6, 28),
+                    end_date=date(2023, 6, 30),
+                )
+
+            # Check error logging
+            assert any("invalid data" in record.message.lower() for record in caplog.records)
+
+    def test_error_log_includes_context(self, mock_factor_builder, caplog):
+        """Error logs include context information."""
+        import logging
+        from unittest.mock import patch
+
+        import pytest
+
+        caplog.set_level(logging.ERROR)
+
+        estimator = FactorCovarianceEstimator(mock_factor_builder)
+
+        with patch.object(
+            estimator, "_run_wls_regression", side_effect=np.linalg.LinAlgError("Test error")
+        ):
+            # Should raise InsufficientDataError after logging errors
+            with pytest.raises(InsufficientDataError, match="No valid factor returns computed"):
+                estimator.estimate_factor_returns(
+                    start_date=date(2023, 6, 28),
+                    end_date=date(2023, 6, 30),
+                )
+
+            # Check that error logs include 'extra' dict with context
+            error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+            assert len(error_records) > 0
+
+            # Check for structured logging fields
+            for record in error_records:
+                # The 'extra' fields are added directly to the record's attributes
+                # Should have error_type and date context
+                assert hasattr(record, "error_type") or hasattr(record, "date")
+                # Should have exc_info
+                assert record.exc_info is not None

@@ -82,8 +82,20 @@ async def scheduled_reports_page() -> None:
     # Try to get service
     try:
         service = await run.io_bound(_get_service, db_pool, user)
-    except Exception:
-        logger.exception("Failed to initialize ScheduledReportsService")
+    except (ConnectionError, OSError) as exc:
+        logger.error(
+            "scheduled_reports_service_init_db_connection_failed",
+            extra={"user_id": user.get("user_id"), "error": str(exc)},
+            exc_info=True,
+        )
+        _render_demo_mode(user)
+        return
+    except (ValueError, TypeError) as exc:
+        logger.error(
+            "scheduled_reports_service_init_data_error",
+            extra={"user_id": user.get("user_id"), "error": str(exc)},
+            exc_info=True,
+        )
         _render_demo_mode(user)
         return
 
@@ -95,12 +107,29 @@ async def scheduled_reports_page() -> None:
     try:
         user_id = user.get("user_id")
         schedules = await run.io_bound(service.list_schedules, user_id)
-    except Exception as exc:
-        logger.exception("Failed to load schedules")
+    except (ConnectionError, OSError) as exc:
+        logger.error(
+            "schedules_load_db_connection_failed",
+            extra={"user_id": user_id, "error": str(exc)},
+            exc_info=True,
+        )
         with ui.card().classes("w-full p-6"):
-            ui.label(f"Failed to load schedules: {exc}").classes(
+            ui.label("Failed to load schedules: Database connection error").classes(
                 "text-red-500 text-center"
             )
+        ui.notify("Database connection error", type="negative")
+        return
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.error(
+            "schedules_load_data_error",
+            extra={"user_id": user_id, "error": str(exc)},
+            exc_info=True,
+        )
+        with ui.card().classes("w-full p-6"):
+            ui.label("Failed to load schedules: Data processing error").classes(
+                "text-red-500 text-center"
+            )
+        ui.notify("Data processing error", type="negative")
         return
 
     await _render_reports_page(service, user, schedules)
@@ -209,8 +238,20 @@ async def _render_reports_page(
                                 ui.navigate.to("/reports")
                             else:
                                 ui.notify("Schedule not found", type="warning")
-                        except Exception as exc:
-                            ui.notify(f"Failed to delete: {exc}", type="negative")
+                        except (ConnectionError, OSError) as exc:
+                            logger.error(
+                                "schedule_delete_db_connection_failed",
+                                extra={"schedule_id": selected.id, "error": str(exc)},
+                                exc_info=True,
+                            )
+                            ui.notify("Failed to delete: Database connection error", type="negative")
+                        except (ValueError, KeyError, TypeError) as exc:
+                            logger.error(
+                                "schedule_delete_data_error",
+                                extra={"schedule_id": selected.id, "error": str(exc)},
+                                exc_info=True,
+                            )
+                            ui.notify("Failed to delete: Data processing error", type="negative")
 
                     ui.button(
                         "Delete Schedule",
@@ -309,8 +350,20 @@ async def _render_schedule_form(
                     )
                     ui.notify("Schedule created", type="positive")
                 ui.navigate.to("/reports")
-            except Exception as exc:
-                ui.notify(f"Failed to save: {exc}", type="negative")
+            except (ConnectionError, OSError) as exc:
+                logger.error(
+                    "schedule_save_db_connection_failed",
+                    extra={"schedule_name": payload["name"], "error": str(exc)},
+                    exc_info=True,
+                )
+                ui.notify("Failed to save: Database connection error", type="negative")
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.error(
+                    "schedule_save_data_error",
+                    extra={"schedule_name": payload["name"], "error": str(exc)},
+                    exc_info=True,
+                )
+                ui.notify("Failed to save: Data processing error", type="negative")
 
         ui.button(
             "Update Schedule" if is_edit else "Create Schedule",
@@ -326,8 +379,21 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
 
         try:
             runs = await run.io_bound(service.get_run_history, schedule_id)
-        except Exception as exc:
-            ui.label(f"Failed to load history: {exc}").classes("text-red-500 p-2")
+        except (ConnectionError, OSError) as exc:
+            logger.error(
+                "run_history_load_db_connection_failed",
+                extra={"schedule_id": schedule_id, "error": str(exc)},
+                exc_info=True,
+            )
+            ui.label("Failed to load history: Database connection error").classes("text-red-500 p-2")
+            return
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.error(
+                "run_history_load_data_error",
+                extra={"schedule_id": schedule_id, "error": str(exc)},
+                exc_info=True,
+            )
+            ui.label("Failed to load history: Data processing error").classes("text-red-500 p-2")
             return
 
         if not runs:
@@ -390,8 +456,20 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
 
                     ui.download(content, file_name)
                     ui.notify(f"Downloading {file_name}", type="positive")
-                except Exception as exc:
-                    ui.notify(f"Download failed: {exc}", type="negative")
+                except FileNotFoundError as exc:
+                    logger.error(
+                        "report_download_file_not_found",
+                        extra={"run_id": run_id, "run_key": run_key, "error": str(exc)},
+                        exc_info=True,
+                    )
+                    ui.notify("Download failed: Report file not found", type="negative")
+                except OSError as exc:
+                    logger.error(
+                        "report_download_io_error",
+                        extra={"run_id": run_id, "run_key": run_key, "error": str(exc)},
+                        exc_info=True,
+                    )
+                    ui.notify("Download failed: File access error", type="negative")
 
             ui.button(
                 f"Download {r.run_key}",

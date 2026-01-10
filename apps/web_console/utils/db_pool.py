@@ -196,8 +196,19 @@ def get_db_pool() -> AsyncConnectionAdapter | None:
             extra={"connect_timeout": config.DATABASE_CONNECT_TIMEOUT},
         )
         return adapter
-    except Exception:
-        logger.exception("db_adapter_init_failed")
+    except (ImportError, TypeError, ValueError) as e:
+        # SILENT: Add structured logging for adapter initialization failures
+        # ImportError: psycopg not installed
+        # TypeError: Invalid database_url or connect_timeout type
+        # ValueError: Invalid connection parameters
+        logger.exception(
+            "db_adapter_init_failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "database_url_configured": bool(database_url),
+            },
+        )
         return None
 
 
@@ -233,8 +244,21 @@ def get_redis_client() -> AsyncRedisAdapter | None:
             extra={"cache_db": cache_db},
         )
         return adapter
-    except Exception:
-        logger.exception("redis_adapter_init_failed")
+    except (ImportError, TypeError, ValueError, OSError) as e:
+        # SILENT: Add structured logging for Redis adapter initialization failures
+        # ImportError: redis.asyncio not installed
+        # TypeError: Invalid redis_url or db type
+        # ValueError: Invalid connection parameters (e.g., negative db index)
+        # OSError: Redis connection errors during adapter creation
+        logger.exception(
+            "redis_adapter_init_failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "redis_url_configured": bool(redis_url),
+                "cache_db": cache_db,
+            },
+        )
         return None
 
 

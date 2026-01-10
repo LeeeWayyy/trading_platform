@@ -374,7 +374,7 @@ class AlertConfigService:
                 body=body,
                 metadata={"test_notification": "true"},
             )
-        except Exception as exc:  # pragma: no cover - safety net for unexpected failures
+        except Exception as exc:  # Generic catch justified - safety net for unexpected channel failures
             error_msg = _sanitize_error_for_log(str(exc))
             await self.audit_logger.log_action(
                 user_id=user.get("user_id"),
@@ -385,6 +385,7 @@ class AlertConfigService:
                 details={
                     "recipient_masked": mask_for_logs(channel.recipient, channel.type.value),
                     "error": error_msg,
+                    "error_type": type(exc).__name__,
                 },
             )
             return TestResult(success=False, error=error_msg)

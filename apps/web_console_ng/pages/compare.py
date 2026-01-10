@@ -198,12 +198,36 @@ async def _render_comparison_tool(
                 ui.label("You do not have permission to access one or more selected strategies.").classes(
                     "text-red-500 p-4"
                 )
-            except Exception as exc:
+            except (ConnectionError, OSError) as exc:
                 loading.delete()
-                logger.exception("Failed to load comparison data")
-                ui.label(f"Failed to load comparison data: {exc}").classes(
+                logger.error(
+                    "comparison_data_db_connection_failed",
+                    extra={
+                        "user_id": user.get("user_id"),
+                        "strategies": selected,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                ui.label("Failed to load comparison data: Database connection error").classes(
                     "text-red-500 p-4"
                 )
+                ui.notify("Database connection error", type="negative")
+            except (ValueError, KeyError, TypeError) as exc:
+                loading.delete()
+                logger.error(
+                    "comparison_data_data_error",
+                    extra={
+                        "user_id": user.get("user_id"),
+                        "strategies": selected,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                ui.label("Failed to load comparison data: Data processing error").classes(
+                    "text-red-500 p-4"
+                )
+                ui.notify("Data processing error", type="negative")
 
     compare_btn.on_click(run_comparison)
 
@@ -462,9 +486,28 @@ async def _render_portfolio_simulator(
                             "text-gray-500 p-4"
                         )
 
-                except Exception as exc:
-                    logger.exception("Failed to compute combined portfolio")
-                    ui.label(f"Failed to compute portfolio: {exc}").classes("text-red-500 p-2")
+                except (ConnectionError, OSError) as exc:
+                    logger.error(
+                        "portfolio_computation_db_connection_failed",
+                        extra={
+                            "weights": weights,
+                            "error": str(exc),
+                        },
+                        exc_info=True,
+                    )
+                    ui.label("Failed to compute portfolio: Database connection error").classes("text-red-500 p-2")
+                    ui.notify("Database connection error", type="negative")
+                except (ValueError, KeyError, TypeError) as exc:
+                    logger.error(
+                        "portfolio_computation_data_error",
+                        extra={
+                            "weights": weights,
+                            "error": str(exc),
+                        },
+                        exc_info=True,
+                    )
+                    ui.label("Failed to compute portfolio: Data processing error").classes("text-red-500 p-2")
+                    ui.notify("Data processing error", type="negative")
 
         simulate_btn.on_click(simulate)
 

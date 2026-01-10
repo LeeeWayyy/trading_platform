@@ -175,8 +175,8 @@ class HealthClient:
             if key in data and data[key]:
                 try:
                     return datetime.fromisoformat(data[key].replace("Z", "+00:00"))
-                except (ValueError, AttributeError):
-                    pass
+                except (ValueError, AttributeError) as e:
+                    logger.debug("Failed to parse %s timestamp: %s", key, e)
 
         # Fall back to response timestamp
         if "timestamp" in data:
@@ -186,8 +186,8 @@ class HealthClient:
                     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
                 elif isinstance(ts, datetime):
                     return ts
-            except (ValueError, AttributeError):
-                pass
+            except (ValueError, AttributeError) as e:
+                logger.debug("Failed to parse response timestamp: %s", e)
 
         return None
 

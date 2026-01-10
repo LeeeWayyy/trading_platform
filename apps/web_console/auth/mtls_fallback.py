@@ -230,13 +230,30 @@ class CRLCache:
             # Prometheus metrics: Record CRL fetch failure
             mtls_crl_fetch_total.labels(crl_url=self.crl_url, result="failure").inc()
             mtls_crl_fetch_failures.labels(crl_url=self.crl_url).inc()
-            logger.error("CRL fetch failed (HTTP error)", extra={"error": str(e)})
+            logger.error(
+                "crl_fetch_failed_http_error",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "crl_url": self.crl_url,
+                },
+            )
             raise
-        except Exception as e:
+        except (ValueError, TypeError) as e:
+            # CRL parsing or validation errors
+            # ValueError: CRL too old, invalid CRL format
+            # TypeError: Type mismatch in CRL parsing
             # Prometheus metrics: Record CRL fetch failure
             mtls_crl_fetch_total.labels(crl_url=self.crl_url, result="failure").inc()
             mtls_crl_fetch_failures.labels(crl_url=self.crl_url).inc()
-            logger.error("CRL fetch failed (parse error)", extra={"error": str(e)})
+            logger.error(
+                "crl_fetch_failed_parse_error",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "crl_url": self.crl_url,
+                },
+            )
             raise
 
     async def is_revoked(self, cert: x509.Certificate) -> bool:
@@ -270,10 +287,19 @@ class CRLCache:
 
             return False
 
-        except Exception:
+        except (ValueError, httpx.HTTPError) as e:
             # Fail-secure: Reject auth if CRL check fails
+            # ValueError: CRL too old, invalid CRL format
+            # httpx.HTTPError: CRL fetch network errors
             # This prevents accepting potentially revoked certificates
-            logger.error("CRL check failed - failing secure (rejecting auth)")
+            logger.error(
+                "crl_check_failed_failing_secure",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "cert_serial": hex(cert.serial_number),
+                },
+            )
             raise
 
 
@@ -524,11 +550,25 @@ class MtlsFallbackValidator:
                 crl_status=crl_status,
             )
 
-        except Exception as e:
-            logger.error("Certificate validation exception", extra={"error": str(e)})
+        except (ValueError, httpx.HTTPError, AttributeError) as e:
+            # Certificate validation errors
+            # ValueError: CRL errors, cert parsing errors
+            # httpx.HTTPError: CRL fetch network errors
+            # AttributeError: Invalid certificate format (missing CN)
+            validation_duration = (datetime.now(UTC) - validation_start).total_seconds()
+            cn_safe = cn if "cn" in locals() else ""
+            self._record_auth_failure(cn_safe, "validation_error", validation_duration)
+            logger.error(
+                "certificate_validation_exception",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "cn": cn_safe,
+                },
+            )
             return CertificateInfo(
                 valid=False,
-                cn="",
+                cn=cn_safe,
                 dn="",
                 fingerprint="",
                 not_before=datetime.now(UTC),
@@ -553,8 +593,18 @@ class MtlsFallbackValidator:
                 value = cn_attrs[0].value
                 # CN value may be str or bytes depending on encoding
                 return value if isinstance(value, str) else value.decode("utf-8")
-        except Exception as e:
-            logger.warning("Failed to extract CN from certificate", extra={"error": str(e)})
+        except (AttributeError, ValueError, UnicodeDecodeError) as e:
+            # Certificate parsing errors
+            # AttributeError: Invalid certificate structure (missing subject attributes)
+            # ValueError: Invalid OID or certificate format
+            # UnicodeDecodeError: Invalid encoding in CN value
+            logger.warning(
+                "failed_to_extract_cn",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
 
         return ""
 

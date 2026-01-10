@@ -141,7 +141,8 @@ class FallbackBuffer:
                     try:
                         self._buffer.remove(entry)
                     except ValueError:
-                        pass
+                        # Entry already removed by concurrent operation
+                        logger.debug("Buffer entry already removed during replay")
             self._persist()
 
         return replayed

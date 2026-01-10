@@ -151,7 +151,7 @@ class NotebookLauncherService:
             session.command = command
             session.status = SessionStatus.RUNNING
             session.updated_at = datetime.now(UTC)
-        except Exception as exc:  # pragma: no cover - defensive logging
+        except Exception as exc:  # Generic catch justified - defensive logging for process launch failures
             session.status = SessionStatus.ERROR
             session.error_message = str(exc)
             session.updated_at = datetime.now(UTC)
@@ -161,6 +161,7 @@ class NotebookLauncherService:
                     "template_id": template_id,
                     "session_id": session_id,
                     "user_id": self._user.get("user_id"),
+                    "error_type": type(exc).__name__,
                 },
             )
 
@@ -219,7 +220,7 @@ class NotebookLauncherService:
             session.status = SessionStatus.STOPPED
             session.updated_at = datetime.now(UTC)
             return True
-        except Exception as exc:  # pragma: no cover - defensive logging
+        except Exception as exc:  # Generic catch justified - defensive logging for process termination failures
             session.status = SessionStatus.ERROR
             session.error_message = str(exc)
             session.updated_at = datetime.now(UTC)
@@ -229,6 +230,7 @@ class NotebookLauncherService:
                     "session_id": session_id,
                     "process_id": session.process_id,
                     "user_id": self._user.get("user_id"),
+                    "error_type": type(exc).__name__,
                 },
             )
             return False
@@ -300,7 +302,7 @@ class NotebookLauncherService:
             session.status = SessionStatus.STOPPED
             session.updated_at = datetime.now(UTC)
             return True
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # Generic catch justified - defensive logging for force termination failures
             session.status = SessionStatus.ERROR
             session.error_message = f"Force terminate failed: {exc}"
             session.updated_at = datetime.now(UTC)
@@ -310,6 +312,7 @@ class NotebookLauncherService:
                     "session_id": session_id,
                     "process_id": session.process_id,
                     "user_id": self._user.get("user_id"),
+                    "error_type": type(exc).__name__,
                 },
             )
             return False

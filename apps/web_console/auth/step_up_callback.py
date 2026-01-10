@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import jwt
+
 from apps.web_console.auth.jwks_validator import JWKSValidator
 from apps.web_console.auth.mfa_verification import get_amr_method, verify_step_up_auth
 from apps.web_console.auth.session_invalidation import validate_session_version
@@ -227,14 +229,19 @@ async def handle_step_up_callback(
             expected_audience=expected_audience,
             expected_issuer=issuer,
         )
-    except Exception as exc:
+    except jwt.InvalidTokenError as exc:
+        # ID token validation failed (signature, claims, expiry)
         await session_store.clear_step_up_state(session_id)
         if audit_logger:
             await audit_logger.log_auth_event(
                 user_id=session_data.user_id,
                 action="step_up_callback_failed",
                 outcome="denied",
-                details={"error": str(exc)},
+                details={
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "reason": "id_token_validation_failed",
+                },
             )
         return {
             "error": "id_token_validation_failed",

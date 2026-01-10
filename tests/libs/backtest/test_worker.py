@@ -249,6 +249,54 @@ def test_get_worker_pool_singleton_and_close(monkeypatch):
 
 
 @pytest.mark.unit()
+def test_close_worker_pool_logs_os_error(monkeypatch):
+    class FailingPool:
+        def close(self):
+            raise OSError("Connection reset")
+
+    worker_module._WORKER_POOL = FailingPool()
+    mock_logger = MagicMock()
+    monkeypatch.setattr(worker_module.structlog, "get_logger", lambda *_args: mock_logger)
+    worker_module._close_worker_pool()
+    assert worker_module._WORKER_POOL is None
+    mock_logger.warning.assert_called_once()
+    call_args = mock_logger.warning.call_args
+    assert "OS error" in call_args[0][0]
+
+
+@pytest.mark.unit()
+def test_close_worker_pool_logs_runtime_error(monkeypatch):
+    class FailingPool:
+        def close(self):
+            raise RuntimeError("Pool already closed")
+
+    worker_module._WORKER_POOL = FailingPool()
+    mock_logger = MagicMock()
+    monkeypatch.setattr(worker_module.structlog, "get_logger", lambda *_args: mock_logger)
+    worker_module._close_worker_pool()
+    assert worker_module._WORKER_POOL is None
+    mock_logger.warning.assert_called_once()
+    call_args = mock_logger.warning.call_args
+    assert "runtime error" in call_args[0][0]
+
+
+@pytest.mark.unit()
+def test_close_worker_pool_logs_value_error(monkeypatch):
+    class FailingPool:
+        def close(self):
+            raise ValueError("Invalid pool state")
+
+    worker_module._WORKER_POOL = FailingPool()
+    mock_logger = MagicMock()
+    monkeypatch.setattr(worker_module.structlog, "get_logger", lambda *_args: mock_logger)
+    worker_module._close_worker_pool()
+    assert worker_module._WORKER_POOL is None
+    mock_logger.warning.assert_called_once()
+    call_args = mock_logger.warning.call_args
+    assert "invalid state" in call_args[0][0]
+
+
+@pytest.mark.unit()
 def test_run_backtest_success(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", "postgres://test")
     fake_conn = MagicMock()

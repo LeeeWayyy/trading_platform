@@ -144,6 +144,6 @@ claims = manager.validate_token(token, expected_type="access")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/web_console_auth/__init__.py`, `libs/web_console_auth/config.py`, `libs/web_console_auth/jwt_manager.py`, `libs/web_console_auth/session.py`, `libs/web_console_auth/permissions.py`, `libs/web_console_auth/rate_limiter.py`, `libs/web_console_auth/jwks_validator.py`
 - **ADRs:** N/A

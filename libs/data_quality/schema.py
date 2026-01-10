@@ -295,8 +295,8 @@ class SchemaRegistry:
                                 dataset,
                             )
                             lock_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.debug("Failed to check schema lock for %s: %s", dataset, e)
                 time.sleep(retry_interval)
 
         if not acquired:
@@ -646,7 +646,22 @@ class SchemaRegistry:
             finally:
                 os.close(dir_fd)
 
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Failed to write schema file - I/O error during atomic write",
+                extra={"path": str(path), "temp_path": str(temp_path), "error": str(e)},
+                exc_info=True,
+            )
+            # Clean up temp file on failure
+            if Path(temp_path).exists():
+                Path(temp_path).unlink()
+            raise
+        except TypeError as e:
+            logger.error(
+                "Failed to write schema file - JSON serialization error",
+                extra={"path": str(path), "error": str(e)},
+                exc_info=True,
+            )
             # Clean up temp file on failure
             if Path(temp_path).exists():
                 Path(temp_path).unlink()

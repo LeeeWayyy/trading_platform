@@ -13,7 +13,9 @@ Thresholds:
 
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -83,8 +85,23 @@ class DelegationRules:
         if state is None:
             try:
                 state = self._load_state()
+            except (OSError, PermissionError) as e:
+                print(
+                    f"Warning: Could not load state - I/O error: {e}",
+                    file=sys.stderr,
+                )
+                state = {}
+            except json.JSONDecodeError as e:
+                print(
+                    f"Warning: Could not load state - invalid JSON: {e}",
+                    file=sys.stderr,
+                )
+                state = {}
             except Exception as e:
-                print(f"Warning: Could not load state: {e}")
+                print(
+                    f"Warning: Could not load state - unexpected error: {e}",
+                    file=sys.stderr,
+                )
                 state = {}
 
         context = state.get("context", {})
@@ -162,8 +179,23 @@ class DelegationRules:
         try:
             state = self._locked_modify_state(modifier)
             return self.get_context_snapshot(state)
+        except (OSError, PermissionError) as e:
+            print(
+                f"Warning: Could not update state - I/O error: {e}",
+                file=sys.stderr,
+            )
+            return self.get_context_snapshot({})
+        except json.JSONDecodeError as e:
+            print(
+                f"Warning: Could not update state - invalid JSON: {e}",
+                file=sys.stderr,
+            )
+            return self.get_context_snapshot({})
         except Exception as e:
-            print(f"Warning: Could not update state: {e}")
+            print(
+                f"Warning: Could not update state - unexpected error: {e}",
+                file=sys.stderr,
+            )
             return self.get_context_snapshot({})
 
     def check_threshold(self, state: dict | None = None) -> dict:
@@ -278,8 +310,23 @@ class DelegationRules:
             print(f"Delegation recorded: {description}")
             print("Context reset to 0")
             return self.get_context_snapshot(state)
+        except (OSError, PermissionError) as e:
+            print(
+                f"Warning: Could not record delegation - I/O error: {e}",
+                file=sys.stderr,
+            )
+            return self.get_context_snapshot({})
+        except json.JSONDecodeError as e:
+            print(
+                f"Warning: Could not record delegation - invalid JSON: {e}",
+                file=sys.stderr,
+            )
+            return self.get_context_snapshot({})
         except Exception as e:
-            print(f"Warning: Could not record delegation: {e}")
+            print(
+                f"Warning: Could not record delegation - unexpected error: {e}",
+                file=sys.stderr,
+            )
             return self.get_context_snapshot({})
 
     def suggest_delegation(self) -> None:

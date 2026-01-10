@@ -106,7 +106,7 @@ def main():
         print_warning("Make sure service is running:")
         print_info("  python -m uvicorn apps.signal_service.main:app --host 0.0.0.0 --port 8001")
         return 1
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Error: {e}")
         tests_failed += 1
         return 1
@@ -135,7 +135,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Model info error: {e}")
         tests_failed += 1
 
@@ -172,7 +172,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Manual reload error: {e}")
         tests_failed += 1
 
@@ -254,7 +254,7 @@ def main():
 
         tests_passed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Database update failed: {e}")
         tests_failed += 1
         return 1
@@ -296,7 +296,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Manual reload error: {e}")
         import traceback
 
@@ -341,7 +341,7 @@ def main():
             print_info(f"Response: {response.text}")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Signal generation error: {e}")
         import traceback
 
@@ -409,7 +409,7 @@ def main():
         cur.close()
         conn.close()
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Cleanup failed: {e}")
         print_warning("You may need to manually restore the database")
 
@@ -452,8 +452,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
         sys.exit(1)
-    except Exception as e:
-        print(f"\n{RED}Unexpected error: {e}{NC}")
+    except (ValueError, KeyError, RuntimeError) as e:
+        print(f"\n{RED}Test execution error: {e}{NC}")
         import traceback
 
         traceback.print_exc()

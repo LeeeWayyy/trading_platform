@@ -270,5 +270,8 @@ class AuthRateLimiter:
             )
             return True
         except Exception:
-            logger.exception("Failed to unlock account for user=%s", username)
+            logger.exception(
+                "Failed to unlock account",
+                extra={"username": username, "admin_user": admin_user},
+            )
             return False

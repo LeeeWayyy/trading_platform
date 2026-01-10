@@ -293,8 +293,8 @@ class ModelRegistry:
             conn.close()
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("Failed to release registry lock: %s", e)
 
     # =========================================================================
     # Registration

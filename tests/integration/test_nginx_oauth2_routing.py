@@ -4,8 +4,12 @@ NOTE: These tests require docker-compose --profile oauth2 up -d
 See Codex Review Issue #6 for test harness usage.
 """
 
+import logging
+
 import pytest
 import requests
+
+logger = logging.getLogger(__name__)
 
 # Mark all tests in this module as e2e (require full system setup)
 pytestmark = pytest.mark.e2e
@@ -39,7 +43,17 @@ def _is_nginx_oauth2_available(base_url: str) -> bool:
 
         # OAuth2 profile should return 200, 302, or 401 for /
         return response.status_code in [200, 302, 401]
-    except Exception:
+    except requests.exceptions.ConnectionError as e:
+        logger.debug(
+            "Nginx OAuth2 availability check failed - connection error",
+            extra={"error": str(e), "base_url": base_url},
+        )
+        return False
+    except requests.exceptions.Timeout as e:
+        logger.debug(
+            "Nginx OAuth2 availability check failed - timeout",
+            extra={"error": str(e), "base_url": base_url},
+        )
         return False
 
 

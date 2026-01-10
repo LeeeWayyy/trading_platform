@@ -155,6 +155,6 @@ N/A
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-10
 - **Source Files:** `libs/data_providers/__init__.py`, `libs/data_providers/unified_fetcher.py`, `libs/data_providers/protocols.py`, `libs/data_providers/crsp_local_provider.py`, `libs/data_providers/compustat_local_provider.py`, `libs/data_providers/fama_french_local_provider.py`, `libs/data_providers/yfinance_provider.py`, `libs/data_providers/locking.py`, `libs/data_providers/sync_manager.py`, `libs/data_providers/wrds_client.py`
 - **ADRs:** `docs/ADRs/ADR-016-data-provider-protocol.md`

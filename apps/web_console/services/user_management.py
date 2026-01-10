@@ -310,16 +310,19 @@ async def grant_strategy(
 
         return True, f"Granted {strategy_id}"
 
-    except Exception as e:  # pragma: no cover - defensive logging
+    except Exception as e:  # Generic catch justified - defensive safety net for grant operation
         await audit_logger.log_action(
             user_id=admin_user_id,
             action="strategy_grant_failed",
             resource_type="user_strategy",
             resource_id=f"{user_id}:{strategy_id}",
             outcome="failed",
-            details={"reason": "db_error", "error": str(e)},
+            details={"reason": "db_error", "error": str(e), "error_type": type(e).__name__},
         )
-        logger.exception("grant_strategy_failed", extra={"error": str(e)})
+        logger.exception(
+            "grant_strategy_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
         return False, f"Error: {str(e)}"
 
 
@@ -389,16 +392,19 @@ async def revoke_strategy(
 
         return True, f"Revoked {strategy_id}"
 
-    except Exception as e:  # pragma: no cover - defensive logging
+    except Exception as e:  # Generic catch justified - defensive safety net for revoke operation
         await audit_logger.log_action(
             user_id=admin_user_id,
             action="strategy_revoke_failed",
             resource_type="user_strategy",
             resource_id=f"{user_id}:{strategy_id}",
             outcome="failed",
-            details={"reason": "db_error", "error": str(e)},
+            details={"reason": "db_error", "error": str(e), "error_type": type(e).__name__},
         )
-        logger.exception("revoke_strategy_failed", extra={"error": str(e)})
+        logger.exception(
+            "revoke_strategy_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
         return False, f"Error: {str(e)}"
 
 

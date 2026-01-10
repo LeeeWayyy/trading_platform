@@ -376,10 +376,14 @@ class DatabaseClient:
                 try:
                     yield conn
                     logger.debug("Transaction committed successfully")
-                except Exception as e:
+                except (IntegrityError, OperationalError, DatabaseError) as e:
                     logger.warning(
-                        f"Transaction rolled back due to error: {e}",
-                        extra={"error_type": type(e).__name__, "error_message": str(e)},
+                        "Transaction rolled back due to database error",
+                        extra={
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                            "operation": "transaction",
+                        },
                     )
                     raise
 
@@ -2615,8 +2619,15 @@ class DatabaseClient:
                     cur.execute("SELECT 1")
                     return True
 
-        except Exception as e:
-            logger.error(f"Database connection check failed: {e}")
+        except (OperationalError, DatabaseError) as e:
+            logger.error(
+                "Database connection check failed",
+                extra={
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "operation": "check_connection",
+                },
+            )
             return False
 
     def _row_to_order_detail(self, row: Mapping[str, Any]) -> OrderDetail:

@@ -199,12 +199,30 @@ def _get_worker_pool() -> ConnectionPool:
 def _close_worker_pool() -> None:
     """Close worker pool on process exit for clean shutdown."""
     global _WORKER_POOL
+    logger = structlog.get_logger(__name__)
     if _WORKER_POOL is not None:
         try:
             _WORKER_POOL.close()
-        except Exception:
-            pass  # Best effort cleanup on exit
-        _WORKER_POOL = None
+        except OSError as e:
+            logger.warning(
+                "Worker pool cleanup - OS error closing connection pool",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=False,
+            )
+        except RuntimeError as e:
+            logger.warning(
+                "Worker pool cleanup - runtime error closing connection pool",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=False,
+            )
+        except ValueError as e:
+            logger.warning(
+                "Worker pool cleanup - invalid state during pool closure",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=False,
+            )
+        finally:
+            _WORKER_POOL = None
 
 
 def record_retry(job: Any, *exc_info: Any) -> bool:

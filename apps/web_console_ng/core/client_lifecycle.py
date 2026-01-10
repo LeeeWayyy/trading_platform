@@ -80,10 +80,10 @@ class ClientLifecycleManager:
                 result = callback()
                 if asyncio.iscoroutine(result):
                     await result
-            except Exception as exc:
+            except (OSError, ConnectionError, ValueError, TypeError) as exc:
                 logger.warning(
                     "cleanup_callback_error",
-                    extra={"client_id": client_id, "error": str(exc)},
+                    extra={"client_id": client_id, "error": str(exc), "type": type(exc).__name__},
                 )
 
         logger.info(

@@ -8,6 +8,7 @@ management.
 See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
+import logging
 import warnings
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ import mlflow.lightgbm
 from mlflow.tracking import MlflowClient
 
 from strategies.alpha_baseline.config import StrategyConfig
+
+logger = logging.getLogger(__name__)
 
 
 def initialize_mlflow(
@@ -57,7 +60,30 @@ def initialize_mlflow(
             experiment_id = str(mlflow.create_experiment(experiment_name))
         else:
             experiment_id = str(experiment.experiment_id)
-    except Exception as e:
+    except mlflow.exceptions.MlflowException as e:
+        # MLflow-specific errors (e.g., backend unavailable, permission issues)
+        logger.error(
+            "Failed to get/create MLflow experiment - MLflow error",
+            extra={
+                "experiment_name": experiment_name,
+                "tracking_uri": tracking_uri,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        warnings.warn(f"Failed to get/create experiment: {e}", stacklevel=2)
+        experiment_id = "0"  # Default experiment
+    except OSError as e:
+        # File system errors (e.g., disk full, permission denied)
+        logger.error(
+            "Failed to get/create MLflow experiment - file system error",
+            extra={
+                "experiment_name": experiment_name,
+                "tracking_uri": tracking_uri,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
         warnings.warn(f"Failed to get/create experiment: {e}", stacklevel=2)
         experiment_id = "0"  # Default experiment
 

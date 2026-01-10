@@ -9,10 +9,11 @@ Security: Multi-layer defense (Nginx + FastAPI):
 See nginx-oauth2.conf /csp-report location for details.
 """
 
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -126,34 +127,60 @@ async def csp_report(request: Request) -> dict[str, str]:
                 raise HTTPException(status_code=413, detail="Payload too large")
     except HTTPException:
         raise  # Re-raise 413 or 400 from above
-    except Exception as e:
+    except OSError as e:
+        # Network errors during body stream read
         logger.error(
-            "CSP report rejected: body stream error",
+            "CSP report rejected: network error reading body stream",
             extra={
+                "error_type": type(e).__name__,
                 "error": str(e),
                 "client_ip": request.client.host if request.client else "unknown",
             },
         )
-        raise HTTPException(status_code=400, detail="Invalid request body") from e
+        raise HTTPException(status_code=400, detail="Network error reading request body") from e
+    except UnicodeDecodeError as e:
+        # Invalid UTF-8 encoding in body
+        logger.error(
+            "CSP report rejected: invalid UTF-8 encoding",
+            extra={
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "client_ip": request.client.host if request.client else "unknown",
+            },
+        )
+        raise HTTPException(status_code=400, detail="Invalid request encoding") from e
 
     # Step 4: Parse body with Pydantic AFTER size validation (Codex Fresh Review: HIGH)
     try:
-        import json
-
         body_dict = json.loads(body_bytes.decode("utf-8"))
         report = CSPReportWrapper.model_validate(body_dict)
+    except UnicodeDecodeError as e:
+        # Invalid UTF-8 encoding in body content
+        logger.error(
+            "CSP report rejected: invalid UTF-8 encoding in body",
+            extra={
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "client_ip": request.client.host if request.client else "unknown",
+            },
+        )
+        raise HTTPException(status_code=400, detail="Invalid request encoding") from e
     except json.JSONDecodeError as err:
         logger.warning(
             "CSP report rejected: invalid JSON",
             extra={
+                "error_type": type(err).__name__,
+                "error": str(err),
                 "client_ip": request.client.host if request.client else "unknown",
             },
         )
         raise HTTPException(status_code=400, detail="Invalid JSON") from err
-    except Exception as err:
+    except ValidationError as err:
+        # Pydantic validation errors (missing fields, wrong types)
         logger.warning(
             "CSP report rejected: Pydantic validation failed",
             extra={
+                "error_type": type(err).__name__,
                 "error": str(err),
                 "client_ip": request.client.host if request.client else "unknown",
             },

@@ -128,6 +128,6 @@ config.features.ma_slow_period = 50
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `strategies/momentum/*.py`, `strategies/momentum/README.md`
 - **ADRs:** N/A

@@ -1103,8 +1103,28 @@ class FactorAttribution:
                         f"Factor '{factor_name}': VIF={vif:.2f} exceeds threshold "
                         f"({self.config.vif_threshold})"
                     )
-            except Exception as e:
-                warnings_list.append(f"Factor '{factor_name}': VIF error - {e}")
+            except np.linalg.LinAlgError as e:
+                logger.debug(
+                    "VIF computation failed due to linear algebra error",
+                    extra={
+                        "factor": factor_name,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+                warnings_list.append(f"Factor '{factor_name}': VIF computation failed (LinAlgError)")
+            except (ValueError, ZeroDivisionError) as e:
+                logger.debug(
+                    "VIF computation failed due to numerical error",
+                    extra={
+                        "factor": factor_name,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+                warnings_list.append(
+                    f"Factor '{factor_name}': VIF computation failed ({type(e).__name__})"
+                )
 
         return warnings_list
 

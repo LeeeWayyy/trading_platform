@@ -156,7 +156,21 @@ class HARedisStore:
         """
         try:
             slave = self.get_slave_client(decode_responses=True)
-        except Exception:
+        except (RedisError, OSError, ConnectionError) as exc:
+            logger.debug(
+                "slave_client_unavailable",
+                extra={"error": str(exc), "type": type(exc).__name__},
+            )
+            master = await self.get_master()
+            self._slave_text = master
+            return master
+        except Exception as exc:
+            # Catch-all for unexpected errors - fallback to master for resilience
+            logger.warning(
+                "slave_client_unexpected_error",
+                extra={"error": str(exc), "type": type(exc).__name__},
+                exc_info=True,
+            )
             master = await self.get_master()
             self._slave_text = master
             return master
@@ -165,7 +179,11 @@ class HARedisStore:
             try:
                 slave = self._build_slave_client(decode_responses=True)
                 self._slave_text = slave
-            except Exception:
+            except (RedisError, OSError, ConnectionError) as exc:
+                logger.debug(
+                    "slave_rebuild_failed",
+                    extra={"error": str(exc), "type": type(exc).__name__},
+                )
                 slave = await self.get_master()
                 self._slave_text = slave
         return slave
@@ -175,7 +193,7 @@ class HARedisStore:
         try:
             await asyncio.wait_for(conn.ping(), timeout=0.5)
             return True
-        except Exception:
+        except (RedisError, OSError, ConnectionError, TimeoutError):
             return False
 
     async def ping(self) -> bool:

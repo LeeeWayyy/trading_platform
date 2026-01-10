@@ -347,9 +347,26 @@ class ModelRegistry:
 
             return model
 
-        except Exception as e:
-            logger.error(f"Failed to load model from {model_path}: {e}")
+        except OSError as e:
+            logger.error(
+                "Failed to load model due to file I/O error",
+                extra={"model_path": model_path, "error": str(e), "error_type": type(e).__name__},
+            )
             raise ValueError(f"Invalid LightGBM model file: {model_path}") from e
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "Failed to load model due to invalid data format",
+                extra={"model_path": model_path, "error": str(e), "error_type": type(e).__name__},
+            )
+            raise ValueError(f"Invalid LightGBM model file: {model_path}") from e
+        except Exception as e:
+            # Catch-all for LightGBM-specific errors (LightGBMError) and other unexpected errors
+            logger.error(
+                "Failed to load model due to unexpected error",
+                extra={"model_path": model_path, "error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise ValueError(f"Invalid LightGBM model: {model_path}") from e
 
     def reload_if_changed(
         self,
@@ -470,7 +487,17 @@ class ModelRegistry:
                 # Use dummy input with correct number of features
                 try:
                     _ = new_model.predict([[0.0] * new_model.num_feature()])
-                except Exception as e:
+                except (ValueError, TypeError, KeyError, AttributeError) as e:
+                    logger.error(
+                        "Model prediction test failed",
+                        extra={
+                            "strategy": strategy,
+                            "version": new_metadata.version,
+                            "model_path": new_metadata.model_path,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                    )
                     raise ValueError(f"Model prediction test failed: {e}") from e
 
                 if (
@@ -559,10 +586,15 @@ class ModelRegistry:
                                 self._pending_metadata = None
                                 self._pending_validation = False
                                 self._pending_validation_id = None
-                        except Exception as exc:
+                        except (ValueError, TypeError, KeyError, AttributeError) as exc:
                             logger.error(
-                                f"Shadow validation error: {exc}",
-                                extra={"version": new_metadata.version},
+                                "Shadow validation error",
+                                extra={
+                                    "strategy": strategy,
+                                    "version": new_metadata.version,
+                                    "error": str(exc),
+                                    "error_type": type(exc).__name__,
+                                },
                                 exc_info=True,
                             )
                         finally:
@@ -605,9 +637,57 @@ class ModelRegistry:
             self._last_check = datetime.now(UTC)
             return False
 
-        except Exception as e:
+        except (FileNotFoundError, OSError) as e:
             logger.error(
-                f"Failed to reload model: {e}", extra={"strategy": strategy}, exc_info=True
+                "Failed to reload model due to file error",
+                extra={
+                    "strategy": strategy,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+
+            # Graceful degradation: keep current model if one is loaded
+            if self._current_model is not None and self._current_metadata is not None:
+                logger.warning(
+                    "Keeping current model after failed reload",
+                    extra={"current_version": self._current_metadata.version, "error": str(e)},
+                )
+                return False
+
+            # No model loaded and reload failed - propagate error
+            raise
+        except (ValueError, TypeError, KeyError) as e:
+            logger.error(
+                "Failed to reload model due to validation error",
+                extra={
+                    "strategy": strategy,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+
+            # Graceful degradation: keep current model if one is loaded
+            if self._current_model is not None and self._current_metadata is not None:
+                logger.warning(
+                    "Keeping current model after failed reload",
+                    extra={"current_version": self._current_metadata.version, "error": str(e)},
+                )
+                return False
+
+            # No model loaded and reload failed - propagate error
+            raise
+        except (OperationalError, DatabaseError) as e:
+            logger.error(
+                "Failed to reload model due to database error",
+                extra={
+                    "strategy": strategy,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
             )
 
             # Graceful degradation: keep current model if one is loaded

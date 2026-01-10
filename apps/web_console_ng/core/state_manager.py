@@ -163,8 +163,11 @@ class UserStateManager:
                         try:
                             parsed = json.loads(data, object_hook=trading_json_object_hook)
                             state = parsed.get("data", {})
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            logger.warning(
+                                "Failed to parse state JSON, using empty state",
+                                extra={"error": str(e), "key": self.state_key},
+                            )
 
                     # MODIFY
                     preferences = state.get("preferences", {})
@@ -239,8 +242,11 @@ class UserStateManager:
                         try:
                             parsed = json.loads(data, object_hook=trading_json_object_hook)
                             state = parsed.get("data", {})
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            logger.warning(
+                                "Failed to parse state JSON, using empty state",
+                                extra={"error": str(e), "key": self.state_key},
+                            )
 
                     pending_forms = state.get("pending_forms", {})
                     pending_forms[form_id] = {
@@ -303,8 +309,11 @@ class UserStateManager:
                         try:
                             parsed = json.loads(data, object_hook=trading_json_object_hook)
                             state = parsed.get("data", {})
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            logger.warning(
+                                "Failed to parse state JSON, using empty state",
+                                extra={"error": str(e), "key": self.state_key},
+                            )
 
                     pending_forms = state.get("pending_forms", {})
                     pending_forms.pop(form_id, None)

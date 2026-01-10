@@ -404,9 +404,15 @@ Examples:
 
         return 0
 
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+    except FileNotFoundError as e:
+        print(f"Error: Checkpoint file not found: {e}", file=sys.stderr)
+        return 2
+    except OSError as e:
+        print(f"Error: File I/O error: {e}", file=sys.stderr)
+        return 3
+    except (ValueError, KeyError) as e:
+        print(f"Error: Invalid checkpoint data: {e}", file=sys.stderr)
+        return 4
 
 
 if __name__ == "__main__":

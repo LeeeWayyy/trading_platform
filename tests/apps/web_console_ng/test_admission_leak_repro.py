@@ -1,6 +1,7 @@
 # tests/apps/web_console_ng/test_admission_leak_repro.py
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -8,6 +9,8 @@ import pytest
 
 from apps.web_console_ng import config
 from apps.web_console_ng.core import admission
+
+logger = logging.getLogger(__name__)
 
 
 def _build_scope(cookie: str | None = None) -> dict[str, Any]:
@@ -39,8 +42,12 @@ async def _run_app(app, scope: dict[str, Any]) -> list[dict[str, Any]]:
 
     try:
         await app(scope, _receive, _send)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            "Test application raised exception (expected for test scenarios)",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+        # Don't fail test - exceptions are expected in leak reproduction tests
     return events
 
 

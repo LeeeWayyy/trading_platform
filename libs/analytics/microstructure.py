@@ -31,6 +31,8 @@ try:  # Optional acceleration path
 
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback when numba not installed
+    # JUSTIFIED: Numba is an optional dependency for performance acceleration.
+    # Graceful fallback to pure Python implementation when unavailable.
     NUMBA_AVAILABLE = False
     njit = None
 
@@ -275,8 +277,12 @@ class MicrostructureAnalyzer:
                         sampling_freq_minutes=sampling_freq_minutes,
                         num_observations=rv_row.get("obs", 0),
                     )
-            except (DataNotFoundError, KeyError):
-                pass
+            except (DataNotFoundError, KeyError) as e:
+                logger.debug(
+                    "Pre-computed RV not available for %s, will compute from bars: %s",
+                    symbol,
+                    e,
+                )
 
         bars_df = self.taq.fetch_minute_bars(
             symbols=[symbol],

@@ -10,11 +10,13 @@ Provides a high-level interface to the Alpaca Trading API with:
 See ADR-0014 for design rationale.
 """
 
+import json
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol, cast
 
+import httpx
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -253,10 +255,37 @@ class AlpacaExecutor:
                 # Transient error - will retry
                 raise AlpacaConnectionError(f"Alpaca API connection error: {error_message}") from e
 
-        except Exception as e:
-            # Unexpected error
-            logger.error(f"Unexpected error submitting order: {e}")
-            raise AlpacaClientError(f"Unexpected error: {e}") from e
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as e:
+            # Network/connection errors - retryable
+            logger.error(
+                "Network error submitting order",
+                extra={
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "qty": order.qty,
+                    "order_type": order.order_type,
+                    "client_order_id": client_order_id,
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            raise AlpacaConnectionError(f"Network error: {e}") from e
+
+        except (json.JSONDecodeError, KeyError, ValueError, AttributeError) as e:
+            # Data validation/parsing errors - non-retryable
+            logger.error(
+                "Data validation error submitting order",
+                extra={
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "qty": order.qty,
+                    "order_type": order.order_type,
+                    "client_order_id": client_order_id,
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            raise AlpacaValidationError(f"Data validation error: {e}") from e
 
     def _build_alpaca_request(
         self, order: OrderRequest, client_order_id: str
@@ -508,23 +537,56 @@ class AlpacaExecutor:
         except AlpacaAPIError as e:
             raise AlpacaConnectionError(f"Error fetching orders: {e}") from e
 
+    def _parse_datetime(self, value: Any) -> datetime | None:
+        """Parse datetime value to timezone-aware datetime.
+
+        Handles both datetime objects and ISO format strings from Alpaca API.
+        Returns None if value is None or unparseable.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            # Ensure timezone-aware
+            if value.tzinfo is None:
+                return value.replace(tzinfo=UTC)
+            return value
+        if isinstance(value, str):
+            try:
+                # Parse ISO format string (Alpaca returns ISO 8601 format)
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    return parsed.replace(tzinfo=UTC)
+                return parsed
+            except (ValueError, AttributeError) as e:
+                logger.warning(
+                    "Failed to parse datetime string from Alpaca",
+                    extra={"value": value, "error": str(e)},
+                )
+                return None
+        # Unknown type - log and return None
+        logger.warning(
+            "Unexpected datetime type from Alpaca",
+            extra={"value": value, "type": type(value).__name__},
+        )
+        return None
+
     def get_market_clock(self) -> dict[str, Any]:
-        """Return Alpaca market clock snapshot."""
+        """Return Alpaca market clock snapshot with normalized datetime values."""
         try:
             clock = self.client.get_clock()
             if isinstance(clock, dict):
                 return {
-                    "timestamp": clock.get("timestamp"),
+                    "timestamp": self._parse_datetime(clock.get("timestamp")),
                     "is_open": clock.get("is_open"),
-                    "next_open": clock.get("next_open"),
-                    "next_close": clock.get("next_close"),
+                    "next_open": self._parse_datetime(clock.get("next_open")),
+                    "next_close": self._parse_datetime(clock.get("next_close")),
                 }
             clock_obj = cast(_ClockLike, clock)
             return {
-                "timestamp": clock_obj.timestamp,
+                "timestamp": self._parse_datetime(clock_obj.timestamp),
                 "is_open": clock_obj.is_open,
-                "next_open": clock_obj.next_open,
-                "next_close": clock_obj.next_close,
+                "next_open": self._parse_datetime(clock_obj.next_open),
+                "next_close": self._parse_datetime(clock_obj.next_close),
             }
         except AlpacaAPIError as e:
             raise AlpacaConnectionError(f"Error fetching market clock: {e}") from e
@@ -648,8 +710,31 @@ class AlpacaExecutor:
             account = self.client.get_account()
             return account is not None
 
+        except AlpacaAPIError as e:
+            logger.error(
+                "Alpaca API error during connection check",
+                extra={
+                    "status_code": getattr(e, "status_code", None),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            return False
+
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as e:
+            logger.error(
+                "Network error during connection check",
+                extra={"error_type": type(e).__name__},
+                exc_info=True,
+            )
+            return False
         except Exception as e:
-            logger.error(f"Alpaca connection check failed: {e}")
+            # Catch-all for unexpected errors
+            logger.error(
+                "Unexpected error during connection check",
+                extra={"error_type": type(e).__name__, "error": str(e)},
+                exc_info=True,
+            )
             return False
 
     def get_account_info(self) -> dict[str, Any] | None:
@@ -689,8 +774,39 @@ class AlpacaExecutor:
                 "transfers_blocked": account.transfers_blocked,
             }
 
+        except AlpacaAPIError as e:
+            logger.error(
+                "Alpaca API error fetching account info",
+                extra={
+                    "status_code": getattr(e, "status_code", None),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            return None
+
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as e:
+            logger.error(
+                "Network error fetching account info",
+                extra={"error_type": type(e).__name__},
+                exc_info=True,
+            )
+            return None
+
+        except (KeyError, ValueError, AttributeError) as e:
+            logger.error(
+                "Data validation error fetching account info",
+                extra={"error_type": type(e).__name__},
+                exc_info=True,
+            )
+            return None
         except Exception as e:
-            logger.error(f"Error fetching account info: {e}")
+            # Catch-all for unexpected errors
+            logger.error(
+                "Unexpected error fetching account info",
+                extra={"error_type": type(e).__name__, "error": str(e)},
+                exc_info=True,
+            )
             return None
 
     @retry(
@@ -794,9 +910,37 @@ class AlpacaExecutor:
 
         except AlpacaAPIError as e:
             error_message = str(e)
-            logger.error(f"Alpaca API error fetching quotes: {error_message}")
+            logger.error(
+                "Alpaca API error fetching quotes",
+                extra={
+                    "symbols": symbols,
+                    "status_code": getattr(e, "status_code", None),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise AlpacaConnectionError(f"Failed to fetch quotes: {error_message}") from e
 
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as e:
+            logger.error(
+                "Network error fetching quotes",
+                extra={"symbols": symbols, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise AlpacaConnectionError(f"Network error fetching quotes: {e}") from e
+
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
+            logger.error(
+                "Data validation error fetching quotes",
+                extra={"symbols": symbols, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise AlpacaConnectionError(f"Data validation error fetching quotes: {e}") from e
         except Exception as e:
-            logger.error(f"Unexpected error fetching quotes: {e}")
+            # Catch-all for unexpected errors (including ValueError from data issues)
+            logger.error(
+                "Unexpected error fetching quotes",
+                extra={"symbols": symbols, "error_type": type(e).__name__, "error": str(e)},
+                exc_info=True,
+            )
             raise AlpacaConnectionError(f"Unexpected error fetching quotes: {e}") from e

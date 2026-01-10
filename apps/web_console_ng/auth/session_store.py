@@ -202,7 +202,17 @@ class ServerSessionStore:
 
             try:
                 decrypted = self.fernet.decrypt(data).decode("utf-8")
-            except Exception as exc:
+            except (TypeError, AttributeError) as exc:
+                # Cryptographic errors: corrupt data, wrong key, or invalid input
+                logger.warning(
+                    "Session decryption failed",
+                    extra={
+                        "session_id": session_id,
+                        "client_ip": client_ip,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
                 await self.invalidate_session(session_id)
                 self._audit_failure(
                     "session_validation_failure",
@@ -316,9 +326,6 @@ class ServerSessionStore:
             # Infrastructure error - callers should respond with 503, not 401
             logger.error("Redis error during session validation: %s", exc)
             raise SessionValidationError("Session validation failed - storage unavailable") from exc
-        except Exception as exc:
-            logger.warning("Session validation failed: %s: %s", type(exc).__name__, exc)
-            return None
 
     async def rotate_session(
         self,
@@ -402,8 +409,27 @@ class ServerSessionStore:
                     outcome="success",
                 )
             return cookie_value, new_csrf
-        except Exception as exc:
-            logger.warning("Session rotation failed: %s: %s", type(exc).__name__, exc)
+        except redis.RedisError as exc:
+            # Redis errors during rotation - log with context
+            logger.error(
+                "Session rotation failed - Redis error",
+                extra={
+                    "old_session_id": old_session_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return None
+        except (TypeError, AttributeError, ValueError, KeyError) as exc:
+            # Data corruption or invalid session structure
+            logger.warning(
+                "Session rotation failed - invalid session data",
+                extra={
+                    "old_session_id": old_session_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
             return None
 
     async def invalidate_session(self, session_id: str) -> None:
@@ -545,7 +571,12 @@ def _normalize_fernet_key(key: bytes) -> bytes:
 def _ip_subnet(client_ip: str, mask_bits: int) -> str:
     try:
         addr = ipaddress.ip_address(client_ip)
-    except Exception:
+    except ValueError as exc:
+        # Invalid IP format - return original for best-effort tracking
+        logger.debug(
+            "Invalid IP address format for subnet calculation",
+            extra={"client_ip": client_ip, "error": str(exc)},
+        )
         return client_ip
     max_bits = 32 if addr.version == 4 else 128
     mask = max(0, min(mask_bits, max_bits))

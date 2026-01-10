@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from fastapi import Request, Response
 from nicegui import app
+from redis.exceptions import RedisError
 
 from apps.web_console_ng import config
 from apps.web_console_ng.core.client import AsyncTradingClient
@@ -178,10 +179,21 @@ async def readiness_check(request: Request) -> Response:
             redis = get_redis_store()
             await asyncio.wait_for(redis.ping(), timeout=1.0)
             return ("redis", "ok")
-        except Exception as e:
+        except (RedisError, OSError, ConnectionError, TimeoutError) as e:
             # Sanitize error: don't expose raw exception to avoid info leak
-            logger.warning(f"Redis health check failed: {e}")
+            logger.warning(
+                "redis_health_check_failed",
+                extra={"error": str(e), "type": type(e).__name__},
+            )
             return ("redis", "error: connection_failed")
+        except Exception as e:
+            # Catch-all for unexpected errors - log and mark as failed
+            logger.error(
+                "redis_health_check_unexpected_error",
+                extra={"error": str(e), "type": type(e).__name__},
+                exc_info=True,
+            )
+            return ("redis", "error: unexpected_error")
 
     async def check_backend() -> tuple[str, str]:
         # Backend health check is opt-in via HEALTH_CHECK_BACKEND_ENABLED
@@ -213,10 +225,21 @@ async def readiness_check(request: Request) -> Response:
                 timeout=2.0,
             )
             return ("backend", "ok")
-        except Exception as e:
+        except (OSError, ConnectionError, TimeoutError) as e:
             # Sanitize error: don't expose raw exception to avoid info leak
-            logger.warning(f"Backend health check failed: {e}")
+            logger.warning(
+                "backend_health_check_failed",
+                extra={"error": str(e), "type": type(e).__name__},
+            )
             return ("backend", "error: connection_failed")
+        except Exception as e:
+            # Catch-all for unexpected errors (httpx.HTTPError, ValueError, etc.)
+            logger.error(
+                "backend_health_check_unexpected_error",
+                extra={"error": str(e), "type": type(e).__name__},
+                exc_info=True,
+            )
+            return ("backend", "error: unexpected_error")
 
     # Run checks concurrently with global timeout (prevents cumulative latency)
     try:

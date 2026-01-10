@@ -133,13 +133,13 @@ async def auth_callback(code: str, state: str) -> None:
     request: StarletteRequest | None = None
     try:
         request = storage.request_contextvar.get()
-    except (LookupError, AttributeError):
-        pass
+    except (LookupError, AttributeError) as e:
+        logger.debug("storage.request_contextvar not available: %s", type(e).__name__)
     if request is None:
         try:
             request = nicegui_ui.context.client.request
-        except (AttributeError, RuntimeError):
-            pass
+        except (AttributeError, RuntimeError) as e:
+            logger.debug("ui.context.client.request not available: %s", type(e).__name__)
     if request is None:
         ui.label("Error: No request context").classes("text-red-500")
         return

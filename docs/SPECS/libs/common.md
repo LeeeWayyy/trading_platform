@@ -89,6 +89,6 @@ api_key = get_required_secret("alpaca/api_key_id")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/common/__init__.py`, `libs/common/rate_limit_dependency.py`, `libs/common/secrets.py`
 - **ADRs:** N/A

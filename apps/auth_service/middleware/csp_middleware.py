@@ -98,9 +98,8 @@ class CSPMiddleware(BaseHTTPMiddleware):
             # Let HTTPException propagate to preserve status codes (404, 401, 429, etc.)
             # CSP headers will be added via exception handler in main.py
             raise
-        except Exception as e:
-            # Only catch non-HTTP exceptions (framework errors, crashes)
-            # Return 500 with CSP header for these cases
+        except OSError as e:
+            # Network errors during request processing (connection reset, broken pipe, etc.)
             from fastapi.responses import JSONResponse
 
             response = JSONResponse(
@@ -109,10 +108,52 @@ class CSPMiddleware(BaseHTTPMiddleware):
             )
             response.headers[header_name] = csp_policy
             logger.error(
-                "Unhandled exception in request - returning 500 with CSP header",
+                "Network error in request processing - returning 500 with CSP header",
                 extra={
-                    "error": str(e),
                     "error_type": type(e).__name__,
+                    "error": str(e),
+                    "path": request.url.path,
+                    "nonce": nonce[:8] + "...",
+                },
+                exc_info=True,  # Include full traceback for debugging
+            )
+            # Return 500 response with CSP header
+            return response
+        except (ValueError, TypeError) as e:
+            # Data validation errors or type errors during request processing
+            from fastapi.responses import JSONResponse
+
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+            response.headers[header_name] = csp_policy
+            logger.error(
+                "Validation error in request processing - returning 500 with CSP header",
+                extra={
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "path": request.url.path,
+                    "nonce": nonce[:8] + "...",
+                },
+                exc_info=True,  # Include full traceback for debugging
+            )
+            # Return 500 response with CSP header
+            return response
+        except RuntimeError as e:
+            # Runtime errors (framework issues, state errors)
+            from fastapi.responses import JSONResponse
+
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+            response.headers[header_name] = csp_policy
+            logger.error(
+                "Runtime error in request processing - returning 500 with CSP header",
+                extra={
+                    "error_type": type(e).__name__,
+                    "error": str(e),
                     "path": request.url.path,
                     "nonce": nonce[:8] + "...",
                 },

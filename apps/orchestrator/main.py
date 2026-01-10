@@ -38,8 +38,11 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import psycopg
 from fastapi import FastAPI, HTTPException, Query, status
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from apps.orchestrator import __version__
 from apps.orchestrator.database import OrchestrationDatabaseClient
@@ -53,7 +56,7 @@ from apps.orchestrator.schemas import (
     OrchestrationResult,
     OrchestrationRunsResponse,
 )
-from libs.redis_client import RedisClient, RedisConnectionError
+from libs.redis_client import RedisClient
 from libs.risk_management import KillSwitch
 
 # ============================================================================
@@ -135,14 +138,32 @@ if redis_client:
     try:
         kill_switch = KillSwitch(redis_client=redis_client)
         logger.info("Kill-switch initialized successfully")
-    except Exception as e:
+    except (RedisConnectionError, RedisTimeoutError) as e:
         logger.error(
-            f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all orchestration blocked until Redis available."
+            "Failed to initialize kill-switch - Redis connection error",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "fail_closed": True,
+            },
+            exc_info=True,
+        )
+        set_kill_switch_unavailable(True)
+    except ValueError as e:
+        logger.error(
+            "Failed to initialize kill-switch - invalid configuration",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "fail_closed": True,
+            },
+            exc_info=True,
         )
         set_kill_switch_unavailable(True)
 else:
     logger.error(
-        "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all orchestration blocked until Redis available."
+        "Kill-switch not initialized - Redis client unavailable. FAILING CLOSED",
+        extra={"fail_closed": True},
     )
     set_kill_switch_unavailable(True)
 
@@ -685,10 +706,39 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
     except HTTPException:
         run_status = "error"
         raise
-    except Exception:
+    except ValueError as e:
         run_status = "error"
-        logger.exception("Unhandled failure in run_orchestration")
-        raise
+        logger.error(
+            "Orchestration run failed - invalid input",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except (psycopg.OperationalError, psycopg.IntegrityError) as e:
+        run_status = "error"
+        logger.error(
+            "Orchestration run failed - database error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during orchestration",
+        ) from e
+    except Exception as e:
+        run_status = "error"
+        logger.error(
+            "Orchestration run failed - unexpected error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during orchestration",
+        ) from e
     finally:
         # Always record metrics
         elapsed = time.time() - run_started

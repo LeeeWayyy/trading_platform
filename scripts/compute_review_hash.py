@@ -15,6 +15,7 @@ Author: Claude Code
 Date: 2025-11-13
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -44,9 +45,15 @@ def main() -> int:
         print(staged_hash)
         return 0
 
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Git command failed: {e}", file=sys.stderr)
+        return 2
+    except OSError as e:
+        print(f"Error: File I/O error: {e}", file=sys.stderr)
+        return 3
+    except (ValueError, RuntimeError) as e:
         print(f"Error computing review hash: {e}", file=sys.stderr)
-        return 1
+        return 4
 
 
 if __name__ == "__main__":

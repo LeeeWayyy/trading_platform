@@ -39,6 +39,7 @@ See Also:
     - strategies/alpha_baseline/features.py for Alpha158 implementation
 """
 
+import json
 import logging
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -46,6 +47,7 @@ from typing import Any, TypedDict, cast
 
 import numpy as np
 import pandas as pd
+from redis.exceptions import RedisError
 
 from libs.redis_client import FeatureCache
 
@@ -368,9 +370,12 @@ class SignalGenerator:
                     else:
                         # Cache miss - need to generate
                         symbols_to_generate.append(symbol)
-                except Exception as e:
+                except (RedisError, json.JSONDecodeError, KeyError, ValueError) as e:
                     # Cache error - fall back to generation (graceful degradation)
-                    logger.warning(f"Cache error for {symbol}: {e}, falling back to generation")
+                    logger.warning(
+                        f"Cache error for {symbol}: {e}, falling back to generation",
+                        extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
+                    )
                     symbols_to_generate.append(symbol)
         else:
             # No cache available - generate all
@@ -413,18 +418,21 @@ class SignalGenerator:
                         except (KeyError, IndexError):
                             # Symbol not in generated features, skip caching
                             logger.debug(f"Symbol {symbol} not in features, skipping cache")
-                        except Exception as e:
+                        except (RedisError, TypeError, ValueError) as e:
                             # Cache write error - log but don't fail (graceful degradation)
-                            logger.warning(f"Failed to cache features for {symbol}: {e}")
+                            logger.warning(
+                                f"Failed to cache features for {symbol}: {e}",
+                                extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
+                            )
 
                 features_list.append(fresh_features)
 
-            except Exception as e:
+            except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
                 # FALLBACK: Use mock features if Qlib integration not available
                 # This allows P3 testing without full Qlib data setup
                 logger.warning(
                     f"Falling back to mock features due to error: {e}",
-                    extra={"date": date_str, "symbols": symbols_to_generate},
+                    extra={"date": date_str, "symbols": symbols_to_generate, "error_type": type(e).__name__},
                 )
                 try:
                     mock_features = get_mock_alpha158_features(
@@ -447,16 +455,17 @@ class SignalGenerator:
                                     )
                                     self.feature_cache.set(symbol, date_str, features_dict)
                                     logger.debug(f"Cached mock features for {symbol} on {date_str}")
-                            except Exception as cache_error:
+                            except (RedisError, TypeError, ValueError, KeyError, IndexError) as cache_error:
                                 logger.warning(
-                                    f"Failed to cache mock features for {symbol}: {cache_error}"
+                                    f"Failed to cache mock features for {symbol}: {cache_error}",
+                                    extra={"symbol": symbol, "date": date_str, "error_type": type(cache_error).__name__},
                                 )
 
                     features_list.append(mock_features)
-                except Exception as mock_error:
+                except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as mock_error:
                     logger.error(
                         f"Failed to generate mock features: {mock_error}",
-                        extra={"date": date_str, "symbols": symbols_to_generate},
+                        extra={"date": date_str, "symbols": symbols_to_generate, "error_type": type(mock_error).__name__},
                         exc_info=True,
                     )
                     raise ValueError(
@@ -499,8 +508,12 @@ class SignalGenerator:
 
         try:
             predictions = self.model_registry.current_model.predict(features.values)
-        except Exception as e:
-            logger.error(f"Model prediction failed: {e}", exc_info=True)
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
+            logger.error(
+                f"Model prediction failed: {e}",
+                extra={"error_type": type(e).__name__, "features_shape": features.shape},
+                exc_info=True,
+            )
             raise RuntimeError(f"Model prediction failed: {e}") from e
 
         logger.debug(
@@ -722,12 +735,23 @@ class SignalGenerator:
                 total_cached += result["cached_count"]
                 total_skipped += result["skipped_count"]
                 dates_succeeded += 1
-            except Exception as exc:
+            except (ValueError, KeyError, TypeError, FileNotFoundError, OSError, RedisError) as exc:
                 dates_failed += 1
                 logger.warning(
                     "Feature hydration failed for %s: %s",
                     current_date.isoformat(),
                     exc,
+                    extra={"date": current_date.isoformat(), "error_type": type(exc).__name__},
+                )
+            except Exception as exc:
+                # Catch-all for unexpected errors - continue with remaining dates
+                dates_failed += 1
+                logger.error(
+                    "Unexpected error during feature hydration for %s: %s",
+                    current_date.isoformat(),
+                    exc,
+                    extra={"date": current_date.isoformat(), "error_type": type(exc).__name__},
+                    exc_info=True,
                 )
 
         return HydrationResult(
@@ -851,14 +875,23 @@ class SignalGenerator:
                         logger.warning(f"No features generated for {symbol}")
                 except (KeyError, IndexError) as e:
                     symbols_failed.append(symbol)
-                    logger.warning(f"Failed to cache {symbol}: {e}")
-                except Exception as e:
+                    logger.warning(
+                        f"Failed to cache {symbol}: {e}",
+                        extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
+                    )
+                except (RedisError, TypeError, ValueError) as e:
                     symbols_failed.append(symbol)
-                    logger.warning(f"Cache write error for {symbol}: {e}")
+                    logger.warning(
+                        f"Cache write error for {symbol}: {e}",
+                        extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
+                    )
 
-        except Exception as e:
+        except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
             # Fallback to mock features if real features fail
-            logger.warning(f"Feature generation failed, trying mock: {e}")
+            logger.warning(
+                f"Feature generation failed, trying mock: {e}",
+                extra={"error_type": type(e).__name__, "date": date_str, "symbols_count": len(symbols_to_generate)},
+            )
             try:
                 mock_features = get_mock_alpha158_features(
                     symbols=symbols_to_generate,
@@ -876,12 +909,18 @@ class SignalGenerator:
                             features_dict = cast(dict[str, Any], symbol_features.iloc[0].to_dict())
                             self.feature_cache.set(symbol, date_str, features_dict)
                             symbols_cached.append(symbol)
-                    except Exception as cache_err:
+                    except (RedisError, TypeError, ValueError, KeyError, IndexError) as cache_err:
                         symbols_failed.append(symbol)
-                        logger.warning(f"Mock cache error for {symbol}: {cache_err}")
+                        logger.warning(
+                            f"Mock cache error for {symbol}: {cache_err}",
+                            extra={"symbol": symbol, "date": date_str, "error_type": type(cache_err).__name__},
+                        )
 
-            except Exception as mock_err:
-                logger.error(f"Mock feature generation also failed: {mock_err}")
+            except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as mock_err:
+                logger.error(
+                    f"Mock feature generation also failed: {mock_err}",
+                    extra={"error_type": type(mock_err).__name__, "date": date_str, "symbols_count": len(symbols_to_generate)},
+                )
                 symbols_failed = symbols_to_generate
 
         logger.info(

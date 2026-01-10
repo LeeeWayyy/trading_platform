@@ -39,8 +39,16 @@ def _get_cache_encryption_key() -> bytes | None:
             logger.warning("strategy_cache_key_invalid_length", extra={"length": len(key)})
             return None
         return key
-    except Exception:
-        logger.warning("strategy_cache_key_decode_failed", exc_info=True)
+    except (ValueError, TypeError) as e:
+        # JUSTIFIED: Fail-open defensive handler for invalid base64 or type mismatches
+        # during cache key decoding. Cache will be disabled if key invalid (security-first).
+        # ValueError: Invalid base64 encoding
+        # TypeError: Non-string input to base64.b64decode
+        logger.warning(
+            "strategy_cache_key_decode_failed",
+            extra={"error": str(e), "key_type": type(key_b64).__name__},
+            exc_info=True,
+        )
         return None
 
 
@@ -67,8 +75,16 @@ def _build_cache_client(redis_client: Any) -> Any:
             "strategy_cache_disabled_incompatible_client",
             extra={"client_type": type(redis_client).__name__},
         )
-    except Exception:  # pragma: no cover - defensive
-        logger.warning("strategy_cache_client_fallback_disabled", exc_info=True)
+    except (ImportError, AttributeError, TypeError) as e:  # pragma: no cover - defensive
+        # JUSTIFIED: Defensive handler for Redis client cloning failures
+        # ImportError: redis.asyncio not installed
+        # AttributeError: connection_pool not available on client
+        # TypeError: connection_kwargs incompatible with Redis constructor
+        logger.warning(
+            "strategy_cache_client_fallback_disabled",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
 
     # If the client is a lightweight fake without connection metadata, we assume
     # it's already isolated (e.g., unit tests) and allow caching to proceed.
@@ -139,8 +155,15 @@ class StrategyScopedDataAccess:
             nonce = blob[:12]
             ciphertext = blob[12:]
             return self._cipher.decrypt(nonce, ciphertext, None).decode()
-        except Exception:
-            logger.debug("cache_decrypt_failed", exc_info=True)
+        except (ValueError, TypeError) as e:
+            # Crypto errors: Invalid base64, wrong key, corrupted ciphertext, decoding failure
+            # ValueError: Invalid base64 or decryption failure (wrong key/corrupted data)
+            # TypeError: Type mismatch in crypto operations
+            logger.debug(
+                "cache_decrypt_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
             raise
 
     @staticmethod
@@ -210,8 +233,20 @@ class StrategyScopedDataAccess:
             if data:
                 decrypted = self._decrypt_cache_data(data)
                 return cast(list[dict[str, Any]], json.loads(decrypted))
-        except Exception:  # pragma: no cover
-            logger.debug("cache_read_failed", exc_info=True)
+        except (ValueError, TypeError, json.JSONDecodeError) as e:  # pragma: no cover
+            # JUSTIFIED: Fail-open cache read for corrupted/invalid cache entries
+            # ValueError: Decryption failed (wrong key/corrupted ciphertext)
+            # TypeError: Type mismatch in Redis get or crypto operations
+            # json.JSONDecodeError: Corrupted JSON after decryption
+            logger.debug(
+                "cache_read_failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "cache_key": key,
+                },
+                exc_info=True,
+            )
         return None
 
     async def _set_cached(self, key: str, value: list[dict[str, Any]]) -> None:
@@ -224,8 +259,20 @@ class StrategyScopedDataAccess:
             json_data = json.dumps(value)
             encrypted = self._encrypt_cache_data(json_data)
             await self.redis.setex(key, self.CACHE_TTL_SECONDS, encrypted)
-        except Exception:  # pragma: no cover
-            logger.debug("cache_write_failed", exc_info=True)
+        except (ValueError, TypeError, OSError) as e:  # pragma: no cover
+            # JUSTIFIED: Fail-open cache write for transient Redis errors
+            # ValueError: JSON serialization or encryption error
+            # TypeError: Type mismatch in setex arguments
+            # OSError: Redis connection errors (ConnectionError inherits from OSError)
+            logger.debug(
+                "cache_write_failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "cache_key": key,
+                },
+                exc_info=True,
+            )
 
     def _limit(self, value: int | None) -> int:
         if value is None:

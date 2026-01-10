@@ -126,6 +126,6 @@ config.features.rsi_period = 10
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `strategies/mean_reversion/*.py`, `strategies/mean_reversion/README.md`
 - **ADRs:** N/A

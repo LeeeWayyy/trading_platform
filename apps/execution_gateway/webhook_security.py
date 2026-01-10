@@ -71,8 +71,42 @@ def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> boo
 
         return is_valid
 
-    except Exception as e:
-        logger.error(f"Error verifying webhook signature: {e}", exc_info=True)
+    except UnicodeDecodeError as e:
+        logger.error(
+            "Failed to encode webhook secret or decode payload",
+            extra={
+                "error": str(e),
+                "error_type": "UnicodeDecodeError",
+                "payload_length": len(payload),
+                "context": "webhook_signature_verification",
+            },
+            exc_info=True,
+        )
+        return False
+    except AttributeError as e:
+        logger.error(
+            "Invalid signature type - missing required string method",
+            extra={
+                "error": str(e),
+                "error_type": "AttributeError",
+                "signature_type": type(signature).__name__,
+                "context": "webhook_signature_verification",
+            },
+            exc_info=True,
+        )
+        return False
+    except (TypeError, ValueError) as e:
+        logger.error(
+            "Invalid type or value in signature verification",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "signature_type": type(signature).__name__,
+                "payload_type": type(payload).__name__,
+                "context": "webhook_signature_verification",
+            },
+            exc_info=True,
+        )
         return False
 
 

@@ -16,10 +16,13 @@ Feature parity pattern: Same features used in research and production.
 See /docs/CONCEPTS/mean-reversion.md for detailed explanation (will create).
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 
 def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -> pl.DataFrame:
@@ -565,7 +568,31 @@ def load_and_compute_features(
         try:
             df = pl.read_parquet(parquet_file)
             dfs.append(df)
-        except Exception as e:
+        except OSError as e:
+            # File I/O errors (corrupted file, permission denied, etc.)
+            logger.error(
+                "Failed to read Parquet file - file I/O error",
+                extra={
+                    "strategy": "mean_reversion",
+                    "symbol": symbol,
+                    "file_path": str(parquet_file),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise ValueError(f"Failed to read {parquet_file}: {e}") from e
+        except (ValueError, TypeError) as e:
+            # Data format errors (invalid Parquet, schema mismatch, etc.)
+            logger.error(
+                "Failed to read Parquet file - data format error",
+                extra={
+                    "strategy": "mean_reversion",
+                    "symbol": symbol,
+                    "file_path": str(parquet_file),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise ValueError(f"Failed to read {parquet_file}: {e}") from e
 
     # Combine all symbols

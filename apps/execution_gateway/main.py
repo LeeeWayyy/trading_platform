@@ -47,6 +47,8 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Protocol, cast
 
+import psycopg
+import redis.exceptions
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
@@ -442,8 +444,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         api_secret=alpaca_api_secret_key,
                     )
                     logger.info("Liquidity service initialized successfully")
-            except Exception as e:
-                logger.error(f"Failed to initialize Alpaca-dependent services: {e}")
+            except AlpacaConnectionError as e:
+                logger.error(
+                    "Failed to initialize Alpaca client",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+            except AlpacaValidationError as e:
+                logger.error(
+                    "Invalid Alpaca credentials",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+            except (TypeError, ValueError, KeyError) as e:
+                logger.error(
+                    "Configuration error initializing Alpaca services",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+            except OSError as e:
+                logger.error(
+                    "Network or I/O error initializing Alpaca services",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
 
         # Recovery manager orchestrates safety components and slice scheduler (fail-closed)
         recovery_manager = RecoveryManager(
@@ -473,8 +497,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     executor=alpaca_client,
                 )
                 logger.info("Slice scheduler initialized (not started yet)")
-            except Exception as e:
-                logger.error(f"Failed to initialize slice scheduler: {e}")
+            except TypeError as e:
+                logger.error(
+                    "Failed to initialize slice scheduler - invalid parameters",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+            except ValueError as e:
+                logger.error(
+                    "Failed to initialize slice scheduler - invalid configuration",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+            except (AttributeError, ImportError) as e:
+                logger.error(
+                    "Failed to initialize slice scheduler - module or attribute error",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
         else:
             logger.warning(
                 "Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)"
@@ -560,8 +600,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 async_db_pool = get_db_pool()
                 await async_db_pool.close()
                 logger.info("Async database pool closed")
-            except Exception as e:
-                logger.warning(f"Error closing async database pool: {e}")
+            except psycopg.OperationalError as e:
+                logger.warning(
+                    "Error closing async database pool - connection error",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+            except (RuntimeError, AttributeError) as e:
+                logger.warning(
+                    "Error closing async database pool - pool state error",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
 
         # Close database connection pool for clean shutdown
         if db_client:
@@ -1207,16 +1257,43 @@ async def _check_quarantine(symbol: str, strategy_id: str) -> None:
             )
     except HTTPException:
         raise
-    except Exception as exc:
+    except RedisError as exc:
         logger.error(
-            "Quarantine check failed",
-            extra={"symbol": symbol, "error": str(exc)},
+            "Quarantine check failed - Redis error",
+            extra={"symbol": symbol, "error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "Quarantine check unavailable",
                 "message": "Redis unavailable for quarantine enforcement (fail-closed).",
+            },
+        ) from exc
+    except redis.exceptions.ConnectionError as exc:
+        logger.error(
+            "Quarantine check failed - Redis connection error",
+            extra={"symbol": symbol, "error": str(exc)},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Quarantine check unavailable",
+                "message": "Redis connection unavailable for quarantine enforcement (fail-closed).",
+            },
+        ) from exc
+    except (TypeError, KeyError, AttributeError) as exc:
+        logger.error(
+            "Quarantine check failed - data access error",
+            extra={"symbol": symbol, "error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Quarantine check unavailable",
+                "message": "Data structure error during quarantine check (fail-closed).",
             },
         ) from exc
 
@@ -1275,16 +1352,43 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
     acquired = False
     try:
         acquired = await asyncio.to_thread(lock.acquire, blocking=True)
-    except Exception as exc:
+    except redis.exceptions.LockError as exc:
         logger.error(
-            "Failed to acquire reduce-only lock",
+            "Failed to acquire reduce-only lock - lock error",
             extra={"symbol": order.symbol, "error": str(exc)},
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "Reduce-only lock unavailable",
                 "message": "Unable to acquire reduce-only validation lock (fail-closed).",
+            },
+        ) from exc
+    except RedisError as exc:
+        logger.error(
+            "Failed to acquire reduce-only lock - Redis error",
+            extra={"symbol": order.symbol, "error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock unavailable",
+                "message": "Unable to acquire reduce-only validation lock (fail-closed).",
+            },
+        ) from exc
+    except TimeoutError as exc:
+        logger.error(
+            "Failed to acquire reduce-only lock - timeout",
+            extra={"symbol": order.symbol, "error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock unavailable",
+                "message": "Timeout acquiring reduce-only validation lock (fail-closed).",
             },
         ) from exc
 
@@ -1384,10 +1488,15 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
         if acquired and lock.locked():
             try:
                 await asyncio.to_thread(lock.release)
-            except Exception as exc:
+            except redis.exceptions.LockError as exc:
                 logger.warning(
-                    "Failed to release reduce-only lock",
+                    "Failed to release reduce-only lock - lock error",
                     extra={"symbol": order.symbol, "error": str(exc)},
+                )
+            except RedisError as exc:
+                logger.warning(
+                    "Failed to release reduce-only lock - Redis error",
+                    extra={"symbol": order.symbol, "error": str(exc), "error_type": type(exc).__name__},
                 )
 
 
@@ -1698,8 +1807,16 @@ def _register_performance_cache(cache_key: str, start_date: date, end_date: date
             pipe.expire(index_key, PERFORMANCE_CACHE_TTL)
             current += timedelta(days=1)
         pipe.execute()
-    except Exception as e:
-        logger.warning(f"Performance cache index registration failed: {e}")
+    except RedisError as e:
+        logger.warning(
+            "Performance cache index registration failed - Redis error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+    except (AttributeError, TypeError) as e:
+        logger.warning(
+            "Performance cache index registration failed - invalid data",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
 
 
 def _invalidate_performance_cache(trade_date: date | None = None) -> None:
@@ -1738,8 +1855,16 @@ def _invalidate_performance_cache(trade_date: date | None = None) -> None:
             # If batch is empty, just delete the index key.
             # This covers cases where the set was empty or its size was a multiple of batch_size.
             redis_client.delete(index_key)
-    except Exception as e:
-        logger.warning(f"Performance cache invalidation failed: {e}")
+    except RedisError as e:
+        logger.warning(
+            "Performance cache invalidation failed - Redis error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+    except (AttributeError, TypeError) as e:
+        logger.warning(
+            "Performance cache invalidation failed - invalid data",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
 
 
 def _compute_daily_performance(
@@ -1901,7 +2026,16 @@ async def health_check() -> HealthResponse:
         alpaca_api_status = "success"
         try:
             alpaca_connected = alpaca_client.check_connection()
-        except Exception:
+        except AlpacaConnectionError:
+            logger.debug("Alpaca connection check failed - connection error")
+            alpaca_api_status = "error"
+            alpaca_connected = False
+        except (AlpacaValidationError, AlpacaRejectionError):
+            logger.debug("Alpaca connection check failed - validation/rejection error")
+            alpaca_api_status = "error"
+            alpaca_connected = False
+        except OSError:
+            logger.debug("Alpaca connection check failed - network/IO error")
             alpaca_api_status = "error"
             alpaca_connected = False
         finally:
@@ -2804,18 +2938,43 @@ async def submit_order(
             )
         except HTTPException:
             raise  # Re-raise position limit errors
-        except Exception as e:
+        except RedisError as e:
             # Codex HIGH fix: Fail-closed on reservation system error
             # If Redis is unavailable, concurrent orders could race past position limits
             # Codex MEDIUM fix: Latch unavailable flag so health check reflects degraded state
             recovery_manager.set_position_reservation_unavailable(True)
             logger.error(
-                f"🔴 Order blocked by reservation system failure (FAIL CLOSED): {client_order_id}",
+                f"🔴 Order blocked by reservation system failure - Redis error (FAIL CLOSED): {client_order_id}",
                 extra={
                     "client_order_id": client_order_id,
                     "error": str(e),
+                    "error_type": type(e).__name__,
                     "fail_closed": True,
                 },
+                exc_info=True,
+            )
+            _record_order_metrics(order, start_time, "blocked")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Position reservation unavailable",
+                    "message": "Risk check system unavailable (fail-closed): Redis error",
+                    "fail_closed": True,
+                },
+            ) from e
+        except (AttributeError, TypeError, ValueError) as e:
+            # Codex HIGH fix: Fail-closed on reservation system error
+            # If data structures are invalid, concurrent orders could race past position limits
+            recovery_manager.set_position_reservation_unavailable(True)
+            logger.error(
+                f"🔴 Order blocked by reservation system failure - data error (FAIL CLOSED): {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "fail_closed": True,
+                },
+                exc_info=True,
             )
             _record_order_metrics(order, start_time, "blocked")
             raise HTTPException(
@@ -2961,18 +3120,35 @@ async def submit_order(
             if position_reservation and reservation_token:
                 position_reservation.release(order.symbol, reservation_token)
             return _handle_idempotency_race(client_order_id, db_client)
-        except Exception as e:
-            # Codex MEDIUM fix: Release reservation on any DB error to prevent leaks
-            # Other DB errors (connection drop, constraint failure, serialization error)
-            # would otherwise leak the reservation until TTL expiry
+        except psycopg.OperationalError as e:
+            # Codex MEDIUM fix: Release reservation on DB connection error to prevent leaks
             if position_reservation and reservation_token:
                 position_reservation.release(order.symbol, reservation_token)
-                logger.debug(f"Released reservation on DRY_RUN DB error: {reservation_token}")
-            logger.error(f"DRY_RUN order DB error: {e}", exc_info=True)
+                logger.debug(f"Released reservation on DRY_RUN DB connection error: {reservation_token}")
+            logger.error(
+                "DRY_RUN order DB connection error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
             _record_order_metrics(order, start_time, "failed")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to save DRY_RUN order: {str(e)}",
+                detail="Failed to save DRY_RUN order: database connection error",
+            ) from e
+        except psycopg.IntegrityError as e:
+            # DB constraint violation (other than UniqueViolation which is caught above)
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
+                logger.debug(f"Released reservation on DRY_RUN DB integrity error: {reservation_token}")
+            logger.error(
+                "DRY_RUN order DB integrity error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            _record_order_metrics(order, start_time, "failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save DRY_RUN order: database constraint violation",
             ) from e
 
         # Confirm position reservation after successful order creation
@@ -3012,9 +3188,13 @@ async def submit_order(
             alpaca_api_status = "success"
             try:
                 alpaca_response = alpaca_client.submit_order(order, client_order_id)
-            except Exception:
+            except (AlpacaConnectionError, AlpacaValidationError, AlpacaRejectionError):
                 alpaca_api_status = "error"
                 raise
+            except OSError as err:
+                logger.error("Alpaca order submission failed - network/IO error", exc_info=True)
+                alpaca_api_status = "error"
+                raise AlpacaConnectionError("Network error during order submission") from err
             finally:
                 # Always track Alpaca API request metric
                 alpaca_api_requests_total.labels(
@@ -3078,13 +3258,37 @@ async def submit_order(
             # These will be handled by exception handlers
             raise
 
-        except Exception as e:
-            # Release reservation on unexpected error
+        except psycopg.OperationalError as e:
+            # Release reservation on DB error
             if position_reservation and reservation_token:
                 position_reservation.release(order.symbol, reservation_token)
-                logger.debug(f"Released reservation on unexpected error: {reservation_token}")
+                logger.debug(f"Released reservation on DB connection error: {reservation_token}")
 
-            logger.error(f"Unexpected error submitting order: {e}", exc_info=True)
+            logger.error(
+                "Database connection error submitting order",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+
+            # Track metrics for failed orders
+            _record_order_metrics(order, start_time, "failed")
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Order submission failed: database connection error",
+            ) from e
+
+        except (KeyError, TypeError, ValueError) as e:
+            # Release reservation on data error
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
+                logger.debug(f"Released reservation on data error: {reservation_token}")
+
+            logger.error(
+                "Data structure error submitting order",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
 
             # Save failed order to database
             db_client.create_order(
@@ -3555,16 +3759,17 @@ def _schedule_slices_with_compensation(
             time_in_force=request.time_in_force,
         )
         return job_ids
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError) as e:
         # Scheduling failed after DB commit - compensate by canceling created orders
         logger.error(
-            "Scheduling failed for parent=%s, compensating by canceling " "pending orders",
+            "Scheduling failed for parent=%s - data error, compensating by canceling pending orders",
             slicing_plan.parent_order_id,
             extra={
                 "parent_order_id": slicing_plan.parent_order_id,
                 "error": str(e),
                 "error_type": type(e).__name__,
             },
+            exc_info=True,
         )
         # Cancel only orders still in 'pending_new' status to avoid race conditions
         # (First slice scheduled for "now" may have already executed and submitted to broker)
@@ -3610,10 +3815,25 @@ def _schedule_slices_with_compensation(
                         "progressed_statuses": [s.status for s in progressed_slices],
                     },
                 )
-        except Exception as cleanup_error:
+        except psycopg.OperationalError as cleanup_error:
             logger.error(
-                f"Cleanup failed after scheduling error: {cleanup_error}",
-                extra={"parent_order_id": slicing_plan.parent_order_id},
+                "Cleanup failed after scheduling error - database connection error",
+                extra={
+                    "parent_order_id": slicing_plan.parent_order_id,
+                    "error": str(cleanup_error),
+                    "error_type": type(cleanup_error).__name__,
+                },
+                exc_info=True,
+            )
+        except (AttributeError, KeyError) as cleanup_error:
+            logger.error(
+                "Cleanup failed after scheduling error - data access error",
+                extra={
+                    "parent_order_id": slicing_plan.parent_order_id,
+                    "error": str(cleanup_error),
+                    "error_type": type(cleanup_error).__name__,
+                },
+                exc_info=True,
             )
         # Re-raise original scheduling error
         raise
@@ -3806,13 +4026,34 @@ async def submit_sliced_order(
         return slicing_plan
     except ValueError as e:
         # Validation error from slicer
-        logger.error(f"TWAP validation error: {e}", extra={"error": str(e)})
+        logger.error(
+            "TWAP validation error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         # Re-raise with 'from e' to preserve original traceback for debugging
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        # Database or scheduling error
-        logger.error(f"TWAP order creation failed: {e}", extra={"error": str(e)})
-        # Re-raise with 'from e' to preserve original traceback for debugging
+    except HTTPException:
+        # Re-raise HTTP exceptions from prerequisite checks
+        raise
+    except psycopg.OperationalError as e:
+        # Database connection error
+        logger.error(
+            "TWAP order creation failed - database connection error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="TWAP order creation failed: database error",
+        ) from e
+    except (AttributeError, TypeError, KeyError) as e:
+        # Data structure or scheduling error
+        logger.error(
+            "TWAP order creation failed - data error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"TWAP order creation failed: {str(e)}",
@@ -3867,8 +4108,22 @@ async def get_slices_by_parent(
         return slices
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Failed to fetch slices for parent {parent_id}: {e}")
+    except psycopg.OperationalError as e:
+        logger.error(
+            "Failed to fetch slices - database connection error",
+            extra={"parent_id": parent_id, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch slices: database error",
+        ) from e
+    except (AttributeError, KeyError) as e:
+        logger.error(
+            "Failed to fetch slices - data access error",
+            extra={"parent_id": parent_id, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch slices: {str(e)}",
@@ -3952,8 +4207,22 @@ async def cancel_slices(
                 f"removed {scheduler_canceled_count} jobs from scheduler"
             ),
         }
-    except Exception as e:
-        logger.error(f"Failed to cancel slices for parent {parent_id}: {e}")
+    except psycopg.OperationalError as e:
+        logger.error(
+            "Failed to cancel slices - database connection error",
+            extra={"parent_id": parent_id, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to cancel slices: database error",
+        ) from e
+    except (AttributeError, RuntimeError) as e:
+        logger.error(
+            "Failed to cancel slices - scheduler error",
+            extra={"parent_id": parent_id, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel slices: {str(e)}",
@@ -4128,8 +4397,16 @@ async def get_daily_performance(
             cached = redis_client.get(cache_key)
             if cached:
                 return DailyPerformanceResponse.model_validate_json(cached)
-        except Exception as e:
-            logger.warning(f"Performance cache read failed: {e}")
+        except RedisError as e:
+            logger.warning(
+                "Performance cache read failed - Redis error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+        except (ValidationError, ValueError) as e:
+            logger.warning(
+                "Performance cache read failed - data validation error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
 
     rows = db_client.get_daily_pnl_history(
         perf_request.start_date, perf_request.end_date, effective_strategies
@@ -4155,8 +4432,16 @@ async def get_daily_performance(
         try:
             redis_client.set(cache_key, response.model_dump_json(), ttl=PERFORMANCE_CACHE_TTL)
             _register_performance_cache(cache_key, perf_request.start_date, perf_request.end_date)
-        except Exception as e:
-            logger.warning(f"Performance cache write failed: {e}")
+        except RedisError as e:
+            logger.warning(
+                "Performance cache write failed - Redis error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+        except (AttributeError, TypeError) as e:
+            logger.warning(
+                "Performance cache write failed - data serialization error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
 
     return response
 
@@ -4222,11 +4507,25 @@ async def get_realtime_pnl(
             db_positions = db_client.get_all_positions()
         else:
             db_positions = db_client.get_positions_for_strategies(authorized_strategies)
-    except Exception as exc:  # pragma: no cover - defensive for test env without DB
+    except psycopg.OperationalError as exc:  # pragma: no cover - defensive for test env without DB
         logger.error(
-            "Failed to load positions for real-time P&L",
+            "Failed to load positions for real-time P&L - database connection error",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
             exc_info=True,
-            extra={"error": str(exc)},
+        )
+        return RealtimePnLResponse(
+            positions=[],
+            total_positions=0,
+            total_unrealized_pl=Decimal("0"),
+            total_unrealized_pl_pct=None,
+            realtime_prices_available=0,
+            timestamp=datetime.now(UTC),
+        )
+    except (AttributeError, KeyError) as exc:  # pragma: no cover - defensive for test env without DB
+        logger.error(
+            "Failed to load positions for real-time P&L - data access error",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
         )
         return RealtimePnLResponse(
             positions=[],
@@ -4578,8 +4877,31 @@ async def order_webhook(request: Request) -> dict[str, str]:
     except HTTPException:
         # Re-raise HTTPException with its original status code (e.g., 401 from signature validation)
         raise
-    except Exception as e:
-        logger.error(f"Webhook processing error: {e}", exc_info=True)
+    except ValidationError as e:
+        logger.error(
+            "Webhook processing error - validation error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Webhook validation failed: {str(e)}"
+        ) from e
+    except psycopg.OperationalError as e:
+        logger.error(
+            "Webhook processing error - database connection error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Webhook processing failed: database error",
+        ) from e
+    except (KeyError, TypeError, ValueError, InvalidOperation) as e:
+        logger.error(
+            "Webhook processing error - data parsing error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Webhook processing failed: {str(e)}"
         ) from e

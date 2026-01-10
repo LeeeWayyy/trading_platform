@@ -8,7 +8,8 @@ import time
 from collections.abc import Awaitable
 from typing import Any, cast
 
-import redis.asyncio as redis
+import redis.asyncio as aioredis
+import redis.exceptions
 from prometheus_client import Counter
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class RateLimiter:
 
     def __init__(
         self,
-        redis_client: redis.Redis,
+        redis_client: aioredis.Redis,
         fallback_mode: str = "deny",
         max_requests: int | None = None,
         window_seconds: int | None = None,
@@ -97,9 +98,37 @@ class RateLimiter:
                 action=action, result="allowed" if allowed else "blocked"
             ).inc()
             return allowed, max(0, max_requests - count)
-        except Exception as exc:  # pragma: no cover - defensive path
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as exc:
+            # Redis connection errors - fail open (allow requests) for availability
             rate_limit_redis_errors_total.labels(action=action).inc()
-            logger.warning("rate_limit_fallback", extra={"action": action, "error": str(exc)})
+            logger.warning(
+                "rate_limit_redis_unavailable",
+                extra={
+                    "action": action,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "fallback_decision": fallback_mode or self.fallback_mode or "deny",
+                },
+            )
+            mode = fallback_mode or self.fallback_mode or "deny"
+            if mode == "deny":
+                rate_limit_checks_total.labels(action=action, result="blocked").inc()
+                return False, 0
+            rate_limit_checks_total.labels(action=action, result="allowed").inc()
+            return True, max_requests
+        except Exception as exc:  # Generic catch justified - rate limiter should never crash requests
+            # Unexpected errors - fail according to policy (defensive)
+            rate_limit_redis_errors_total.labels(action=action).inc()
+            logger.warning(
+                "rate_limit_unexpected_error",
+                extra={
+                    "action": action,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "fallback_decision": fallback_mode or self.fallback_mode or "deny",
+                },
+                exc_info=True,
+            )
             mode = fallback_mode or self.fallback_mode or "deny"
             if mode == "deny":
                 rate_limit_checks_total.labels(action=action, result="blocked").inc()
@@ -151,9 +180,37 @@ class RateLimiter:
                 action="alert_rate_limit", result="allowed" if allowed else "blocked"
             ).inc()
             return allowed
-        except Exception as exc:  # pragma: no cover - defensive path
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as exc:
+            # Redis connection errors - fail according to policy for alert rate limiting
             rate_limit_redis_errors_total.labels(action="alert_rate_limit").inc()
-            logger.warning("alert_rate_limit_fallback", extra={"key": key, "error": str(exc)})
+            logger.warning(
+                "alert_rate_limit_redis_unavailable",
+                extra={
+                    "key": key,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "fallback_decision": fallback_mode or self.fallback_mode or "deny",
+                },
+            )
+            mode = fallback_mode or self.fallback_mode or "deny"
+            allowed = mode == "allow"
+            rate_limit_checks_total.labels(
+                action="alert_rate_limit", result="allowed" if allowed else "blocked"
+            ).inc()
+            return allowed
+        except Exception as exc:  # Generic catch justified - rate limiter should never crash alert system
+            # Unexpected errors - fail according to policy (defensive)
+            rate_limit_redis_errors_total.labels(action="alert_rate_limit").inc()
+            logger.warning(
+                "alert_rate_limit_unexpected_error",
+                extra={
+                    "key": key,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "fallback_decision": fallback_mode or self.fallback_mode or "deny",
+                },
+                exc_info=True,
+            )
             mode = fallback_mode or self.fallback_mode or "deny"
             allowed = mode == "allow"
             rate_limit_checks_total.labels(
@@ -201,17 +258,36 @@ class RateLimiter:
         )
 
     async def health_check(self) -> bool:
+        """Check Redis connection health.
+
+        Returns:
+            True if Redis is available, False otherwise.
+            Always returns False on errors (fail closed for health checks).
+        """
         try:
             pong = await self.redis.ping()
             return bool(pong)
-        except Exception:  # pragma: no cover
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as exc:
+            # Redis connection errors - health check fails closed
+            logger.debug(
+                "rate_limiter_health_check_failed_redis_unavailable",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
+            return False
+        except Exception as exc:  # Generic catch justified - health checks should never raise
+            # Unexpected errors - health check fails closed
+            logger.warning(
+                "rate_limiter_health_check_unexpected_error",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+                exc_info=True,
+            )
             return False
 
 
 _rate_limiter_singleton: RateLimiter | None = None
 
 
-def _build_redis_client() -> redis.Redis:
+def _build_redis_client() -> aioredis.Redis:
     """Build async Redis client for rate limiting.
 
     Supports REDIS_URL (preferred) or REDIS_HOST/REDIS_PORT fallback.
@@ -221,9 +297,9 @@ def _build_redis_client() -> redis.Redis:
     if redis_url:
         # Parse REDIS_URL and override db to 2 for rate limiting isolation
         # Format: redis://host:port/db or redis://host:port
-        return redis.Redis.from_url(redis_url, db=2, decode_responses=True)  # type: ignore[no-any-return]
+        return aioredis.Redis.from_url(redis_url, db=2, decode_responses=True)  # type: ignore[no-any-return]
 
-    return redis.Redis(
+    return aioredis.Redis(
         host=os.getenv("REDIS_HOST", "redis"),
         port=int(os.getenv("REDIS_PORT", "6379")),
         db=2,

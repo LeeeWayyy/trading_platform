@@ -136,6 +136,6 @@ result = decomp.decompose(weights)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/risk/__init__.py`, `libs/risk/barra_model.py`, `libs/risk/factor_covariance.py`, `libs/risk/specific_risk.py`, `libs/risk/risk_decomposition.py`, `libs/risk/portfolio_optimizer.py`, `libs/risk/stress_testing.py`
 - **ADRs:** N/A

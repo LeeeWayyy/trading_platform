@@ -268,8 +268,50 @@ class SpecificRiskEstimator:
                     }
                 )
 
-            except Exception as e:
-                logger.warning(f"Error computing specific risk for permno {permno}: {e}")
+            except np.linalg.LinAlgError as e:
+                logger.error(
+                    "Matrix operation failed during specific risk calculation",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "permno": permno,
+                        "factor_cov_shape": factor_cov.shape,
+                    },
+                    exc_info=True,
+                )
+                continue
+            except (ValueError, TypeError) as e:
+                logger.error(
+                    "Invalid data during specific risk calculation",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "permno": permno,
+                    },
+                    exc_info=True,
+                )
+                continue
+            except (KeyError, IndexError) as e:
+                logger.error(
+                    "Data access error during specific risk calculation",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "permno": permno,
+                    },
+                    exc_info=True,
+                )
+                continue
+            except ZeroDivisionError as e:
+                logger.error(
+                    "Division by zero during specific risk calculation",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "permno": permno,
+                    },
+                    exc_info=True,
+                )
                 continue
 
         if len(results) == 0:

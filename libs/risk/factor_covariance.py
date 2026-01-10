@@ -338,8 +338,40 @@ class FactorCovarianceEstimator:
                 logger.warning(f"Skipping {t}: {e}")
                 skipped_days.append(t)
                 continue
-            except Exception as e:
-                logger.error(f"Error processing {t}: {e}")
+            except np.linalg.LinAlgError as e:
+                logger.error(
+                    "WLS regression failed - singular matrix",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "date": str(t),
+                    },
+                    exc_info=True,
+                )
+                skipped_days.append(t)
+                continue
+            except (KeyError, IndexError) as e:
+                logger.error(
+                    "Data access error during factor return computation",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "date": str(t),
+                    },
+                    exc_info=True,
+                )
+                skipped_days.append(t)
+                continue
+            except (ValueError, TypeError) as e:
+                logger.error(
+                    "Invalid data during factor return computation",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "date": str(t),
+                    },
+                    exc_info=True,
+                )
                 skipped_days.append(t)
                 continue
 

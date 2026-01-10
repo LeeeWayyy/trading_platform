@@ -352,20 +352,22 @@ class WorkflowGate:
                 if lock_fd >= 0:
                     try:
                         os.close(lock_fd)
-                    except OSError:
-                        pass
+                    except OSError as close_err:
+                        # Log fd close failure but continue with retry/raise logic
+                        print(f"Warning: Failed to close lock fd: {close_err}", file=sys.stderr)
                 if attempt < max_retries - 1:
                     time.sleep(0.1 * (2**attempt))
                     continue
                 raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts") from e
-            except Exception:
-                # Handle any unexpected exception by cleaning up fd
+            except Exception as e:
+                # Handle any other unexpected exception by cleaning up fd
                 if lock_fd >= 0:
                     try:
                         os.close(lock_fd)
-                    except OSError:
-                        pass
-                raise
+                    except OSError as close_err:
+                        # Log fd close failure but continue with raise
+                        print(f"Warning: Failed to close lock fd: {close_err}", file=sys.stderr)
+                raise RuntimeError(f"Lock acquisition failed - unexpected error: {e}") from e
         raise RuntimeError("Lock acquisition failed")
 
     def _release_lock(self, lock_fd: int) -> None:
@@ -580,8 +582,16 @@ class WorkflowGate:
             }
             with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
+        except OSError as e:
+            print(f"CRITICAL: Failed to write to audit log - I/O error: {e}", file=sys.stderr)
+            print(f"   File path: {AUDIT_LOG_FILE}", file=sys.stderr)
+            raise
         except Exception as e:
-            print(f"CRITICAL: Failed to write to audit log: {e}", file=sys.stderr)
+            print(
+                f"CRITICAL: Failed to write to audit log - unexpected error: {e}",
+                file=sys.stderr,
+            )
+            print(f"   File path: {AUDIT_LOG_FILE}", file=sys.stderr)
             raise
 
     def _log_override_to_audit(self, user: str = "unknown") -> None:
@@ -597,8 +607,18 @@ class WorkflowGate:
             }
             with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
+        except OSError as e:
+            print(
+                f"Warning: Failed to log override to audit - I/O error: {e}",
+                file=sys.stderr,
+            )
+            print(f"   File path: {AUDIT_LOG_FILE}", file=sys.stderr)
         except Exception as e:
-            print(f"Warning: Failed to log override to audit: {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to log override to audit - unexpected error: {e}",
+                file=sys.stderr,
+            )
+            print(f"   File path: {AUDIT_LOG_FILE}", file=sys.stderr)
 
     def _is_placeholder_id(self, continuation_id: str) -> bool:
         """

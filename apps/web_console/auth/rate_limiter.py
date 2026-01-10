@@ -90,9 +90,20 @@ class RateLimiter:
                 action=action, result="allowed" if allowed else "blocked"
             ).inc()
             return allowed, max(0, max_requests - count)
-        except Exception as exc:  # pragma: no cover - defensive path
+        except (OSError, TimeoutError, ValueError) as exc:  # pragma: no cover - defensive path
+            # JUSTIFIED: Fail-open or fail-closed based on fallback_mode
+            # OSError: Redis connection errors (redis.exceptions.ConnectionError inherits from OSError)
+            # TimeoutError: Redis command timeout
+            # ValueError: Invalid Redis response (e.g., non-integer count)
             rate_limit_redis_errors_total.labels(action=action).inc()
-            logger.warning("rate_limit_fallback", extra={"action": action, "error": str(exc)})
+            logger.warning(
+                "rate_limit_fallback",
+                extra={
+                    "action": action,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
             mode = fallback_mode or self.fallback_mode or "deny"
             if mode == "deny":
                 rate_limit_checks_total.labels(action=action, result="blocked").inc()
@@ -115,7 +126,17 @@ class RateLimiter:
         try:
             pong = await self.redis.ping()
             return bool(pong)
-        except Exception:  # pragma: no cover
+        except (OSError, TimeoutError) as exc:  # pragma: no cover
+            # JUSTIFIED: Fail-open health check for Redis connectivity
+            # OSError: Redis connection errors
+            # TimeoutError: Redis ping timeout
+            logger.warning(
+                "rate_limiter_health_check_failed",
+                extra={
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
             return False
 
 

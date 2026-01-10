@@ -85,11 +85,21 @@ async def _close_async_resources(resources: AsyncResources) -> None:
     exceptions: list[Exception] = []
     try:
         await resources.db_pool.close()
-    except Exception as exc:
+    except psycopg.Error as exc:
+        logger.warning(
+            "db_pool_close_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
+        )
         exceptions.append(exc)
     try:
         await resources.redis_client.close()
-    except Exception as exc:
+    except redis.exceptions.RedisError as exc:
+        logger.warning(
+            "redis_client_close_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+            exc_info=True,
+        )
         exceptions.append(exc)
     if exceptions:
         if len(exceptions) == 1:

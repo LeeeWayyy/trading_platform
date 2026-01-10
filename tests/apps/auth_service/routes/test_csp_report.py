@@ -1,5 +1,7 @@
 """Tests for CSP violation reporting endpoint."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -100,3 +102,104 @@ def test_csp_report_endpoint_app_level_payload_size_check(client):
     # Should return 413 Payload Too Large (actual body size check)
     assert response.status_code == 413
     assert "too large" in response.json()["detail"].lower()
+
+
+def test_csp_report_endpoint_handles_network_error_during_stream():
+    """Test /csp-report handles OSError/IOError during body stream read.
+
+    Tests specific exception handling for network errors.
+    """
+    from fastapi import Request
+
+    from apps.auth_service.routes.csp_report import csp_report
+
+    # Create mock request that raises OSError during stream()
+    mock_request = AsyncMock(spec=Request)
+    mock_request.headers.get.return_value = "100"  # Small Content-Length
+    mock_request.client.host = "127.0.0.1"
+
+    async def stream_with_error():
+        raise OSError("Connection reset by peer")
+        yield b"data"  # Never reached
+
+    mock_request.stream.return_value = stream_with_error()
+
+    # Should raise HTTPException with network error message
+    import asyncio
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException, match="Network error|request body"):
+        asyncio.run(csp_report(mock_request))
+
+
+def test_csp_report_endpoint_handles_unicode_decode_error():
+    """Test /csp-report handles UnicodeDecodeError during body decode.
+
+    Tests specific exception handling for invalid UTF-8 encoding.
+    """
+    # Create payload with invalid UTF-8 bytes
+    # TestClient normalizes encoding, so we need to test at the route level
+    from fastapi import Request
+
+    from apps.auth_service.routes.csp_report import csp_report
+
+    # Create mock request with invalid UTF-8 in body
+    mock_request = AsyncMock(spec=Request)
+    mock_request.headers.get.return_value = "50"  # Small Content-Length
+    mock_request.client.host = "127.0.0.1"
+
+    # Return invalid UTF-8 bytes
+    invalid_utf8 = b'\xff\xfe'
+
+    async def stream_invalid_utf8():
+        yield invalid_utf8
+
+    mock_request.stream.return_value = stream_invalid_utf8()
+
+    # Should raise HTTPException with encoding error message
+    import asyncio
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException, match="Invalid request encoding|Invalid JSON"):
+        asyncio.run(csp_report(mock_request))
+
+
+def test_csp_report_endpoint_handles_json_decode_error(client):
+    """Test /csp-report handles json.JSONDecodeError for malformed JSON.
+
+    Tests specific exception handling for JSON parsing errors.
+    """
+    # Send malformed JSON (not valid JSON syntax)
+    response = client.post(
+        "/csp-report",
+        data='{"csp-report": {invalid json}',  # Malformed JSON
+        headers={"Content-Type": "application/json"},
+    )
+
+    # Should return 400 with JSON error message
+    assert response.status_code == 400
+    assert "Invalid JSON" in response.json()["detail"]
+
+
+def test_csp_report_endpoint_handles_pydantic_validation_error(client):
+    """Test /csp-report handles Pydantic ValidationError.
+
+    Tests specific exception handling for Pydantic validation failures.
+    """
+    # Send valid JSON but invalid CSP report structure
+    invalid_report = {
+        "csp-report": {
+            # Missing required fields
+            "document-uri": "https://localhost/dashboard",
+            # violated-directive is missing (required field)
+        }
+    }
+
+    response = client.post("/csp-report", json=invalid_report)
+
+    # Should return 422 with validation error message
+    assert response.status_code == 422
+    assert "Invalid CSP report format" in response.json()["detail"]
+

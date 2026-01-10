@@ -99,9 +99,13 @@ def render_decay_curve(
 
         ui.plotly(fig).classes("w-full")
 
-    except Exception:
-        logger.exception("decay_curve_render_error")
-        ui.notify("Unable to render decay curve. Please try again.", type="negative")
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        logger.warning(
+            "Decay curve rendering failed - invalid data",
+            extra={"chart": "decay_curve", "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        ui.label("Chart unavailable - data error").classes("text-gray-500 text-center p-4")
 
 
 __all__ = ["render_decay_curve"]
