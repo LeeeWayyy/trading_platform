@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, TypeVar
 
@@ -39,6 +39,7 @@ from apps.execution_gateway.schemas_manual_controls import (
     FlattenAllRequest,
     FlattenAllResponse,
     PendingOrdersResponse,
+    RecentFillEvent,
     RecentFillsResponse,
 )
 from libs.web_console_auth.audit_logger import AuditLogger
@@ -156,12 +157,16 @@ def _generate_manual_order_id(
     side: str,
     qty: Decimal | int,
     user_id: str,
-    as_of_date: date | None = None,
+    as_of_datetime: datetime | None = None,
 ) -> str:
     """Generate deterministic order ID for manual control operations.
 
     Ensures idempotency for manual operations by creating reproducible IDs
-    based on operation parameters and date.
+    based on operation parameters and timestamp (minute precision).
+
+    Using minute precision allows:
+    - Same user to execute identical trades at different times
+    - Protection against rapid duplicate submissions (within same minute)
 
     Args:
         action: Operation type (close_position, adjust_position, flatten_all)
@@ -169,16 +174,18 @@ def _generate_manual_order_id(
         side: Order side (buy/sell)
         qty: Order quantity
         user_id: User initiating the operation
-        as_of_date: Date for ID generation (defaults to today)
+        as_of_datetime: Datetime for ID generation (defaults to now, truncated to minute)
 
     Returns:
         24-character alphanumeric ID compatible with Alpaca
     """
 
-    # Use UTC for timezone-aware deterministic date (avoids midnight edge cases)
-    target_date = as_of_date or datetime.now(UTC).date()
+    # Use UTC with minute precision - allows same trade at different times
+    # while protecting against rapid duplicate submissions
+    target_dt = as_of_datetime or datetime.now(UTC)
+    minute_key = target_dt.strftime("%Y%m%d%H%M")  # Minute precision
     qty_int = int(qty)
-    components = f"{action}:{symbol}:{side}:{qty_int}:{user_id}:{target_date}"
+    components = f"{action}:{symbol}:{side}:{qty_int}:{user_id}:{minute_key}"
     digest = hashlib.sha256(components.encode()).hexdigest()
     return digest[:24]
 
@@ -1217,9 +1224,11 @@ async def list_recent_fills(
         details={"results_count": len(rows), "limit": limit, "filtered": filtered_by_strategy},
     )
 
+    # Convert dict rows to Pydantic models for type safety
+    events = [RecentFillEvent(**row) for row in rows]
     return RecentFillsResponse(
-        events=rows,
-        total=len(rows),
+        events=events,
+        total=len(events),
         limit=limit,
         filtered_by_strategy=filtered_by_strategy,
         user_strategies=scope_strategies,

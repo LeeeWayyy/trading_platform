@@ -86,6 +86,8 @@ from apps.execution_gateway.reconciliation import (
 )
 from apps.execution_gateway.recovery_manager import RecoveryManager
 from apps.execution_gateway.schemas import (
+    AccountInfoResponse,
+    CircuitBreakerStatusResponse,
     ConfigResponse,
     DailyPerformanceResponse,
     DailyPnL,
@@ -96,15 +98,13 @@ from apps.execution_gateway.schemas import (
     HealthResponse,
     KillSwitchDisengageRequest,
     KillSwitchEngageRequest,
+    MarketPricePoint,
     OrderDetail,
     OrderRequest,
     OrderResponse,
     PerformanceRequest,
     Position,
     PositionsResponse,
-    AccountInfoResponse,
-    CircuitBreakerStatusResponse,
-    MarketPricePoint,
     RealtimePnLResponse,
     RealtimePositionPnL,
     ReconciliationForceCompleteRequest,
@@ -4331,13 +4331,12 @@ async def get_market_prices(
     user: dict[str, Any] = Depends(_build_user_context),
 ) -> list[MarketPricePoint]:
     """Return market price snapshots for current positions."""
-    authorized_strategies = get_authorized_strategies(user.get("user"))
-    if not authorized_strategies and not has_permission(
-        user.get("user"), Permission.VIEW_ALL_STRATEGIES
-    ):
+    # user is already the user context dict from _build_user_context
+    authorized_strategies = get_authorized_strategies(user)
+    if not authorized_strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
 
-    if has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
+    if has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         db_positions = db_client.get_all_positions()
     else:
         db_positions = db_client.get_positions_for_strategies(authorized_strategies)

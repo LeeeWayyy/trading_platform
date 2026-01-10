@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, cast
+from datetime import UTC, datetime
+from typing import Any
 
 from nicegui import app, ui
 from starlette.requests import Request as StarletteRequest
@@ -18,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 def _get_request_from_storage(path: str) -> StarletteRequest:
     """Get request from NiceGUI context or create fallback for tests."""
-    from nicegui import storage, ui as nicegui_ui
+    from nicegui import storage
+    from nicegui import ui as nicegui_ui
 
     # Try NiceGUI's request context variable first
     try:
@@ -129,6 +131,10 @@ async def login_page() -> None:
 
                 app.storage.user["logged_in"] = True
                 app.storage.user["user"] = result.user_data
+                # Store session_id for cache validation (prevents stale cache bypass)
+                if result.cookie_value:
+                    app.storage.user["session_id"] = result.cookie_value
+                    app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
                 # Show certificate expiry warning before redirect (from handler)
                 if result.warning_message:

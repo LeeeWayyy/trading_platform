@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import UTC, datetime
-import asyncio
 from typing import Any
 
 import httpx
@@ -100,8 +100,8 @@ def create_positions_grid() -> ui.aggrid:
         }
     ).classes("w-full")
 
-    grid._ready_event = asyncio.Event()
-    grid.on("gridReady", lambda _: grid._ready_event.set())
+    grid._ready_event = asyncio.Event()  # type: ignore[attr-defined]
+    grid.on("gridReady", lambda _: grid._ready_event.set())  # type: ignore[attr-defined]
 
     return grid
 
@@ -167,9 +167,9 @@ async def update_positions_grid(
         if pos.get("unrealized_plpc") is not None:
             continue
         try:
-            unrealized_pl = float(pos.get("unrealized_pl"))
-            avg_entry = float(pos.get("avg_entry_price"))
-            qty = float(pos.get("qty"))
+            unrealized_pl = float(pos.get("unrealized_pl"))  # type: ignore[arg-type]
+            avg_entry = float(pos.get("avg_entry_price"))  # type: ignore[arg-type]
+            qty = float(pos.get("qty"))  # type: ignore[arg-type]
         except (TypeError, ValueError):
             continue
         if avg_entry == 0 or qty == 0:
@@ -178,7 +178,7 @@ async def update_positions_grid(
 
     current_symbols = {p["symbol"] for p in valid_positions}
 
-    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():
+    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():  # type: ignore[attr-defined]
         grid.options["rowData"] = valid_positions
         grid.update()
         return current_symbols

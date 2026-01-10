@@ -14,6 +14,7 @@ class DummyGrid:
         self.options = options
         self._classes: set[str] = set()
         self.calls: list[tuple[str, object]] = []
+        self._event_handlers: dict[str, list] = {}
 
     def classes(self, add: str | None = None, remove: str | None = None):
         if remove:
@@ -24,7 +25,18 @@ class DummyGrid:
                 self._classes.add(cls)
         return self
 
-    async def run_grid_method(self, method: str, payload: object) -> None:
+    def on(self, event: str, handler) -> None:
+        """Register event handler (mock for NiceGUI aggrid.on())."""
+        if event not in self._event_handlers:
+            self._event_handlers[event] = []
+        self._event_handlers[event].append(handler)
+
+    def update(self) -> None:
+        """Mock update method for NiceGUI aggrid."""
+        pass
+
+    def run_grid_method(self, method: str, payload: object, timeout: float = 5) -> None:
+        """Mock run_grid_method - sync to capture fire-and-forget calls."""
         self.calls.append((method, payload))
 
 
@@ -33,10 +45,21 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch):
     notify_calls: list[tuple[str, dict]] = []
 
     def aggrid(options: dict) -> DummyGrid:
-        return DummyGrid(options)
+        grid = DummyGrid(options)
+        return grid
 
     def notify(message: str, **kwargs):
         notify_calls.append((message, kwargs))
+
+    # Mock asyncio.Event to be pre-set (grid is immediately ready in tests)
+    class PreSetEvent:
+        def is_set(self) -> bool:
+            return True
+
+        def set(self) -> None:
+            pass
+
+    monkeypatch.setattr(grid_module.asyncio, "Event", PreSetEvent)
 
     dummy = types.SimpleNamespace(aggrid=aggrid, notify=notify)
     monkeypatch.setattr(grid_module, "ui", dummy)
@@ -64,12 +87,12 @@ def test_create_positions_grid_columns(dummy_ui: None) -> None:
 
     actions_col = column_defs[-1]
     assert actions_col["pinned"] == "right"
-    assert actions_col["cellRenderer"] == "closePositionRenderer"
+    assert actions_col[":cellRenderer"] == "window.closePositionRenderer"
 
-    assert grid.options["getRowId"] == "data => data.symbol"
+    assert grid.options[":getRowId"] == "params => params.data.symbol"
     assert grid.options["rowSelection"] == "multiple"
     assert grid.options["animateRows"] is True
-    assert grid.options["onGridReady"] == "params => { window._positionsGridApi = params.api; }"
+    assert grid.options[":onGridReady"] == "params => { window._positionsGridApi = params.api; }"
 
 
 @pytest.mark.asyncio()
@@ -83,7 +106,7 @@ async def test_update_positions_grid_add_update_remove(dummy_ui: None) -> None:
 
     symbols = await grid_module.update_positions_grid(grid, first_positions)
     assert symbols == {"AAPL", "MSFT"}
-    assert grid.calls[-1][0] == "api.setRowData"
+    assert grid.calls[-1][0] == "setRowData"
 
     next_positions = [
         {"symbol": "AAPL", "qty": 12},
@@ -94,7 +117,7 @@ async def test_update_positions_grid_add_update_remove(dummy_ui: None) -> None:
     assert symbols == {"AAPL", "GOOG"}
 
     method, payload = grid.calls[-1]
-    assert method == "api.applyTransaction"
+    assert method == "applyTransaction"
     assert payload == {
         "add": [{"symbol": "GOOG", "qty": 3}],
         "update": [{"symbol": "AAPL", "qty": 12}],
@@ -116,7 +139,7 @@ async def test_update_positions_grid_filters_malformed_entries(
     symbols = await grid_module.update_positions_grid(grid, positions)
     assert symbols == {"AAPL"}
 
-    assert grid.calls[-1][0] == "api.setRowData"
+    assert grid.calls[-1][0] == "setRowData"
     assert grid.calls[-1][1] == [{"symbol": "AAPL", "qty": 10}]
 
     # Verify warning was logged

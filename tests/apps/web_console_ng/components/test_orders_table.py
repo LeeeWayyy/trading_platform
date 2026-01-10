@@ -13,6 +13,7 @@ class DummyGrid:
         self.options = options
         self._classes: set[str] = set()
         self.calls: list[tuple[str, object]] = []
+        self._event_handlers: dict[str, list] = {}
 
     def classes(self, add: str | None = None, remove: str | None = None):
         if remove:
@@ -23,7 +24,18 @@ class DummyGrid:
                 self._classes.add(cls)
         return self
 
-    async def run_grid_method(self, method: str, payload: object) -> None:
+    def on(self, event: str, handler) -> None:
+        """Register event handler (mock for NiceGUI aggrid.on())."""
+        if event not in self._event_handlers:
+            self._event_handlers[event] = []
+        self._event_handlers[event].append(handler)
+
+    def update(self) -> None:
+        """Mock update method for NiceGUI aggrid."""
+        pass
+
+    def run_grid_method(self, method: str, payload: object, timeout: float = 5) -> None:
+        """Mock run_grid_method - sync to capture fire-and-forget calls."""
         self.calls.append((method, payload))
 
 
@@ -32,10 +44,23 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch):
     notify_calls: list[tuple[str, dict]] = []
 
     def aggrid(options: dict) -> DummyGrid:
-        return DummyGrid(options)
+        grid = DummyGrid(options)
+        # Simulate gridReady event being fired immediately (as happens in real browser)
+        # This is needed because the component sets _ready_event and waits for it
+        return grid
 
     def notify(message: str, **kwargs):
         notify_calls.append((message, kwargs))
+
+    # Mock asyncio.Event to be pre-set (grid is immediately ready in tests)
+    class PreSetEvent:
+        def is_set(self) -> bool:
+            return True
+
+        def set(self) -> None:
+            pass
+
+    monkeypatch.setattr(orders_module.asyncio, "Event", PreSetEvent)
 
     dummy = types.SimpleNamespace(aggrid=aggrid, notify=notify)
     monkeypatch.setattr(orders_module, "ui", dummy)
@@ -60,19 +85,19 @@ def test_create_orders_table_columns(dummy_ui) -> None:
     ]
 
     status_col = column_defs[5]
-    assert status_col["cellRenderer"] == "statusBadgeRenderer"
+    assert status_col[":cellRenderer"] == "window.statusBadgeRenderer"
 
     actions_col = column_defs[-1]
-    assert actions_col["cellRenderer"] == "cancelButtonRenderer"
+    assert actions_col[":cellRenderer"] == "window.cancelButtonRenderer"
 
     limit_col = column_defs[4]
-    assert "valueFormatter" in limit_col
+    assert ":valueFormatter" in limit_col
 
     created_col = column_defs[6]
-    assert "UTC" in created_col["valueFormatter"]
+    assert "UTC" in created_col[":valueFormatter"]
 
-    assert grid.options["getRowId"] == "data => data.client_order_id"
-    assert grid.options["onGridReady"] == "params => { window._ordersGridApi = params.api; }"
+    assert grid.options[":getRowId"] == "params => params.data.client_order_id"
+    assert grid.options[":onGridReady"] == "params => { window._ordersGridApi = params.api; }"
 
 
 @pytest.mark.asyncio()
@@ -86,7 +111,7 @@ async def test_update_orders_table_add_update_remove(dummy_ui) -> None:
 
     current_ids = await orders_module.update_orders_table(grid, first_orders)
     assert current_ids == {"id-1", "id-2"}
-    assert grid.calls[-1][0] == "api.setRowData"
+    assert grid.calls[-1][0] == "setRowData"
 
     next_orders = [
         {"client_order_id": "id-1", "symbol": "AAPL", "status": "filled"},
@@ -97,7 +122,7 @@ async def test_update_orders_table_add_update_remove(dummy_ui) -> None:
     assert current_ids == {"id-1", "id-3"}
 
     method, payload = grid.calls[-1]
-    assert method == "api.applyTransaction"
+    assert method == "applyTransaction"
     assert payload == {
         "add": [{"client_order_id": "id-3", "symbol": "GOOG", "status": "new"}],
         "update": [{"client_order_id": "id-1", "symbol": "AAPL", "status": "filled"}],
@@ -117,7 +142,7 @@ async def test_update_orders_table_missing_client_order_id_fallback(dummy_ui) ->
     assert current_ids == {"__ng_fallback_broker-1"}
 
     method, payload = grid.calls[-1]
-    assert method == "api.setRowData"
+    assert method == "setRowData"
     row = payload[0]
     assert row["client_order_id"] == "__ng_fallback_broker-1"
     assert row["_missing_client_order_id"] is True
@@ -206,7 +231,7 @@ async def test_update_orders_table_same_batch_duplicates_get_unique_ids(dummy_ui
 
     # Verify grid received both orders
     method, payload = grid.calls[-1]
-    assert method == "api.setRowData"
+    assert method == "setRowData"
     assert len(payload) == 2
     row_ids = [row["client_order_id"] for row in payload]
     assert len(set(row_ids)) == 2  # All unique

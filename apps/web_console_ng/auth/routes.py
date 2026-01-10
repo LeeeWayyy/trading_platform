@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
+from typing import Literal, cast
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
@@ -32,8 +34,12 @@ async def login_post(request: Request) -> Response:
     form_data = await request.form()
     username = form_data.get("username", "")
     password = form_data.get("password", "")
-    auth_type = form_data.get("auth_type", config.AUTH_TYPE)
-    next_url = form_data.get("next", "/")
+    auth_type_raw = form_data.get("auth_type", config.AUTH_TYPE)
+    next_url_raw = form_data.get("next", "/")
+
+    # Ensure string types for form values (form can return UploadFile for file fields)
+    auth_type_str = str(auth_type_raw) if auth_type_raw else config.AUTH_TYPE
+    next_url = str(next_url_raw) if next_url_raw else "/"
 
     client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
     user_agent = request.headers.get("user-agent", "")
@@ -44,7 +50,9 @@ async def login_post(request: Request) -> Response:
         return RedirectResponse(f"/login?{params}", status_code=303)
 
     try:
-        handler = get_auth_handler(str(auth_type))
+        # Cast to Literal type - validation happens in get_auth_handler which raises ValueError
+        auth_type = cast(Literal["dev", "basic", "mtls", "oauth2"], auth_type_str)
+        handler = get_auth_handler(auth_type)
     except ValueError as e:
         params = urlencode({"error": str(e), "next": next_url})
         return RedirectResponse(f"/login?{params}", status_code=303)
@@ -58,10 +66,23 @@ async def login_post(request: Request) -> Response:
 
     if result.success:
         if result.requires_mfa:
-            # Store pending cookie and redirect to MFA
-            # Note: For MFA, we'd need to store state in Redis, simplified here
-            params = urlencode({"pending": "mfa", "next": next_url})
-            return RedirectResponse(f"/mfa-verify?{params}", status_code=303)
+            # MFA REQUIRED: Set pending session cookie and redirect to MFA verify page
+            # The cookie contains the pending session which /mfa-verify will validate
+            redirect_to = sanitize_redirect_path(next_url)
+            params = urlencode({"pending": "mfa", "next": redirect_to})
+            response = RedirectResponse(f"/mfa-verify?{params}", status_code=303)
+
+            # Set pending MFA session cookie so /mfa-verify can validate the user
+            cookie_cfg = CookieConfig.from_env()
+            if result.cookie_value:
+                response.set_cookie(
+                    key=cookie_cfg.get_cookie_name(),
+                    value=result.cookie_value,
+                    **cookie_cfg.get_cookie_flags(),
+                )
+            # Note: CSRF token set after MFA verification completes
+            logger.info("MFA required for user: %s, redirecting to /mfa-verify", username)
+            return response
 
         # Create redirect response with cookies
         redirect_to = sanitize_redirect_path(next_url)
@@ -105,7 +126,8 @@ async def auth_callback(code: str, state: str) -> None:
     to the double-submit cookie pattern used on other endpoints.
     """
     # Get request info for validation - use same IP extraction as requires_auth
-    from nicegui import storage, ui as nicegui_ui
+    from nicegui import storage
+    from nicegui import ui as nicegui_ui
 
     # Get request from NiceGUI context
     request: StarletteRequest | None = None
@@ -179,6 +201,10 @@ async def auth_callback(code: str, state: str) -> None:
 
         app.storage.user["logged_in"] = True
         app.storage.user["user"] = result.user_data
+        # Store session_id for cache validation (prevents stale cache bypass)
+        if result.cookie_value:
+            app.storage.user["session_id"] = result.cookie_value
+            app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
         redirect_to = sanitize_redirect_path(app.storage.user.get("redirect_after_login"))
         if "redirect_after_login" in app.storage.user:

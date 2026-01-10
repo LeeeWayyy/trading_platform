@@ -135,6 +135,6 @@ curl -s -X POST http://localhost:8003/api/v1/orchestration/run   -H 'Content-Typ
 - `../libs/risk_management.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09 (housekeeping refresh)
 - **Source Files:** `apps/orchestrator/main.py`, `apps/orchestrator/orchestrator.py`, `apps/orchestrator/database.py`, `apps/orchestrator/schemas.py`
 - **ADRs:** `docs/ADRs/0006-orchestrator-architecture.md`

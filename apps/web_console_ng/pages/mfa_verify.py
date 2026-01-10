@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import cast
 
 from nicegui import app, ui
@@ -82,6 +83,10 @@ async def mfa_verify_page() -> None:
 
                     app.storage.user["logged_in"] = True
                     app.storage.user["user"] = result.user_data
+                    # Store session_id for cache validation (prevents stale cache bypass)
+                    if result.cookie_value:
+                        app.storage.user["session_id"] = result.cookie_value
+                        app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
                     if "pending_mfa_cookie" in app.storage.user:
                         del app.storage.user["pending_mfa_cookie"]

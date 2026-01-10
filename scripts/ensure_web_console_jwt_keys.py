@@ -7,8 +7,8 @@ and execution gateway. It does not touch CA/server/client certs.
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def main() -> int:

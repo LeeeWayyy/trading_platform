@@ -4,7 +4,8 @@ import functools
 import hmac
 import logging
 from collections.abc import Callable
-from typing import Any, cast
+from datetime import UTC, datetime
+from typing import Any, Literal, cast
 
 from nicegui import app, ui
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -26,7 +27,8 @@ def _get_request_from_storage() -> Request:
     1. storage.request_contextvar - set during request handling
     2. ui.context.client.request - available in UI context
     """
-    from nicegui import storage, ui as nicegui_ui
+    from nicegui import storage
+    from nicegui import ui as nicegui_ui
 
     # Try NiceGUI's request context variable first
     try:
@@ -52,10 +54,12 @@ def _get_request_from_storage() -> Request:
             "Creating fallback request - NiceGUI context missing. "
             "This is expected in tests but indicates an issue in production."
         )
+        # SECURITY: Use TEST-NET-1 (RFC 5737) IP that won't be in production allowlists
+        # Never use 127.0.0.1 as it may bypass localhost-trusting security checks
         scope = {
             "type": "http",
             "headers": [],
-            "client": ("127.0.0.1", 0),
+            "client": ("192.0.2.1", 0),  # TEST-NET-1 (RFC 5737) - never routable
             "path": "/",
         }
         return Request(scope)
@@ -198,7 +202,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # This ensures correct behavior regardless of middleware ordering
         if not user:
             try:
-                user_data, _ = await _validate_session_and_get_user(request)
+                user_data, cookie_value = await _validate_session_and_get_user(request)
                 if user_data:
                     request.state.user = user_data
                     user = user_data
@@ -206,6 +210,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     try:
                         app.storage.user["logged_in"] = True
                         app.storage.user["user"] = user_data
+                        # Store session_id for cache validation (prevents stale cache bypass)
+                        if cookie_value:
+                            app.storage.user["session_id"] = cookie_value
+                            app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
                         logger.debug("Stored user in app.storage.user from AuthMiddleware")
                     except Exception:
                         pass  # Storage may not be available in all contexts
@@ -242,20 +250,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
                 cookie_cfg = CookieConfig.from_env()
                 cookie_name = cookie_cfg.get_cookie_name()
-                
+
                 # Delete with same path/domain settings as creation
                 effective_path = "/" if cookie_cfg.secure else cookie_cfg.path
                 domain = None if cookie_cfg.secure else cookie_cfg.domain
-                
+
                 response.delete_cookie(
                     key=cookie_name,
                     path=effective_path,
                     domain=domain,
                     secure=cookie_cfg.secure,
                     httponly=cookie_cfg.httponly,
-                    samesite=cookie_cfg.samesite,
+                    samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
                 )
-                
+
                 return response
             return Response(status_code=401)
 
@@ -308,6 +316,9 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     try:
                         app.storage.user["logged_in"] = True
                         app.storage.user["user"] = user_data
+                        # Store session_id for cache validation (prevents stale cache bypass)
+                        app.storage.user["session_id"] = cookie_value
+                        app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
                     except Exception:
                         pass  # Storage may not be available in all contexts
             except SessionValidationError:
@@ -338,18 +349,55 @@ async def _validate_and_get_user_for_decorator(
     """
     from apps.web_console_ng.auth.cookie_config import CookieConfig
 
+    # Max age before requiring Redis revalidation (prevents stale cache after session revocation)
+    CACHE_REVALIDATION_SECONDS = 60
+
+    cookie_cfg = CookieConfig.from_env()
+    cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
+
     # FIRST: Check NiceGUI's app.storage.user - this persists across HTTP/WebSocket contexts
     # and is set by AuthMiddleware when session is valid
     stored_user = app.storage.user.get("user")
-    if stored_user and app.storage.user.get("logged_in"):
-        logger.debug("Using cached user from app.storage.user")
-        cookie_cfg = CookieConfig.from_env()
-        cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
+    cached_session_id = app.storage.user.get("session_id")
+    last_validated_at = app.storage.user.get("last_validated_at")
+
+    # Check if cache is stale (requires periodic Redis revalidation)
+    cache_is_stale = True
+    if last_validated_at:
+        try:
+            validated_time = datetime.fromisoformat(last_validated_at)
+            age_seconds = (datetime.now(UTC) - validated_time).total_seconds()
+            cache_is_stale = age_seconds > CACHE_REVALIDATION_SECONDS
+        except (ValueError, TypeError):
+            cache_is_stale = True
+
+    # SECURITY: Only trust cached user if:
+    # 1. Cookie is present (session not cleared by user/logout)
+    # 2. Cookie matches cached session_id (prevents stale cache after re-login)
+    # 3. Cache is not stale (ensures Redis TTL/revocation is respected)
+    if (
+        stored_user
+        and app.storage.user.get("logged_in")
+        and cookie_value
+        and cached_session_id
+        and cookie_value == cached_session_id
+        and not cache_is_stale
+    ):
+        logger.debug("Using cached user from app.storage.user (session_id matches, cache fresh)")
         return stored_user, cookie_value, False
+    elif stored_user and app.storage.user.get("logged_in"):
+        # Cache exists but cookie missing/mismatched/stale - clear and revalidate
+        reason = "stale" if cache_is_stale else "cookie_mismatch"
+        logger.debug(
+            "Cache invalidated: reason=%s, cookie_present=%s, session_id_match=%s",
+            reason,
+            cookie_value is not None,
+            cookie_value == cached_session_id if cached_session_id else False,
+        )
+        app.storage.user.clear()
 
     # SECOND: Check request.state.user (set by SessionMiddleware on HTTP requests)
     user_data = getattr(request.state, "user", None)
-    cookie_value = None
 
     if user_data is None:
         # SessionMiddleware didn't validate - do full validation
@@ -400,13 +448,17 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         request = _get_request_from_storage()
-        user_data, _, should_return = await _validate_and_get_user_for_decorator(request)
+        user_data, cookie_value, should_return = await _validate_and_get_user_for_decorator(request)
 
         if should_return:
             return
 
         app.storage.user["logged_in"] = True
         app.storage.user["user"] = user_data
+        # Store session_id for cache validation (prevents stale cache bypass)
+        if cookie_value:
+            app.storage.user["session_id"] = cookie_value
+            app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
         return await func(*args, **kwargs)
 
@@ -427,7 +479,9 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             request = _get_request_from_storage()
-            user_data, _, should_return = await _validate_and_get_user_for_decorator(request)
+            user_data, cookie_value, should_return = await _validate_and_get_user_for_decorator(
+                request
+            )
 
             if should_return:
                 return
@@ -439,6 +493,10 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
 
             app.storage.user["logged_in"] = True
             app.storage.user["user"] = user_data
+            # Store session_id for cache validation (prevents stale cache bypass)
+            if cookie_value:
+                app.storage.user["session_id"] = cookie_value
+                app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
             return await func(*args, **kwargs)
 

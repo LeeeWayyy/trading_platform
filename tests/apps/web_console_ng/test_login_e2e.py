@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     pass
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_session_store() -> AsyncMock:
     """Create a mock session store for testing."""
     store = AsyncMock()
@@ -39,7 +39,7 @@ def mock_session_store() -> AsyncMock:
     return store
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_audit_logger() -> AsyncMock:
     """Create a mock audit logger."""
     logger = AsyncMock()
@@ -56,7 +56,7 @@ class TestLoginE2EFlow:
     HTTP flow without needing a running server.
     """
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_login_post_sets_cookies_and_redirects(
         self, mock_session_store: AsyncMock, mock_audit_logger: AsyncMock
     ) -> None:
@@ -67,8 +67,9 @@ class TestLoginE2EFlow:
         # Mock at the module level where get_session_store is called
         with patch.object(dev_module, "get_session_store", return_value=mock_session_store):
             # Import the router directly to test without full app initialization
-            from apps.web_console_ng.auth.routes import auth_api_router
             from fastapi import FastAPI
+
+            from apps.web_console_ng.auth.routes import auth_api_router
 
             # Create minimal FastAPI app with just the auth router
             test_app = FastAPI()
@@ -102,23 +103,24 @@ class TestLoginE2EFlow:
                 assert has_session_cookie, f"Session cookie not set. Cookies: {list(cookies.keys())}"
                 assert "ng_csrf" in cookies, f"CSRF cookie not set. Cookies: {list(cookies.keys())}"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_full_login_flow_with_cookie_persistence(
         self, mock_session_store: AsyncMock, mock_audit_logger: AsyncMock
     ) -> None:
         """Test complete login flow: POST → get cookies → access protected page."""
         # Import modules to patch
-        import apps.web_console_ng.auth.providers.dev as dev_module
         import apps.web_console_ng.auth.middleware as middleware_module
+        import apps.web_console_ng.auth.providers.dev as dev_module
 
         with (
             patch.object(dev_module, "get_session_store", return_value=mock_session_store),
             patch.object(middleware_module, "get_session_store", return_value=mock_session_store),
         ):
-            from apps.web_console_ng.auth.routes import auth_api_router
-            from apps.web_console_ng.auth.middleware import AuthMiddleware
             from fastapi import FastAPI
             from starlette.responses import PlainTextResponse
+
+            from apps.web_console_ng.auth.middleware import AuthMiddleware
+            from apps.web_console_ng.auth.routes import auth_api_router
 
             # Create test app with auth router and middleware
             test_app = FastAPI()

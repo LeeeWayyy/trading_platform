@@ -357,8 +357,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
                 last_kill_switch_state = state
             except Exception:
-                kill_switch_badge.set_text("STATUS UNKNOWN")
-                kill_switch_badge.classes(
+                kill_switch_button.set_text("STATUS UNKNOWN")
+                kill_switch_button.classes(
                     "bg-yellow-500 text-black",
                     remove="bg-red-500 bg-green-500",
                 )

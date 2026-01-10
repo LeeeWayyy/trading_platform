@@ -1395,6 +1395,10 @@ class DatabaseClient:
         def _execute() -> list[dict[str, Any]]:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
+                    # Filter fills by their timestamp (not just order updated_at)
+                    # This prevents old fills from orders updated by reconciliation
+                    # from flooding the recent fills result set
+                    # Use NULLIF to handle empty/null values that would fail NUMERIC cast
                     cur.execute(
                         f"""
                         SELECT
@@ -1402,25 +1406,29 @@ class DatabaseClient:
                             o.symbol,
                             o.side,
                             o.status,
-                            (fill->>'fill_qty')::NUMERIC AS qty,
-                            (fill->>'fill_price')::NUMERIC AS price,
-                            COALESCE((fill->>'realized_pl')::NUMERIC, 0) AS realized_pl,
+                            COALESCE(NULLIF(fill->>'fill_qty', '')::NUMERIC, 0) AS qty,
+                            COALESCE(NULLIF(fill->>'fill_price', '')::NUMERIC, 0) AS price,
+                            COALESCE(NULLIF(fill->>'realized_pl', '')::NUMERIC, 0) AS realized_pl,
                             COALESCE(
                                 NULLIF(fill->>'timestamp', '')::timestamptz,
                                 o.updated_at
-                            ) AS timestamp
+                            ) AS fill_timestamp
                         FROM orders o,
                              jsonb_array_elements(o.metadata->'fills') AS fill
                         WHERE {where_clause}
-                        -- NOTE: Removed timestamp filters to allow COALESCE fallback
-                        -- for legacy/synthetic fills without embedded timestamps
-                        ORDER BY timestamp DESC
+                          AND COALESCE(
+                                  NULLIF(fill->>'timestamp', '')::timestamptz,
+                                  o.updated_at
+                              ) >= NOW() - make_interval(hours => %s)
+                          AND NOT COALESCE((fill->>'superseded')::boolean, FALSE)
+                        ORDER BY fill_timestamp DESC
                         LIMIT %s
                         """,
-                        (*params, limit),
+                        (*params, lookback_hours, limit),
                     )
                     rows = cur.fetchall()
-            return [dict(row) for row in rows]
+            # Rename fill_timestamp back to timestamp for API compatibility
+            return [{**row, "timestamp": row.pop("fill_timestamp")} for row in rows]
 
         try:
             return _execute()
@@ -1779,6 +1787,11 @@ class DatabaseClient:
         total_realized_pl. Caller must provide an open transaction connection
         to ensure atomicity with related updates.
 
+        IDEMPOTENCY: If a fill with the same fill_id already exists, the update
+        is skipped to prevent duplicate fills (e.g., from delayed webhooks +
+        reconciliation backfill race). The WHERE clause filters out orders that
+        already contain the fill_id.
+
         DESIGN DECISION: The nested jsonb_set SQL is intentionally verbose to handle
         all edge cases (null metadata, missing fills array, missing total_realized_pl)
         in a single atomic UPDATE. Alternative approaches like Python-side merge +
@@ -1790,12 +1803,25 @@ class DatabaseClient:
             conn: Active database connection
 
         Returns:
-            Updated OrderDetail with metadata, or None if order not found
+            Updated OrderDetail with metadata, or None if order not found or fill already exists
         """
 
         fill_json = json.dumps(fill_data)
+        fill_id = fill_data.get("fill_id", "")
+
+        # SECURITY: Reject fills without a valid fill_id to ensure idempotency
+        # Empty fill_id would bypass the NOT EXISTS check (NULL = '' is NULL, not FALSE)
+        if not fill_id:
+            logger.error(
+                "Rejecting fill without fill_id - idempotency cannot be guaranteed",
+                extra={"client_order_id": client_order_id, "fill_data": fill_data},
+            )
+            return None
 
         with conn.cursor(row_factory=dict_row) as cur:
+            # IDEMPOTENCY: Only append if fill_id doesn't already exist in fills array
+            # This prevents double-counting from webhook + reconciliation race
+            # COALESCE handles NULL fill_id in existing fills (should not happen but defensive)
             cur.execute(
                 """
                 UPDATE orders
@@ -1814,19 +1840,73 @@ class DatabaseClient:
                     ),
                     updated_at = NOW()
                 WHERE client_order_id = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(
+                          COALESCE(metadata->'fills', '[]'::jsonb)
+                      ) AS f WHERE COALESCE(f->>'fill_id', '') = %s
+                  )
                 RETURNING *
                 """,
-                (fill_json, fill_json, client_order_id),
+                (fill_json, fill_json, client_order_id, fill_id),
             )
 
             row = cur.fetchone()
 
             if row is None:
-                logger.warning(
-                    "Order not found for fill metadata append",
-                    extra={"client_order_id": client_order_id},
+                # Note: row is None if order doesn't exist OR fill already exists (idempotency)
+                # This is expected behavior for duplicate fills, not an error
+                logger.debug(
+                    "Fill metadata append skipped (order missing or fill_id already exists)",
+                    extra={"client_order_id": client_order_id, "fill_id": fill_id},
                 )
                 return None
+
+            # RACE CONDITION FIX: When appending a real (non-synthetic) fill, mark any
+            # existing synthetic fills as superseded. This prevents double-counting if
+            # reconciliation created synthetic fills before webhook arrived.
+            # Synthetic fills have "synthetic": true flag; real fills don't have this key.
+            is_real_fill = not fill_data.get("synthetic", False)
+            if is_real_fill:
+                cur.execute(
+                    """
+                    UPDATE orders
+                    SET metadata = jsonb_set(
+                        metadata,
+                        '{fills}',
+                        (
+                            SELECT COALESCE(jsonb_agg(
+                                CASE
+                                    WHEN elem->>'synthetic' = 'true'
+                                    THEN elem || '{"superseded": true}'::jsonb
+                                    ELSE elem
+                                END
+                            ), '[]'::jsonb)
+                            FROM jsonb_array_elements(
+                                COALESCE(metadata->'fills', '[]'::jsonb)
+                            ) AS elem
+                        )
+                    )
+                    WHERE client_order_id = %s
+                      AND EXISTS (
+                          SELECT 1 FROM jsonb_array_elements(
+                              COALESCE(metadata->'fills', '[]'::jsonb)
+                          ) AS f WHERE f->>'synthetic' = 'true'
+                      )
+                    RETURNING *
+                    """,
+                    (client_order_id,),
+                )
+                superseded_row = cur.fetchone()
+                if superseded_row:
+                    logger.info(
+                        "Marked synthetic fills as superseded after real fill arrived",
+                        extra={
+                            "client_order_id": client_order_id,
+                            "real_fill_id": fill_id,
+                        },
+                    )
+                    # Use the updated row with superseded synthetic fills
+                    row = superseded_row
 
             try:
                 return self._row_to_order_detail(row)

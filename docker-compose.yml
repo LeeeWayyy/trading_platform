@@ -191,7 +191,14 @@ services:
       # Default to false for local dev to simplify setup. Production should use true.
       - INTERNAL_TOKEN_REQUIRED=${INTERNAL_TOKEN_REQUIRED:-false}
       - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:-}
+      # SECURITY: log_only mode REQUIRES DEBUG=true (enforced in code).
+      # Production must use API_AUTH_MODE=enforce with DEBUG=false.
+      - DEBUG=${DEBUG:-true}
       - API_AUTH_MODE=${API_AUTH_MODE:-log_only}
+      # SECURITY: Set to actual ingress/LB IPs in production (comma-separated).
+      # Default 127.0.0.1 is for local dev only. If behind LB without this,
+      # rate limiting will apply globally (all users share one IP bucket).
+      - TRUSTED_PROXY_HOSTS=${TRUSTED_PROXY_HOSTS:-127.0.0.1}
     volumes:
       - ./apps/web_console_ng/certs:/app/apps/web_console/certs:ro  # JWT keys for auth
     depends_on:

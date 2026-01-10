@@ -37,10 +37,9 @@ from libs.web_console_auth.exceptions import (
     TokenRevokedError,
 )
 from libs.web_console_auth.gateway_auth import AuthenticatedUser, GatewayAuthenticator
-from libs.web_console_auth.permissions import Role
 from libs.web_console_auth.jwks_validator import JWKSValidator
 from libs.web_console_auth.jwt_manager import JWTManager
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.web_console_auth.permissions import Permission, Role, has_permission
 from libs.web_console_auth.rate_limiter import RateLimiter
 from libs.web_console_auth.redis_client import (
     create_async_redis,
@@ -288,7 +287,37 @@ async def get_authenticated_user(
     """Validate headers and return authenticated user context."""
 
     mode = os.getenv("API_AUTH_MODE", "enforce").lower().strip()
-    log_only = mode == "log_only"
+    debug_mode = os.getenv("DEBUG", "false").lower().strip() in ("true", "1", "yes")
+    dry_run = os.getenv("DRY_RUN", "true").lower().strip() in ("true", "1", "yes")
+
+    # SECURITY: log_only mode ONLY allowed when BOTH DEBUG=true AND DRY_RUN=true
+    # This prevents accidental production deployment with auth bypass.
+    # Even in DEBUG mode, if DRY_RUN=false (real trades), auth must be enforced.
+    if mode == "log_only":
+        if not debug_mode:
+            logger.error(
+                "auth_mode_security_violation",
+                extra={
+                    "mode": mode,
+                    "debug": debug_mode,
+                    "dry_run": dry_run,
+                    "message": "API_AUTH_MODE=log_only requires DEBUG=true. Falling back to enforce mode.",
+                },
+            )
+            mode = "enforce"
+        elif not dry_run:
+            logger.error(
+                "auth_mode_security_violation",
+                extra={
+                    "mode": mode,
+                    "debug": debug_mode,
+                    "dry_run": dry_run,
+                    "message": "API_AUTH_MODE=log_only requires DRY_RUN=true. Falling back to enforce mode.",
+                },
+            )
+            mode = "enforce"
+
+    log_only = mode == "log_only" and debug_mode and dry_run
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -385,17 +414,18 @@ async def get_authenticated_user(
 
 
 def _build_dev_fallback_user(request: Request) -> AuthenticatedUser:
-    """Return a permissive dev user when API_AUTH_MODE=log_only.
+    """Return a dev user when API_AUTH_MODE=log_only AND DEBUG=true.
 
     This is intended for local dev dashboards when auth headers are missing.
+    SECURITY: Defaults to OPERATOR role (not ADMIN) as defense-in-depth.
     """
 
-    user_id = request.headers.get("X-User-ID") or os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev")
-    role_value = os.getenv("WEB_CONSOLE_DEV_ROLE", "admin")
+    user_id: str = request.headers.get("X-User-ID") or os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev") or "dev"
+    role_value = os.getenv("WEB_CONSOLE_DEV_ROLE", "operator")  # Default to operator, not admin
     try:
         role = Role(role_value)
     except ValueError:
-        role = Role.ADMIN
+        role = Role.OPERATOR  # Fallback to operator, not admin
 
     strategies_raw = os.getenv("WEB_CONSOLE_DEV_STRATEGIES", "").strip()
     if strategies_raw:

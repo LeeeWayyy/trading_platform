@@ -130,6 +130,6 @@ latencies, is_stale, _ = await prom.get_service_latencies()
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09 (P5T10: removed unused variable in health_client.py)
 - **Source Files:** `libs/health/__init__.py`, `libs/health/health_client.py`, `libs/health/prometheus_client.py`
 - **ADRs:** N/A

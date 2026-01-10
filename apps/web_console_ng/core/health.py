@@ -7,13 +7,10 @@ import logging
 import os
 import signal
 import threading
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import Request, Response
-from nicegui import app, core
+from nicegui import app
 
 from apps.web_console_ng import config
 from apps.web_console_ng.core.client import AsyncTradingClient

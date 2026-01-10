@@ -87,21 +87,23 @@ class HealthClient:
         try:
             client = await self._get_client()
             response = None
-            last_error: Exception | None = None
 
             # Small retry for transient network/timeout errors to avoid flapping.
             for attempt in range(2):
                 try:
                     response = await client.get(f"{url}/health")
                     break
-                except (httpx.TimeoutException, httpx.RequestError) as exc:
-                    last_error = exc
+                except (httpx.TimeoutException, httpx.RequestError):
                     if attempt == 0:
                         await asyncio.sleep(0.2)
                         continue
                     raise
 
             elapsed_ms = (datetime.now(UTC) - start).total_seconds() * 1000
+
+            # Should never happen due to break/raise logic, but satisfy type checker
+            if response is None:
+                return self._handle_error(service_name, start, "No response received")
 
             if response.status_code == 200:
                 try:

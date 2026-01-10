@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 from typing import Any
 
 import httpx
@@ -149,8 +149,8 @@ def create_orders_table() -> ui.aggrid:
         }
     ).classes("w-full")
 
-    grid._ready_event = asyncio.Event()
-    grid.on("gridReady", lambda _: grid._ready_event.set())
+    grid._ready_event = asyncio.Event()  # type: ignore[attr-defined]
+    grid.on("gridReady", lambda _: grid._ready_event.set())  # type: ignore[attr-defined]
 
     return grid
 
@@ -214,7 +214,7 @@ async def update_orders_table(
     valid_orders = [order for order in orders if order.get("client_order_id")]
     current_ids = {order["client_order_id"] for order in valid_orders}
 
-    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():
+    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():  # type: ignore[attr-defined]
         grid.options["rowData"] = valid_orders
         grid.update()
         return current_ids
