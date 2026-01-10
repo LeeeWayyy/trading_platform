@@ -88,6 +88,7 @@ T = TypeVar("T")
 
 # Order statuses treated as pending/active for manual controls and monitoring
 PENDING_STATUSES: tuple[str, ...] = (
+    "new",
     "pending_new",
     "submitted",
     "submitted_unconfirmed",
@@ -277,6 +278,20 @@ class DatabaseClient:
         """
         self._pool.close()
         logger.info("DatabaseClient connection pool closed")
+
+    def _recreate_pool(self) -> None:
+        """Recreate the connection pool after a hard disconnect."""
+        try:
+            self._pool.close()
+        except Exception as exc:  # pragma: no cover - defensive cleanup
+            logger.warning("DatabaseClient pool close failed", extra={"error": str(exc)})
+        self._pool = ConnectionPool(
+            self.db_conn_string,
+            min_size=DB_POOL_MIN_SIZE,
+            max_size=DB_POOL_MAX_SIZE,
+            timeout=DB_POOL_TIMEOUT,
+        )
+        logger.warning("DatabaseClient connection pool recreated")
 
     def _execute_with_conn(
         self,
@@ -1025,6 +1040,39 @@ class DatabaseClient:
             logger.error(f"Database error fetching order: {e}")
             raise
 
+    def get_filled_orders_missing_fills(self, limit: int = 200) -> list[OrderDetail]:
+        """
+        Return filled/partially_filled orders that lack fill metadata.
+
+        Used by reconciliation to backfill fills when webhooks are unavailable.
+        """
+        limit = max(1, min(int(limit), 500))
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM orders
+                        WHERE status IN ('filled', 'partially_filled')
+                          AND filled_qty > 0
+                          AND filled_avg_price IS NOT NULL
+                          AND (
+                                metadata IS NULL
+                                OR NOT (metadata ? 'fills')
+                                OR jsonb_array_length(metadata->'fills') = 0
+                              )
+                        ORDER BY updated_at DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
+                    rows = cur.fetchall()
+                    return [OrderDetail(**row) for row in rows]
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching orders missing fills: {e}")
+            raise
+
     def get_order_ids_by_client_ids(self, client_order_ids: list[str]) -> set[str]:
         """
         Return existing client_order_ids for the provided list.
@@ -1257,7 +1305,7 @@ class DatabaseClient:
 
         where_clause = " AND ".join(filters)
 
-        try:
+        def _execute() -> tuple[list[OrderDetail], int]:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
@@ -1281,6 +1329,8 @@ class DatabaseClient:
 
             return [OrderDetail(**row) for row in rows], total
 
+        try:
+            return _execute()
         except (OperationalError, DatabaseError) as exc:
             logger.error(
                 "Database error fetching pending orders",
@@ -1292,6 +1342,104 @@ class DatabaseClient:
                     "error": str(exc),
                 },
             )
+            if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
+                self._recreate_pool()
+                return _execute()
+            raise
+
+    def get_recent_fills(
+        self,
+        *,
+        strategy_ids: list[str] | None,
+        limit: int = 50,
+        lookback_hours: int = 24,
+    ) -> list[dict[str, Any]]:
+        """
+        Return recent fill events from order metadata.
+
+        Args:
+            strategy_ids: Optional list of strategies to scope results (fail-closed when empty)
+            limit: Max rows to return (default 50)
+            lookback_hours: Time window for order scan (default 24h, prevents unbounded expansion)
+
+        Returns:
+            List of dicts with fill details for activity feeds.
+
+        Note:
+            SECURITY: Time window constraint prevents DoS via unbounded JSONB array expansion.
+            Without this, a malicious user could trigger expensive queries by setting limit=200
+            and forcing expansion of all historical fills.
+        """
+        if strategy_ids is not None and not strategy_ids:
+            return []
+
+        limit = max(1, min(int(limit), 200))
+        lookback_hours = max(1, min(int(lookback_hours), 168))  # Cap at 7 days
+
+        filters: list[str] = [
+            "o.status IN ('filled', 'partially_filled')",
+            "o.metadata ? 'fills'",
+            "jsonb_array_length(o.metadata->'fills') > 0",
+            # SECURITY: Time window prevents unbounded JSONB expansion (DoS mitigation)
+            # NOTE: Use make_interval() for proper parameterization (not INTERVAL '%s')
+            "o.updated_at >= NOW() - make_interval(hours => %s)",
+        ]
+        params: list[Any] = [lookback_hours]
+
+        if strategy_ids is not None:
+            filters.append("o.strategy_id = ANY(%s)")
+            params.append(strategy_ids)
+
+        where_clause = " AND ".join(filters)
+
+        def _execute() -> list[dict[str, Any]]:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    # Filter fills by their timestamp (not just order updated_at)
+                    # This prevents old fills from orders updated by reconciliation
+                    # from flooding the recent fills result set
+                    # Use NULLIF to handle empty/null values that would fail NUMERIC cast
+                    cur.execute(
+                        f"""
+                        SELECT
+                            o.client_order_id,
+                            o.symbol,
+                            o.side,
+                            o.status,
+                            COALESCE(NULLIF(fill->>'fill_qty', '')::NUMERIC, 0) AS qty,
+                            COALESCE(NULLIF(fill->>'fill_price', '')::NUMERIC, 0) AS price,
+                            COALESCE(NULLIF(fill->>'realized_pl', '')::NUMERIC, 0) AS realized_pl,
+                            COALESCE(
+                                NULLIF(fill->>'timestamp', '')::timestamptz,
+                                o.updated_at
+                            ) AS fill_timestamp
+                        FROM orders o
+                        CROSS JOIN jsonb_array_elements(o.metadata->'fills') AS fill
+                        WHERE {where_clause}
+                          AND COALESCE(
+                                  NULLIF(fill->>'timestamp', '')::timestamptz,
+                                  o.updated_at
+                              ) >= NOW() - make_interval(hours => %s)
+                          AND NOT COALESCE((fill->>'superseded')::boolean, FALSE)
+                        ORDER BY fill_timestamp DESC
+                        LIMIT %s
+                        """,
+                        (*params, lookback_hours, limit),
+                    )
+                    rows = cur.fetchall()
+            # Rename fill_timestamp back to timestamp for API compatibility
+            return [{**row, "timestamp": row.pop("fill_timestamp")} for row in rows]
+
+        try:
+            return _execute()
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching recent fills",
+                extra={"strategies": strategy_ids, "limit": limit, "error": str(exc)},
+            )
+            if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
+                self._recreate_pool()
+                return _execute()
             raise
 
     def update_order_status(
@@ -1639,6 +1787,11 @@ class DatabaseClient:
         total_realized_pl. Caller must provide an open transaction connection
         to ensure atomicity with related updates.
 
+        IDEMPOTENCY: If a fill with the same fill_id already exists, the update
+        is skipped to prevent duplicate fills (e.g., from delayed webhooks +
+        reconciliation backfill race). The WHERE clause filters out orders that
+        already contain the fill_id.
+
         DESIGN DECISION: The nested jsonb_set SQL is intentionally verbose to handle
         all edge cases (null metadata, missing fills array, missing total_realized_pl)
         in a single atomic UPDATE. Alternative approaches like Python-side merge +
@@ -1650,12 +1803,25 @@ class DatabaseClient:
             conn: Active database connection
 
         Returns:
-            Updated OrderDetail with metadata, or None if order not found
+            Updated OrderDetail with metadata, or None if order not found or fill already exists
         """
 
         fill_json = json.dumps(fill_data)
+        fill_id = fill_data.get("fill_id", "")
+
+        # SECURITY: Reject fills without a valid fill_id to ensure idempotency
+        # Empty fill_id would bypass the NOT EXISTS check (NULL = '' is NULL, not FALSE)
+        if not fill_id:
+            logger.error(
+                "Rejecting fill without fill_id - idempotency cannot be guaranteed",
+                extra={"client_order_id": client_order_id, "fill_data": fill_data},
+            )
+            return None
 
         with conn.cursor(row_factory=dict_row) as cur:
+            # IDEMPOTENCY: Only append if fill_id doesn't already exist in fills array
+            # This prevents double-counting from webhook + reconciliation race
+            # COALESCE handles NULL fill_id in existing fills (should not happen but defensive)
             cur.execute(
                 """
                 UPDATE orders
@@ -1674,19 +1840,73 @@ class DatabaseClient:
                     ),
                     updated_at = NOW()
                 WHERE client_order_id = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(
+                          COALESCE(metadata->'fills', '[]'::jsonb)
+                      ) AS f WHERE COALESCE(f->>'fill_id', '') = %s
+                  )
                 RETURNING *
                 """,
-                (fill_json, fill_json, client_order_id),
+                (fill_json, fill_json, client_order_id, fill_id),
             )
 
             row = cur.fetchone()
 
             if row is None:
-                logger.warning(
-                    "Order not found for fill metadata append",
-                    extra={"client_order_id": client_order_id},
+                # Note: row is None if order doesn't exist OR fill already exists (idempotency)
+                # This is expected behavior for duplicate fills, not an error
+                logger.debug(
+                    "Fill metadata append skipped (order missing or fill_id already exists)",
+                    extra={"client_order_id": client_order_id, "fill_id": fill_id},
                 )
                 return None
+
+            # RACE CONDITION FIX: When appending a real (non-synthetic) fill, mark any
+            # existing synthetic fills as superseded. This prevents double-counting if
+            # reconciliation created synthetic fills before webhook arrived.
+            # Synthetic fills have "synthetic": true flag; real fills don't have this key.
+            is_real_fill = not fill_data.get("synthetic", False)
+            if is_real_fill:
+                cur.execute(
+                    """
+                    UPDATE orders
+                    SET metadata = jsonb_set(
+                        metadata,
+                        '{fills}',
+                        (
+                            SELECT COALESCE(jsonb_agg(
+                                CASE
+                                    WHEN elem->>'synthetic' = 'true'
+                                    THEN elem || '{"superseded": true}'::jsonb
+                                    ELSE elem
+                                END
+                            ), '[]'::jsonb)
+                            FROM jsonb_array_elements(
+                                COALESCE(metadata->'fills', '[]'::jsonb)
+                            ) AS elem
+                        )
+                    )
+                    WHERE client_order_id = %s
+                      AND EXISTS (
+                          SELECT 1 FROM jsonb_array_elements(
+                              COALESCE(metadata->'fills', '[]'::jsonb)
+                          ) AS f WHERE f->>'synthetic' = 'true'
+                      )
+                    RETURNING *
+                    """,
+                    (client_order_id,),
+                )
+                superseded_row = cur.fetchone()
+                if superseded_row:
+                    logger.info(
+                        "Marked synthetic fills as superseded after real fill arrived",
+                        extra={
+                            "client_order_id": client_order_id,
+                            "real_fill_id": fill_id,
+                        },
+                    )
+                    # Use the updated row with superseded synthetic fills
+                    row = superseded_row
 
             try:
                 return self._row_to_order_detail(row)

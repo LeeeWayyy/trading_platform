@@ -38,11 +38,40 @@ class ActivityFeed:
         self._insert_item_at_top(event, highlight=True)
         await self._scroll_to_top()
 
+    async def add_items(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        highlight: bool = False,
+    ) -> None:
+        """Add multiple items without re-rendering the whole feed."""
+        if not events:
+            return
+
+        # Insert oldest first so newest ends up at the top.
+        for event in reversed(events):
+            self.items.appendleft(event)
+            self._insert_item_at_top(event, highlight=highlight)
+
+        await self._scroll_to_top()
+
     async def _scroll_to_top(self) -> None:
         """Scroll the activity feed container to top."""
         if self._container is None:
             return
-        await self._container.run_method("scrollTo", {"top": 0, "behavior": "smooth"})
+        try:
+            await self._container.run_method(
+                "scrollTo",
+                {"top": 0, "behavior": "smooth"},
+                timeout=2,
+            )
+        except TimeoutError:
+            logger.warning("activity_feed_scroll_timeout")
+        except Exception as exc:
+            logger.warning(
+                "activity_feed_scroll_failed",
+                extra={"error": type(exc).__name__, "detail": str(exc)},
+            )
 
     def _insert_item_at_top(self, event: dict[str, Any], highlight: bool = False) -> None:
         """Insert new item at top of feed (efficient incremental update).

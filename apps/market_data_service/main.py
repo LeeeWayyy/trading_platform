@@ -180,6 +180,13 @@ subscription_duration = Histogram(
     buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
+# Latency histogram for shared health dashboard (no service prefix)
+market_data_processing_duration_seconds = Histogram(
+    "market_data_processing_duration_seconds",
+    "Time taken to process market data operations",
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+)
+
 subscribed_symbols_current = Gauge(
     "market_data_subscribed_symbols_current",
     "Current number of subscribed symbols",
@@ -315,6 +322,7 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
         elapsed = time.time() - request_started
         subscription_requests_total.labels(operation="subscribe", status=request_status).inc()
         subscription_duration.observe(elapsed)
+        market_data_processing_duration_seconds.observe(elapsed)
 
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
@@ -373,6 +381,7 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
         elapsed = time.time() - request_started
         subscription_requests_total.labels(operation="unsubscribe", status=request_status).inc()
         subscription_duration.observe(elapsed)
+        market_data_processing_duration_seconds.observe(elapsed)
 
 
 @app.get("/api/v1/subscriptions", response_model=SubscriptionsResponse)

@@ -182,18 +182,11 @@ class PrometheusClient:
         try:
             results = await self._fetch_latencies_from_prometheus()
 
-            # Check if all results are errors (all services have None latencies)
-            # This indicates Prometheus is completely unavailable
-            all_failed = (
-                all(
-                    m.p50_ms is None and m.p95_ms is None and m.p99_ms is None
-                    for m in results.values()
-                )
-                if results
-                else True
-            )
+            # If Prometheus is unavailable, we attach error strings in results.
+            # Only treat as "failed" when every service has an error.
+            all_errors = bool(results) and all(m.error is not None for m in results.values())
 
-            if all_failed:
+            if all_errors:
                 # Use stale cache instead of empty results
                 stale_result = self._get_stale_latencies_or_none(cache_key, now)
                 if stale_result:
@@ -202,6 +195,14 @@ class PrometheusClient:
                         stale_result[2],  # stale_age
                     )
                     return stale_result
+
+            # If there are no errors but also no data yet, do not mark stale.
+            all_missing = bool(results) and all(
+                m.error is None and m.p50_ms is None and m.p95_ms is None and m.p99_ms is None
+                for m in results.values()
+            )
+            if all_missing:
+                logger.info("No latency data available yet from Prometheus")
 
             # Fresh results (at least some succeeded)
             self._cache[cache_key] = (results, now)

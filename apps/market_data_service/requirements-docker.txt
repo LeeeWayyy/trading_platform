@@ -1,0 +1,26 @@
+# Docker-specific requirements for Market Data Service
+# Excludes pyqlib (not available on ARM64 Linux)
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Data validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Redis
+redis>=5.0.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Retry logic
+tenacity>=8.2.0
+
+# Alpaca API + streaming
+alpaca-py>=0.15.0
+
+# Metrics
+prometheus-client>=0.19.0

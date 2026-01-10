@@ -130,6 +130,11 @@ apps/web_console/certs/jwt_private.key
 !apps/web_console/certs/jwt_public.pem
 !apps/web_console/certs/ca.pem
 
+# Web Console NG Certificates (local dev only)
+# CRITICAL: Never commit private keys to version control
+apps/web_console_ng/certs/*
+!apps/web_console_ng/certs/README.md
+
 # repomix
 repomix*.xml
 

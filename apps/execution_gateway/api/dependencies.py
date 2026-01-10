@@ -39,7 +39,7 @@ from libs.web_console_auth.exceptions import (
 from libs.web_console_auth.gateway_auth import AuthenticatedUser, GatewayAuthenticator
 from libs.web_console_auth.jwks_validator import JWKSValidator
 from libs.web_console_auth.jwt_manager import JWTManager
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.web_console_auth.permissions import Permission, Role, has_permission
 from libs.web_console_auth.rate_limiter import RateLimiter
 from libs.web_console_auth.redis_client import (
     create_async_redis,
@@ -134,6 +134,24 @@ def error_detail(error: str, message: str, retry_after: int | None = None) -> di
     if retry_after is not None:
         detail["retry_after"] = retry_after
     return detail
+
+
+def _get_required_header(
+    request: Request, header_name: str, log_only: bool, default_value: str = ""
+) -> str:
+    """Extract a required header, falling back to default in log_only mode.
+
+    Reduces repetitive header validation logic for X-User-ID, X-Request-ID, etc.
+    """
+    value = request.headers.get(header_name)
+    if not value:
+        if log_only:
+            return default_value
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("missing_header", f"{header_name} header required"),
+        )
+    return value
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
@@ -286,48 +304,76 @@ async def get_authenticated_user(
 ) -> AuthenticatedUser:
     """Validate headers and return authenticated user context."""
 
+    mode = os.getenv("API_AUTH_MODE", "enforce").lower().strip()
+    debug_mode = os.getenv("DEBUG", "false").lower().strip() in ("true", "1", "yes")
+    dry_run = os.getenv("DRY_RUN", "true").lower().strip() in ("true", "1", "yes")
+
+    # SECURITY: log_only mode ONLY allowed when BOTH DEBUG=true AND DRY_RUN=true
+    # This prevents accidental production deployment with auth bypass.
+    # Even in DEBUG mode, if DRY_RUN=false (real trades), auth must be enforced.
+    if mode == "log_only":
+        if not debug_mode:
+            logger.error(
+                "auth_mode_security_violation",
+                extra={
+                    "mode": mode,
+                    "debug": debug_mode,
+                    "dry_run": dry_run,
+                    "message": "API_AUTH_MODE=log_only requires DEBUG=true. Falling back to enforce mode.",
+                },
+            )
+            mode = "enforce"
+        elif not dry_run:
+            logger.error(
+                "auth_mode_security_violation",
+                extra={
+                    "mode": mode,
+                    "debug": debug_mode,
+                    "dry_run": dry_run,
+                    "message": "API_AUTH_MODE=log_only requires DRY_RUN=true. Falling back to enforce mode.",
+                },
+            )
+            mode = "enforce"
+
+    log_only = mode == "log_only" and debug_mode and dry_run
+
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
+        if log_only:
+            return _build_dev_fallback_user(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=error_detail("invalid_token", "Authorization required"),
         )
 
     token = auth_header[7:]
-    user_id = request.headers.get("X-User-ID")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("missing_header", "X-User-ID header required"),
-        )
+    user_id = _get_required_header(request, "X-User-ID", log_only)
+    request_id = _get_required_header(request, "X-Request-ID", log_only)
 
-    request_id = request.headers.get("X-Request-ID")
-    if not request_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("missing_header", "X-Request-ID header required"),
-        )
+    # Validate request_id is valid UUID if present
     try:
-        uuid.UUID(request_id)
+        if request_id:
+            uuid.UUID(request_id)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("invalid_header", "X-Request-ID must be valid UUID"),
-        ) from exc
+        if log_only:
+            request_id = ""
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_detail("invalid_header", "X-Request-ID must be valid UUID"),
+            ) from exc
 
-    session_version_header = request.headers.get("X-Session-Version")
-    if not session_version_header:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("missing_header", "X-Session-Version header required"),
-        )
+    session_version_header = _get_required_header(request, "X-Session-Version", log_only)
     try:
-        session_version = int(session_version_header)
+        session_version = int(session_version_header) if session_version_header else 0
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("invalid_header", "X-Session-Version must be integer"),
-        ) from exc
+        if log_only:
+            session_version = 0
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_detail("invalid_header", "X-Session-Version must be integer"),
+            ) from exc
 
     try:
         return await authenticator.authenticate(
@@ -337,6 +383,12 @@ async def get_authenticated_user(
             x_session_version=session_version,
         )
     except AuthError as exc:
+        if log_only:
+            logger.warning(
+                "gateway_auth_failed_log_only",
+                extra={"error_type": type(exc).__name__, "error_message": str(exc)},
+            )
+            return _build_dev_fallback_user(request)
         if type(exc) in AUTH_EXCEPTION_MAP:
             status_code, code, message = AUTH_EXCEPTION_MAP[type(exc)]
             raise HTTPException(
@@ -354,6 +406,39 @@ async def get_authenticated_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=error_detail("invalid_token", "An unexpected authentication error occurred."),
         ) from exc
+
+
+def _build_dev_fallback_user(request: Request) -> AuthenticatedUser:
+    """Return a dev user when API_AUTH_MODE=log_only AND DEBUG=true.
+
+    This is intended for local dev dashboards when auth headers are missing.
+    SECURITY: Defaults to OPERATOR role (not ADMIN) as defense-in-depth.
+    """
+
+    user_id: str = request.headers.get("X-User-ID") or os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev") or "dev"
+    role_value = os.getenv("WEB_CONSOLE_DEV_ROLE", "operator")  # Default to operator, not admin
+    try:
+        role = Role(role_value)
+    except ValueError:
+        role = Role.OPERATOR  # Fallback to operator, not admin
+
+    strategies_raw = os.getenv("WEB_CONSOLE_DEV_STRATEGIES", "").strip()
+    if strategies_raw:
+        strategies = [s.strip() for s in strategies_raw.split(",") if s.strip()]
+    else:
+        default_strategy = os.getenv("STRATEGY_ID", "").strip()
+        strategies = [default_strategy] if default_strategy else []
+
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    session_version = int(os.getenv("WEB_CONSOLE_DEV_SESSION_VERSION", "1"))
+
+    return AuthenticatedUser(
+        user_id=user_id,
+        role=role,
+        strategies=strategies,
+        session_version=session_version,
+        request_id=request_id,
+    )
 
 
 async def check_rate_limit_with_fallback(

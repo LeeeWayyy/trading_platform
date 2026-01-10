@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, cast
+from datetime import UTC, datetime
+from typing import Any
 
 from nicegui import app, ui
 from starlette.requests import Request as StarletteRequest
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_router import get_auth_handler
-from apps.web_console_ng.auth.client_ip import get_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
 from apps.web_console_ng.auth.session_store import SessionValidationError
@@ -17,18 +18,34 @@ logger = logging.getLogger(__name__)
 
 
 def _get_request_from_storage(path: str) -> StarletteRequest:
-    request = getattr(app.storage, "request", None)
-    if isinstance(request, StarletteRequest):
-        return request
-    if request is None:
-        scope = {
-            "type": "http",
-            "headers": [],
-            "client": ("127.0.0.1", 0),
-            "path": path,
-        }
-        return StarletteRequest(scope)
-    return cast(StarletteRequest, request)
+    """Get request from NiceGUI context or create fallback for tests."""
+    from nicegui import storage
+    from nicegui import ui as nicegui_ui
+
+    # Try NiceGUI's request context variable first
+    try:
+        request = storage.request_contextvar.get()
+        if request is not None:
+            return request
+    except (LookupError, AttributeError):
+        pass
+
+    # Try ui.context.client.request (available in UI context)
+    try:
+        request = nicegui_ui.context.client.request
+        if request is not None:
+            return request
+    except (AttributeError, RuntimeError):
+        pass
+
+    # Fallback for tests
+    scope = {
+        "type": "http",
+        "headers": [],
+        "client": ("127.0.0.1", 0),
+        "path": path,
+    }
+    return StarletteRequest(scope)
 
 
 def _get_redirect_destination(request: StarletteRequest) -> str:
@@ -79,6 +96,13 @@ async def login_page() -> None:
                 ui.button("Retry", on_click=lambda: ui.navigate.to("/login")).classes("mt-4")
             return
 
+    # Check for error message from POST endpoint (passed via query param)
+    from urllib.parse import parse_qs
+
+    query_string = request.scope.get("query_string", b"").decode("utf-8")
+    query_params = parse_qs(query_string)
+    login_error = query_params.get("error", [None])[0]
+
     # mTLS auto-login: Delegate all header parsing and validation to MTLSAuthHandler
     mtls_error: str | None = None
 
@@ -107,6 +131,10 @@ async def login_page() -> None:
 
                 app.storage.user["logged_in"] = True
                 app.storage.user["user"] = result.user_data
+                # Store session_id for cache validation (prevents stale cache bypass)
+                if result.cookie_value:
+                    app.storage.user["session_id"] = result.cookie_value
+                    app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
                 # Show certificate expiry warning before redirect (from handler)
                 if result.warning_message:
@@ -130,6 +158,17 @@ async def login_page() -> None:
         if "login_reason" in app.storage.user:
             del app.storage.user["login_reason"]
 
+    # Hidden form for HTTP POST login (cookies can only be set in HTTP responses)
+    next_url = _get_redirect_destination(request)
+    ui.html(f"""
+        <form id="login-form" action="/auth/login" method="post" style="display:none">
+            <input name="username" />
+            <input name="password" />
+            <input name="auth_type" />
+            <input name="next" value="{next_url}" />
+        </form>
+    """)
+
     with ui.card().classes("absolute-center w-96 p-8"):
         ui.label("Trading Console").classes("text-2xl font-bold text-center mb-2 w-full")
         ui.label("Sign in to continue").classes("text-gray-500 text-center mb-6 w-full")
@@ -147,6 +186,10 @@ async def login_page() -> None:
 
         # Error message area
         error_label = ui.label("").classes("text-red-500 text-sm text-center hidden w-full mb-2")
+        if login_error:
+            error_label.set_text(login_error)
+            error_label.classes(remove="hidden")
+
         mtls_error_label = ui.label("").classes(
             "text-red-500 text-sm text-center hidden w-full mb-2"
         )
@@ -179,97 +222,47 @@ async def login_page() -> None:
             rate_limit_label = ui.label("").classes("text-orange-500 text-sm hidden")
 
             async def submit_login() -> None:
+                """Submit login via hidden form (HTTP POST sets cookies)."""
+                logger.info("submit_login called - username=%s", username_input.value)
+                ui.notify("Logging in...", type="info")
+
                 error_label.classes(add="hidden")
                 rate_limit_label.classes(add="hidden")
 
+                # Validate inputs
                 if not username_input.value or not password_input.value:
                     error_label.set_text("Username and password are required")
                     error_label.classes(remove="hidden")
+                    ui.notify("Username and password are required", type="warning")
                     return
 
                 selected_auth = auth_type_select.value if auth_type_select else auth_type
+                logger.info("Submitting form with auth_type=%s", selected_auth)
+
+                # Submit via hidden form (HTTP POST allows setting cookies)
+                # json.dumps prevents XSS by properly escaping values
+                # Fire-and-forget to avoid server-side timeout if the browser is busy.
                 try:
-                    handler = get_auth_handler(selected_auth)
-                except ValueError as e:
-                    error_label.set_text(str(e))
+                    ui.run_javascript(f"""
+                        console.log('Form submission starting...');
+                        const f = document.getElementById('login-form');
+                        if (!f) {{
+                            console.error('Form not found!');
+                            alert('Form not found - please refresh the page');
+                            return;
+                        }}
+                        console.log('Form found, setting values...');
+                        f.username.value = {json.dumps(username_input.value)};
+                        f.password.value = {json.dumps(password_input.value)};
+                        f.auth_type.value = {json.dumps(selected_auth)};
+                        console.log('Submitting form...');
+                        f.submit();
+                    """)
+                except Exception as e:
+                    logger.exception("JavaScript execution failed", extra={"error": str(e)})
+                    error_label.set_text("Login form submission failed. Please refresh and retry.")
                     error_label.classes(remove="hidden")
-                    return
-
-                try:
-                    # Get request info (reuse the request from scope or re-fetch)
-                    inner_request = request
-
-                    result = await handler.authenticate(
-                        username=username_input.value,
-                        password=password_input.value,
-                        client_ip=get_client_ip(inner_request),
-                        user_agent=inner_request.headers.get("user-agent", ""),
-                    )
-
-                    if result.success:
-                        if result.requires_mfa:
-                            # MFA required - set session cookie with mfa_pending flag
-                            # The @requires_auth decorator will detect mfa_pending and allow
-                            # access only to /mfa-verify (see middleware.py:162-166)
-                            cookie_cfg = CookieConfig.from_env()
-                            if hasattr(inner_request.state, "response"):
-                                response = inner_request.state.response
-                                if result.cookie_value:
-                                    response.set_cookie(
-                                        key=cookie_cfg.get_cookie_name(),
-                                        value=result.cookie_value,
-                                        **cookie_cfg.get_cookie_flags(),
-                                    )
-                            app.storage.user["pending_mfa_cookie"] = result.cookie_value
-                            ui.navigate.to("/mfa-verify")
-                        else:
-                            # Set cookies
-                            cookie_cfg = CookieConfig.from_env()
-                            # Access Starlette response object
-                            if hasattr(inner_request.state, "response"):
-                                response = inner_request.state.response
-                                if result.cookie_value:
-                                    response.set_cookie(
-                                        key=cookie_cfg.get_cookie_name(),
-                                        value=result.cookie_value,
-                                        **cookie_cfg.get_cookie_flags(),
-                                    )
-                                if result.csrf_token:
-                                    response.set_cookie(
-                                        key="ng_csrf",
-                                        value=result.csrf_token,
-                                        **cookie_cfg.get_csrf_flags(),
-                                    )
-
-                            app.storage.user["logged_in"] = True
-                            app.storage.user["user"] = result.user_data
-
-                            redirect_to = _get_redirect_destination(request)
-                            if "redirect_after_login" in app.storage.user:
-                                del app.storage.user["redirect_after_login"]
-                            ui.navigate.to(redirect_to)
-                    else:
-                        error_label.set_text(result.error_message or "Login failed")
-                        error_label.classes(remove="hidden")
-
-                        if result.locked_out:
-                            remaining = result.lockout_remaining
-                            rate_limit_label.set_text(
-                                "Account locked due to repeated failures. "
-                                f"Try again in {remaining} seconds."
-                            )
-                            rate_limit_label.classes(remove="hidden")
-                        elif result.rate_limited:
-                            rate_limit_label.set_text(
-                                "Too many attempts. "
-                                f"Please wait {result.retry_after} seconds before retrying."
-                            )
-                            rate_limit_label.classes(remove="hidden")
-
-                except Exception:
-                    logger.exception("Login error")
-                    error_label.set_text("Authentication error. Please try again.")
-                    error_label.classes(remove="hidden")
+                    ui.notify("Login error. Please try again.", type="negative")
 
             ui.button("Sign In", on_click=submit_login).classes("w-full bg-blue-600 text-white")
 

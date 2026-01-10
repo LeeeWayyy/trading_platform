@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import UTC, datetime
@@ -39,7 +40,7 @@ def create_positions_grid() -> ui.aggrid:
             "headerName": "Avg Entry",
             "sortable": True,
             # Handle null/undefined and Decimal strings from API
-            "valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
+            ":valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "type": "numericColumn",
         },
         {
@@ -47,7 +48,7 @@ def create_positions_grid() -> ui.aggrid:
             "headerName": "Current",
             "sortable": True,
             # Handle null/undefined and Decimal strings from API
-            "valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
+            ":valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "type": "numericColumn",
         },
         {
@@ -55,7 +56,7 @@ def create_positions_grid() -> ui.aggrid:
             "headerName": "P&L ($)",
             "sortable": True,
             # Handle null/undefined and Decimal strings from API
-            "valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
+            ":valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "cellStyle": {
                 "function": "params.value >= 0 ? {color: '#16a34a'} : {color: '#dc2626'}"
             },
@@ -66,7 +67,7 @@ def create_positions_grid() -> ui.aggrid:
             "headerName": "P&L (%)",
             "sortable": True,
             # Handle null/undefined and Decimal strings from API
-            "valueFormatter": "x => (x.value == null) ? '--.--' + '%' : (Number(x.value) * 100).toFixed(2) + '%'",
+            ":valueFormatter": "x => (x.value == null) ? '--.--' + '%' : (Number(x.value) * 100).toFixed(2) + '%'",
             "cellStyle": {
                 "function": "params.value >= 0 ? {color: '#16a34a'} : {color: '#dc2626'}"
             },
@@ -75,10 +76,10 @@ def create_positions_grid() -> ui.aggrid:
         {
             "field": "actions",
             "headerName": "Actions",
-            "cellRenderer": "closePositionRenderer",
+            ":cellRenderer": "window.closePositionRenderer",
             "pinned": "right",
             "width": 100,
-            "suppressSorting": True,
+            "sortable": False,
         },
     ]
 
@@ -94,10 +95,13 @@ def create_positions_grid() -> ui.aggrid:
             "rowSelection": "multiple",
             "suppressRowClickSelection": True,
             "animateRows": True,
-            "getRowId": "data => data.symbol",
-            "onGridReady": "params => { window._positionsGridApi = params.api; }",
+            ":getRowId": "params => params.data.symbol",
+            ":onGridReady": "params => { window._positionsGridApi = params.api; }",
         }
     ).classes("w-full")
+
+    grid._ready_event = asyncio.Event()  # type: ignore[attr-defined]
+    grid.on("gridReady", lambda _: grid._ready_event.set())  # type: ignore[attr-defined]
 
     return grid
 
@@ -132,7 +136,7 @@ async def update_positions_grid(
     Rev 18h: Filter malformed entries (per Codex review - LOW)
     Rev 19: Dedupe malformed notifications (per Codex review - LOW)
     """
-    valid_positions = [p for p in positions if p.get("symbol")]
+    valid_positions = [p.copy() for p in positions if p.get("symbol")]
     if len(valid_positions) < len(positions):
         malformed_count = len(positions) - len(valid_positions)
         logger.warning(
@@ -159,19 +163,40 @@ async def update_positions_grid(
         if notified_malformed is not None:
             notified_malformed.clear()
 
+    for pos in valid_positions:
+        if pos.get("unrealized_plpc") is not None:
+            continue
+        try:
+            unrealized_pl = float(pos.get("unrealized_pl"))  # type: ignore[arg-type]
+            avg_entry = float(pos.get("avg_entry_price"))  # type: ignore[arg-type]
+            qty = float(pos.get("qty"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if avg_entry == 0 or qty == 0:
+            continue
+        pos["unrealized_plpc"] = unrealized_pl / (avg_entry * abs(qty))
+
     current_symbols = {p["symbol"] for p in valid_positions}
 
+    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():  # type: ignore[attr-defined]
+        grid.options["rowData"] = valid_positions
+        grid.update()
+        return current_symbols
+
     if previous_symbols is None:
-        await grid.run_grid_method("api.setRowData", valid_positions)
+        # Fire-and-forget to avoid UI timeouts when the browser is busy.
+        grid.run_grid_method("setRowData", valid_positions, timeout=5)
         return current_symbols
 
     added_positions = [p for p in valid_positions if p["symbol"] not in previous_symbols]
     updated_positions = [p for p in valid_positions if p["symbol"] in previous_symbols]
     removed_symbols = [{"symbol": s} for s in (previous_symbols - current_symbols)]
 
-    await grid.run_grid_method(
-        "api.applyTransaction",
+    # Fire-and-forget to avoid UI timeouts when the browser is busy.
+    grid.run_grid_method(
+        "applyTransaction",
         {"add": added_positions, "update": updated_positions, "remove": removed_symbols},
+        timeout=5,
     )
 
     return current_symbols

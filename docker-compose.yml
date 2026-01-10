@@ -187,12 +187,20 @@ services:
       - DRY_RUN=${DRY_RUN:-true}
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RECONCILIATION_INTERVAL_SECONDS=${RECONCILIATION_INTERVAL_SECONDS:-10}
       # Default to false for local dev to simplify setup. Production should use true.
       - INTERNAL_TOKEN_REQUIRED=${INTERNAL_TOKEN_REQUIRED:-false}
       - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:-}
+      # SECURITY: log_only mode REQUIRES DEBUG=true (enforced in code).
+      # Production must use API_AUTH_MODE=enforce with DEBUG=false.
+      - DEBUG=${DEBUG:-true}
       - API_AUTH_MODE=${API_AUTH_MODE:-log_only}
+      # SECURITY: Set to actual ingress/LB IPs in production (comma-separated).
+      # Default 127.0.0.1 is for local dev only. If behind LB without this,
+      # rate limiting will apply globally (all users share one IP bucket).
+      - TRUSTED_PROXY_HOSTS=${TRUSTED_PROXY_HOSTS:-127.0.0.1}
     volumes:
-      - ./apps/web_console/certs:/app/apps/web_console/certs:ro  # JWT keys for auth
+      - ./apps/web_console_ng/certs:/app/apps/web_console/certs:ro  # JWT keys for auth
     depends_on:
       postgres:
         condition: service_healthy
@@ -230,6 +238,64 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  market_data_service:
+    build:
+      context: .
+      dockerfile: apps/market_data_service/Dockerfile
+    container_name: trading_platform_market_data_service
+    ports:
+      - "8004:8004"
+    environment:
+      - ALPACA_API_KEY=${ALPACA_API_KEY:-${ALPACA_API_KEY_ID:-}}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-${ALPACA_API_SECRET_KEY:-}}
+      - ALPACA_BASE_URL=${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      execution_gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  model_registry:
+    build:
+      context: .
+      dockerfile: apps/model_registry/Dockerfile
+    container_name: trading_platform_model_registry
+    ports:
+      - "8005:8005"
+    environment:
+      - MODEL_REGISTRY_DIR=/app/data/models
+      - MODEL_REGISTRY_PORT=8005
+      - ENVIRONMENT=dev
+      - ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+      - MODEL_REGISTRY_READ_TOKEN=${MODEL_REGISTRY_READ_TOKEN:-}
+      - MODEL_REGISTRY_ADMIN_TOKEN=${MODEL_REGISTRY_ADMIN_TOKEN:-}
+      - MODEL_REGISTRY_TOKEN=${MODEL_REGISTRY_TOKEN:-}
+    volumes:
+      - ./data/models:/app/data/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
       interval: 30s
       timeout: 10s
       start_period: 40s
@@ -287,7 +353,7 @@ services:
   web_console:
     build:
       context: .
-      dockerfile: apps/web_console/Dockerfile
+      dockerfile: apps/web_console_ng/Dockerfile
     container_name: trading_platform_web_console
     # SECURITY: Create .env file with credentials (see .env.example)
     # Required: WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
@@ -329,6 +395,9 @@ services:
       - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-https://web-console.trading-platform.local/callback}
       - OAUTH2_LOGOUT_REDIRECT_URI=${OAUTH2_LOGOUT_REDIRECT_URI:-https://web-console.trading-platform.local/logout}
       - REDIS_SESSION_DB=${REDIS_SESSION_DB:-1}
+      # Health check secret for authenticating /health endpoint (prevents abuse).
+      # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      # When set, health checks require Authorization header: Bearer <secret>
       - HEALTH_CHECK_SECRET=${HEALTH_CHECK_SECRET:-}
     depends_on:
       postgres:
@@ -341,7 +410,7 @@ services:
     profiles:
       - manual  # Prevent auto-start, require explicit profile selection
 
-  # Development profile: Direct access on port 8501 (no mTLS)
+  # Development profile: Direct access on port 8080 (no mTLS)
   # Usage: docker compose --profile dev up -d
   web_console_dev:
     extends: web_console
@@ -353,15 +422,26 @@ services:
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
       - ORCHESTRATOR_URL=http://orchestrator:8003
       - SIGNAL_SERVICE_URL=http://signal_service:8001
+      - MARKET_DATA_SERVICE_URL=http://market_data_service:8004
+      - MODEL_REGISTRY_URL=http://model_registry:8005
       - PROMETHEUS_URL=http://prometheus:9090
+      # Enable dev mode (allows AUTH_TYPE=dev)
+      - WEB_CONSOLE_NG_DEBUG=true
+      # Session store keys (dev defaults - DO NOT use in production)
+      - HMAC_SIGNING_KEYS=01:0000000000000000000000000000000000000000000000000000000000000000
+      - HMAC_CURRENT_KEY_ID=01
+      - SESSION_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     volumes:
       - backtest_data:/app/data/backtest_results:ro
-      - ./apps/web_console/certs:/app/apps/web_console/certs:ro  # JWT keys for auth
+      - ./apps/web_console_ng/certs:/app/apps/web_console_ng/certs:ro  # JWT keys for auth
     depends_on:
       postgres:
         condition: service_healthy
       execution_gateway:
         condition: service_healthy
+      # NOTE: market_data_service and orchestrator are runtime dependencies but NOT required.
+      # Dashboard gracefully degrades if unavailable (shows error messages, retries).
+      # Not adding hard dependencies to allow partial stack development.
     profiles:
       - dev
 
@@ -420,7 +500,7 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./apps/web_console/certs:/etc/nginx/certs:ro
+      - ./apps/web_console_ng/certs:/etc/nginx/certs:ro
     profiles:
       - oauth2
 
@@ -479,7 +559,7 @@ services:
   nginx_mtls:
     build:
       context: .
-      dockerfile: apps/web_console/nginx/Dockerfile
+      dockerfile: apps/web_console_ng/nginx/Dockerfile
     container_name: trading_platform_nginx_mtls
     environment:
       - AUTH_MODE=mtls  # Use mTLS configuration
@@ -489,7 +569,7 @@ services:
     volumes:
       # Mount certificates from apps/web_console/certs
       # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-mtls-setup.md)
-      - ./apps/web_console/certs:/etc/nginx/certs:ro
+      - ./apps/web_console_ng/certs:/etc/nginx/certs:ro
     depends_on:
       - web_console_mtls
     networks:
@@ -504,7 +584,7 @@ services:
   nginx_oauth2:
     build:
       context: .
-      dockerfile: apps/web_console/nginx/Dockerfile
+      dockerfile: apps/web_console_ng/nginx/Dockerfile
     container_name: trading_platform_nginx_oauth2
     environment:
       - AUTH_MODE=oauth2  # Use OAuth2 configuration
@@ -519,10 +599,10 @@ services:
     volumes:
       # Mount certificates from apps/web_console/certs
       # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-oauth2-setup.md)
-      - ./apps/web_console/certs:/etc/nginx/certs:ro
+      - ./apps/web_console_ng/certs:/etc/nginx/certs:ro
       # Component 5: Mount template and entrypoint for CSP configuration
-      - ./apps/web_console/nginx/nginx-oauth2.conf.template:/etc/nginx/nginx-oauth2.conf.template:ro
-      - ./apps/web_console/nginx/entrypoint.sh:/app/nginx/entrypoint.sh:ro
+      - ./apps/web_console_ng/nginx/nginx-oauth2.conf.template:/etc/nginx/nginx-oauth2.conf.template:ro
+      - ./apps/web_console_ng/nginx/entrypoint.sh:/app/nginx/entrypoint.sh:ro
     depends_on:
       - web_console_oauth2
       - auth_service

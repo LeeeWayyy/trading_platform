@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import functools
 import hmac
 import logging
 from collections.abc import Callable
-from typing import Any, cast
+from datetime import UTC, datetime
+from typing import Any, Literal, cast
 
 from nicegui import app, ui
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -19,26 +21,51 @@ logger = logging.getLogger(__name__)
 
 
 def _get_request_from_storage() -> Request:
-    """Return current request or a minimal fallback for tests."""
-    request = getattr(app.storage, "request", None)
-    if isinstance(request, Request):
-        return request
-    if request is None:
-        # Fallback for when NiceGUI context is missing (e.g., tests)
-        # Log warning in non-test mode to detect context propagation issues
-        if not config.DEBUG:
-            logger.warning(
-                "Creating fallback request - NiceGUI context missing. "
-                "This may indicate a context propagation issue."
-            )
+    """Return current request from NiceGUI context or a minimal fallback for tests.
+
+    NiceGUI provides request context via:
+    1. storage.request_contextvar - set during request handling
+    2. ui.context.client.request - available in UI context
+    """
+    from nicegui import storage
+    from nicegui import ui as nicegui_ui
+
+    # Try NiceGUI's request context variable first
+    try:
+        request = storage.request_contextvar.get()
+        if request is not None:
+            logger.debug("Got request from storage.request_contextvar")
+            return request
+    except (LookupError, AttributeError):
+        pass
+
+    # Try ui.context.client.request (available in UI context)
+    try:
+        request = nicegui_ui.context.client.request
+        if request is not None:
+            logger.debug("Got request from ui.context.client.request")
+            return request
+    except (AttributeError, RuntimeError):
+        pass
+
+    # Fallback for tests only
+    if config.DEBUG:
+        logger.warning(
+            "Creating fallback request - NiceGUI context missing. "
+            "This is expected in tests but indicates an issue in production."
+        )
+        # SECURITY: Use TEST-NET-1 (RFC 5737) IP that won't be in production allowlists
+        # Never use 127.0.0.1 as it may bypass localhost-trusting security checks
         scope = {
             "type": "http",
             "headers": [],
-            "client": ("127.0.0.1", 0),
+            "client": ("192.0.2.1", 0),  # TEST-NET-1 (RFC 5737) - never routable
             "path": "/",
         }
         return Request(scope)
-    return cast(Request, request)
+
+    # In production, raise an error instead of silently failing
+    raise RuntimeError("No request context available - NiceGUI context not initialized")
 
 
 def get_current_user() -> dict[str, Any]:
@@ -82,9 +109,18 @@ async def _validate_session_and_get_user(
     from apps.web_console_ng.auth.cookie_config import CookieConfig
 
     cookie_cfg = CookieConfig.from_env()
-    cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
+    cookie_name = cookie_cfg.get_cookie_name()
+    cookie_value = request.cookies.get(cookie_name)
+
+    logger.debug(
+        "session_validation: cookie_name=%s, has_cookie=%s, path=%s",
+        cookie_name,
+        cookie_value is not None,
+        request.url.path,
+    )
 
     if not cookie_value:
+        logger.debug("session_validation: no cookie found")
         return None, None
 
     session_store = get_session_store()
@@ -93,6 +129,12 @@ async def _validate_session_and_get_user(
 
     # Let SessionValidationError propagate - callers should handle with 503
     session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+
+    logger.debug(
+        "session_validation: session_valid=%s, client_ip=%s",
+        session is not None,
+        client_ip,
+    )
 
     if not session:
         return None, cookie_value
@@ -124,6 +166,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     _EXEMPT_PATH_PREFIXES = (
         "/_nicegui",
+        "/socket.io",  # NiceGUI WebSocket/socket.io endpoint (required for UI interactivity)
         "/health",
         "/healthz",
         "/readyz",
@@ -159,10 +202,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # This ensures correct behavior regardless of middleware ordering
         if not user:
             try:
-                user_data, _ = await _validate_session_and_get_user(request)
+                user_data, cookie_value = await _validate_session_and_get_user(request)
                 if user_data:
                     request.state.user = user_data
                     user = user_data
+                    # Also store in NiceGUI's app.storage.user for WebSocket context
+                    try:
+                        app.storage.user["logged_in"] = True
+                        app.storage.user["user"] = user_data
+                        # Store session_id for cache validation (prevents stale cache bypass)
+                        if cookie_value:
+                            app.storage.user["session_id"] = cookie_value
+                            app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
+                        logger.debug("Stored user in app.storage.user from AuthMiddleware")
+                    except Exception:
+                        pass  # Storage may not be available in all contexts
             except SessionValidationError:
                 # Redis unavailable - for API requests return JSON 503
                 # For HTML requests, let request proceed so page decorators can render error UI
@@ -188,7 +242,29 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 # Preserve the original path for post-login redirect
                 original_path = sanitize_redirect_path(request.url.path)
                 redirect_url = f"/login?next={quote(original_path)}"
-                return RedirectResponse(url=redirect_url, status_code=302)
+                response = RedirectResponse(url=redirect_url, status_code=302)
+
+                # Clear potentially invalid cookie to prevent redirect loops
+                # (e.g. if browser holds an old cookie with invalid signature)
+                from apps.web_console_ng.auth.cookie_config import CookieConfig
+
+                cookie_cfg = CookieConfig.from_env()
+                cookie_name = cookie_cfg.get_cookie_name()
+
+                # Delete with same path/domain settings as creation
+                effective_path = "/" if cookie_cfg.secure else cookie_cfg.path
+                domain = None if cookie_cfg.secure else cookie_cfg.domain
+
+                response.delete_cookie(
+                    key=cookie_name,
+                    path=effective_path,
+                    domain=domain,
+                    secure=cookie_cfg.secure,
+                    httponly=cookie_cfg.httponly,
+                    samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
+                )
+
+                return response
             return Response(status_code=401)
 
         return cast(Response, await call_next(request))
@@ -234,7 +310,17 @@ class SessionMiddleware(BaseHTTPMiddleware):
             try:
                 session = await session_store.validate_session(cookie_value, client_ip, user_agent)
                 if session:
-                    request.state.user = session.get("user", {})
+                    user_data = session.get("user", {})
+                    request.state.user = user_data
+                    # Also store in NiceGUI's app.storage.user for WebSocket context
+                    try:
+                        app.storage.user["logged_in"] = True
+                        app.storage.user["user"] = user_data
+                        # Store session_id for cache validation (prevents stale cache bypass)
+                        app.storage.user["session_id"] = cookie_value
+                        app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
+                    except Exception:
+                        pass  # Storage may not be available in all contexts
             except SessionValidationError:
                 # Redis unavailable - for API requests return JSON 503
                 # For HTML requests, let request proceed so page decorators can render error UI
@@ -263,9 +349,55 @@ async def _validate_and_get_user_for_decorator(
     """
     from apps.web_console_ng.auth.cookie_config import CookieConfig
 
-    # Optimization: If SessionMiddleware already validated, use cached user
+    # Max age before requiring Redis revalidation (prevents stale cache after session revocation)
+    CACHE_REVALIDATION_SECONDS = 60
+
+    cookie_cfg = CookieConfig.from_env()
+    cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
+
+    # FIRST: Check NiceGUI's app.storage.user - this persists across HTTP/WebSocket contexts
+    # and is set by AuthMiddleware when session is valid
+    stored_user = app.storage.user.get("user")
+    cached_session_id = app.storage.user.get("session_id")
+    last_validated_at = app.storage.user.get("last_validated_at")
+
+    # Check if cache is stale (requires periodic Redis revalidation)
+    cache_is_stale = True
+    if last_validated_at:
+        try:
+            validated_time = datetime.fromisoformat(last_validated_at)
+            age_seconds = (datetime.now(UTC) - validated_time).total_seconds()
+            cache_is_stale = age_seconds > CACHE_REVALIDATION_SECONDS
+        except (ValueError, TypeError):
+            cache_is_stale = True
+
+    # SECURITY: Only trust cached user if:
+    # 1. Cookie is present (session not cleared by user/logout)
+    # 2. Cookie matches cached session_id (prevents stale cache after re-login)
+    # 3. Cache is not stale (ensures Redis TTL/revocation is respected)
+    if (
+        stored_user
+        and app.storage.user.get("logged_in")
+        and cookie_value
+        and cached_session_id
+        and cookie_value == cached_session_id
+        and not cache_is_stale
+    ):
+        logger.debug("Using cached user from app.storage.user (session_id matches, cache fresh)")
+        return stored_user, cookie_value, False
+    elif stored_user and app.storage.user.get("logged_in"):
+        # Cache exists but cookie missing/mismatched/stale - clear and revalidate
+        reason = "stale" if cache_is_stale else "cookie_mismatch"
+        logger.debug(
+            "Cache invalidated: reason=%s, cookie_present=%s, session_id_match=%s",
+            reason,
+            cookie_value is not None,
+            cookie_value == cached_session_id if cached_session_id else False,
+        )
+        app.storage.user.clear()
+
+    # SECOND: Check request.state.user (set by SessionMiddleware on HTTP requests)
     user_data = getattr(request.state, "user", None)
-    cookie_value = None
 
     if user_data is None:
         # SessionMiddleware didn't validate - do full validation
@@ -313,15 +445,20 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     we skip re-validation to avoid redundant Redis round-trips.
     """
 
+    @functools.wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         request = _get_request_from_storage()
-        user_data, _, should_return = await _validate_and_get_user_for_decorator(request)
+        user_data, cookie_value, should_return = await _validate_and_get_user_for_decorator(request)
 
         if should_return:
             return
 
         app.storage.user["logged_in"] = True
         app.storage.user["user"] = user_data
+        # Store session_id for cache validation (prevents stale cache bypass)
+        if cookie_value:
+            app.storage.user["session_id"] = cookie_value
+            app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
         return await func(*args, **kwargs)
 
@@ -339,9 +476,12 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             request = _get_request_from_storage()
-            user_data, _, should_return = await _validate_and_get_user_for_decorator(request)
+            user_data, cookie_value, should_return = await _validate_and_get_user_for_decorator(
+                request
+            )
 
             if should_return:
                 return
@@ -353,6 +493,10 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
 
             app.storage.user["logged_in"] = True
             app.storage.user["user"] = user_data
+            # Store session_id for cache validation (prevents stale cache bypass)
+            if cookie_value:
+                app.storage.user["session_id"] = cookie_value
+                app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
             return await func(*args, **kwargs)
 

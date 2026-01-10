@@ -74,6 +74,7 @@ class ReconciliationService:
         self._startup_started_at = datetime.now(UTC)
         self._override_active = False
         self._override_context: dict[str, Any] = {}
+        self._last_reconciliation_result: dict[str, Any] | None = None  # Track last recon result
 
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
@@ -100,14 +101,49 @@ class ReconciliationService:
     def mark_startup_complete(
         self, forced: bool = False, user_id: str | None = None, reason: str | None = None
     ) -> None:
-        self._startup_complete = True
+        """Mark startup reconciliation as complete.
+
+        Args:
+            forced: If True, allow bypassing reconciliation gate. SECURITY: Requires
+                   that at least one reconciliation attempt was made to prevent
+                   completely skipping safety checks.
+            user_id: User requesting the override (required if forced=True).
+            reason: Reason for the override (required if forced=True).
+
+        Raises:
+            ValueError: If forced=True but no reconciliation was ever attempted.
+                       This prevents operators from completely skipping safety checks.
+        """
         if forced:
+            # SECURITY: Require at least one reconciliation attempt before allowing forced bypass
+            # This prevents completely skipping safety checks while still allowing emergency
+            # scenarios where reconciliation fails but operator needs to proceed
+            if self._last_reconciliation_result is None:
+                raise ValueError(
+                    "Cannot force startup complete without running reconciliation first. "
+                    "Run reconciliation at least once before using forced bypass. "
+                    "This ensures broker state was checked even if reconciliation failed."
+                )
+            if not user_id or not reason:
+                raise ValueError(
+                    "Both user_id and reason are required for forced startup bypass"
+                )
             self._override_active = True
             self._override_context = {
                 "user_id": user_id,
                 "reason": reason,
                 "timestamp": datetime.now(UTC).isoformat(),
+                "last_reconciliation_result": self._last_reconciliation_result,
             }
+            logger.warning(
+                "Startup reconciliation gate FORCED BYPASSED",
+                extra={
+                    "user_id": user_id,
+                    "reason": reason,
+                    "last_reconciliation_result": self._last_reconciliation_result,
+                },
+            )
+        self._startup_complete = True
 
     def override_active(self) -> bool:
         return self._override_active
@@ -124,6 +160,14 @@ class ReconciliationService:
             await self.run_reconciliation_once("startup")
             return True
         except Exception as exc:
+            # Store failed result to enable forced bypass after failure
+            # (SECURITY: operator can still force after seeing the error)
+            self._last_reconciliation_result = {
+                "status": "failed",
+                "mode": "startup",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": str(exc),
+            }
             logger.error("Startup reconciliation failed", exc_info=True, extra={"error": str(exc)})
             return False
 
@@ -224,12 +268,40 @@ class ReconciliationService:
                 continue
             self._handle_orphan_order(order, resolve_terminal=True)
 
+        # Backfill fill metadata for terminal orders not in db_orders (terminal in DB)
+        for client_id, broker_order in orders_by_client.items():
+            if client_id not in db_known_ids:
+                continue
+            status = str(broker_order.get("status") or "").lower()
+            if status in ("filled", "partially_filled"):
+                self._backfill_fill_metadata(client_id, broker_order)
+
         # Reconcile positions
         self._reconcile_positions()
+
+        # Backfill fills for terminal orders missing metadata (local dev without webhooks)
+        try:
+            missing_fill_orders = self.db_client.get_filled_orders_missing_fills(limit=200)
+            for db_order in missing_fill_orders:
+                self._backfill_fill_metadata_from_order(db_order)
+        except Exception as exc:
+            logger.warning(
+                "Reconciliation backfill scan failed",
+                extra={"error": str(exc)},
+            )
 
         # Update high-water mark on success
         self.db_client.set_reconciliation_high_water_mark(start_time)
         reconciliation_last_run_timestamp.set(start_time.timestamp())
+
+        # Store result for forced bypass validation (SECURITY: enables safe emergency overrides)
+        self._last_reconciliation_result = {
+            "status": "success",
+            "mode": mode,
+            "timestamp": start_time.isoformat(),
+            "open_orders_checked": len(open_orders),
+            "db_orders_checked": len(db_orders),
+        }
         logger.info("Reconciliation completed", extra={"mode": mode})
 
     def _apply_broker_update(self, client_order_id: str, broker_order: dict[str, Any]) -> None:
@@ -260,9 +332,196 @@ class ReconciliationService:
                 "Reconciliation CAS skipped",
                 extra={"client_order_id": client_order_id, "status": status},
             )
-            return
 
-        reconciliation_mismatches_total.inc()
+        # Backfill fill metadata when webhooks aren't available (e.g., local dev).
+        # This powers Recent Activity and P&L history based on fills.
+        if status in ("filled", "partially_filled"):
+            self._backfill_fill_metadata(client_order_id, broker_order, updated_at, updated)
+
+        if updated is not None:
+            reconciliation_mismatches_total.inc()
+
+    def _calculate_synthetic_fill(
+        self,
+        client_order_id: str,
+        filled_qty: Decimal,
+        filled_avg_price: Decimal,
+        timestamp: datetime,
+        existing_fills: list[dict[str, Any]],
+        source: str,
+    ) -> dict[str, Any] | None:
+        """Calculate synthetic fill data if there's a quantity gap.
+
+        Common logic extracted from _backfill_fill_metadata and
+        _backfill_fill_metadata_from_order to reduce duplication.
+
+        Returns fill_data dict if a synthetic fill is needed, None otherwise.
+        """
+        # Count real (non-synthetic) fills separately to avoid double-counting
+        real_fill_qty = Decimal("0")
+        synthetic_fill_qty = Decimal("0")
+        for fill in existing_fills:
+            try:
+                # Skip superseded fills - they were replaced by real fills
+                if fill.get("superseded"):
+                    continue
+                qty = Decimal(str(fill.get("fill_qty", 0)))
+                if fill.get("synthetic"):
+                    synthetic_fill_qty += qty
+                else:
+                    real_fill_qty += qty
+            except (TypeError, ValueError):
+                continue
+
+        filled_qty_dec = Decimal(str(filled_qty))
+
+        # If real fills cover the broker's filled_qty, no need for synthetic
+        if filled_qty_dec <= real_fill_qty:
+            return None
+
+        # Calculate missing based on real fills only (synthetic may be stale/duplicated)
+        missing_qty = filled_qty_dec - real_fill_qty - synthetic_fill_qty
+
+        # If total (real + synthetic) already covers broker qty, skip
+        if missing_qty <= Decimal("0"):
+            return None
+
+        # For fractional shares, store as string to preserve precision
+        qty_value = str(missing_qty) if missing_qty % 1 != 0 else int(missing_qty)
+
+        # Use both filled_qty and missing_qty in fill_id to ensure uniqueness
+        fill_id_filled = str(filled_qty_dec).replace(".", "_")
+        fill_id_missing = str(missing_qty).replace(".", "_")
+
+        return {
+            "fill_id": f"{client_order_id}_{source}_{fill_id_filled}_{fill_id_missing}",
+            "fill_qty": qty_value,
+            "fill_price": str(filled_avg_price),
+            "realized_pl": "0",  # Synthetic: actual P&L unknown
+            "timestamp": timestamp.isoformat(),
+            "synthetic": True,  # AUDIT: Mark as reconciliation-generated
+            "source": source,
+            "_missing_qty": missing_qty,  # For logging, stripped before storage
+        }
+
+    def _backfill_fill_metadata(
+        self,
+        client_order_id: str,
+        broker_order: dict[str, Any],
+        updated_at: datetime | None = None,
+        cached_order: Any | None = None,
+    ) -> None:
+        """Backfill fill metadata when webhooks are unavailable (local dev)."""
+        try:
+            if updated_at is None:
+                updated_at = broker_order.get("updated_at") or broker_order.get("created_at")
+            if updated_at is None:
+                updated_at = datetime.now(UTC)
+
+            filled_qty = broker_order.get("filled_qty") or Decimal("0")
+            filled_avg_price = broker_order.get("filled_avg_price")
+            if filled_avg_price is None:
+                return
+
+            with self.db_client.transaction() as conn:
+                order = cached_order or self.db_client.get_order_for_update(client_order_id, conn)
+                if not order:
+                    return
+
+                existing_fills = order.metadata.get("fills", [])
+                fill_data = self._calculate_synthetic_fill(
+                    client_order_id=client_order_id,
+                    filled_qty=Decimal(str(filled_qty)),
+                    filled_avg_price=Decimal(str(filled_avg_price)),
+                    timestamp=updated_at,
+                    existing_fills=existing_fills,
+                    source="recon",
+                )
+                if fill_data is None:
+                    return
+
+                # Extract and remove internal field before storage
+                missing_qty = fill_data.pop("_missing_qty")
+                # Override source for storage (fill_id uses short prefix, source uses full name)
+                fill_data["source"] = "reconciliation_backfill"
+
+                self.db_client.append_fill_to_order_metadata(
+                    client_order_id=client_order_id,
+                    fill_data=fill_data,
+                    conn=conn,
+                )
+                logger.info(
+                    "reconciliation_backfill_fill",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "symbol": getattr(order, "symbol", None),
+                        "strategy_id": getattr(order, "strategy_id", None),
+                        "fill_qty": str(missing_qty),
+                        "fill_price": str(filled_avg_price),
+                        "action": "synthetic_fill_injected",
+                    },
+                )
+        except Exception as exc:
+            logger.warning(
+                "Reconciliation fill backfill failed",
+                extra={"client_order_id": client_order_id, "error": str(exc)},
+            )
+
+    def _backfill_fill_metadata_from_order(self, order: Any) -> None:
+        """Backfill fill metadata using DB order data only."""
+        try:
+            filled_avg_price = getattr(order, "filled_avg_price", None)
+            filled_qty = getattr(order, "filled_qty", None)
+            if filled_avg_price is None or filled_qty is None:
+                return
+
+            timestamp = getattr(order, "filled_at", None) or getattr(order, "updated_at", None)
+            if timestamp is None:
+                timestamp = datetime.now(UTC)
+
+            with self.db_client.transaction() as conn:
+                locked = self.db_client.get_order_for_update(order.client_order_id, conn)
+                if not locked:
+                    return
+
+                existing_fills = locked.metadata.get("fills", [])
+                fill_data = self._calculate_synthetic_fill(
+                    client_order_id=order.client_order_id,
+                    filled_qty=Decimal(str(filled_qty)),
+                    filled_avg_price=Decimal(str(filled_avg_price)),
+                    timestamp=timestamp,
+                    existing_fills=existing_fills,
+                    source="recon_db",
+                )
+                if fill_data is None:
+                    return
+
+                # Extract and remove internal field before storage
+                missing_qty = fill_data.pop("_missing_qty")
+                # Override source for storage (fill_id uses short prefix, source uses full name)
+                fill_data["source"] = "reconciliation_db_backfill"
+
+                self.db_client.append_fill_to_order_metadata(
+                    client_order_id=order.client_order_id,
+                    fill_data=fill_data,
+                    conn=conn,
+                )
+                logger.info(
+                    "reconciliation_db_backfill_fill",
+                    extra={
+                        "client_order_id": order.client_order_id,
+                        "symbol": getattr(order, "symbol", None),
+                        "strategy_id": getattr(order, "strategy_id", None),
+                        "fill_qty": str(missing_qty),
+                        "fill_price": str(filled_avg_price),
+                        "action": "synthetic_fill_injected",
+                    },
+                )
+        except Exception as exc:
+            logger.warning(
+                "Reconciliation DB fill backfill failed",
+                extra={"client_order_id": getattr(order, "client_order_id", "?"), "error": str(exc)},
+            )
 
     def _reconcile_missing_orders(self, db_orders: list[Any], after_time: datetime | None) -> None:
         lookups = 0

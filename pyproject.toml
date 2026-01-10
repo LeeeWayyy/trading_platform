@@ -127,6 +127,12 @@ ignore = [
 "scripts/**/*.py" = [
     "E402",  # Path manipulation before imports
 ]
+"apps/web_console_ng/main.py" = [
+    "E402",  # Intentional: env setup must run before imports
+]
+"apps/web_console_ng/pages/dashboard.py" = [
+    "UP038",  # Pre-existing: isinstance with tuple pattern
+]
 
 [tool.ruff.lint.flake8-pytest-style]
 # Enforce pytest marker parentheses: @pytest.mark.integration()

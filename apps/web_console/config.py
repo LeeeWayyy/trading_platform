@@ -28,6 +28,7 @@ ENDPOINTS = {
     "health": f"{EXECUTION_GATEWAY_URL}/health",
     "positions": f"{EXECUTION_GATEWAY_URL}/api/v1/positions",
     "pnl_realtime": f"{EXECUTION_GATEWAY_URL}/api/v1/positions/pnl/realtime",
+    "account_info": f"{EXECUTION_GATEWAY_URL}/api/v1/account",
     "submit_order": f"{EXECUTION_GATEWAY_URL}/api/v1/orders",
     "kill_switch_status": f"{EXECUTION_GATEWAY_URL}/api/v1/kill-switch/status",
     "kill_switch_engage": f"{EXECUTION_GATEWAY_URL}/api/v1/kill-switch/engage",

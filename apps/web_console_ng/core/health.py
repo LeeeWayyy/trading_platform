@@ -7,10 +7,7 @@ import logging
 import os
 import signal
 import threading
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import Request, Response
 from nicegui import app
@@ -259,17 +256,14 @@ async def readiness_check(request: Request) -> Response:
     )
 
 
-# ASGI lifespan for graceful shutdown
-@asynccontextmanager
-async def lifespan(app: Any) -> AsyncIterator[None]:
-    """ASGI lifespan handler for startup/shutdown."""
+async def _health_startup() -> None:
+    """Health endpoint startup - register SIGTERM handler for graceful drain.
+
+    NOTE: We use NiceGUI's on_startup hook instead of a custom lifespan to avoid
+    replacing NiceGUI's internal _lifespan, which is required for the Outbox loop
+    that sends UI updates to browsers.
+    """
     # RUNTIME ASSERTION: Verify single-process mode
-    # In-memory admission control (asyncio.Semaphore) and ClientLifecycleManager
-    # only work correctly with workers=1. Multi-process would multiply limits.
-    #
-    # IMPORTANT: WEB_WORKERS env var MUST be set explicitly to match actual Uvicorn --workers flag.
-    # This env-based check cannot detect CLI flags passed directly to Uvicorn.
-    # Deployment configs (docker-compose, k8s) MUST set WEB_WORKERS=1 and --workers=1 together.
     worker_count = os.getenv("WEB_WORKERS", "1")
     if worker_count != "1":
         raise RuntimeError(
@@ -277,29 +271,16 @@ async def lifespan(app: Any) -> AsyncIterator[None]:
             f"Got WEB_WORKERS={worker_count}. For horizontal scaling, use multiple pods."
         )
 
-    # Note: App resource startup (trading_client, db_pool, audit_logger) is handled
-    # by main.py's on_startup hook to maintain clear separation of concerns.
-    # This lifespan handler only manages: worker check, SIGTERM handler, graceful drain.
-
-    # Startup - register SIGTERM handler for graceful drain
-    # Use get_running_loop() instead of get_event_loop() for Python 3.11+ compatibility
+    # Register SIGTERM handler for graceful drain
     try:
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(
             signal.SIGTERM, lambda: asyncio.create_task(start_graceful_shutdown())
         )
+        logger.info("SIGTERM handler registered for graceful shutdown")
     except NotImplementedError:
         # Windows or other platforms without signal handler support
         logger.warning("Signal handler not supported on this platform")
-    try:
-        yield
-    finally:
-        # Shutdown (after SIGTERM or normal exit)
-        # Only handle lifespan-specific cleanup here (graceful drain).
-        # App-specific resource cleanup (trading_client, audit_logger, db_pool, state_manager)
-        # is handled by main.py's on_shutdown hook to avoid duplication and maintain
-        # clear separation of concerns.
-        await start_graceful_shutdown()
 
 
 async def start_graceful_shutdown() -> None:
@@ -323,9 +304,13 @@ _health_setup_done: bool = False
 
 
 def setup_health_endpoint() -> None:
-    """Attach lifespan handler for drain support (idempotent)."""
+    """Register health startup hook for drain support (idempotent).
+
+    NOTE: We use on_startup hook instead of custom lifespan to preserve
+    NiceGUI's internal _lifespan which handles the Outbox loop for UI updates.
+    """
     global _health_setup_done
     if _health_setup_done:
         return
-    app.router.lifespan_context = lifespan
+    app.on_startup(_health_startup)
     _health_setup_done = True

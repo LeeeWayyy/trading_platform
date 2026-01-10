@@ -34,7 +34,7 @@ class DummyElement:
         """Mock delete method for NiceGUI element removal."""
         self._deleted = True
 
-    async def run_method(self, method: str, payload: object) -> None:
+    async def run_method(self, method: str, payload: object, **_kwargs: object) -> None:
         self.calls.append((method, payload))
 
     def __enter__(self):

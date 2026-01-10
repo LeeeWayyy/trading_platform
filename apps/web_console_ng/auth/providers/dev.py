@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from apps.web_console_ng import config
@@ -7,37 +9,43 @@ from apps.web_console_ng.auth.auth_result import AuthResult
 from apps.web_console_ng.auth.providers.base import AuthProvider
 from apps.web_console_ng.auth.session_store import get_session_store
 
-# Test users for development
-DEV_USERS = {
-    "admin": {
-        "password": "admin123",
-        "role": "admin",
-        "strategies": ["alpha_baseline", "momentum_v1"],
-    },
-    "trader": {
-        "password": "trader123",
-        "role": "trader",
-        "strategies": ["alpha_baseline"],
-    },
-    "viewer": {
-        "password": "viewer123",
-        "role": "viewer",
-        "strategies": [],
-    },
-    # User to test MFA flow simulation
-    "mfa": {
-        "password": "mfa123",
-        "role": "admin",
-        "strategies": ["*"],
-    },
-}
+logger = logging.getLogger(__name__)
+
+
+def _get_dev_user() -> dict[str, Any]:
+    """Build dev user from environment variables.
+
+    Uses WEB_CONSOLE_USER/PASSWORD from .env for credentials,
+    and WEB_CONSOLE_DEV_ROLE/USER_ID/STRATEGIES for RBAC context.
+    """
+    username = os.getenv("WEB_CONSOLE_USER", "admin")
+    password = os.getenv("WEB_CONSOLE_PASSWORD", "changeme")
+    role = config.DEV_ROLE or "admin"
+    user_id = config.DEV_USER_ID or username
+    strategies = config.DEV_STRATEGIES or ["alpha_baseline"]
+
+    return {
+        "username": username,
+        "password": password,
+        "user_id": user_id,
+        "role": role,
+        "strategies": strategies,
+    }
 
 
 class DevAuthHandler(AuthProvider):
-    """Development mode authentication handler."""
+    """Development mode authentication handler.
+
+    Authenticates using credentials from environment variables:
+    - WEB_CONSOLE_USER: Username (default: admin)
+    - WEB_CONSOLE_PASSWORD: Password (default: changeme)
+    - WEB_CONSOLE_DEV_ROLE: Role for RBAC (default: admin)
+    - WEB_CONSOLE_DEV_USER_ID: User ID (default: same as username)
+    - WEB_CONSOLE_DEV_STRATEGIES: Comma-separated strategy IDs
+    """
 
     async def authenticate(self, **kwargs: Any) -> AuthResult:
-        """Authenticate using dev user fixtures.
+        """Authenticate using environment-configured dev user.
 
         Args:
             username (str): Username to check.
@@ -48,59 +56,65 @@ class DevAuthHandler(AuthProvider):
         if config.AUTH_TYPE != "dev":
             return AuthResult(success=False, error_message="Dev auth not enabled")
 
-        username = kwargs.get("username", "")
-        password = kwargs.get("password", "")
+        input_username = kwargs.get("username", "")
+        input_password = kwargs.get("password", "")
 
-        user = DEV_USERS.get(username)
-        if not user or user["password"] != password:
+        dev_user = _get_dev_user()
+
+        logger.debug(
+            "dev_auth_attempt",
+            extra={
+                "input_username": input_username,
+                "expected_username": dev_user["username"],
+                "client_ip": kwargs.get("client_ip", "unknown"),
+            },
+        )
+
+        # Check credentials against env vars
+        if input_username != dev_user["username"] or input_password != dev_user["password"]:
+            logger.warning(
+                "dev_auth_failed",
+                extra={
+                    "input_username": input_username,
+                    "expected_username": dev_user["username"],
+                    "client_ip": kwargs.get("client_ip", "unknown"),
+                },
+            )
             return AuthResult(success=False, error_message="Invalid credentials")
 
-        # Simulate MFA requirement for specific test user
-        if username == "mfa":
-            # For MFA flow, we create a temporary session with mfa_pending flag.
-            # The login page stores cookie_value in pending_mfa_session for MFA verify.
+        # Create session
+        try:
             session_store = get_session_store()
             user_data = {
-                "user_id": username,
-                "username": username,
-                "role": user["role"],
-                "strategies": user["strategies"],
+                "user_id": dev_user["user_id"],
+                "username": dev_user["username"],
+                "role": dev_user["role"],
+                "strategies": dev_user["strategies"],
                 "auth_method": "dev",
-                "mfa_pending": True,
             }
+
             cookie_value, csrf_token = await session_store.create_session(
                 user_data=user_data,
                 device_info={"user_agent": kwargs.get("user_agent", "dev-browser")},
                 client_ip=kwargs.get("client_ip", "127.0.0.1"),
             )
+
+            logger.info(
+                "dev_auth_success",
+                extra={
+                    "user_id": dev_user["user_id"],
+                    "role": dev_user["role"],
+                    "client_ip": kwargs.get("client_ip", "unknown"),
+                },
+            )
+
             return AuthResult(
                 success=True,
                 cookie_value=cookie_value,
                 csrf_token=csrf_token,
                 user_data=user_data,
-                requires_mfa=True,
+                requires_mfa=False,
             )
-
-        # Standard login
-        session_store = get_session_store()
-        user_data = {
-            "user_id": username,
-            "username": username,
-            "role": user["role"],
-            "strategies": user["strategies"],
-            "auth_method": "dev",
-        }
-
-        cookie_value, csrf_token = await session_store.create_session(
-            user_data=user_data,
-            device_info={"user_agent": kwargs.get("user_agent", "dev-browser")},
-            client_ip=kwargs.get("client_ip", "127.0.0.1"),
-        )
-
-        return AuthResult(
-            success=True,
-            cookie_value=cookie_value,
-            csrf_token=csrf_token,
-            user_data=user_data,
-            requires_mfa=False,
-        )
+        except Exception as e:
+            logger.exception("dev_auth_session_error")
+            return AuthResult(success=False, error_message=f"Session creation failed: {e}")

@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, TypeVar
 
@@ -39,6 +39,8 @@ from apps.execution_gateway.schemas_manual_controls import (
     FlattenAllRequest,
     FlattenAllResponse,
     PendingOrdersResponse,
+    RecentFillEvent,
+    RecentFillsResponse,
 )
 from libs.web_console_auth.audit_logger import AuditLogger
 from libs.web_console_auth.gateway_auth import AuthenticatedUser
@@ -61,6 +63,7 @@ RATE_LIMITS = {
     "adjust_position": (10, 60),
     "flatten_all": (1, 300),
     "pending_orders": (10, 60),
+    "recent_fills": (5, 60),  # Tighter limit: fills are higher-cardinality than orders
 }
 
 
@@ -154,12 +157,16 @@ def _generate_manual_order_id(
     side: str,
     qty: Decimal | int,
     user_id: str,
-    as_of_date: date | None = None,
+    as_of_datetime: datetime | None = None,
 ) -> str:
     """Generate deterministic order ID for manual control operations.
 
     Ensures idempotency for manual operations by creating reproducible IDs
-    based on operation parameters and date.
+    based on operation parameters and timestamp (minute precision).
+
+    Using minute precision allows:
+    - Same user to execute identical trades at different times
+    - Protection against rapid duplicate submissions (within same minute)
 
     Args:
         action: Operation type (close_position, adjust_position, flatten_all)
@@ -167,16 +174,18 @@ def _generate_manual_order_id(
         side: Order side (buy/sell)
         qty: Order quantity
         user_id: User initiating the operation
-        as_of_date: Date for ID generation (defaults to today)
+        as_of_datetime: Datetime for ID generation (defaults to now, truncated to minute)
 
     Returns:
         24-character alphanumeric ID compatible with Alpaca
     """
 
-    # Use UTC for timezone-aware deterministic date (avoids midnight edge cases)
-    target_date = as_of_date or datetime.now(UTC).date()
+    # Use UTC with minute precision - allows same trade at different times
+    # while protecting against rapid duplicate submissions
+    target_dt = as_of_datetime or datetime.now(UTC)
+    minute_key = target_dt.strftime("%Y%m%d%H%M")  # Minute precision
     qty_int = int(qty)
-    components = f"{action}:{symbol}:{side}:{qty_int}:{user_id}:{target_date}"
+    components = f"{action}:{symbol}:{side}:{qty_int}:{user_id}:{minute_key}"
     digest = hashlib.sha256(components.encode()).hexdigest()
     return digest[:24]
 
@@ -1162,6 +1171,65 @@ async def list_pending_orders(
         total=total,
         limit=limit,
         offset=offset,
+        filtered_by_strategy=filtered_by_strategy,
+        user_strategies=scope_strategies,
+    )
+
+
+@router.get("/orders/recent-fills", response_model=RecentFillsResponse)
+async def list_recent_fills(
+    limit: int = Query(default=50, ge=1, le=200),
+    user: AuthenticatedUser = Depends(get_authenticated_user),
+    db_client: DatabaseClient = Depends(get_db_client),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> RecentFillsResponse:
+    """List recent fill events for activity feed."""
+
+    await _ensure_permission_with_audit(
+        user, Permission.VIEW_TRADES, "list_recent_fills", audit_logger
+    )
+    await _enforce_rate_limit(rate_limiter, user.user_id, "recent_fills", audit_logger)
+
+    scope_strategies = get_authorized_strategies(user)
+    filtered_by_strategy = not has_permission(user, Permission.VIEW_ALL_STRATEGIES)
+
+    # Fail-closed: user with no authorized strategies cannot view fills
+    if filtered_by_strategy and not scope_strategies:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="list_recent_fills",
+            resource_type="orders",
+            resource_id="*",
+            outcome="denied",
+            details={"error": "no_authorized_strategies"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
+        )
+
+    rows = await _db_call(
+        db_client.get_recent_fills,
+        strategy_ids=scope_strategies if filtered_by_strategy else None,
+        limit=limit,
+    )
+
+    await audit_logger.log_action(
+        user_id=user.user_id,
+        action="list_recent_fills",
+        resource_type="orders",
+        resource_id="*",
+        outcome="success",
+        details={"results_count": len(rows), "limit": limit, "filtered": filtered_by_strategy},
+    )
+
+    # Convert dict rows to Pydantic models for type safety
+    events = [RecentFillEvent(**row) for row in rows]
+    return RecentFillsResponse(
+        events=events,
+        total=len(events),
+        limit=limit,
         filtered_by_strategy=filtered_by_strategy,
         user_strategies=scope_strategies,
     )

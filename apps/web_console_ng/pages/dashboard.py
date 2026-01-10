@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -39,78 +41,144 @@ from apps.web_console_ng.ui.layout import main_layout
 
 logger = logging.getLogger(__name__)
 
+ScopeKey = tuple[str, frozenset[str]]
+
+
+def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) -> None:
+    """Dispatch trading state changes to the browser (fire-and-forget)."""
+    try:
+        payload = json.dumps(update)
+        ui.run_javascript(
+            f"window.dispatchEvent(new CustomEvent('trading_state_change', {{ detail: {payload} }}));"
+        )
+    except Exception as exc:
+        logger.warning(
+            "trading_state_dispatch_failed",
+            extra={"client_id": client_id, "error": type(exc).__name__},
+        )
+
 
 class MarketPriceCache:
-    """Shared cache for market prices across all client sessions.
+    """Per-scope cache for market prices.
 
-    Assumes market prices are not user-specific.
+    The cache is keyed by (role, strategies) to prevent authorization leaks.
+    Users with different strategy permissions or roles see only their authorized symbols.
     """
 
-    _prices: list[dict[str, Any]] = []
-    _last_fetch: float = 0.0
-    _last_error: float = 0.0
+    # Cache entry: {scope_key: {"prices": [...], "last_fetch": float, "last_error": float}}
+    _cache: dict[ScopeKey, dict[str, Any]] = {}
+    _in_flight: dict[ScopeKey, asyncio.Task[list[dict[str, Any]]]] = {}
     _ttl: float = 4.0
     _error_cooldown: float = 10.0
     _lock = asyncio.Lock()
-    _in_flight: asyncio.Task[list[dict[str, Any]]] | None = None
 
     @classmethod
-    async def get_prices(cls, client: AsyncTradingClient) -> list[dict[str, Any]]:
-        """Get market prices, using cache if fresh.
+    def _get_scope_key(cls, role: str | None, strategies: list[str] | None) -> ScopeKey:
+        """Generate cache key from user's role + strategy scope."""
+        role_key = role or "unknown"
+        if not strategies:
+            return role_key, frozenset()
+        return role_key, frozenset(strategies)
+
+    @classmethod
+    def _scope_meta(cls, scope_key: ScopeKey) -> dict[str, Any]:
+        role, strategies = scope_key
+        return {"role": role, "strategies": sorted(strategies)}
+
+    @classmethod
+    async def get_prices(
+        cls,
+        client: AsyncTradingClient,
+        *,
+        user_id: str,
+        role: str | None,
+        strategies: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        """Get market prices, using per-scope cache if fresh.
 
         Returns a copy to prevent cross-session mutation.
         Implements failure backoff to avoid thundering herd on outages.
+        Cache is scoped by user's strategy permissions to prevent authorization leaks.
         """
+        scope_key = cls._get_scope_key(role, strategies)
+
         async with cls._lock:
             now = time.time()
-            if cls._last_error and (now - cls._last_error) < cls._error_cooldown:
-                return [dict(p) for p in cls._prices]
+            cache_entry = cls._cache.get(scope_key, {})
+            cached_prices = cache_entry.get("prices", [])
+            last_fetch = cache_entry.get("last_fetch", 0.0)
+            last_error = cache_entry.get("last_error", 0.0)
 
-            if (now - cls._last_fetch) < cls._ttl and cls._prices:
-                return [dict(p) for p in cls._prices]
+            # Return cached data during error cooldown
+            if last_error and (now - last_error) < cls._error_cooldown:
+                return [dict(p) for p in cached_prices]
 
-            if cls._in_flight is not None:
-                task = cls._in_flight
+            # Return cached data if still fresh
+            if (now - last_fetch) < cls._ttl and cached_prices:
+                return [dict(p) for p in cached_prices]
+
+            # Check for in-flight request for this scope
+            if scope_key in cls._in_flight:
+                task = cls._in_flight[scope_key]
             else:
                 fetch_prices = getattr(client, "fetch_market_prices", None)
                 if not callable(fetch_prices):
                     logger.warning("market_prices_fetch_missing", extra={"reason": "method_missing"})
-                    return [dict(p) for p in cls._prices]
-                cls._in_flight = asyncio.create_task(fetch_prices())
-                task = cls._in_flight
+                    return [dict(p) for p in cached_prices]
+                task = asyncio.create_task(
+                    fetch_prices(
+                        user_id,
+                        role=role,
+                        strategies=strategies,
+                    )
+                )
+                cls._in_flight[scope_key] = task
 
         try:
             prices = await task
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             logger.warning(
                 "market_price_cache_fetch_failed",
-                extra={"error": type(exc).__name__, "detail": str(exc)[:100]},
+                extra={
+                    "error": type(exc).__name__,
+                    "detail": str(exc)[:100],
+                    "scope": cls._scope_meta(scope_key),
+                },
             )
             async with cls._lock:
-                cls._last_error = time.time()
-                if cls._in_flight is task:
-                    cls._in_flight = None
-                return [dict(p) for p in cls._prices]
+                if scope_key not in cls._cache:
+                    cls._cache[scope_key] = {}
+                cls._cache[scope_key]["last_error"] = time.time()
+                if cls._in_flight.get(scope_key) is task:
+                    del cls._in_flight[scope_key]
+                return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
         except Exception as exc:
             # Catch non-HTTP exceptions (e.g., ValueError from malformed payload)
-            # to reset _in_flight and allow recovery on next call
             logger.warning(
                 "market_price_cache_fetch_unexpected_error",
-                extra={"error": type(exc).__name__, "detail": str(exc)[:100]},
+                extra={
+                    "error": type(exc).__name__,
+                    "detail": str(exc)[:100],
+                    "scope": cls._scope_meta(scope_key),
+                },
             )
             async with cls._lock:
-                cls._last_error = time.time()
-                if cls._in_flight is task:
-                    cls._in_flight = None
-                return [dict(p) for p in cls._prices]
+                if scope_key not in cls._cache:
+                    cls._cache[scope_key] = {}
+                cls._cache[scope_key]["last_error"] = time.time()
+                if cls._in_flight.get(scope_key) is task:
+                    del cls._in_flight[scope_key]
+                return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
 
         async with cls._lock:
-            if cls._in_flight is task:
-                cls._in_flight = None
-            cls._prices = list(prices)
-            cls._last_fetch = time.time()
-            cls._last_error = 0.0
-            return [dict(p) for p in cls._prices]
+            if cls._in_flight.get(scope_key) is task:
+                del cls._in_flight[scope_key]
+            cls._cache[scope_key] = {
+                "prices": list(prices),
+                "last_fetch": time.time(),
+                "last_error": 0.0,
+            }
+            return [dict(p) for p in cls._cache[scope_key]["prices"]]
 
 
 @ui.page("/")
@@ -134,14 +202,39 @@ async def dashboard(client: Client) -> None:
         ui.navigate.to("/login")
         return
 
+    lifecycle = ClientLifecycleManager.get()
+
+    # Get or generate client_id (may not be set yet if WebSocket hasn't connected)
     client_id = client.storage.get("client_id")
     if not isinstance(client_id, str) or not client_id:
-        ui.notify("Session error - please refresh", type="negative")
-        return
+        client_id = lifecycle.generate_client_id()
+        client.storage["client_id"] = client_id
+        logger.debug("dashboard_generated_client_id", extra={"client_id": client_id})
 
     realtime = RealtimeUpdater(client_id, client)
-    lifecycle = ClientLifecycleManager.get()
     timers: list[ui.timer] = []
+
+    def _coerce_float(value: Any, default: float = 0.0) -> float:
+        if isinstance(value, (int, float, Decimal)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.replace(",", "").strip())
+            except ValueError:
+                return default
+        return default
+
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, (float, Decimal)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value.replace(",", "").strip()))
+            except ValueError:
+                return default
+        return default
 
     # Metric cards
     with ui.row().classes("w-full gap-4 mb-6 flex-wrap"):
@@ -176,6 +269,7 @@ async def dashboard(client: Client) -> None:
             orders_table = create_orders_table()
 
         with ui.card().classes("w-80"):
+            last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
             activity_feed = ActivityFeed()
 
     position_symbols: set[str] | None = None
@@ -187,10 +281,39 @@ async def dashboard(client: Client) -> None:
     grid_update_lock = asyncio.Lock()
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
 
+    def _format_event_time(event: dict[str, Any]) -> dict[str, Any]:
+        """Ensure activity events include a HH:MM time field."""
+        if "time" in event and event.get("time"):
+            return event
+        timestamp = event.get("timestamp")
+        if not timestamp:
+            return event
+        try:
+            ts_str = str(timestamp)
+            if ts_str.endswith("Z"):
+                ts_str = ts_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(ts_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            event["time"] = dt.astimezone(UTC).strftime("%H:%M")
+        except Exception:
+            pass
+        return event
+
+    def _update_last_sync_label(events: list[dict[str, Any]]) -> None:
+        now = datetime.now(UTC)
+        label = now.strftime("%H:%M:%S UTC")
+        if events:
+            # Use most recent fill timestamp for clarity
+            latest = events[0].get("timestamp")
+            if latest:
+                label = f"{str(latest).replace('Z', '')} UTC"
+        last_sync_label.text = f"Last sync: {label}"
+
     async def load_initial_data() -> None:
         nonlocal position_symbols, order_ids
         try:
-            pnl_data, positions, orders = await asyncio.gather(
+            pnl_data, positions, orders, account_info, recent_fills = await asyncio.gather(
                 trading_client.fetch_realtime_pnl(
                     user_id,
                     role=user_role,
@@ -202,6 +325,16 @@ async def dashboard(client: Client) -> None:
                     strategies=user_strategies,
                 ),
                 trading_client.fetch_open_orders(
+                    user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                ),
+                trading_client.fetch_account_info(
+                    user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                ),
+                trading_client.fetch_recent_fills(
                     user_id,
                     role=user_role,
                     strategies=user_strategies,
@@ -222,10 +355,13 @@ async def dashboard(client: Client) -> None:
             ui.notify("Failed to load dashboard: network error", type="negative")
             return
 
-        pnl_card.update(pnl_data.get("total_unrealized_pl", 0))
-        positions_card.update(pnl_data.get("total_positions", 0))
-        realized_card.update(pnl_data.get("realized_pl_today", 0))
-        bp_card.update(pnl_data.get("buying_power", 0))
+        pnl_card.update(_coerce_float(pnl_data.get("total_unrealized_pl", 0)))
+        positions_card.update(_coerce_int(pnl_data.get("total_positions", 0)))
+        realized_card.update(_coerce_float(pnl_data.get("realized_pl_today", 0)))
+        buying_power = account_info.get("buying_power")
+        if buying_power is None:
+            buying_power = pnl_data.get("buying_power", 0)
+        bp_card.update(_coerce_float(buying_power))
         async with grid_update_lock:
             position_symbols = await update_positions_grid(
                 positions_grid,
@@ -243,6 +379,10 @@ async def dashboard(client: Client) -> None:
                 user_id=user_id,
                 client_id=client_id,
             )
+        recent_events = recent_fills.get("events", []) if isinstance(recent_fills, dict) else []
+        normalized_events = [_format_event_time(dict(event)) for event in recent_events]
+        _update_last_sync_label(normalized_events)
+        await activity_feed.add_items(normalized_events, highlight=False)
 
     await load_initial_data()
 
@@ -268,13 +408,13 @@ async def dashboard(client: Client) -> None:
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols
         if "total_unrealized_pl" in data:
-            pnl_card.update(data["total_unrealized_pl"])
+            pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
         if "total_positions" in data:
-            positions_card.update(data["total_positions"])
+            positions_card.update(_coerce_int(data["total_positions"]))
         if "realized_pl_today" in data:
-            realized_card.update(data["realized_pl_today"])
+            realized_card.update(_coerce_float(data["realized_pl_today"]))
         if "buying_power" in data:
-            bp_card.update(data["buying_power"])
+            bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
             async with grid_update_lock:
                 position_symbols = await update_positions_grid(
@@ -284,13 +424,13 @@ async def dashboard(client: Client) -> None:
                     notified_malformed=notified_malformed,
                 )
         if "event" in data:
-            await activity_feed.add_item(data["event"])
-
-    async def _dispatch_trading_state(update: dict[str, Any]) -> None:
-        payload = json.dumps(update)
-        await ui.run_javascript(
-            f"window.dispatchEvent(new CustomEvent('trading_state_change', {{ detail: {payload} }}));"
-        )
+            # Normalize event time for consistent display (same as fills channel)
+            event = dict(data["event"])
+            event = _format_event_time(event)
+            if "type" not in event:
+                event["type"] = "position_update"  # Enable client-side filtering
+            _update_last_sync_label([event])
+            await activity_feed.add_item(event)
 
     def _extract_event_detail(args: Any) -> dict[str, Any]:
         if isinstance(args, dict):
@@ -305,13 +445,12 @@ async def dashboard(client: Client) -> None:
         state = str(data.get("state", "")).upper()
         # Update cached state for instant UI responses (fail-closed: treat unknown as engaged)
         kill_switch_engaged = state != "DISENGAGED"
-        await _dispatch_trading_state({"killSwitch": state == "ENGAGED"})
+        dispatch_trading_state_event(client_id, {"killSwitchState": state})
 
     async def on_circuit_breaker_update(data: dict[str, Any]) -> None:
         logger.info("circuit_breaker_update", extra={"client_id": client_id, "data": data})
         state = str(data.get("state", "")).upper()
-        tripped = state in {"TRIPPED", "OPEN", "ENGAGED", "ON"}
-        await _dispatch_trading_state({"circuitBreaker": tripped})
+        dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
 
     async def on_orders_update(data: dict[str, Any]) -> None:
         nonlocal order_ids
@@ -329,7 +468,9 @@ async def dashboard(client: Client) -> None:
                 )
 
     async def on_fill_event(data: dict[str, Any]) -> None:
-        await activity_feed.add_item(data)
+        normalized = _format_event_time(dict(data))
+        _update_last_sync_label([normalized])
+        await activity_feed.add_item(normalized)
 
     async def handle_close_position(event: events.GenericEventArguments) -> None:
         detail = _extract_event_detail(event.args)
@@ -338,9 +479,29 @@ async def dashboard(client: Client) -> None:
         if not symbol:
             ui.notify("Cannot close position: missing symbol", type="negative")
             return
-        # Pass cached kill switch state for instant UI response
+
+        # SECURITY: Fetch fresh kill switch state before critical operation
+        # Cached state may be stale (race condition between page load and button click)
+        # Fresh API call ensures we have authoritative state for this decision
+        fresh_ks_state: bool | None = kill_switch_engaged  # Fallback to cached if API fails
+        try:
+            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
+            state = str(ks_status.get("state", "")).upper()
+            # Fail-closed: only mark as safe if explicitly DISENGAGED
+            fresh_ks_state = state != "DISENGAGED"
+            logger.debug(
+                "kill_switch_fresh_check",
+                extra={"client_id": client_id, "state": state, "cached": kill_switch_engaged},
+            )
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            # On API failure, preserve fail-open for risk-reducing closes (use cached or None)
+            logger.warning(
+                "kill_switch_fresh_check_failed",
+                extra={"client_id": client_id, "error": type(exc).__name__},
+            )
+
         await on_close_position(
-            symbol, qty, user_id, user_role, kill_switch_engaged=kill_switch_engaged
+            symbol, qty, user_id, user_role, kill_switch_engaged=fresh_ks_state
         )
 
     async def handle_cancel_order(event: events.GenericEventArguments) -> None:
@@ -360,7 +521,12 @@ async def dashboard(client: Client) -> None:
     await realtime.subscribe(fills_channel(user_id), on_fill_event)
 
     async def update_market_data() -> None:
-        _ = await MarketPriceCache.get_prices(trading_client)
+        _ = await MarketPriceCache.get_prices(
+            trading_client,
+            user_id=user_id,
+            role=user_role,
+            strategies=user_strategies,
+        )
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
     timers.append(market_timer)

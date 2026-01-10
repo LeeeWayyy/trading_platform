@@ -132,6 +132,6 @@ curl -s http://localhost:8003/api/v1/models/risk_model/current   -H 'Authorizati
 - `../libs/models.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09 (housekeeping refresh)
 - **Source Files:** `apps/model_registry/main.py`, `apps/model_registry/routes.py`, `apps/model_registry/auth.py`, `apps/model_registry/schemas.py`, `libs/models`
 - **ADRs:** N/A

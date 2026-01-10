@@ -395,6 +395,37 @@ class RealtimePnLResponse(BaseModel):
     }
 
 
+class AccountInfoResponse(BaseModel):
+    """Account summary information from broker."""
+
+    account_number: str | None = None
+    status: str | None = None
+    currency: str | None = None
+    buying_power: Decimal | None = None
+    cash: Decimal | None = None
+    portfolio_value: Decimal | None = None
+    pattern_day_trader: bool | None = None
+    trading_blocked: bool | None = None
+    transfers_blocked: bool | None = None
+
+
+class MarketPricePoint(BaseModel):
+    """Market price snapshot for a symbol."""
+
+    symbol: str
+    mid: Decimal | None = None
+    timestamp: datetime | None = None
+
+
+class CircuitBreakerStatusResponse(BaseModel):
+    """Circuit breaker status payload."""
+
+    state: str
+    tripped_at: datetime | None = None
+    trip_reason: str | None = None
+    trip_details: dict[str, Any] | None = None
+
+
 # ============================================================================
 # Webhook Schemas
 # ============================================================================

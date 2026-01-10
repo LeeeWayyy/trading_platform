@@ -351,9 +351,12 @@ class AlpacaMarketDataStream:
                 # Mark as connected before running
                 self._connected = True
 
-                # Await the async WebSocket coroutine (NOT synchronous - do not use executor)
-                # This will block until disconnect or error
-                await self.stream.run()  # type: ignore[func-returns-value]
+                # StockDataStream.run() is synchronous and calls asyncio.run()
+                # which cannot run inside an existing event loop. Execute it
+                # in a thread to avoid "asyncio.run() called from running loop"
+                # and to ensure the internal loop is initialized.
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self.stream.run)
 
                 # If we reach here, connection was established and then closed gracefully
                 # This is a "successful" cycle, so reset the counter

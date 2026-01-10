@@ -45,7 +45,7 @@ scrape_configs:
   - job_name: 'execution-gateway'
     scrape_interval: 10s      # More frequent for trading critical service
     static_configs:
-      - targets: ['localhost:8002']
+      - targets: ['execution_gateway:8002']
         labels:
           service: 'execution-gateway'
           tier: 'critical'
@@ -56,7 +56,7 @@ scrape_configs:
   - job_name: 'signal-service'
     scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:8001']
+      - targets: ['signal_service:8001']
         labels:
           service: 'signal-service'
           tier: 'important'
@@ -67,7 +67,7 @@ scrape_configs:
   - job_name: 'orchestrator'
     scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:8003']
+      - targets: ['orchestrator:8003']
         labels:
           service: 'orchestrator'
           tier: 'important'
@@ -78,18 +78,29 @@ scrape_configs:
   - job_name: 'market-data-service'
     scrape_interval: 10s      # Frequent for real-time data
     static_configs:
-      - targets: ['localhost:8004']
+      - targets: ['market_data_service:8004']
         labels:
           service: 'market-data-service'
           tier: 'critical'
           component: 'data'
     metrics_path: '/metrics'
 
+  # Model Registry - ML model storage and versioning
+  - job_name: 'model-registry'
+    scrape_interval: 30s      # Less frequent for registry service
+    static_configs:
+      - targets: ['model_registry:8005']
+        labels:
+          service: 'model-registry'
+          tier: 'important'
+          component: 'ml'
+    metrics_path: '/metrics'
+
   # Web Console Metrics Sidecar - CB staleness, audit metrics
   - job_name: 'web-console-metrics'
     scrape_interval: 10s      # Track 7 SLA: CB staleness <= 5s
     static_configs:
-      - targets: ['localhost:8503']
+      - targets: ['web_console_dev:8503']
         labels:
           service: 'web-console-metrics'
           tier: 'important'
