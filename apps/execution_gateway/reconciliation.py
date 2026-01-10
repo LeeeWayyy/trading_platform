@@ -341,6 +341,69 @@ class ReconciliationService:
         if updated is not None:
             reconciliation_mismatches_total.inc()
 
+    def _calculate_synthetic_fill(
+        self,
+        client_order_id: str,
+        filled_qty: Decimal,
+        filled_avg_price: Decimal,
+        timestamp: datetime,
+        existing_fills: list[dict[str, Any]],
+        source: str,
+    ) -> dict[str, Any] | None:
+        """Calculate synthetic fill data if there's a quantity gap.
+
+        Common logic extracted from _backfill_fill_metadata and
+        _backfill_fill_metadata_from_order to reduce duplication.
+
+        Returns fill_data dict if a synthetic fill is needed, None otherwise.
+        """
+        # Count real (non-synthetic) fills separately to avoid double-counting
+        real_fill_qty = Decimal("0")
+        synthetic_fill_qty = Decimal("0")
+        for fill in existing_fills:
+            try:
+                # Skip superseded fills - they were replaced by real fills
+                if fill.get("superseded"):
+                    continue
+                qty = Decimal(str(fill.get("fill_qty", 0)))
+                if fill.get("synthetic"):
+                    synthetic_fill_qty += qty
+                else:
+                    real_fill_qty += qty
+            except (TypeError, ValueError):
+                continue
+
+        filled_qty_dec = Decimal(str(filled_qty))
+
+        # If real fills cover the broker's filled_qty, no need for synthetic
+        if filled_qty_dec <= real_fill_qty:
+            return None
+
+        # Calculate missing based on real fills only (synthetic may be stale/duplicated)
+        missing_qty = filled_qty_dec - real_fill_qty - synthetic_fill_qty
+
+        # If total (real + synthetic) already covers broker qty, skip
+        if missing_qty <= Decimal("0"):
+            return None
+
+        # For fractional shares, store as string to preserve precision
+        qty_value = str(missing_qty) if missing_qty % 1 != 0 else int(missing_qty)
+
+        # Use both filled_qty and missing_qty in fill_id to ensure uniqueness
+        fill_id_filled = str(filled_qty_dec).replace(".", "_")
+        fill_id_missing = str(missing_qty).replace(".", "_")
+
+        return {
+            "fill_id": f"{client_order_id}_{source}_{fill_id_filled}_{fill_id_missing}",
+            "fill_qty": qty_value,
+            "fill_price": str(filled_avg_price),
+            "realized_pl": "0",  # Synthetic: actual P&L unknown
+            "timestamp": timestamp.isoformat(),
+            "synthetic": True,  # AUDIT: Mark as reconciliation-generated
+            "source": source,
+            "_missing_qty": missing_qty,  # For logging, stripped before storage
+        }
+
     def _backfill_fill_metadata(
         self,
         client_order_id: str,
@@ -366,63 +429,27 @@ class ReconciliationService:
                     return
 
                 existing_fills = order.metadata.get("fills", [])
-                # Count real (non-synthetic) fills separately to avoid double-counting
-                # If real fills exist, they take precedence and we don't add synthetic
-                # Skip superseded synthetic fills - they were replaced by real fills
-                real_fill_qty = Decimal("0")
-                synthetic_fill_qty = Decimal("0")
-                for fill in existing_fills:
-                    try:
-                        # Skip superseded fills - they were replaced by real fills
-                        if fill.get("superseded"):
-                            continue
-                        qty = Decimal(str(fill.get("fill_qty", 0)))
-                        if fill.get("synthetic"):
-                            synthetic_fill_qty += qty
-                        else:
-                            real_fill_qty += qty
-                    except (TypeError, ValueError):
-                        continue
-
-                filled_qty_dec = Decimal(str(filled_qty))
-
-                # If real fills cover the broker's filled_qty, no need for synthetic
-                if filled_qty_dec <= real_fill_qty:
+                fill_data = self._calculate_synthetic_fill(
+                    client_order_id=client_order_id,
+                    filled_qty=Decimal(str(filled_qty)),
+                    filled_avg_price=Decimal(str(filled_avg_price)),
+                    timestamp=updated_at,
+                    existing_fills=existing_fills,
+                    source="recon",
+                )
+                if fill_data is None:
                     return
 
-                # Calculate missing based on real fills only (synthetic may be stale/duplicated)
-                missing_qty = filled_qty_dec - real_fill_qty - synthetic_fill_qty
+                # Extract and remove internal field before storage
+                missing_qty = fill_data.pop("_missing_qty")
+                # Override source for storage (fill_id uses short prefix, source uses full name)
+                fill_data["source"] = "reconciliation_backfill"
 
-                # If total (real + synthetic) already covers broker qty, skip
-                # Also guards against infinite loop from fractional shares
-                if missing_qty <= Decimal("0"):
-                    return
-                # For fractional shares, store as string to preserve precision
-                # Integer truncation could cause infinite backfill loops
-                qty_value = str(missing_qty) if missing_qty % 1 != 0 else int(missing_qty)
-
-                # Use both filled_qty and missing_qty in fill_id to ensure uniqueness:
-                # - Includes filled_qty to differentiate from earlier partial fills
-                # - Includes missing_qty to avoid collision with superseded synthetic fills
-                # e.g., if superseded fill had ID "xxx_recon_10_0", new backfill is "xxx_recon_10_5"
-                fill_id_filled = str(filled_qty_dec).replace(".", "_")
-                fill_id_missing = str(missing_qty).replace(".", "_")
-                fill_data = {
-                    "fill_id": f"{client_order_id}_recon_{fill_id_filled}_{fill_id_missing}",
-                    "fill_qty": qty_value,
-                    "fill_price": str(filled_avg_price),
-                    "realized_pl": "0",  # Synthetic: actual P&L unknown
-                    "timestamp": updated_at.isoformat(),
-                    "synthetic": True,  # AUDIT: Mark as reconciliation-generated (not from webhook)
-                    "source": "reconciliation_backfill",
-                }
                 self.db_client.append_fill_to_order_metadata(
                     client_order_id=client_order_id,
                     fill_data=fill_data,
                     conn=conn,
                 )
-                # AUDIT: Log synthetic fill injection for traceability
-                # Include symbol/strategy_id for incident investigation
                 logger.info(
                     "reconciliation_backfill_fill",
                     extra={
@@ -458,61 +485,27 @@ class ReconciliationService:
                     return
 
                 existing_fills = locked.metadata.get("fills", [])
-                # Count real (non-synthetic) fills separately to avoid double-counting
-                # If real fills exist, they take precedence and we don't add synthetic
-                # Skip superseded synthetic fills - they were replaced by real fills
-                real_fill_qty = Decimal("0")
-                synthetic_fill_qty = Decimal("0")
-                for fill in existing_fills:
-                    try:
-                        # Skip superseded fills - they were replaced by real fills
-                        if fill.get("superseded"):
-                            continue
-                        qty = Decimal(str(fill.get("fill_qty", 0)))
-                        if fill.get("synthetic"):
-                            synthetic_fill_qty += qty
-                        else:
-                            real_fill_qty += qty
-                    except (TypeError, ValueError):
-                        continue
-
-                filled_qty_dec = Decimal(str(filled_qty))
-
-                # If real fills cover the broker's filled_qty, no need for synthetic
-                if filled_qty_dec <= real_fill_qty:
+                fill_data = self._calculate_synthetic_fill(
+                    client_order_id=order.client_order_id,
+                    filled_qty=Decimal(str(filled_qty)),
+                    filled_avg_price=Decimal(str(filled_avg_price)),
+                    timestamp=timestamp,
+                    existing_fills=existing_fills,
+                    source="recon_db",
+                )
+                if fill_data is None:
                     return
 
-                # Calculate missing based on real fills only (synthetic may be stale/duplicated)
-                missing_qty = filled_qty_dec - real_fill_qty - synthetic_fill_qty
+                # Extract and remove internal field before storage
+                missing_qty = fill_data.pop("_missing_qty")
+                # Override source for storage (fill_id uses short prefix, source uses full name)
+                fill_data["source"] = "reconciliation_db_backfill"
 
-                # If total (real + synthetic) already covers broker qty, skip
-                # Also guards against infinite loop from fractional shares
-                if missing_qty <= Decimal("0"):
-                    return
-                # For fractional shares, store as string to preserve precision
-                qty_value = str(missing_qty) if missing_qty % 1 != 0 else int(missing_qty)
-
-                # Use both filled_qty and missing_qty in fill_id to ensure uniqueness:
-                # - Includes filled_qty to differentiate from earlier partial fills
-                # - Includes missing_qty to avoid collision with superseded synthetic fills
-                fill_id_filled = str(filled_qty_dec).replace(".", "_")
-                fill_id_missing = str(missing_qty).replace(".", "_")
-                fill_data = {
-                    "fill_id": f"{order.client_order_id}_recon_db_{fill_id_filled}_{fill_id_missing}",
-                    "fill_qty": qty_value,
-                    "fill_price": str(filled_avg_price),
-                    "realized_pl": "0",  # Synthetic: actual P&L unknown
-                    "timestamp": timestamp.isoformat(),
-                    "synthetic": True,  # AUDIT: Mark as reconciliation-generated (not from webhook)
-                    "source": "reconciliation_db_backfill",
-                }
                 self.db_client.append_fill_to_order_metadata(
                     client_order_id=order.client_order_id,
                     fill_data=fill_data,
                     conn=conn,
                 )
-                # AUDIT: Log synthetic fill injection for traceability
-                # Include symbol/strategy_id for incident investigation
                 logger.info(
                     "reconciliation_db_backfill_fill",
                     extra={

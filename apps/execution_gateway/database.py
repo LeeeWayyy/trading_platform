@@ -1413,8 +1413,8 @@ class DatabaseClient:
                                 NULLIF(fill->>'timestamp', '')::timestamptz,
                                 o.updated_at
                             ) AS fill_timestamp
-                        FROM orders o,
-                             jsonb_array_elements(o.metadata->'fills') AS fill
+                        FROM orders o
+                        CROSS JOIN jsonb_array_elements(o.metadata->'fills') AS fill
                         WHERE {where_clause}
                           AND COALESCE(
                                   NULLIF(fill->>'timestamp', '')::timestamptz,

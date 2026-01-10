@@ -136,6 +136,24 @@ def error_detail(error: str, message: str, retry_after: int | None = None) -> di
     return detail
 
 
+def _get_required_header(
+    request: Request, header_name: str, log_only: bool, default_value: str = ""
+) -> str:
+    """Extract a required header, falling back to default in log_only mode.
+
+    Reduces repetitive header validation logic for X-User-ID, X-Request-ID, etc.
+    """
+    value = request.headers.get(header_name)
+    if not value:
+        if log_only:
+            return default_value
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("missing_header", f"{header_name} header required"),
+        )
+    return value
+
+
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_database_url() -> str:
     """Return database URL from secrets (lazy loading)."""
@@ -329,25 +347,10 @@ async def get_authenticated_user(
         )
 
     token = auth_header[7:]
-    user_id = request.headers.get("X-User-ID")
-    if not user_id:
-        if log_only:
-            user_id = ""
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_detail("missing_header", "X-User-ID header required"),
-            )
+    user_id = _get_required_header(request, "X-User-ID", log_only)
+    request_id = _get_required_header(request, "X-Request-ID", log_only)
 
-    request_id = request.headers.get("X-Request-ID")
-    if not request_id:
-        if log_only:
-            request_id = ""
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_detail("missing_header", "X-Request-ID header required"),
-            )
+    # Validate request_id is valid UUID if present
     try:
         if request_id:
             uuid.UUID(request_id)
@@ -360,15 +363,7 @@ async def get_authenticated_user(
                 detail=error_detail("invalid_header", "X-Request-ID must be valid UUID"),
             ) from exc
 
-    session_version_header = request.headers.get("X-Session-Version")
-    if not session_version_header:
-        if log_only:
-            session_version_header = ""
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_detail("missing_header", "X-Session-Version header required"),
-            )
+    session_version_header = _get_required_header(request, "X-Session-Version", log_only)
     try:
         session_version = int(session_version_header) if session_version_header else 0
     except ValueError as exc:
