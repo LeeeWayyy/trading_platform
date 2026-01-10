@@ -96,6 +96,7 @@ def test_cache_hit_returns_stale_on_error(
                 200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"}
             ),
             httpx.RequestError("boom", request=request_obj),
+            httpx.RequestError("boom", request=request_obj),
         ]
     )
     _make_client_with_queue(queue, monkeypatch)
@@ -142,7 +143,7 @@ def test_staleness_age_calculated_from_cache(
     )
     client._cache["svc"] = (cached, datetime.now(UTC) - timedelta(seconds=5))
 
-    queue: deque[Any] = deque([httpx.TimeoutException("timeout")])
+    queue: deque[Any] = deque([httpx.TimeoutException("timeout"), httpx.TimeoutException("timeout")])
     _make_client_with_queue(queue, monkeypatch)
 
     result = asyncio.run(client.check_service("svc"))
@@ -157,7 +158,12 @@ def test_error_without_cache_marks_unreachable(
     monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str], request_obj: httpx.Request
 ) -> None:
     client = HealthClient(service_urls, cache_ttl_seconds=30)
-    queue: deque[Any] = deque([httpx.RequestError("boom", request=request_obj)])
+    queue: deque[Any] = deque(
+        [
+            httpx.RequestError("boom", request=request_obj),
+            httpx.RequestError("boom", request=request_obj),
+        ]
+    )
     _make_client_with_queue(queue, monkeypatch)
 
     result = asyncio.run(client.check_service("svc"))

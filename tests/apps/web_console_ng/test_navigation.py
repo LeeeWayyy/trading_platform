@@ -45,6 +45,15 @@ class _FakeContext:
     def toggle(self) -> None:  # pragma: no cover - callback only
         return None
 
+    def on_click(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def disable(self) -> None:
+        return None
+
+    def enable(self) -> None:
+        return None
+
 
 class _FakeUI:
     def __init__(self) -> None:
@@ -114,6 +123,9 @@ class _FakeUI:
         return None
 
     def notify(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def add_head_html(self, *_args: Any, **_kwargs: Any) -> None:
         return None
 
     class navigate:
@@ -193,7 +205,6 @@ def test_navigation_item_structure() -> None:
     assert items == [
         ("Dashboard", "/", "dashboard", None),
         ("Manual Controls", "/manual-order", "edit", None),
-        ("Kill Switch", "/kill-switch", "warning", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),

@@ -603,7 +603,7 @@ class TestOrderFillMetadata:
         with patch.object(db, "_pool", MagicMock()):
             db.append_fill_to_order_metadata("abc", {"fill_id": "abc_1", "realized_pl": "5"}, conn)
 
-        cursor.execute.assert_called_once()
+        assert cursor.execute.call_count == 2
 
 
 class TestDatabaseClientNewMethods:

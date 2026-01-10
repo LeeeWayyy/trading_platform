@@ -51,6 +51,9 @@ class _DummyUI:
     def select(self, *args, **kwargs) -> _DummyElement:
         return _DummyElement()
 
+    def html(self, *args, **kwargs) -> _DummyElement:
+        return _DummyElement()
+
     def column(self, *args, **kwargs) -> _DummyElement:
         return _DummyElement()
 
@@ -65,6 +68,9 @@ class _DummyUI:
 
     def separator(self, *args, **kwargs) -> _DummyElement:
         return _DummyElement()
+
+    def run_javascript(self, *args, **kwargs) -> None:
+        return None
 
 
 def _request_with_cookie(cookie_name: str, cookie_value: str) -> StarletteRequest:

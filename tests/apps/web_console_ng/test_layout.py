@@ -42,6 +42,15 @@ class _FakeContext:
     def toggle(self) -> None:  # pragma: no cover - callback only
         return None
 
+    def on_click(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def disable(self) -> None:
+        return None
+
+    def enable(self) -> None:
+        return None
+
 
 class _FakeUI:
     def __init__(self) -> None:
@@ -111,6 +120,9 @@ class _FakeUI:
         return None
 
     def notify(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def add_head_html(self, *_args: Any, **_kwargs: Any) -> None:
         return None
 
     class navigate:
@@ -188,10 +200,15 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
     expected_paths = [
         "/",
         "/manual-order",
-        "/kill-switch",
         "/circuit-breaker",
         "/health",
         "/risk",
+        "/alpha-explorer",
+        "/compare",
+        "/journal",
+        "/notebooks",
+        "/performance",
+        "/reports",
         "/backtest",
         "/admin",
     ]

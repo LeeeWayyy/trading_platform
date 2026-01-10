@@ -165,15 +165,10 @@ def test_cache_stale_used_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
     # Cache is expired (2 seconds old, TTL is 1 second)
     client._cache["all_latencies"] = (cached, datetime.now(UTC) - timedelta(seconds=2))
 
-    # Queue 15 timeout exceptions (5 services * 3 percentiles)
-    # The exceptions are caught at get_latency_percentile level, returning None
-    # All services will have None latencies, triggering the stale cache fallback
-    queue: deque[Any] = deque([httpx.TimeoutException("timeout") for _ in range(15)])
+    async def _raise_request_error(*_args: Any, **_kwargs: Any) -> float | None:
+        raise httpx.RequestError("timeout", request=httpx.Request("GET", "http://prom"))
 
-    def factory(*_: Any, **__: Any) -> MockAsyncClient:
-        return MockAsyncClient(queue)
-
-    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    monkeypatch.setattr(PrometheusClient, "get_latency_percentile", _raise_request_error)
 
     result, is_stale, age = asyncio.run(client.get_service_latencies())
 

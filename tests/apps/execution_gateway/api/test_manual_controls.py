@@ -351,7 +351,8 @@ def test_pending_orders_admin_allowed():
     assert "filtered_by_strategy" in data
 
 
-def test_header_validation_missing_authorization():
+def test_header_validation_missing_authorization(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("API_AUTH_MODE", "enforce")
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[deps.get_gateway_authenticator] = lambda: StubAuthenticator()
@@ -388,7 +389,8 @@ def test_header_validation_missing_authorization():
         (InvalidTokenError("bad"), "invalid_token"),
     ],
 )
-def test_jwt_error_mapping(exc: Exception, expected: str):
+def test_jwt_error_mapping(exc: Exception, expected: str, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("API_AUTH_MODE", "enforce")
     app = FastAPI()
     app.include_router(router)
 
@@ -532,7 +534,7 @@ def test_recent_fills_fail_closed_empty_strategies():
     # not given empty results. This is consistent with list_pending_orders.
     assert response.status_code == 403
     data = response.json()
-    assert data["detail"]["code"] == "strategy_unauthorized"
+    assert data["detail"]["error"] == "strategy_unauthorized"
 
 
 def test_recent_fills_limit_bounds():

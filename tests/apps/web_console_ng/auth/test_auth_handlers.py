@@ -17,6 +17,8 @@ from apps.web_console_ng.auth.providers.oauth2 import OAuth2AuthHandler
 @pytest.mark.asyncio()
 async def test_dev_auth_valid_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "AUTH_TYPE", "dev")
+    monkeypatch.setenv("WEB_CONSOLE_USER", "admin")
+    monkeypatch.setenv("WEB_CONSOLE_PASSWORD", "admin123")
     handler = DevAuthHandler()
 
     mock_store = AsyncMock()
