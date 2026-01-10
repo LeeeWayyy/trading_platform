@@ -232,6 +232,22 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         kill_switch_action_in_progress = False
 
         async def toggle_kill_switch() -> None:
+            """Toggle kill switch state immediately without confirmation dialog.
+
+            DESIGN DECISION (Dev Team): The kill switch is intentionally designed for
+            FAST emergency response. In production incidents (runaway orders, market
+            flash crash, broker connectivity issues), every second counts. A confirmation
+            dialog would add critical delay when operators need to halt trading immediately.
+
+            The trade-off is reduced auditability for the toggle reason, but this is
+            acceptable because:
+            1. All kill switch state changes are logged server-side with timestamps
+            2. The Circuit Breaker page provides detailed controls for non-emergency use
+            3. Incident post-mortems can correlate timing with system logs
+            4. The header toggle is a "panic button" - detailed reasons can be added later
+
+            For detailed audit trails and reason capture, use the Circuit Breaker page.
+            """
             nonlocal kill_switch_action_in_progress, kill_switch_state
             if kill_switch_action_in_progress:
                 return
@@ -261,7 +277,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 elif state == "DISENGAGED":
                     await client.engage_kill_switch(
                         user_id,
-                        reason="Manual toggle from header",
+                        reason="Emergency header toggle",
                         role=user_role,
                         strategies=user_strategies,
                     )

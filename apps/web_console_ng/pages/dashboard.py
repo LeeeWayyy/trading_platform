@@ -56,18 +56,25 @@ def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) 
 
 
 class MarketPriceCache:
-    """Shared cache for market prices across all client sessions.
+    """Per-strategy-scope cache for market prices.
 
-    Assumes market prices are not user-specific.
+    The cache is keyed by frozenset of strategies to prevent authorization leaks.
+    Users with different strategy permissions see only their authorized symbols.
     """
 
-    _prices: list[dict[str, Any]] = []
-    _last_fetch: float = 0.0
-    _last_error: float = 0.0
+    # Cache entry: {frozenset(strategies): {"prices": [...], "last_fetch": float, "last_error": float}}
+    _cache: dict[frozenset[str], dict[str, Any]] = {}
+    _in_flight: dict[frozenset[str], asyncio.Task[list[dict[str, Any]]]] = {}
     _ttl: float = 4.0
     _error_cooldown: float = 10.0
     _lock = asyncio.Lock()
-    _in_flight: asyncio.Task[list[dict[str, Any]]] | None = None
+
+    @classmethod
+    def _get_scope_key(cls, strategies: list[str] | None) -> frozenset[str]:
+        """Generate cache key from user's strategy scope."""
+        if not strategies:
+            return frozenset()
+        return frozenset(strategies)
 
     @classmethod
     async def get_prices(
@@ -78,67 +85,83 @@ class MarketPriceCache:
         role: str | None,
         strategies: list[str] | None,
     ) -> list[dict[str, Any]]:
-        """Get market prices, using cache if fresh.
+        """Get market prices, using per-scope cache if fresh.
 
         Returns a copy to prevent cross-session mutation.
         Implements failure backoff to avoid thundering herd on outages.
+        Cache is scoped by user's strategy permissions to prevent authorization leaks.
         """
+        scope_key = cls._get_scope_key(strategies)
+
         async with cls._lock:
             now = time.time()
-            if cls._last_error and (now - cls._last_error) < cls._error_cooldown:
-                return [dict(p) for p in cls._prices]
+            cache_entry = cls._cache.get(scope_key, {})
+            cached_prices = cache_entry.get("prices", [])
+            last_fetch = cache_entry.get("last_fetch", 0.0)
+            last_error = cache_entry.get("last_error", 0.0)
 
-            if (now - cls._last_fetch) < cls._ttl and cls._prices:
-                return [dict(p) for p in cls._prices]
+            # Return cached data during error cooldown
+            if last_error and (now - last_error) < cls._error_cooldown:
+                return [dict(p) for p in cached_prices]
 
-            if cls._in_flight is not None:
-                task = cls._in_flight
+            # Return cached data if still fresh
+            if (now - last_fetch) < cls._ttl and cached_prices:
+                return [dict(p) for p in cached_prices]
+
+            # Check for in-flight request for this scope
+            if scope_key in cls._in_flight:
+                task = cls._in_flight[scope_key]
             else:
                 fetch_prices = getattr(client, "fetch_market_prices", None)
                 if not callable(fetch_prices):
                     logger.warning("market_prices_fetch_missing", extra={"reason": "method_missing"})
-                    return [dict(p) for p in cls._prices]
-                cls._in_flight = asyncio.create_task(
+                    return [dict(p) for p in cached_prices]
+                task = asyncio.create_task(
                     fetch_prices(
                         user_id,
                         role=role,
                         strategies=strategies,
                     )
                 )
-                task = cls._in_flight
+                cls._in_flight[scope_key] = task
 
         try:
             prices = await task
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             logger.warning(
                 "market_price_cache_fetch_failed",
-                extra={"error": type(exc).__name__, "detail": str(exc)[:100]},
+                extra={"error": type(exc).__name__, "detail": str(exc)[:100], "scope": list(scope_key)},
             )
             async with cls._lock:
-                cls._last_error = time.time()
-                if cls._in_flight is task:
-                    cls._in_flight = None
-                return [dict(p) for p in cls._prices]
+                if scope_key not in cls._cache:
+                    cls._cache[scope_key] = {}
+                cls._cache[scope_key]["last_error"] = time.time()
+                if cls._in_flight.get(scope_key) is task:
+                    del cls._in_flight[scope_key]
+                return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
         except Exception as exc:
             # Catch non-HTTP exceptions (e.g., ValueError from malformed payload)
-            # to reset _in_flight and allow recovery on next call
             logger.warning(
                 "market_price_cache_fetch_unexpected_error",
-                extra={"error": type(exc).__name__, "detail": str(exc)[:100]},
+                extra={"error": type(exc).__name__, "detail": str(exc)[:100], "scope": list(scope_key)},
             )
             async with cls._lock:
-                cls._last_error = time.time()
-                if cls._in_flight is task:
-                    cls._in_flight = None
-                return [dict(p) for p in cls._prices]
+                if scope_key not in cls._cache:
+                    cls._cache[scope_key] = {}
+                cls._cache[scope_key]["last_error"] = time.time()
+                if cls._in_flight.get(scope_key) is task:
+                    del cls._in_flight[scope_key]
+                return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
 
         async with cls._lock:
-            if cls._in_flight is task:
-                cls._in_flight = None
-            cls._prices = list(prices)
-            cls._last_fetch = time.time()
-            cls._last_error = 0.0
-            return [dict(p) for p in cls._prices]
+            if cls._in_flight.get(scope_key) is task:
+                del cls._in_flight[scope_key]
+            cls._cache[scope_key] = {
+                "prices": list(prices),
+                "last_fetch": time.time(),
+                "last_error": 0.0,
+            }
+            return [dict(p) for p in cls._cache[scope_key]["prices"]]
 
 
 @ui.page("/")
