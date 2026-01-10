@@ -297,7 +297,8 @@ http {
             # NOTE: entrypoint.sh transforms CSP_REPORT_ONLY boolean to header suffix
             # If CSP_REPORT_ONLY=true, ${CSP_REPORT_ONLY}="-Report-Only" -> "Content-Security-Policy-Report-Only"
             # If CSP_REPORT_ONLY=false, ${CSP_REPORT_ONLY}="" -> "Content-Security-Policy"
-            add_header Content-Security-Policy${CSP_REPORT_ONLY} "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
+            # NOTE: NiceGUI/Quasar still requires inline styles; revisit nonce-based CSP to drop 'unsafe-inline'.
+            add_header Content-Security-Policy${CSP_REPORT_ONLY} "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
 
             # WebSocket support (required for NiceGUI)
             proxy_set_header Upgrade $http_upgrade;
@@ -334,7 +335,8 @@ http {
 
             # CSP header for NiceGUI WebSocket (same policy as /)
             # NOTE: entrypoint.sh transforms CSP_REPORT_ONLY boolean to header suffix
-            add_header Content-Security-Policy${CSP_REPORT_ONLY} "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
+            # NOTE: NiceGUI/Quasar still requires inline styles; revisit nonce-based CSP to drop 'unsafe-inline'.
+            add_header Content-Security-Policy${CSP_REPORT_ONLY} "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
 
             # WebSocket headers (REQUIRED)
             proxy_set_header Upgrade $http_upgrade;

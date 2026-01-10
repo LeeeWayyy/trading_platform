@@ -36,7 +36,6 @@ async def test_market_price_cache_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that cache returns cached data within TTL."""
     client = DummyTradingClient()
     strategies = ["alpha_baseline"]
-    scope_key = frozenset(strategies)
 
     monkeypatch.setattr(dashboard_module.time, "time", lambda: 1000.0)
     first = await dashboard_module.MarketPriceCache.get_prices(
@@ -59,7 +58,7 @@ async def test_market_price_cache_error_cooldown(monkeypatch: pytest.MonkeyPatch
     """Test that cache returns stale data during error cooldown."""
     client = DummyTradingClient()
     strategies = ["alpha_baseline"]
-    scope_key = frozenset(strategies)
+    scope_key = ("admin", frozenset(strategies))
 
     # Pre-populate cache with stale data and error state
     dashboard_module.MarketPriceCache._cache[scope_key] = {
@@ -102,6 +101,6 @@ async def test_market_price_cache_strategy_isolation(monkeypatch: pytest.MonkeyP
 
     # User 3 with same strategy A should use cached data
     await dashboard_module.MarketPriceCache.get_prices(
-        client, user_id="user3", role="viewer", strategies=strategies_a
+        client, user_id="user3", role="operator", strategies=strategies_a
     )
     assert client.calls == 2  # No new fetch, same scope as user1

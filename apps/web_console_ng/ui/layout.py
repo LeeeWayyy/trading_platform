@@ -176,6 +176,16 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 ).classes("px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black").props(
                     "id=kill-switch-badge unelevated"
                 )
+                engage_button = ui.button(
+                    "Engage", icon="power_settings_new", on_click=lambda: open_kill_switch_dialog("ENGAGE")
+                ).classes("px-2 py-1 rounded text-xs bg-red-600 text-white").props(
+                    "id=kill-switch-engage"
+                )
+                disengage_button = ui.button(
+                    "Disengage", icon="power_off", on_click=lambda: open_kill_switch_dialog("DISENGAGE")
+                ).classes("px-2 py-1 rounded text-xs bg-green-600 text-white").props(
+                    "id=kill-switch-disengage"
+                )
                 circuit_breaker_badge = ui.label("Circuit: Unknown").classes(
                     "px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black"
                 ).props("id=circuit-breaker-badge")
@@ -231,59 +241,47 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         kill_switch_state: str | None = None
         kill_switch_action_in_progress = False
 
-        async def toggle_kill_switch() -> None:
-            """Toggle kill switch state immediately without confirmation dialog.
+        kill_switch_action_buttons: list[Any] = [engage_button, disengage_button]
 
-            DESIGN DECISION (Dev Team): The kill switch is intentionally designed for
-            FAST emergency response. In production incidents (runaway orders, market
-            flash crash, broker connectivity issues), every second counts. A confirmation
-            dialog would add critical delay when operators need to halt trading immediately.
+        def set_kill_switch_controls(state: str | None) -> None:
+            if kill_switch_action_in_progress:
+                for button in kill_switch_action_buttons:
+                    button.disable()
+                return
+            if state == "ENGAGED":
+                engage_button.disable()
+                disengage_button.enable()
+            elif state == "DISENGAGED":
+                engage_button.enable()
+                disengage_button.disable()
+            else:
+                engage_button.enable()
+                disengage_button.enable()
 
-            The trade-off is reduced auditability for the toggle reason, but this is
-            acceptable because:
-            1. All kill switch state changes are logged server-side with timestamps
-            2. The Circuit Breaker page provides detailed controls for non-emergency use
-            3. Incident post-mortems can correlate timing with system logs
-            4. The header toggle is a "panic button" - detailed reasons can be added later
-
-            For detailed audit trails and reason capture, use the Circuit Breaker page.
-            """
-            nonlocal kill_switch_action_in_progress, kill_switch_state
+        async def perform_kill_switch_action(action: str, reason: str) -> None:
+            nonlocal kill_switch_action_in_progress
             if kill_switch_action_in_progress:
                 return
             kill_switch_action_in_progress = True
-            kill_switch_button.disable()
+            for button in kill_switch_action_buttons:
+                button.disable()
             try:
-                try:
-                    status = await client.fetch_kill_switch_status(
-                        user_id, role=user_role, strategies=user_strategies
-                    )
-                    state = str(status.get("state", "UNKNOWN")).upper()
-                    kill_switch_state = state
-                except httpx.HTTPStatusError as exc:
-                    ui.notify(
-                        f"Kill switch status failed: HTTP {exc.response.status_code}",
-                        type="negative",
-                    )
-                    state = "UNKNOWN"
-                except httpx.RequestError:
-                    ui.notify("Kill switch status failed: network error", type="negative")
-                    state = "UNKNOWN"
-                if state == "ENGAGED":
-                    await client.disengage_kill_switch(
-                        user_id, role=user_role, strategies=user_strategies
-                    )
-                    ui.notify("Kill switch disengaged", type="positive")
-                elif state == "DISENGAGED":
+                if action == "ENGAGE":
                     await client.engage_kill_switch(
                         user_id,
-                        reason="Emergency header toggle",
+                        reason=reason,
                         role=user_role,
                         strategies=user_strategies,
                     )
                     ui.notify("Kill switch engaged", type="negative")
                 else:
-                    ui.notify("Kill switch state unknown; refresh status", type="warning")
+                    await client.disengage_kill_switch(
+                        user_id,
+                        role=user_role,
+                        strategies=user_strategies,
+                        notes=reason,
+                    )
+                    ui.notify("Kill switch disengaged", type="positive")
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 400:
                     ui.notify("Kill switch already in requested state", type="warning")
@@ -297,9 +295,33 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             finally:
                 await update_global_status()
                 kill_switch_action_in_progress = False
-                kill_switch_button.enable()
+                set_kill_switch_controls(kill_switch_state)
 
-        kill_switch_button.on_click(toggle_kill_switch)
+        def open_kill_switch_dialog(action: str) -> None:
+            title = "Engage Kill Switch" if action == "ENGAGE" else "Disengage Kill Switch"
+            with ui.dialog() as dialog, ui.card().classes("p-6 min-w-[420px]"):
+                ui.label(title).classes("text-lg font-semibold")
+                ui.label("Provide a reason/note for audit logging.").classes(
+                    "text-sm text-gray-600"
+                )
+                reason_input = ui.input("Reason / Notes").props("autofocus").classes("w-full")
+                error_label = ui.label("").classes("text-xs text-red-600")
+
+                async def confirm() -> None:
+                    reason = str(reason_input.value or "").strip()
+                    if not reason:
+                        error_label.set_text("Reason is required.")
+                        return
+                    dialog.close()
+                    await perform_kill_switch_action(action, reason)
+
+                with ui.row().classes("justify-end gap-2"):
+                    ui.button("Cancel", on_click=dialog.close).props("flat")
+                    ui.button(
+                        "Engage" if action == "ENGAGE" else "Disengage",
+                        on_click=confirm,
+                    ).props("color=negative" if action == "ENGAGE" else "color=positive")
+            dialog.open()
 
         async def update_global_status() -> None:
             nonlocal last_kill_switch_state, kill_switch_state
@@ -372,12 +394,14 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     remove="bg-red-500",
                 )
                 last_kill_switch_state = state
+                set_kill_switch_controls(state)
             except Exception:
                 kill_switch_button.set_text("STATUS UNKNOWN")
                 kill_switch_button.classes(
                     "bg-yellow-500 text-black",
                     remove="bg-red-500 bg-green-500",
                 )
+                set_kill_switch_controls("UNKNOWN")
                 circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
                 circuit_breaker_badge.classes(
                     "bg-yellow-500 text-black",

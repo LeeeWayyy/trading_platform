@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from decimal import Decimal
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,6 +41,8 @@ from apps.web_console_ng.ui.layout import main_layout
 
 logger = logging.getLogger(__name__)
 
+ScopeKey = tuple[str, frozenset[str]]
+
 
 def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) -> None:
     """Dispatch trading state changes to the browser (fire-and-forget)."""
@@ -56,25 +59,31 @@ def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) 
 
 
 class MarketPriceCache:
-    """Per-strategy-scope cache for market prices.
+    """Per-scope cache for market prices.
 
-    The cache is keyed by frozenset of strategies to prevent authorization leaks.
-    Users with different strategy permissions see only their authorized symbols.
+    The cache is keyed by (role, strategies) to prevent authorization leaks.
+    Users with different strategy permissions or roles see only their authorized symbols.
     """
 
-    # Cache entry: {frozenset(strategies): {"prices": [...], "last_fetch": float, "last_error": float}}
-    _cache: dict[frozenset[str], dict[str, Any]] = {}
-    _in_flight: dict[frozenset[str], asyncio.Task[list[dict[str, Any]]]] = {}
+    # Cache entry: {scope_key: {"prices": [...], "last_fetch": float, "last_error": float}}
+    _cache: dict[ScopeKey, dict[str, Any]] = {}
+    _in_flight: dict[ScopeKey, asyncio.Task[list[dict[str, Any]]]] = {}
     _ttl: float = 4.0
     _error_cooldown: float = 10.0
     _lock = asyncio.Lock()
 
     @classmethod
-    def _get_scope_key(cls, strategies: list[str] | None) -> frozenset[str]:
-        """Generate cache key from user's strategy scope."""
+    def _get_scope_key(cls, role: str | None, strategies: list[str] | None) -> ScopeKey:
+        """Generate cache key from user's role + strategy scope."""
+        role_key = role or "unknown"
         if not strategies:
-            return frozenset()
-        return frozenset(strategies)
+            return role_key, frozenset()
+        return role_key, frozenset(strategies)
+
+    @classmethod
+    def _scope_meta(cls, scope_key: ScopeKey) -> dict[str, Any]:
+        role, strategies = scope_key
+        return {"role": role, "strategies": sorted(strategies)}
 
     @classmethod
     async def get_prices(
@@ -91,7 +100,7 @@ class MarketPriceCache:
         Implements failure backoff to avoid thundering herd on outages.
         Cache is scoped by user's strategy permissions to prevent authorization leaks.
         """
-        scope_key = cls._get_scope_key(strategies)
+        scope_key = cls._get_scope_key(role, strategies)
 
         async with cls._lock:
             now = time.time()
@@ -130,7 +139,11 @@ class MarketPriceCache:
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             logger.warning(
                 "market_price_cache_fetch_failed",
-                extra={"error": type(exc).__name__, "detail": str(exc)[:100], "scope": list(scope_key)},
+                extra={
+                    "error": type(exc).__name__,
+                    "detail": str(exc)[:100],
+                    "scope": cls._scope_meta(scope_key),
+                },
             )
             async with cls._lock:
                 if scope_key not in cls._cache:
@@ -143,7 +156,11 @@ class MarketPriceCache:
             # Catch non-HTTP exceptions (e.g., ValueError from malformed payload)
             logger.warning(
                 "market_price_cache_fetch_unexpected_error",
-                extra={"error": type(exc).__name__, "detail": str(exc)[:100], "scope": list(scope_key)},
+                extra={
+                    "error": type(exc).__name__,
+                    "detail": str(exc)[:100],
+                    "scope": cls._scope_meta(scope_key),
+                },
             )
             async with cls._lock:
                 if scope_key not in cls._cache:
@@ -198,7 +215,7 @@ async def dashboard(client: Client) -> None:
     timers: list[ui.timer] = []
 
     def _coerce_float(value: Any, default: float = 0.0) -> float:
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float, Decimal)):
             return float(value)
         if isinstance(value, str):
             try:
@@ -210,7 +227,7 @@ async def dashboard(client: Client) -> None:
     def _coerce_int(value: Any, default: int = 0) -> int:
         if isinstance(value, int):
             return value
-        if isinstance(value, float):
+        if isinstance(value, (float, Decimal)):
             return int(value)
         if isinstance(value, str):
             try:
