@@ -250,16 +250,36 @@ class AWSSecretsManager(SecretManager):
                 ),
             ) from e
         except BotoCoreError as e:
+            logger.error(
+                "AWS Secrets Manager initialization failed - SDK error",
+                extra={
+                    "region": region_name,
+                    "backend": "aws",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise SecretAccessError(
                 secret_name="aws_initialization",
                 backend="aws",
                 reason=f"AWS SDK error during initialization: {e}",
             ) from e
-        except Exception as e:
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "AWS Secrets Manager initialization failed - invalid configuration",
+                extra={
+                    "region": region_name,
+                    "backend": "aws",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise SecretAccessError(
                 secret_name="aws_initialization",
                 backend="aws",
-                reason=f"Unexpected error during AWS Secrets Manager initialization: {e}",
+                reason=f"Invalid AWS configuration: {e}",
             ) from e
 
     def get_secret(self, name: str) -> str:
@@ -616,17 +636,36 @@ class AWSSecretsManager(SecretManager):
                 ) from e
 
         except BotoCoreError as e:
+            logger.error(
+                "AWS secret write failed - SDK error",
+                extra={
+                    "secret_name": name,
+                    "backend": "aws",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise SecretWriteError(
                 secret_name=name,
                 backend="aws",
                 reason=f"AWS SDK error writing secret: {e}",
             ) from e
-
-        except Exception as e:
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "AWS secret write failed - invalid value",
+                extra={
+                    "secret_name": name,
+                    "backend": "aws",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise SecretWriteError(
                 secret_name=name,
                 backend="aws",
-                reason=f"Unexpected error writing secret: {e}",
+                reason=f"Invalid secret value or configuration: {e}",
             ) from e
 
     @retry(

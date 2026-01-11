@@ -25,6 +25,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from redis.exceptions import RedisError
+
 if TYPE_CHECKING:
     from apps.execution_gateway.database import DatabaseClient
     from apps.execution_gateway.slice_scheduler import SliceScheduler
@@ -229,8 +231,19 @@ class RecoveryManager:
             return False
         try:
             return self._redis_client.health_check()
+        except (RedisError, TimeoutError, OSError) as e:
+            logger.warning(
+                "Redis health check failed during recovery check",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            return False
         except Exception as e:
-            logger.warning(f"Redis health check failed during recovery check: {e}")
+            # Catch-all for unexpected errors - fail-closed for safety
+            logger.error(
+                "Unexpected error during recovery check",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
             return False
 
     def attempt_recovery(
@@ -365,8 +378,17 @@ class RecoveryManager:
                 self.set_kill_switch_unavailable(True)
                 return False
 
-        except Exception as e:
-            logger.warning(f"Kill-switch recovery failed: {e}", exc_info=True)
+        except (RedisError, TimeoutError, RuntimeError, OSError) as e:
+            logger.warning(
+                "Kill-switch recovery failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "kill_switch",
+                    "recovery_stage": "validation" if self._state.kill_switch is not None else "initialization",
+                },
+                exc_info=True,
+            )
             # Fail-closed: ensure unavailable flag is set on any failure
             self.set_kill_switch_unavailable(True)
 
@@ -404,8 +426,17 @@ class RecoveryManager:
                 self.set_circuit_breaker_unavailable(True)
                 return False
 
-        except Exception as e:
-            logger.warning(f"Circuit breaker recovery failed: {e}", exc_info=True)
+        except (RedisError, TimeoutError, RuntimeError, OSError) as e:
+            logger.warning(
+                "Circuit breaker recovery failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "circuit_breaker",
+                    "recovery_stage": "validation" if self._state.circuit_breaker is not None else "initialization",
+                },
+                exc_info=True,
+            )
             # Fail-closed: ensure unavailable flag is set on any failure
             self.set_circuit_breaker_unavailable(True)
 
@@ -445,8 +476,17 @@ class RecoveryManager:
                 self.set_position_reservation_unavailable(True)
                 return False
 
-        except Exception as e:
-            logger.warning(f"Position reservation recovery failed: {e}", exc_info=True)
+        except (RedisError, TimeoutError, RuntimeError, OSError) as e:
+            logger.warning(
+                "Position reservation recovery failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "position_reservation",
+                    "recovery_stage": "validation" if self._state.position_reservation is not None else "initialization",
+                },
+                exc_info=True,
+            )
             # Fail-closed: ensure unavailable flag is set on any failure
             self.set_position_reservation_unavailable(True)
 
@@ -477,8 +517,17 @@ class RecoveryManager:
         try:
             if not self._state.slice_scheduler.scheduler.running:
                 return True
-        except Exception:
-            # If we can't check, assume needs recovery
+        except (AttributeError, RuntimeError) as e:
+            # If we can't check, assume needs recovery (fail-closed)
+            logger.warning(
+                "Failed to check slice scheduler status, assuming needs recovery",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "slice_scheduler",
+                    "operation": "status_check",
+                },
+            )
             return True
 
         return False
@@ -528,8 +577,17 @@ class RecoveryManager:
                     )
                 return True
 
-        except Exception as e:
-            logger.warning(f"Slice scheduler recovery failed: {e}", exc_info=True)
+        except (RuntimeError, AttributeError, OSError) as e:
+            logger.warning(
+                "Slice scheduler recovery failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "slice_scheduler",
+                    "recovery_stage": "restart" if self._state.slice_scheduler is not None else "initialization",
+                },
+                exc_info=True,
+            )
 
         return False
 
@@ -566,11 +624,17 @@ class RecoveryManager:
             # Validate health before marking available (same as recovery path)
             try:
                 instance.is_engaged()
-            except Exception as health_err:
+            except (RedisError, TimeoutError, RuntimeError, OSError) as health_err:
                 logger.error(
-                    f"Kill-switch health check failed during init: {health_err}. "
-                    "FAILING CLOSED - all trading blocked until Redis available."
+                    "Kill-switch health check failed during init",
+                    extra={
+                        "error": str(health_err),
+                        "error_type": type(health_err).__name__,
+                        "component": "kill_switch",
+                        "operation": "initialization_health_check",
+                    },
                 )
+                logger.error("FAILING CLOSED - all trading blocked until Redis available.")
                 self._state.kill_switch = instance  # Store for later recovery
                 self.set_kill_switch_unavailable(True)
                 return None
@@ -579,11 +643,17 @@ class RecoveryManager:
             self.set_kill_switch_unavailable(False)
             logger.info("Kill-switch initialized and validated successfully")
             return self._state.kill_switch
-        except Exception as e:
+        except (RedisError, TimeoutError, RuntimeError, OSError) as e:
             logger.error(
-                f"Failed to initialize kill-switch: {e}. "
-                "FAILING CLOSED - all trading blocked until Redis available."
+                "Failed to initialize kill-switch",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "kill_switch",
+                    "operation": "initialization",
+                },
             )
+            logger.error("FAILING CLOSED - all trading blocked until Redis available.")
             self.set_kill_switch_unavailable(True)
             return None
 
@@ -620,17 +690,29 @@ class RecoveryManager:
                 instance.is_tripped()
             except RuntimeError as state_err:
                 logger.error(
-                    f"Circuit breaker state missing during init: {state_err}. "
-                    "FAILING CLOSED - all trading blocked until Redis available."
+                    "Circuit breaker state missing during init",
+                    extra={
+                        "error": str(state_err),
+                        "error_type": "RuntimeError",
+                        "component": "circuit_breaker",
+                        "operation": "initialization_state_check",
+                    },
                 )
+                logger.error("FAILING CLOSED - all trading blocked until Redis available.")
                 self._state.circuit_breaker = instance  # Store for later recovery
                 self.set_circuit_breaker_unavailable(True)
                 return None
-            except Exception as health_err:
+            except (RedisError, TimeoutError, OSError) as health_err:
                 logger.error(
-                    f"Circuit breaker health check failed during init: {health_err}. "
-                    "FAILING CLOSED - all trading blocked until Redis available."
+                    "Circuit breaker health check failed during init",
+                    extra={
+                        "error": str(health_err),
+                        "error_type": type(health_err).__name__,
+                        "component": "circuit_breaker",
+                        "operation": "initialization_health_check",
+                    },
                 )
+                logger.error("FAILING CLOSED - all trading blocked until Redis available.")
                 self._state.circuit_breaker = instance  # Store for later recovery
                 self.set_circuit_breaker_unavailable(True)
                 return None
@@ -639,11 +721,17 @@ class RecoveryManager:
             self.set_circuit_breaker_unavailable(False)
             logger.info("Circuit breaker initialized and validated successfully")
             return self._state.circuit_breaker
-        except Exception as e:
+        except (RedisError, TimeoutError, RuntimeError, OSError) as e:
             logger.error(
-                f"Failed to initialize circuit breaker: {e}. "
-                "FAILING CLOSED - all trading blocked until Redis available."
+                "Failed to initialize circuit breaker",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "circuit_breaker",
+                    "operation": "initialization",
+                },
             )
+            logger.error("FAILING CLOSED - all trading blocked until Redis available.")
             self.set_circuit_breaker_unavailable(True)
             return None
 
@@ -690,10 +778,16 @@ class RecoveryManager:
             self.set_position_reservation_unavailable(False)
             logger.info("Position reservation initialized and validated successfully")
             return self._state.position_reservation
-        except Exception as e:
+        except (RedisError, TimeoutError, RuntimeError, OSError) as e:
             logger.error(
-                f"Failed to initialize position reservation: {e}. "
-                "FAILING CLOSED - all trading blocked until Redis available."
+                "Failed to initialize position reservation",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "component": "position_reservation",
+                    "operation": "initialization",
+                },
             )
+            logger.error("FAILING CLOSED - all trading blocked until Redis available.")
             self.set_position_reservation_unavailable(True)
             return None

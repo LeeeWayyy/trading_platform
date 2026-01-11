@@ -195,6 +195,6 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-09 (P5T10: auth bypass hardening, synthetic fill deduplication, fill idempotency)
-- **Source Files:** `apps/execution_gateway/main.py`, `apps/execution_gateway/api/manual_controls.py`, `apps/execution_gateway/api/dependencies.py`, `apps/execution_gateway/database.py`, `apps/execution_gateway/reconciliation.py`, `apps/execution_gateway/schemas.py`, `apps/execution_gateway/webhook_security.py`, `config/settings.py`
+- **Last Updated:** 2026-01-10
+- **Source Files:** `apps/execution_gateway/main.py`, `apps/execution_gateway/alpaca_client.py`, `apps/execution_gateway/api/manual_controls.py`, `apps/execution_gateway/api/dependencies.py`, `apps/execution_gateway/database.py`, `apps/execution_gateway/reconciliation.py`, `apps/execution_gateway/schemas.py`, `apps/execution_gateway/webhook_security.py`, `config/settings.py`
 - **ADRs:** `docs/ADRs/0014-execution-gateway-architecture.md`

@@ -11,6 +11,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
+import redis.exceptions
 from fastapi import FastAPI, HTTPException, status
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
@@ -132,8 +134,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         yield
 
+    except redis.exceptions.ConnectionError as e:
+        logger.error(
+            "Failed to start Market Data Service - Redis connection error",
+            extra={"error": str(e), "error_type": type(e).__name__, "redis_host": settings.redis_host, "redis_port": settings.redis_port},
+            exc_info=True,
+        )
+        raise
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Failed to start Market Data Service - HTTP error connecting to Alpaca",
+            extra={"status_code": e.response.status_code, "url": str(e.request.url)},
+            exc_info=True,
+        )
+        raise
+    except (httpx.ConnectTimeout, httpx.NetworkError) as e:
+        logger.error(
+            "Failed to start Market Data Service - Network error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise
     except Exception as e:
-        logger.error(f"Failed to start Market Data Service: {e}")
+        logger.error(
+            "Failed to start Market Data Service - Unexpected error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
         raise
 
     finally:
@@ -150,8 +177,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             try:
                 await stream.stop()
                 logger.info("WebSocket stopped successfully")
+            except asyncio.CancelledError:
+                logger.warning("WebSocket stop cancelled during shutdown")
+                raise
             except Exception as e:
-                logger.error(f"Error stopping WebSocket: {e}")
+                logger.error(
+                    "Error stopping WebSocket",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                    exc_info=True,
+                )
 
 
 # Create FastAPI app
@@ -315,8 +349,13 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
     except HTTPException:
         request_status = "error"
         raise
-    except Exception:
+    except Exception as e:
         request_status = "error"
+        logger.error(
+            "Subscription request failed - Unexpected error",
+            extra={"error": str(e), "error_type": type(e).__name__, "symbols": request.symbols},
+            exc_info=True,
+        )
         raise
     finally:
         elapsed = time.time() - request_started
@@ -374,8 +413,13 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
     except HTTPException:
         request_status = "error"
         raise
-    except Exception:
+    except Exception as e:
         request_status = "error"
+        logger.error(
+            "Unsubscription request failed - Unexpected error",
+            extra={"error": str(e), "error_type": type(e).__name__, "symbol": symbol},
+            exc_info=True,
+        )
         raise
     finally:
         elapsed = time.time() - request_started

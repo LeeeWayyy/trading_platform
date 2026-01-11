@@ -63,8 +63,12 @@ def _increment_rejection(reason: str) -> None:
         from apps.web_console_ng import metrics
 
         metrics.connections_rejected_total.labels(pod=POD_NAME, reason=reason).inc()
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError) as exc:
         # Metrics may not be initialized yet (C3); don't block admission.
+        logger.debug(
+            "metrics_increment_failed",
+            extra={"reason": reason, "error": str(exc), "type": type(exc).__name__},
+        )
         return
 
 
@@ -207,11 +211,23 @@ class AdmissionControlMiddleware:
                 _increment_rejection("invalid_session")
                 await self._send_http_error(send, 401, "Invalid session")
                 return
-            except Exception as exc:
+            except (OSError, ConnectionError, RedisError) as exc:
+                # Network and Redis errors: infrastructure failures
                 logger.error(
-                    "Admission control error: %s",
+                    "Admission control infrastructure error: %s",
                     exc,
-                    extra={"pod": POD_NAME},
+                    extra={"pod": POD_NAME, "type": type(exc).__name__},
+                )
+                _increment_rejection("error")
+                await self._send_http_error(send, 503, "Service error", retry_after=5)
+                return
+            except Exception as exc:
+                # Catch-all for unexpected errors - fail-closed for safety
+                logger.error(
+                    "Admission control unexpected error: %s",
+                    exc,
+                    extra={"pod": POD_NAME, "type": type(exc).__name__},
+                    exc_info=True,
                 )
                 _increment_rejection("error")
                 await self._send_http_error(send, 503, "Service error", retry_after=5)

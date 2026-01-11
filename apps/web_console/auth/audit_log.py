@@ -113,7 +113,10 @@ class AuditLogger:
                         ),
                     )
             audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
-        except Exception as exc:  # pragma: no cover - defensive logging
+        except (OSError, TimeoutError) as exc:  # pragma: no cover - defensive logging
+            # JUSTIFIED: Defensive handler for audit log write failures
+            # OSError: Database connection errors (psycopg.OperationalError inherits from OSError)
+            # TimeoutError: INSERT timeout for audit_log table
             audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
             logger.exception(
                 "audit_log_write_failed",
@@ -123,6 +126,8 @@ class AuditLogger:
                     "resource_type": resource_type,
                     "resource_id": resource_id,
                     "outcome": outcome,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
                 },
             )
         finally:
@@ -259,8 +264,18 @@ class AuditLogger:
                 extra={"result_type": type(result).__name__},
             )
             return 0
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.exception("audit_log_cleanup_failed", extra={"error": str(exc)})
+        except (OSError, TimeoutError) as exc:  # pragma: no cover - defensive
+            # JUSTIFIED: Defensive handler for audit log cleanup failures
+            # OSError: Database connection errors during DELETE
+            # TimeoutError: DELETE timeout for large audit_log cleanup
+            logger.exception(
+                "audit_log_cleanup_failed",
+                extra={
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "cutoff": cutoff.isoformat(),
+                },
+            )
             return 0
 
 

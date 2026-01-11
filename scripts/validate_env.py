@@ -84,9 +84,15 @@ def main() -> int:
     try:
         required = parse_pyproject()
         installed = get_installed_packages()
-    except Exception as e:
-        print(f"Error reading dependencies: {e}")
-        return 1
+    except FileNotFoundError as e:
+        print(f"Error: Configuration file not found: {e}")
+        return 2
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Failed to list installed packages: {e}")
+        return 3
+    except OSError as e:
+        print(f"Error: File I/O failed: {e}")
+        return 4
 
     missing: list[str] = []
     found: list[str] = []

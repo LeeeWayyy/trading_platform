@@ -7,11 +7,14 @@ enabling seamless integration without data duplication or conversion pipelines.
 See /docs/CONCEPTS/qlib-data-providers.md for detailed explanation.
 """
 
+import logging
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 
 class T1DataProvider:
@@ -157,9 +160,31 @@ class T1DataProvider:
             try:
                 df = pl.read_parquet(latest_file)
                 dfs_to_concat.append(df)
-            except Exception as e:
-                # Log and skip corrupted files
-                print(f"Warning: Failed to load {latest_file}: {e}")
+            except OSError as e:
+                # File I/O errors (corrupted file, permission denied, etc.)
+                logger.warning(
+                    "Failed to load Parquet file - file I/O error",
+                    extra={
+                        "strategy": "alpha_baseline",
+                        "symbol": symbol,
+                        "file_path": str(latest_file),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                continue
+            except (ValueError, TypeError) as e:
+                # Data format errors (invalid Parquet, schema mismatch, etc.)
+                logger.warning(
+                    "Failed to load Parquet file - data format error",
+                    extra={
+                        "strategy": "alpha_baseline",
+                        "symbol": symbol,
+                        "file_path": str(latest_file),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
                 continue
 
         # Handle case where no data found
@@ -300,5 +325,29 @@ class T1DataProvider:
 
             return (min_val, max_val)
 
-        except Exception:
+        except OSError as e:
+            # File I/O errors
+            logger.warning(
+                "Failed to read date range from Parquet file - file I/O error",
+                extra={
+                    "strategy": "alpha_baseline",
+                    "symbol": symbol,
+                    "file_path": str(latest_file),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            return (None, None)
+        except (ValueError, TypeError, KeyError) as e:
+            # Data format or column errors
+            logger.warning(
+                "Failed to read date range from Parquet file - data error",
+                extra={
+                    "strategy": "alpha_baseline",
+                    "symbol": symbol,
+                    "file_path": str(latest_file),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             return (None, None)

@@ -63,18 +63,45 @@ async def notebook_launcher_page() -> None:
     # Try to get service
     try:
         service = await run.io_bound(_get_service, user)
-    except Exception:
-        logger.exception("Failed to initialize NotebookLauncherService")
+    except ImportError as e:
+        logger.error(
+            "Failed to initialize NotebookLauncherService - missing dependencies",
+            extra={"error": str(e), "page": "notebook_launcher"},
+            exc_info=True,
+        )
+        _render_demo_mode()
+        return
+    except Exception as e:
+        logger.error(
+            "Failed to initialize NotebookLauncherService",
+            extra={"error": str(e), "page": "notebook_launcher"},
+            exc_info=True,
+        )
         _render_demo_mode()
         return
 
     # Load templates
     try:
         templates = await run.io_bound(service.list_templates)
-    except Exception as exc:
-        logger.exception("Failed to load notebook templates")
+    except FileNotFoundError as e:
+        logger.error(
+            "Failed to load notebook templates - templates directory not found",
+            extra={"error": str(e), "page": "notebook_launcher"},
+            exc_info=True,
+        )
         with ui.card().classes("w-full p-6"):
-            ui.label(f"Failed to load notebook templates: {exc}").classes(
+            ui.label("Templates directory not found. Please check configuration.").classes(
+                "text-red-500 text-center"
+            )
+        return
+    except Exception as e:
+        logger.error(
+            "Failed to load notebook templates",
+            extra={"error": str(e), "page": "notebook_launcher"},
+            exc_info=True,
+        )
+        with ui.card().classes("w-full p-6"):
+            ui.label(f"Failed to load notebook templates: {e}").classes(
                 "text-red-500 text-center"
             )
         return
@@ -211,11 +238,37 @@ async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
                             ui.label("Access URL:").classes("font-medium")
                             ui.link(session.access_url, session.access_url, new_tab=True)
 
-        except Exception as exc:
-            logger.exception("Failed to launch notebook")
+        except FileNotFoundError as e:
+            logger.error(
+                "Failed to launch notebook - template not found",
+                extra={"error": str(e), "template_id": selected_id, "page": "notebook_launcher"},
+                exc_info=True,
+            )
             result_container.clear()
             with result_container:
-                ui.label(f"Failed to launch notebook: {exc}").classes(
+                ui.label("Template not found. Please check configuration.").classes(
+                    "text-red-500 p-2"
+                )
+        except ValueError as e:
+            logger.error(
+                "Failed to launch notebook - invalid parameters",
+                extra={"error": str(e), "template_id": selected_id, "parameters": parameters, "page": "notebook_launcher"},
+                exc_info=True,
+            )
+            result_container.clear()
+            with result_container:
+                ui.label("Invalid parameters. Please check your inputs.").classes(
+                    "text-red-500 p-2"
+                )
+        except Exception as e:
+            logger.error(
+                "Failed to launch notebook",
+                extra={"error": str(e), "template_id": selected_id, "page": "notebook_launcher"},
+                exc_info=True,
+            )
+            result_container.clear()
+            with result_container:
+                ui.label(f"Failed to launch notebook: {e}").classes(
                     "text-red-500 p-2"
                 )
 
@@ -242,9 +295,25 @@ async def _render_active_sessions(service: Any) -> None:
                 sessions = await run.io_bound(
                     service.list_sessions, include_stopped=False
                 )
-            except Exception as exc:
+            except FileNotFoundError as e:
+                logger.error(
+                    "Failed to load sessions - session store not found",
+                    extra={"error": str(e), "page": "notebook_launcher"},
+                    exc_info=True,
+                )
                 with sessions_container:
-                    ui.label(f"Failed to load sessions: {exc}").classes(
+                    ui.label("Session store not found. Please check configuration.").classes(
+                        "text-red-500 p-2"
+                    )
+                return
+            except Exception as e:
+                logger.error(
+                    "Failed to load sessions",
+                    extra={"error": str(e), "page": "notebook_launcher"},
+                    exc_info=True,
+                )
+                with sessions_container:
+                    ui.label(f"Failed to load sessions: {e}").classes(
                         "text-red-500 p-2"
                     )
                 return
@@ -282,8 +351,20 @@ async def _render_active_sessions(service: Any) -> None:
                             await run.io_bound(service.terminate_session, session_id)
                             ui.notify(f"Session {session_id[:8]}... terminated", type="positive")
                             render_sessions.refresh()
-                        except Exception as exc:
-                            ui.notify(f"Failed to terminate: {exc}", type="negative")
+                        except FileNotFoundError as e:
+                            logger.error(
+                                "Failed to terminate session - session not found",
+                                extra={"error": str(e), "session_id": session_id, "page": "notebook_launcher"},
+                                exc_info=True,
+                            )
+                            ui.notify("Session not found.", type="negative")
+                        except Exception as e:
+                            logger.error(
+                                "Failed to terminate session",
+                                extra={"error": str(e), "session_id": session_id, "page": "notebook_launcher"},
+                                exc_info=True,
+                            )
+                            ui.notify(f"Failed to terminate: {e}", type="negative")
 
                     ui.button(
                         f"Terminate {s.session_id[:8]}...",

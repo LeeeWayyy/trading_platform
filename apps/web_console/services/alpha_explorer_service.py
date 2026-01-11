@@ -303,11 +303,15 @@ class AlphaExplorerService:
                 "Failed to load backtest result for job_id=%s: %s", job_id, exc
             )
             return None
-        except Exception:
+        except Exception as exc:  # Generic catch justified - defensive safety net for backtest loading
             import logging
 
             logging.getLogger(__name__).warning(
-                "Failed to load backtest result for job_id=%s", job_id
+                "Unexpected error loading backtest result for job_id=%s: %s (type=%s)",
+                job_id,
+                exc,
+                type(exc).__name__,
+                exc_info=True,
             )
             return None
 

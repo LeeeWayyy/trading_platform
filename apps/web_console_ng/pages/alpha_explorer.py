@@ -63,8 +63,26 @@ def _get_alpha_service() -> AlphaExplorerService | None:
         registry = ModelRegistry(registry_dir=registry_dir)
         metrics_adapter = AlphaMetricsAdapter()
         return AlphaExplorerService(registry, metrics_adapter)
-    except Exception:
-        logger.exception("Failed to initialize AlphaExplorerService")
+    except FileNotFoundError as e:
+        logger.error(
+            "Failed to initialize AlphaExplorerService - model registry directory not found",
+            extra={"error": str(e), "page": "alpha_explorer"},
+            exc_info=True,
+        )
+        return None
+    except ImportError as e:
+        logger.error(
+            "Failed to initialize AlphaExplorerService - missing dependencies",
+            extra={"error": str(e), "page": "alpha_explorer"},
+            exc_info=True,
+        )
+        return None
+    except Exception as e:
+        logger.error(
+            "Failed to initialize AlphaExplorerService",
+            extra={"error": str(e), "page": "alpha_explorer"},
+            exc_info=True,
+        )
         return None
 
 
@@ -210,9 +228,33 @@ async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, 
                     limit=page_size,
                     offset=offset,
                 )
-            except Exception:
-                logger.exception("Failed to fetch signals")
-                ui.notify("Failed to fetch signals", type="negative")
+            except FileNotFoundError as e:
+                logger.error(
+                    "Failed to fetch signals - model data not found",
+                    extra={"error": str(e), "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.notify("Model data not found. Check configuration.", type="negative")
+                signals, total = [], 0
+            except ValueError as e:
+                logger.error(
+                    "Failed to fetch signals - invalid filter parameters",
+                    extra={"error": str(e), "page": "alpha_explorer", "filters": {
+                        "status": status_filter,
+                        "min_ic": min_ic,
+                        "max_ic": max_ic,
+                    }},
+                    exc_info=True,
+                )
+                ui.notify("Invalid filter parameters. Please adjust your filters.", type="negative")
+                signals, total = [], 0
+            except Exception as e:
+                logger.error(
+                    "Failed to fetch signals",
+                    extra={"error": str(e), "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.notify("Failed to fetch signals. Please try again.", type="negative")
                 signals, total = [], 0
 
             ui.label(f"Showing {len(signals)} of {total} signals").classes(
@@ -273,9 +315,29 @@ async def _render_signal_details(
     # Fetch metrics
     try:
         metrics = await run.io_bound(service.get_signal_metrics, selected.signal_id)
-    except Exception:
-        logger.exception("Failed to fetch signal metrics")
-        ui.notify("Failed to fetch signal metrics", type="negative")
+    except FileNotFoundError as e:
+        logger.error(
+            "Failed to fetch signal metrics - metrics file not found",
+            extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+            exc_info=True,
+        )
+        ui.notify("Metrics not found for this signal.", type="negative")
+        return
+    except ValueError as e:
+        logger.error(
+            "Failed to fetch signal metrics - invalid signal ID",
+            extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+            exc_info=True,
+        )
+        ui.notify("Invalid signal ID.", type="negative")
+        return
+    except Exception as e:
+        logger.error(
+            "Failed to fetch signal metrics",
+            extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+            exc_info=True,
+        )
+        ui.notify("Failed to fetch signal metrics. Please try again.", type="negative")
         return
 
     # Two-column layout
@@ -349,8 +411,26 @@ async def _render_signal_details(
                     service.get_ic_timeseries, selected.signal_id
                 )
                 render_ic_chart(ic_data)
-            except Exception:
-                logger.exception("Failed to fetch IC data")
+            except FileNotFoundError as e:
+                logger.error(
+                    "Failed to fetch IC data - data file not found",
+                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.label("IC data not found for this signal.").classes("text-red-500 p-4")
+            except ValueError as e:
+                logger.error(
+                    "Failed to fetch IC data - invalid data format",
+                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.label("Invalid IC data format.").classes("text-red-500 p-4")
+            except Exception as e:
+                logger.error(
+                    "Failed to fetch IC data",
+                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
                 ui.label("Failed to load IC data.").classes("text-red-500 p-4")
 
         with ui.tab_panel(tab_decay):
@@ -359,8 +439,26 @@ async def _render_signal_details(
                     service.get_decay_curve, selected.signal_id
                 )
                 render_decay_curve(decay_data, metrics.decay_half_life)
-            except Exception:
-                logger.exception("Failed to fetch decay data")
+            except FileNotFoundError as e:
+                logger.error(
+                    "Failed to fetch decay data - data file not found",
+                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.label("Decay data not found for this signal.").classes("text-red-500 p-4")
+            except ValueError as e:
+                logger.error(
+                    "Failed to fetch decay data - invalid data format",
+                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.label("Invalid decay data format.").classes("text-red-500 p-4")
+            except Exception as e:
+                logger.error(
+                    "Failed to fetch decay data",
+                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
                 ui.label("Failed to load decay data.").classes("text-red-500 p-4")
 
         with ui.tab_panel(tab_corr):
@@ -402,8 +500,26 @@ async def _render_correlation_section(
             try:
                 corr = await run.io_bound(service.compute_correlation, selected_ids)
                 render_correlation_matrix(corr)
-            except Exception:
-                logger.exception("Failed to compute correlation")
+            except FileNotFoundError as e:
+                logger.error(
+                    "Failed to compute correlation - signal data not found",
+                    extra={"error": str(e), "signal_ids": selected_ids, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.label("Signal data not found for correlation.").classes("text-red-500 p-4")
+            except ValueError as e:
+                logger.error(
+                    "Failed to compute correlation - invalid signal data",
+                    extra={"error": str(e), "signal_ids": selected_ids, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
+                ui.label("Invalid signal data for correlation.").classes("text-red-500 p-4")
+            except Exception as e:
+                logger.error(
+                    "Failed to compute correlation",
+                    extra={"error": str(e), "signal_ids": selected_ids, "page": "alpha_explorer"},
+                    exc_info=True,
+                )
                 ui.label("Failed to compute correlation.").classes("text-red-500 p-4")
 
     # Initial render

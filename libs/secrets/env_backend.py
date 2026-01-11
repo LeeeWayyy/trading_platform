@@ -343,11 +343,37 @@ class EnvSecretManager(SecretManager):
                 )
                 return sorted(hierarchical_names)
 
-            except Exception as e:
+            except PermissionError as e:
+                logger.error(
+                    "Environment variable listing failed - permission denied",
+                    extra={
+                        "prefix": prefix,
+                        "backend": "env",
+                        "error": str(e),
+                        "error_type": "PermissionError",
+                    },
+                    exc_info=True,
+                )
                 raise SecretAccessError(
                     secret_name=f"list_secrets(prefix={prefix})",
                     backend="env",
-                    reason=f"Failed to list environment variables: {e}",
+                    reason=f"Permission denied listing environment variables: {e}",
+                ) from e
+            except OSError as e:
+                logger.error(
+                    "Environment variable listing failed - system error",
+                    extra={
+                        "prefix": prefix,
+                        "backend": "env",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                raise SecretAccessError(
+                    secret_name=f"list_secrets(prefix={prefix})",
+                    backend="env",
+                    reason=f"System error listing environment variables: {e}",
                 ) from e
 
     def set_secret(self, name: str, value: str) -> None:
@@ -405,11 +431,53 @@ class EnvSecretManager(SecretManager):
                     extra={"secret_name": name, "backend": "env"},
                 )
 
-            except Exception as e:
+            except (KeyError, ValueError) as e:
+                logger.error(
+                    "Environment variable update failed - invalid operation",
+                    extra={
+                        "secret_name": name,
+                        "backend": "env",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretWriteError(
                     secret_name=name,
                     backend="env",
-                    reason=f"Failed to set environment variable: {e}",
+                    reason=f"Invalid operation setting environment variable: {e}",
+                ) from e
+            except PermissionError as e:
+                logger.error(
+                    "Environment variable update failed - permission denied",
+                    extra={
+                        "secret_name": name,
+                        "backend": "env",
+                        "error": str(e),
+                        "error_type": "PermissionError",
+                    },
+                    exc_info=True,
+                )
+                raise SecretWriteError(
+                    secret_name=name,
+                    backend="env",
+                    reason=f"Permission denied setting environment variable: {e}",
+                ) from e
+            except OSError as e:
+                logger.error(
+                    "Environment variable update failed - system error",
+                    extra={
+                        "secret_name": name,
+                        "backend": "env",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                raise SecretWriteError(
+                    secret_name=name,
+                    backend="env",
+                    reason=f"System error setting environment variable: {e}",
                 ) from e
 
     def close(self) -> None:

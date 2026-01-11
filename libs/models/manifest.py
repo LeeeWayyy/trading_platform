@@ -290,11 +290,19 @@ class RegistryManifestManager:
                 f.write(content)
             # Atomic rename
             shutil.move(temp_path, self.manifest_path)
-        except Exception:
+        except Exception as e:
             try:
                 Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError as unlink_err:
+                logger.warning(
+                    "Manifest write failed - failed to clean up temp file",
+                    extra={"temp_path": temp_path, "error": str(unlink_err)},
+                )
+            logger.error(
+                "Manifest write failed - atomic write error",
+                extra={"manifest_path": str(self.manifest_path), "error": str(e)},
+                exc_info=True,
+            )
             raise
 
     def record_backup(self, backup_location: str) -> RegistryManifest:

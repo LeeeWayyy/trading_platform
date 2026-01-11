@@ -524,7 +524,57 @@ class DatasetVersionManager:
 
                 return snapshot
 
-            except Exception:
+            except OSError as e:
+                logger.error(
+                    "Snapshot creation failed - I/O error during file operations",
+                    extra={
+                        "version_tag": version_tag,
+                        "datasets": datasets,
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                # Cleanup on failure - release CAS refs we added
+                self._cleanup_partial_snapshot_with_cas(
+                    staging_path,
+                    version_tag,
+                    cas_hashes_added,
+                    cas_new_files,
+                    cas_index_persisted,
+                )
+                raise
+            except (DataNotFoundError, SnapshotInconsistentError, ValueError) as e:
+                logger.error(
+                    "Snapshot creation failed - data or validation error",
+                    extra={
+                        "version_tag": version_tag,
+                        "datasets": datasets,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                # Cleanup on failure - release CAS refs we added
+                self._cleanup_partial_snapshot_with_cas(
+                    staging_path,
+                    version_tag,
+                    cas_hashes_added,
+                    cas_new_files,
+                    cas_index_persisted,
+                )
+                raise
+            except Exception as e:
+                # Catch-all for unexpected errors (RuntimeError, etc.)
+                logger.error(
+                    "Snapshot creation failed - unexpected error",
+                    extra={
+                        "version_tag": version_tag,
+                        "datasets": datasets,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 # Cleanup on failure - release CAS refs we added
                 self._cleanup_partial_snapshot_with_cas(
                     staging_path,
@@ -1512,7 +1562,21 @@ class DatasetVersionManager:
             Path(temp_path).rename(path)
             self._fsync_directory(path.parent)
 
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Failed to write JSON file - I/O error during atomic write",
+                extra={"path": str(path), "temp_path": str(temp_path), "error": str(e)},
+                exc_info=True,
+            )
+            if Path(temp_path).exists():
+                Path(temp_path).unlink()
+            raise
+        except TypeError as e:
+            logger.error(
+                "Failed to write JSON file - JSON serialization error",
+                extra={"path": str(path), "error": str(e)},
+                exc_info=True,
+            )
             if Path(temp_path).exists():
                 Path(temp_path).unlink()
             raise
@@ -1525,8 +1589,9 @@ class DatasetVersionManager:
                 os.fsync(fd)
             finally:
                 os.close(fd)
-        except OSError:
-            pass
+        except OSError as e:
+            # fsync on directories may not be supported on all filesystems
+            logger.debug("Directory fsync not supported or failed: %s", e)
 
     def _fsync_file(self, file_path: Path) -> None:
         """Sync a file to ensure durability."""
@@ -1613,7 +1678,32 @@ class DatasetVersionManager:
             temp_path.rename(dest)
             self._fsync_directory(dest.parent)
 
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Failed to copy file to CAS - I/O error during safe copy",
+                extra={
+                    "src": str(src),
+                    "dest": str(dest),
+                    "expected_checksum": expected_checksum,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            # Clean up temp file on any failure
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
+        except ValueError as e:
+            logger.error(
+                "Failed to copy file to CAS - checksum verification failed",
+                extra={
+                    "src": str(src),
+                    "dest": str(dest),
+                    "expected_checksum": expected_checksum,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             # Clean up temp file on any failure
             if temp_path.exists():
                 temp_path.unlink()

@@ -227,8 +227,32 @@ class PRWorkflowHandler:
                     print(f"Warning: Could not parse review JSON: {e}", file=sys.stderr)
                     continue
 
+        except subprocess.CalledProcessError as e:
+            # gh command failed - log with command details
+            print(
+                f"Warning: Failed to sync PR reviews - gh command failed: {e.cmd}",
+                file=sys.stderr,
+            )
+            print(f"   Return code: {e.returncode}", file=sys.stderr)
+        except subprocess.TimeoutExpired as e:
+            # Command timeout - log and continue
+            print(
+                f"Warning: Failed to sync PR reviews - command timeout after {e.timeout}s",
+                file=sys.stderr,
+            )
+        except (OSError, FileNotFoundError) as e:
+            # gh CLI not found or I/O error
+            print(
+                f"Warning: Failed to sync PR reviews - gh CLI error: {e}",
+                file=sys.stderr,
+            )
+            print("   Ensure 'gh' CLI is installed and authenticated", file=sys.stderr)
         except Exception as e:
-            print(f"Warning: Failed to sync PR reviews: {e}", file=sys.stderr)
+            # Unexpected errors
+            print(
+                f"Warning: Failed to sync PR reviews - unexpected error: {e}",
+                file=sys.stderr,
+            )
 
     def fetch_pr_comment_metadata(self, pr_number: int) -> list[dict]:
         """

@@ -151,8 +151,26 @@ async def risk_dashboard(client: Client) -> None:
         except TimeoutError:
             logger.warning("risk_data_timeout", extra={"user_id": user_id})
             set_error("Request timed out. Please try again.")
-        except Exception:
-            logger.exception("risk_dashboard_error", extra={"user_id": user_id})
+        except FileNotFoundError as e:
+            logger.error(
+                "Risk data load failed - data files not found",
+                extra={"user_id": user_id, "error": str(e), "page": "risk"},
+                exc_info=True,
+            )
+            set_error("Risk data not available. Please check configuration.")
+        except ValueError as e:
+            logger.error(
+                "Risk data load failed - invalid data",
+                extra={"user_id": user_id, "error": str(e), "page": "risk"},
+                exc_info=True,
+            )
+            set_error("Invalid risk data. Please contact support.")
+        except Exception as e:
+            logger.error(
+                "risk_dashboard_error",
+                extra={"user_id": user_id, "error": str(e), "page": "risk"},
+                exc_info=True,
+            )
             set_error("Failed to load risk data. Please try again later.")
 
     # Initial data load

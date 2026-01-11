@@ -149,6 +149,6 @@ alerts = validator.validate(dataset_path)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-10
 - **Source Files:** `libs/data_quality/__init__.py`, `libs/data_quality/manifest.py`, `libs/data_quality/validation.py`, `libs/data_quality/schema.py`, `libs/data_quality/versioning.py`, `libs/data_quality/exceptions.py`, `libs/data_quality/types.py`
 - **ADRs:** N/A

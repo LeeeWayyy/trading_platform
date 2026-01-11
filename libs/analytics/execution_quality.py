@@ -635,10 +635,28 @@ class ExecutionQualityAnalyzer:
                     target_date=execution_date,
                     as_of=as_of,
                 )
-            except Exception as e:
+            except (KeyError, ValueError, ZeroDivisionError) as e:
                 logger.warning(
-                    "Failed to get spread stats for market impact",
-                    extra={"symbol": symbol, "date": str(execution_date), "error": str(e)},
+                    "Failed to get spread stats for market impact - data or calculation error",
+                    extra={
+                        "symbol": symbol,
+                        "date": str(execution_date),
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                warnings.append("Spread data unavailable - using arrival_price as mid proxy")
+            except Exception as e:
+                logger.error(
+                    "Unexpected error computing spread stats for market impact",
+                    extra={
+                        "symbol": symbol,
+                        "date": str(execution_date),
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
                 )
                 warnings.append("Spread data unavailable - using arrival_price as mid proxy")
 
@@ -1156,8 +1174,27 @@ class ExecutionQualityAnalyzer:
                 avg_price_f = _series_mean_to_float(bars_df["close"].mean())
                 if not math.isnan(avg_price_f) and avg_price_f > 0:
                     avg_spread_bps = spread_stats.qwap_spread / avg_price_f * 10000
-            except Exception:
-                pass
+            except (KeyError, ValueError, ZeroDivisionError) as e:
+                logger.debug(
+                    "Spread data unavailable for execution window recommendation",
+                    extra={
+                        "symbol": symbol,
+                        "target_date": str(target_date),
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error fetching spread data for execution window recommendation",
+                    extra={
+                        "symbol": symbol,
+                        "target_date": str(target_date),
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
 
         # Compute liquidity score (simple heuristic)
         liquidity_score = min(1.0, max(0.0, 1.0 - participation_rate * 5))

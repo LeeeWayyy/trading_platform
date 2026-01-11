@@ -190,12 +190,17 @@ class RedisSessionStore:
         # Try primary key first
         try:
             return self.cipher_primary.decrypt(nonce, ciphertext, None).decode()
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             # Fallback to secondary key during rotation
+            # ValueError: Decryption failed (wrong key, corrupted data)
+            # TypeError: Type mismatch in decrypt operations
             if self.cipher_secondary:
                 logger.warning(
-                    "Primary key decryption failed, trying secondary key",
-                    extra={"error": str(e)},
+                    "primary_key_decryption_failed_trying_secondary",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
                 )
                 return self.cipher_secondary.decrypt(nonce, ciphertext, None).decode()
             raise
@@ -264,12 +269,16 @@ class RedisSessionStore:
         try:
             json_data = self._decrypt(encrypted.decode())
             session_data = SessionData.model_validate_json(json_data)
-        except Exception as e:
+        except (ValueError, TypeError) as e:
+            # Decryption or deserialization failures
+            # ValueError: Invalid base64, decryption failure (wrong key), JSON parse error
+            # TypeError: Type mismatch in decrypt operations or Pydantic validation
             logger.error(
-                "Session decryption failed",
+                "session_decryption_failed",
                 extra={
                     "session_id": session_id[:8] + "...",
                     "error": str(e),
+                    "error_type": type(e).__name__,
                 },
             )
             return None

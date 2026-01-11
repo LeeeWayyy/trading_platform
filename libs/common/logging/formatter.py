@@ -220,7 +220,7 @@ class JSONFormatter(logging.Formatter):
             >>> import sys
             >>> try:
             ...     raise ValueError("test error")
-            ... except:
+            ... except:  # Bare except in docstring example only - not production code
             ...     exc_info = sys.exc_info()
             ...     formatter = JSONFormatter(service_name="test")
             ...     traceback_str = formatter._format_exception(exc_info)

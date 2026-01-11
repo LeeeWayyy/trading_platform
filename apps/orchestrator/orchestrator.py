@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 import polars as pl
 from prometheus_client import Counter
+from pydantic import ValidationError
 
 from apps.orchestrator.clients import ExecutionGatewayClient, SignalServiceClient
 from apps.orchestrator.schemas import (
@@ -437,11 +438,180 @@ class TradingOrchestrator:
                 duration_seconds=Decimal(str(duration_seconds)),
             )
 
+        except httpx.ConnectTimeout as e:
+            logger.error(
+                "Orchestration run failed - signal service connection timeout",
+                extra={
+                    "run_id": str(run_id),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "strategy_ids": strategy_ids,
+                },
+                exc_info=True,
+            )
+
+            completed_at = datetime.now(UTC)
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status="failed",
+                strategy_id=",".join(strategy_ids),
+                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=0,
+                num_orders_submitted=0,
+                num_orders_accepted=0,
+                num_orders_rejected=0,
+                mappings=[],
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds)),
+                error_message=f"Signal service connection timeout: {e}",
+            )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Orchestration run failed - signal service HTTP error",
+                extra={
+                    "run_id": str(run_id),
+                    "status_code": e.response.status_code,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "strategy_ids": strategy_ids,
+                },
+                exc_info=True,
+            )
+
+            completed_at = datetime.now(UTC)
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status="failed",
+                strategy_id=",".join(strategy_ids),
+                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=0,
+                num_orders_submitted=0,
+                num_orders_accepted=0,
+                num_orders_rejected=0,
+                mappings=[],
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds)),
+                error_message=f"Signal service HTTP error {e.response.status_code}: {e}",
+            )
+
+        except httpx.NetworkError as e:
+            logger.error(
+                "Orchestration run failed - network error",
+                extra={
+                    "run_id": str(run_id),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "strategy_ids": strategy_ids,
+                },
+                exc_info=True,
+            )
+
+            completed_at = datetime.now(UTC)
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status="failed",
+                strategy_id=",".join(strategy_ids),
+                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=0,
+                num_orders_submitted=0,
+                num_orders_accepted=0,
+                num_orders_rejected=0,
+                mappings=[],
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds)),
+                error_message=f"Network error: {e}",
+            )
+
+        except ValidationError as e:
+            logger.error(
+                "Orchestration run failed - invalid response from signal service",
+                extra={
+                    "run_id": str(run_id),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "strategy_ids": strategy_ids,
+                },
+                exc_info=True,
+            )
+
+            completed_at = datetime.now(UTC)
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status="failed",
+                strategy_id=",".join(strategy_ids),
+                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=0,
+                num_orders_submitted=0,
+                num_orders_accepted=0,
+                num_orders_rejected=0,
+                mappings=[],
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds)),
+                error_message=f"Invalid response from signal service: {e}",
+            )
+        except ValueError as e:
+            logger.error(
+                "Orchestration run failed - invalid data",
+                extra={
+                    "run_id": str(run_id),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "strategy_ids": strategy_ids,
+                },
+                exc_info=True,
+            )
+
+            completed_at = datetime.now(UTC)
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status="failed",
+                strategy_id=",".join(strategy_ids),
+                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=0,
+                num_orders_submitted=0,
+                num_orders_accepted=0,
+                num_orders_rejected=0,
+                mappings=[],
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds)),
+                error_message=str(e),
+            )
         except Exception as e:
             logger.error(
-                f"Orchestration run {run_id} failed: {e}",
+                "Orchestration run failed - unexpected error",
+                extra={
+                    "run_id": str(run_id),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "strategy_ids": strategy_ids,
+                },
                 exc_info=True,
-                extra={"run_id": str(run_id)},
             )
 
             completed_at = datetime.now(UTC)
@@ -710,8 +880,55 @@ class TradingOrchestrator:
             # Get current price
             try:
                 price = await self._get_current_price(signal.symbol)
+            except PriceUnavailableError as e:
+                logger.warning(
+                    "Skipping signal - price unavailable",
+                    extra={
+                        "symbol": signal.symbol,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+                mapping.skip_reason = f"price_unavailable: {e}"
+                mappings.append(mapping)
+                continue
+            except httpx.ConnectTimeout as e:
+                logger.error(
+                    "Failed to get price - connection timeout",
+                    extra={
+                        "symbol": signal.symbol,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                mapping.skip_reason = f"price_fetch_timeout: {e}"
+                mappings.append(mapping)
+                continue
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    "Failed to get price - HTTP error",
+                    extra={
+                        "symbol": signal.symbol,
+                        "status_code": e.response.status_code,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                mapping.skip_reason = f"price_fetch_failed: {e.response.status_code}"
+                mappings.append(mapping)
+                continue
             except Exception as e:
-                logger.error(f"Failed to get price for {signal.symbol}: {e}")
+                logger.error(
+                    "Failed to get price - unexpected error",
+                    extra={
+                        "symbol": signal.symbol,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 mapping.skip_reason = f"price_fetch_failed: {e}"
                 mappings.append(mapping)
                 continue
@@ -793,23 +1010,78 @@ class TradingOrchestrator:
                     f"(client_order_id={submission.client_order_id}, status={submission.status})"
                 )
 
+            except httpx.ConnectTimeout as e:
+                logger.error(
+                    "Order submission failed - connection timeout",
+                    extra={
+                        "symbol": mapping.symbol,
+                        "side": mapping.order_side,
+                        "qty": mapping.order_qty,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                mapping.order_status = "rejected"
+                mapping.skip_reason = "submission_failed: connection_timeout"
+
             except httpx.HTTPStatusError as e:
                 logger.error(
-                    f"Order submission failed for {mapping.symbol}: {e}",
+                    "Order submission failed - HTTP error",
                     extra={
                         "symbol": mapping.symbol,
                         "side": mapping.order_side,
                         "qty": mapping.order_qty,
                         "status_code": e.response.status_code,
                         "response": e.response.text,
+                        "error_type": type(e).__name__,
                     },
+                    exc_info=True,
                 )
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"submission_failed: {e.response.status_code}"
 
+            except httpx.NetworkError as e:
+                logger.error(
+                    "Order submission failed - network error",
+                    extra={
+                        "symbol": mapping.symbol,
+                        "side": mapping.order_side,
+                        "qty": mapping.order_qty,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                mapping.order_status = "rejected"
+                mapping.skip_reason = "submission_failed: network_error"
+
+            except ValidationError as e:
+                logger.error(
+                    "Order submission failed - invalid response",
+                    extra={
+                        "symbol": mapping.symbol,
+                        "side": mapping.order_side,
+                        "qty": mapping.order_qty,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                mapping.order_status = "rejected"
+                mapping.skip_reason = "submission_failed: invalid_response"
+
             except Exception as e:
                 logger.error(
-                    f"Unexpected error submitting order for {mapping.symbol}: {e}", exc_info=True
+                    "Order submission failed - unexpected error",
+                    extra={
+                        "symbol": mapping.symbol,
+                        "side": mapping.order_side,
+                        "qty": mapping.order_qty,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
                 )
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"unexpected_error: {str(e)}"

@@ -364,9 +364,18 @@ Examples:
         else:
             print("\n💡 Run with --apply to execute changes")
 
-    except Exception as e:
+    except FileNotFoundError as e:
+        print(f"❌ Error: Planning file not found: {e}", file=sys.stderr)
+        sys.exit(2)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error: Git command failed: {e}", file=sys.stderr)
+        sys.exit(3)
+    except OSError as e:
+        print(f"❌ Error: File I/O error: {e}", file=sys.stderr)
+        sys.exit(4)
+    except (ValueError, KeyError, RuntimeError) as e:
         print(f"❌ Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(5)
 
 
 if __name__ == "__main__":

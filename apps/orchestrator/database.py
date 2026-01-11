@@ -131,8 +131,26 @@ class OrchestrationDatabaseClient:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     return True
+        except psycopg.OperationalError as e:
+            logger.error(
+                "Database connection check failed - operational error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            return False
+        except psycopg.InterfaceError as e:
+            logger.error(
+                "Database connection check failed - interface error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            return False
         except Exception as e:
-            logger.error(f"Database connection check failed: {e}")
+            logger.error(
+                "Database connection check failed - unexpected error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
             return False
 
     def create_run(self, result: OrchestrationResult) -> int:

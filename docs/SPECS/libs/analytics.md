@@ -82,6 +82,6 @@ report = attr.run(...)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/analytics/__init__.py`, `libs/analytics/event_study.py`, `libs/analytics/attribution.py`
 - **ADRs:** N/A

@@ -790,7 +790,27 @@ class FamaFrenchLocalProvider:
 
             return actual_checksum
 
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Atomic write failed - filesystem error",
+                extra={
+                    "provider": "fama_french",
+                    "target": str(target_path),
+                    "error": str(e),
+                    "errno": getattr(e, "errno", None),
+                },
+                exc_info=True,
+            )
+            # Clean up temp file on any error
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+            raise
+        except (ValueError, ChecksumError) as e:
+            logger.error(
+                "Atomic write failed - validation error",
+                extra={"provider": "fama_french", "target": str(target_path), "error": str(e)},
+                exc_info=True,
+            )
             # Clean up temp file on any error
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
@@ -867,7 +887,30 @@ class FamaFrenchLocalProvider:
             temp_path.rename(manifest_path)
             self._fsync_directory(manifest_path.parent)
 
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Manifest write failed - filesystem error",
+                extra={
+                    "provider": "fama_french",
+                    "manifest_path": str(manifest_path),
+                    "error": str(e),
+                    "errno": getattr(e, "errno", None),
+                },
+                exc_info=True,
+            )
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+            raise
+        except (TypeError, ValueError) as e:
+            logger.error(
+                "Manifest write failed - serialization error",
+                extra={
+                    "provider": "fama_french",
+                    "manifest_path": str(manifest_path),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
             raise

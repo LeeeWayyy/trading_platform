@@ -80,13 +80,27 @@ def get_registry(
         version_mgr = DatasetVersionManager(manifest_mgr)
         print("DatasetVersionManager initialized for lineage validation.", file=sys.stderr)
         return ModelRegistry(registry_dir=Path(registry_dir), version_manager=version_mgr)
-    except Exception as e:
+    except ImportError as e:
         print(
-            f"ERROR: Failed to initialize DatasetVersionManager for lineage validation: {e}\n"
+            f"ERROR: Failed to import required modules for lineage validation: {e}\n"
             "Use --skip-lineage-check ONLY for testing (NOT recommended for production).",
             file=sys.stderr,
         )
         sys.exit(1)
+    except OSError as e:
+        print(
+            f"ERROR: File I/O error initializing DatasetVersionManager: {e}\n"
+            "Use --skip-lineage-check ONLY for testing (NOT recommended for production).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    except (ValueError, RuntimeError) as e:
+        print(
+            f"ERROR: Failed to initialize DatasetVersionManager: {e}\n"
+            "Use --skip-lineage-check ONLY for testing (NOT recommended for production).",
+            file=sys.stderr,
+        )
+        sys.exit(3)
 
 
 def get_registry_readonly(registry_dir: str = "data/models") -> ModelRegistry:
@@ -185,9 +199,15 @@ def cmd_register(args: argparse.Namespace) -> int:
         )
         print(f"Successfully registered: {model_id}")
         return 0
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    except FileNotFoundError as e:
+        print(f"Error: Model file not found: {e}")
+        return 2
+    except OSError as e:
+        print(f"Error: File I/O error: {e}")
+        return 3
+    except (ValueError, KeyError) as e:
+        print(f"Error: Invalid model metadata: {e}")
+        return 4
 
 
 def cmd_promote(args: argparse.Namespace) -> int:
@@ -211,9 +231,15 @@ def cmd_promote(args: argparse.Namespace) -> int:
     except PromotionGateError as e:
         print(f"Promotion failed: {e}")
         return 1
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    except FileNotFoundError as e:
+        print(f"Error: Model not found: {e}")
+        return 2
+    except OSError as e:
+        print(f"Error: File I/O error: {e}")
+        return 3
+    except (ValueError, KeyError) as e:
+        print(f"Error: Invalid model configuration: {e}")
+        return 4
 
 
 def cmd_rollback(args: argparse.Namespace) -> int:
@@ -229,9 +255,15 @@ def cmd_rollback(args: argparse.Namespace) -> int:
         )
         print(f"Rollback successful: {result.message}")
         return 0
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    except FileNotFoundError as e:
+        print(f"Error: Model or backup not found: {e}")
+        return 2
+    except OSError as e:
+        print(f"Error: File I/O error: {e}")
+        return 3
+    except (ValueError, KeyError, RuntimeError) as e:
+        print(f"Error: Rollback failed: {e}")
+        return 4
 
 
 def cmd_list(args: argparse.Namespace) -> int:

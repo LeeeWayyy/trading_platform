@@ -1,4 +1,5 @@
 import importlib
+import logging
 import os
 import socket
 from collections.abc import Generator
@@ -6,6 +7,8 @@ from copy import copy
 
 import httpx
 import pytest
+
+logger = logging.getLogger(__name__)
 
 # CRITICAL: Set DEBUG mode BEFORE importing apps.web_console_ng modules.
 # The config module validates AUTH_TYPE at import time and requires explicit
@@ -52,7 +55,11 @@ def selenium_driver():
     # Use ChromeDriverManager to automatically install/locate the driver
     try:
         driver_path = ChromeDriverManager(driver_version="143.0.7499.4").install()
-    except Exception:
+    except Exception as e:
+        logger.debug(
+            "ChromeDriverManager specific version install failed, trying latest",
+            extra={"error": str(e), "attempted_version": "143.0.7499.4"},
+        )
         driver_path = ChromeDriverManager().install()
 
     service = ChromeService(driver_path)

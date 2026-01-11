@@ -81,6 +81,6 @@ manifest = ETLProgressManifest.load("path/to/manifest.json")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-10
 - **Source Files:** `libs/data_pipeline/historical_etl.py`
 - **ADRs:** N/A

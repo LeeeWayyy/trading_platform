@@ -166,10 +166,18 @@ class JWKSValidator:
             # Algorithm-specific key loading (RS256 vs ES256)
             try:
                 signing_key = self._load_signing_key(jwk_match, alg)
-            except Exception as e:
+            except (ValueError, TypeError) as e:
+                # Key loading errors
+                # ValueError: Unsupported algorithm or invalid JWK format
+                # TypeError: Type mismatch in key loading
                 logger.error(
-                    "Failed to load signing key",
-                    extra={"kid": kid, "alg": alg, "error": str(e)},
+                    "failed_to_load_signing_key",
+                    extra={
+                        "kid": kid,
+                        "alg": alg,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
                 )
                 raise
 

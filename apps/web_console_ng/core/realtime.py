@@ -87,10 +87,14 @@ class RealtimeUpdater:
                     if isinstance(raw, bytes):
                         try:
                             raw = raw.decode("utf-8")
-                        except Exception as exc:
+                        except (UnicodeDecodeError, AttributeError) as exc:
                             logger.warning(
                                 "realtime_pubsub_decode_error",
-                                extra={"channel": channel, "error": str(exc)},
+                                extra={
+                                    "channel": channel,
+                                    "error": str(exc),
+                                    "type": type(exc).__name__,
+                                },
                             )
                             continue
 
@@ -126,12 +130,12 @@ class RealtimeUpdater:
             except RedisError as exc:
                 logger.warning(
                     "realtime_pubsub_error",
-                    extra={"channel": channel, "error": str(exc)},
+                    extra={"channel": channel, "error": str(exc), "type": type(exc).__name__},
                 )
-            except Exception as exc:
-                logger.exception(
+            except (OSError, ConnectionError, ValueError, TypeError) as exc:
+                logger.error(
                     "realtime_listener_error",
-                    extra={"channel": channel, "error": str(exc)},
+                    extra={"channel": channel, "error": str(exc), "type": type(exc).__name__},
                 )
             finally:
                 if pubsub is not None:
@@ -139,10 +143,14 @@ class RealtimeUpdater:
                     try:
                         await pubsub.unsubscribe(channel)
                         await pubsub.close()
-                    except Exception as exc:
+                    except (RedisError, OSError, ConnectionError) as exc:
                         logger.warning(
                             "realtime_pubsub_close_error",
-                            extra={"channel": channel, "error": str(exc)},
+                            extra={
+                                "channel": channel,
+                                "error": str(exc),
+                                "type": type(exc).__name__,
+                            },
                         )
                     pubsub = None
 
@@ -175,10 +183,10 @@ class RealtimeUpdater:
 
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except (OSError, ConnectionError, ValueError, TypeError) as exc:
                 logger.error(
                     "realtime_worker_error",
-                    extra={"channel": channel, "error": str(exc)},
+                    extra={"channel": channel, "error": str(exc), "type": type(exc).__name__},
                 )
 
     async def _deliver_update(
@@ -191,14 +199,14 @@ class RealtimeUpdater:
         self.last_update_times[channel] = time.time()
 
         try:
-            async with self.nicegui_client:  # type: ignore[attr-defined]
+            with self.nicegui_client:
                 result = callback(data)
                 if asyncio.iscoroutine(result):
                     await result
-        except Exception as exc:
+        except (OSError, ConnectionError, ValueError, TypeError) as exc:
             logger.error(
                 "realtime_callback_error",
-                extra={"channel": channel, "error": str(exc)},
+                extra={"channel": channel, "error": str(exc), "type": type(exc).__name__},
             )
 
     async def unsubscribe(self, channel: str) -> None:
@@ -224,10 +232,10 @@ class RealtimeUpdater:
             try:
                 await pubsub.unsubscribe(channel)
                 await pubsub.close()
-            except Exception as exc:
+            except (RedisError, OSError, ConnectionError) as exc:
                 logger.warning(
                     "realtime_pubsub_close_error",
-                    extra={"channel": channel, "error": str(exc)},
+                    extra={"channel": channel, "error": str(exc), "type": type(exc).__name__},
                 )
 
         self.queues.pop(channel, None)

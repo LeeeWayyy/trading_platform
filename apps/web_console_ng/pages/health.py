@@ -19,6 +19,7 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import redis
 from nicegui import app, ui
 
 from apps.web_console_ng import config
@@ -65,8 +66,16 @@ def _get_health_service() -> HealthMonitorService:
                     db=int(parsed.path.lstrip("/") or "0"),
                     password=parsed.password,
                 )
-            except Exception as e:
-                logger.warning("redis_client_init_failed", extra={"error": str(e)})
+            except redis.exceptions.ConnectionError as e:
+                logger.warning(
+                    "redis_client_connection_error",
+                    extra={"error": str(e), "operation": "init_redis_client"},
+                )
+            except ValueError as e:
+                logger.warning(
+                    "redis_client_init_value_error",
+                    extra={"error": str(e), "operation": "init_redis_client"},
+                )
 
         health_client = HealthClient(SERVICE_URLS)
         prometheus_client = PrometheusClient(PROMETHEUS_URL)
@@ -164,8 +173,16 @@ async def health_page() -> None:
                     latency_tuple = latencies  # type: tuple[dict[str, Any], bool, Any]
                     latency_data, latency_stale, _ = latency_tuple
 
-            except Exception as e:
-                logger.exception("health_data_fetch_failed", extra={"error": str(e)})
+            except RuntimeError as e:
+                logger.exception(
+                    "health_data_fetch_runtime_error",
+                    extra={"error": str(e), "operation": "fetch_health_data"},
+                )
+            except ValueError as e:
+                logger.exception(
+                    "health_data_fetch_validation_error",
+                    extra={"error": str(e), "operation": "fetch_health_data"},
+                )
 
     # Initial fetch
     await fetch_health_data()

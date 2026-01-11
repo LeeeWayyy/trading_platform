@@ -1235,12 +1235,36 @@ class EventStudyFramework:
                                 f"DLRET missing, using Shumway fallback {delisting_return:.0%} "
                                 f"based on DLSTCD={dlstcd}"
                             )
-                except Exception as e:
-                    logger.debug(f"Could not fetch delisting info: {e}")
+                except (KeyError, IndexError, TypeError) as e:
+                    logger.debug(
+                        "Delisting data not available or malformed",
+                        extra={
+                            "permno": permno,
+                            "symbol": symbol,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                    )
                     # Use conservative fallback
                     delisting_return = _get_dlret_fallback(None)
                     warnings.append(
                         f"Could not fetch DLRET, using conservative fallback {delisting_return:.0%}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Unexpected error fetching delisting information",
+                        extra={
+                            "permno": permno,
+                            "symbol": symbol,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                        exc_info=True,
+                    )
+                    # Use conservative fallback
+                    delisting_return = _get_dlret_fallback(None)
+                    warnings.append(
+                        f"Error fetching DLRET, using conservative fallback {delisting_return:.0%}"
                     )
             else:
                 # Provider doesn't support delisting data, use fallback

@@ -208,6 +208,11 @@ class MTLSAuthHandler(AuthProvider):
                 "role": role,
                 "strategies": [],  # Strategy assignment managed elsewhere or via extra attributes
             }
-        except Exception:
-            logger.warning("Failed to parse DN: %s", dn)
+        except (ValueError, KeyError) as exc:
+            # ValueError: Invalid DN format (e.g., malformed component)
+            # KeyError: Missing expected field (e.g., no CN)
+            logger.warning(
+                "Failed to parse DN",
+                extra={"dn": dn, "error_type": type(exc).__name__, "error": str(exc)},
+            )
             return None

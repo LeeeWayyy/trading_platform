@@ -73,7 +73,14 @@ async def logout_post(request: Request) -> Response:
             try:
                 await session_store.invalidate_session(session_id)
             except Exception as inv_err:
-                logger.warning("Failed to invalidate session on CSRF failure: %s", inv_err)
+                logger.warning(
+                    "Failed to invalidate session on CSRF failure",
+                    extra={
+                        "session_id": session_id[:8],
+                        "error_type": type(inv_err).__name__,
+                        "error": str(inv_err),
+                    },
+                )
 
         # Clear cookies and return 403
         response = JSONResponse(status_code=403, content={"error": "csrf_invalid"})
@@ -141,7 +148,14 @@ async def perform_logout(
                     await session_store.invalidate_session(session_id)
                 except Exception as inv_err:
                     # Redis may be unavailable - log but continue with local cleanup
-                    logger.warning("Failed to invalidate session in Redis: %s", inv_err)
+                    logger.warning(
+                        "Failed to invalidate session in Redis",
+                        extra={
+                            "session_id": session_id[:8],
+                            "error_type": type(inv_err).__name__,
+                            "error": str(inv_err),
+                        },
+                    )
 
             # Clear NiceGUI client storage
             if session:
@@ -168,11 +182,17 @@ async def perform_logout(
         return logout_url
 
     except Exception as e:
-        logger.error(f"Logout error: {e}")
+        logger.error(
+            "Logout error",
+            extra={"error_type": type(e).__name__, "error": str(e)},
+        )
         # Ensure client storage is cleared even on error
         try:
             app.storage.user.clear()
-        except Exception:
-            pass
+        except Exception as clear_err:
+            logger.debug(
+                "Failed to clear user storage on logout error",
+                extra={"error_type": type(clear_err).__name__},
+            )
 
     return None

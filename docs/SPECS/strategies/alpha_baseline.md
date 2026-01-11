@@ -166,6 +166,6 @@ X_train, y_train, X_valid, y_valid, X_test, y_test = compute_features_and_labels
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `strategies/alpha_baseline/*.py`, `strategies/alpha_baseline/README.md`
 - **ADRs:** N/A

@@ -257,11 +257,36 @@ async def _render_trade_journal(
             stats_container.clear()
             with stats_container:
                 _render_trade_stats(stats)
-        except Exception as exc:
-            logger.exception("Failed to load trade stats")
+        except (ConnectionError, OSError) as exc:
+            logger.error(
+                "trade_stats_db_connection_failed",
+                extra={
+                    "user_id": user.get("user_id"),
+                    "date_from": str(start_date),
+                    "date_to": str(end_date),
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             stats_container.clear()
             with stats_container:
-                ui.label(f"Failed to load statistics: {exc}").classes("text-red-500 p-2")
+                ui.label("Failed to load statistics: Database connection error").classes("text-red-500 p-2")
+            ui.notify("Database connection error", type="negative")
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.error(
+                "trade_stats_data_error",
+                extra={
+                    "user_id": user.get("user_id"),
+                    "date_from": str(start_date),
+                    "date_to": str(end_date),
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            stats_container.clear()
+            with stats_container:
+                ui.label("Failed to load statistics: Data processing error").classes("text-red-500 p-2")
+            ui.notify("Data processing error", type="negative")
 
         # Load trades
         with trades_container:
@@ -298,11 +323,36 @@ async def _render_trade_journal(
                     on_click=lambda: next_page(),
                 ).props(f"{'disable' if len(trades) < page_size else ''}")
 
-        except Exception as exc:
-            logger.exception("Failed to load trades")
+        except (ConnectionError, OSError) as exc:
+            logger.error(
+                "trades_db_connection_failed",
+                extra={
+                    "user_id": user.get("user_id"),
+                    "date_from": str(start_date),
+                    "date_to": str(end_date),
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             trades_container.clear()
             with trades_container:
-                ui.label(f"Failed to load trades: {exc}").classes("text-red-500 p-4")
+                ui.label("Failed to load trades: Database connection error").classes("text-red-500 p-4")
+            ui.notify("Database connection error", type="negative")
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.error(
+                "trades_data_error",
+                extra={
+                    "user_id": user.get("user_id"),
+                    "date_from": str(start_date),
+                    "date_to": str(end_date),
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            trades_container.clear()
+            with trades_container:
+                ui.label("Failed to load trades: Data processing error").classes("text-red-500 p-4")
+            ui.notify("Data processing error", type="negative")
 
         # Export section
         with export_container:
@@ -480,8 +530,16 @@ async def _do_export(
                         "strategy_ids": authorized_strategies,
                     },
                 )
-        except Exception:
-            logger.warning("Failed to log export audit event", exc_info=True)
+        except (ConnectionError, OSError) as exc:
+            logger.warning(
+                "audit_log_db_connection_failed",
+                extra={
+                    "user_id": user_id,
+                    "export_type": export_type,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
 
         logger.info(
             "trade_export_success",
@@ -497,13 +555,20 @@ async def _do_export(
         ui.download(content, filename)
         ui.notify(f"Exported {row_count} trades to {export_type.upper()}", type="positive")
 
-    except Exception as exc:
+    except (ConnectionError, OSError) as exc:
         logger.error(
-            "trade_export_failed",
+            "trade_export_db_connection_failed",
             extra={"user_id": user_id, "export_type": export_type, "error": str(exc)},
             exc_info=True,
         )
-        ui.notify(f"Export failed: {exc}", type="negative")
+        ui.notify("Export failed: Database connection error", type="negative")
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.error(
+            "trade_export_data_error",
+            extra={"user_id": user_id, "export_type": export_type, "error": str(exc)},
+            exc_info=True,
+        )
+        ui.notify("Export failed: Data processing error", type="negative")
 
 
 async def _export_csv(

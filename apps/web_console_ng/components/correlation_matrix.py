@@ -72,11 +72,17 @@ def render_correlation_matrix(
 
         ui.plotly(fig).classes("w-full")
 
-    except Exception:
-        logger.exception("correlation_matrix_render_error")
-        ui.notify(
-            "Unable to render correlation matrix. Please try again.", type="negative"
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        logger.warning(
+            "Correlation matrix rendering failed - invalid data",
+            extra={
+                "chart": "correlation_matrix",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
         )
+        ui.label("Chart unavailable - data error").classes("text-gray-500 text-center p-4")
 
 
 __all__ = ["render_correlation_matrix"]

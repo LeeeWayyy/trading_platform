@@ -9,9 +9,11 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+import psycopg
+import redis
 from prometheus_client import Counter, Gauge
 
-from apps.execution_gateway.alpaca_client import AlpacaExecutor
+from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaExecutor
 from apps.execution_gateway.database import TERMINAL_STATUSES, DatabaseClient, status_rank_for
 from libs.redis_client import RedisClient
 from libs.redis_client.keys import RedisKeys
@@ -159,7 +161,7 @@ class ReconciliationService:
         try:
             await self.run_reconciliation_once("startup")
             return True
-        except Exception as exc:
+        except AlpacaConnectionError as exc:
             # Store failed result to enable forced bypass after failure
             # (SECURITY: operator can still force after seeing the error)
             self._last_reconciliation_result = {
@@ -168,7 +170,53 @@ class ReconciliationService:
                 "timestamp": datetime.now(UTC).isoformat(),
                 "error": str(exc),
             }
-            logger.error("Startup reconciliation failed", exc_info=True, extra={"error": str(exc)})
+            logger.error(
+                "Startup reconciliation failed: Alpaca connection error",
+                exc_info=True,
+                extra={
+                    "error": str(exc),
+                    "error_type": "alpaca_connection",
+                    "reconciliation_mode": "startup",
+                },
+            )
+            return False
+        except (psycopg.OperationalError, psycopg.IntegrityError) as exc:
+            # Store failed result to enable forced bypass after failure
+            # (SECURITY: operator can still force after seeing the error)
+            self._last_reconciliation_result = {
+                "status": "failed",
+                "mode": "startup",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": str(exc),
+            }
+            logger.error(
+                "Startup reconciliation failed: Database error",
+                exc_info=True,
+                extra={
+                    "error": str(exc),
+                    "error_type": "database",
+                    "reconciliation_mode": "startup",
+                },
+            )
+            return False
+        except ValueError as exc:
+            # Store failed result to enable forced bypass after failure
+            # (SECURITY: operator can still force after seeing the error)
+            self._last_reconciliation_result = {
+                "status": "failed",
+                "mode": "startup",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": str(exc),
+            }
+            logger.error(
+                "Startup reconciliation failed: Data validation error",
+                exc_info=True,
+                extra={
+                    "error": str(exc),
+                    "error_type": "validation",
+                    "reconciliation_mode": "startup",
+                },
+            )
             return False
 
     async def run_periodic_loop(self) -> None:
@@ -178,9 +226,35 @@ class ReconciliationService:
                 if not self._startup_complete:
                     self._startup_complete = True
                     logger.info("Startup reconciliation gate opened after successful periodic run")
-            except Exception as exc:
+            except AlpacaConnectionError as exc:
                 logger.error(
-                    "Periodic reconciliation failed", exc_info=True, extra={"error": str(exc)}
+                    "Periodic reconciliation failed: Alpaca connection error",
+                    exc_info=True,
+                    extra={
+                        "error": str(exc),
+                        "error_type": "alpaca_connection",
+                        "reconciliation_mode": "periodic",
+                    },
+                )
+            except (psycopg.OperationalError, psycopg.IntegrityError) as exc:
+                logger.error(
+                    "Periodic reconciliation failed: Database error",
+                    exc_info=True,
+                    extra={
+                        "error": str(exc),
+                        "error_type": "database",
+                        "reconciliation_mode": "periodic",
+                    },
+                )
+            except ValueError as exc:
+                logger.error(
+                    "Periodic reconciliation failed: Data validation error",
+                    exc_info=True,
+                    extra={
+                        "error": str(exc),
+                        "error_type": "validation",
+                        "reconciliation_mode": "periodic",
+                    },
                 )
             await asyncio.sleep(self.poll_interval_seconds)
 
@@ -638,10 +712,25 @@ class ReconciliationService:
             key = RedisKeys.quarantine(strategy_id=strategy_id, symbol=symbol)
             self.redis_client.set(key, "orphan_order_detected")
             symbols_quarantined_total.labels(symbol=symbol).inc()
-        except Exception as exc:
+        except redis.RedisError as exc:
             logger.warning(
-                "Failed to set quarantine key",
-                extra={"symbol": symbol, "strategy_id": strategy_id, "error": str(exc)},
+                "Failed to set quarantine key: Redis error",
+                extra={
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "error": str(exc),
+                    "error_type": "redis",
+                },
+            )
+        except ValueError as exc:
+            logger.warning(
+                "Failed to set quarantine key: Validation error",
+                extra={
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "error": str(exc),
+                    "error_type": "validation",
+                },
             )
 
     def _sync_orphan_exposure(self, symbol: str, strategy_id: str) -> None:
@@ -651,10 +740,35 @@ class ReconciliationService:
             exposure = self.db_client.get_orphan_exposure(symbol, strategy_id)
             key = RedisKeys.orphan_exposure(strategy_id=strategy_id, symbol=symbol)
             self.redis_client.set(key, str(exposure))
-        except Exception as exc:
+        except (psycopg.OperationalError, psycopg.IntegrityError) as exc:
             logger.warning(
-                "Failed to sync orphan exposure",
-                extra={"symbol": symbol, "strategy_id": strategy_id, "error": str(exc)},
+                "Failed to sync orphan exposure: Database error",
+                extra={
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "error": str(exc),
+                    "error_type": "database",
+                },
+            )
+        except redis.RedisError as exc:
+            logger.warning(
+                "Failed to sync orphan exposure: Redis error",
+                extra={
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "error": str(exc),
+                    "error_type": "redis",
+                },
+            )
+        except ValueError as exc:
+            logger.warning(
+                "Failed to sync orphan exposure: Validation error",
+                extra={
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "error": str(exc),
+                    "error_type": "validation",
+                },
             )
 
     def _reconcile_positions(self) -> None:

@@ -21,6 +21,7 @@ from decimal import Decimal
 from io import StringIO
 from typing import TYPE_CHECKING, Any, TypeVar
 
+import psycopg
 from nicegui import ui
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 
@@ -254,9 +255,18 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                     # Refresh keys list data before updating UI
                     await fetch_keys()
                     keys_list.refresh()
-            except Exception as e:
-                logger.exception("api_key_create_failed", extra={"error": str(e)})
-                ui.notify("Failed to create API key. Please try again.", type="negative")
+            except ValueError as e:
+                logger.exception(
+                    "api_key_create_validation_error",
+                    extra={"error": str(e), "user_id": user_id, "name": name},
+                )
+                ui.notify(f"Invalid input: {e}", type="negative")
+            except RuntimeError as e:
+                logger.exception(
+                    "api_key_create_service_error",
+                    extra={"error": str(e), "user_id": user_id, "name": name},
+                )
+                ui.notify("Service error. Please try again.", type="negative")
 
         ui.button("Create Key", on_click=create_key, color="primary").classes("mt-4")
 
@@ -414,8 +424,21 @@ async def _get_config(
             raw_value = row.get("config_value")
             if raw_value:
                 return config_class.model_validate(raw_value)
-    except Exception as e:
-        logger.warning("config_load_failed", extra={"config_key": config_key, "error": str(e)})
+    except psycopg.OperationalError as e:
+        logger.warning(
+            "config_load_db_error",
+            extra={"config_key": config_key, "error": str(e), "operation": "get_config"},
+        )
+    except ValidationError as e:
+        logger.warning(
+            "config_load_validation_error",
+            extra={"config_key": config_key, "error": str(e), "operation": "get_config"},
+        )
+    except ValueError as e:
+        logger.warning(
+            "config_load_value_error",
+            extra={"config_key": config_key, "error": str(e), "operation": "get_config"},
+        )
 
     return config_class()
 
@@ -442,8 +465,17 @@ async def _save_config(
                 (config_key, payload, config_key, user_id),
             )
         return True
-    except Exception as e:
-        logger.exception("config_save_failed", extra={"config_key": config_key, "error": str(e)})
+    except psycopg.OperationalError as e:
+        logger.exception(
+            "config_save_db_error",
+            extra={"config_key": config_key, "error": str(e), "operation": "save_config"},
+        )
+        return False
+    except ValueError as e:
+        logger.exception(
+            "config_save_value_error",
+            extra={"config_key": config_key, "error": str(e), "operation": "save_config"},
+        )
         return False
 
 

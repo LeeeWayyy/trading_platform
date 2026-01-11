@@ -329,8 +329,14 @@ class OAuth2AuthHandler(AuthProvider):
         except JWTError as exc:
             logger.warning("Invalid id_token: %s", exc)
             return False, "Invalid id_token"
-        except Exception as exc:
-            logger.error("id_token validation error: %s", exc)
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
+            # HTTPStatusError: JWKS fetch failed with non-200 status
+            # RequestError: Network/connection errors during JWKS fetch
+            # ValueError: Invalid JWKS payload or missing required fields
+            logger.error(
+                "id_token validation error",
+                extra={"error_type": type(exc).__name__, "error": str(exc)},
+            )
             return False, "Invalid id_token"
 
         exp_value = claims.get("exp")

@@ -121,7 +121,7 @@ def main():
         print_info(f"Bottom N (short): {generator.bottom_n}")
         tests_passed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Initialization failed: {e}")
         tests_failed += 1
         return 1
@@ -156,7 +156,7 @@ def main():
         tests_failed += 1
         return 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Signal generation failed: {e}")
         import traceback
 
@@ -262,7 +262,7 @@ def main():
 
         tests_passed += 1 if is_valid else 0
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Weight validation error: {e}")
         tests_failed += 1
 
@@ -375,8 +375,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
         sys.exit(1)
-    except Exception as e:
-        print(f"\n{RED}Unexpected error: {e}{NC}")
+    except (ValueError, KeyError, RuntimeError) as e:
+        print(f"\n{RED}Test execution error: {e}{NC}")
         import traceback
 
         traceback.print_exc()

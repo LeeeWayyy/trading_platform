@@ -111,7 +111,7 @@ class RiskService:
         except PermissionError:
             # Re-raise permission errors - these should propagate to caller
             raise
-        except Exception as e:
+        except Exception as e:  # Generic catch justified - defensive safety net for DB connectivity
             # Database unreachable, pool unavailable, or other connectivity issues
             # Return empty positions to show placeholder dashboard instead of crashing
             logger.warning(
@@ -121,6 +121,7 @@ class RiskService:
                     "error_type": type(e).__name__,
                     "error": str(e),
                 },
+                exc_info=True,
             )
             positions = []
 
@@ -242,11 +243,19 @@ class RiskService:
             )
             return None
 
-        except ImportError:
-            logger.warning("risk_model_import_failed", exc_info=True)
+        except ImportError as e:
+            logger.warning(
+                "risk_model_import_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
             return None
-        except Exception:
-            logger.exception("risk_computation_failed")
+        except (AttributeError, KeyError, ValueError) as e:
+            # Risk model computation errors (missing data, invalid structure, etc.)
+            logger.exception(
+                "risk_computation_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             return None
 
     async def _load_risk_model(self) -> Any | None:
@@ -308,11 +317,19 @@ class RiskService:
             # Note: run_all_scenarios is sync, would need to wrap
             return [], False
 
-        except ImportError:
-            logger.warning("stress_testing_import_failed", exc_info=True)
+        except ImportError as e:
+            logger.warning(
+                "stress_testing_import_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
             return self._generate_placeholder_stress_tests(), True
-        except Exception:
-            logger.exception("stress_testing_failed")
+        except (AttributeError, KeyError, ValueError) as e:
+            # Stress testing computation errors (missing data, invalid scenarios, etc.)
+            logger.exception(
+                "stress_testing_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             return [], False
 
     def _generate_placeholder_stress_tests(self) -> list[dict[str, Any]]:
@@ -400,11 +417,19 @@ class RiskService:
         except PermissionError:
             # User has no strategy access - propagate
             raise
-        except (RuntimeError, AttributeError):
+        except (RuntimeError, AttributeError) as e:
             # db_pool is None - no direct DB access
+            logger.warning(
+                "pnl_fetch_no_db",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             return []
-        except Exception:
-            logger.exception("pnl_fetch_failed")
+        except Exception as e:
+            # Database errors, query failures, data parsing issues
+            logger.exception(
+                "pnl_fetch_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             return []
 
         if not pnl_data:

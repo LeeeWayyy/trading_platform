@@ -192,7 +192,15 @@ class AuthAuditLogger:
                 self._queue.appendleft((payload, attempts))
             raise
         except Exception as exc:
-            logger.error("Audit DB write failed: %s", exc)
+            # Log detailed error for audit failure tracking
+            logger.error(
+                "Audit DB write failed",
+                extra={
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "batch_size": len(batch_items),
+                },
+            )
             # Expose metric for monitoring audit flush failures
             try:
                 from apps.web_console_ng.core.metrics import audit_flush_errors_total

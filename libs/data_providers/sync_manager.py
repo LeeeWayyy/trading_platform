@@ -309,16 +309,68 @@ class SyncManager:
                 progress.status = "completed"
                 self._save_progress(progress)
 
-            except Exception as e:
+            except DiskSpaceError as e:
                 progress.status = "failed"
                 self._save_progress(progress)
                 logger.error(
-                    "Full sync failed",
+                    "Full sync failed - insufficient disk space",
                     extra={
                         "event": "sync.full.failed",
                         "dataset": dataset,
                         "error": str(e),
                     },
+                )
+                raise
+            except SchemaError as e:
+                progress.status = "failed"
+                self._save_progress(progress)
+                logger.error(
+                    "Full sync failed - schema validation error",
+                    extra={
+                        "event": "sync.full.failed",
+                        "dataset": dataset,
+                        "error": str(e),
+                    },
+                )
+                raise
+            except ValueError as e:
+                progress.status = "failed"
+                self._save_progress(progress)
+                logger.error(
+                    "Full sync failed - validation error",
+                    extra={
+                        "event": "sync.full.failed",
+                        "dataset": dataset,
+                        "error": str(e),
+                    },
+                )
+                raise
+            except OSError as e:
+                progress.status = "failed"
+                self._save_progress(progress)
+                logger.error(
+                    "Full sync failed - filesystem error",
+                    extra={
+                        "event": "sync.full.failed",
+                        "dataset": dataset,
+                        "error": str(e),
+                        "errno": getattr(e, "errno", None),
+                    },
+                )
+                raise
+            except Exception as e:
+                # Catch-all for unexpected errors (RuntimeError, network errors, etc.)
+                progress.status = "failed"
+                self._save_progress(progress)
+                logger.error(
+                    "Full sync failed - unexpected error",
+                    extra={
+                        "event": "sync.full.failed",
+                        "dataset": dataset,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
                 )
                 raise
 
@@ -587,7 +639,42 @@ class SyncManager:
             try:
                 df = pl.scan_parquet(file_path).select(pl.len()).collect()
                 total_rows += df.item()
-            except Exception as e:
+            except FileNotFoundError as e:
+                logger.error(
+                    "File not found during verification",
+                    extra={
+                        "event": "sync.verify.file_missing",
+                        "dataset": dataset,
+                        "file": str(file_path),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                errors.append(f"Cannot read {file_path}: {e}")
+            except OSError as e:
+                logger.error(
+                    "Filesystem error during verification",
+                    extra={
+                        "event": "sync.verify.io_error",
+                        "dataset": dataset,
+                        "file": str(file_path),
+                        "error": str(e),
+                        "errno": getattr(e, "errno", None),
+                    },
+                    exc_info=True,
+                )
+                errors.append(f"Cannot read {file_path}: {e}")
+            except ValueError as e:
+                logger.error(
+                    "Data parsing error during verification",
+                    extra={
+                        "event": "sync.verify.parse_error",
+                        "dataset": dataset,
+                        "file": str(file_path),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
                 errors.append(f"Cannot read {file_path}: {e}")
 
         if total_rows != manifest.row_count:

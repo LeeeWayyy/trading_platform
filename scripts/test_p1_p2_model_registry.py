@@ -94,7 +94,7 @@ def main():
         print_info(f"Model loaded: {registry.is_loaded}")
         print_info(f"Current metadata: {registry.current_metadata}")
         tests_passed += 1
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Failed to initialize: {e}")
         tests_failed += 1
         return 1
@@ -133,7 +133,7 @@ def main():
 
             tests_passed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Failed to load model: {e}")
         tests_failed += 1
 
@@ -169,7 +169,7 @@ def main():
 
             tests_passed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Model validation failed: {e}")
         tests_failed += 1
 
@@ -191,7 +191,7 @@ def main():
             print_info(f"Reloaded: {reloaded}")
             tests_passed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Hot reload test failed: {e}")
         tests_failed += 1
 
@@ -213,7 +213,7 @@ def main():
             print_error("Model should be loaded")
             tests_failed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Properties test failed: {e}")
         tests_failed += 1
 
@@ -238,7 +238,7 @@ def main():
         print_success("Metadata structure valid")
         tests_passed += 1
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         print_error(f"Database query test failed: {e}")
         tests_failed += 1
 
@@ -277,8 +277,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
         sys.exit(1)
-    except Exception as e:
-        print(f"\n{RED}Unexpected error: {e}{NC}")
+    except (ValueError, KeyError, RuntimeError) as e:
+        print(f"\n{RED}Test execution error: {e}{NC}")
         import traceback
 
         traceback.print_exc()

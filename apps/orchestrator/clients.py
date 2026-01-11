@@ -204,8 +204,33 @@ class SignalServiceClient:
         try:
             response = await self.client.get(f"{self.base_url}/ready")
             return response.status_code == 200
+        except httpx.ConnectTimeout as e:
+            logger.warning(
+                "Signal Service readiness check failed - connection timeout",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            return False
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "Signal Service readiness check failed - HTTP error",
+                extra={
+                    "status_code": e.response.status_code,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
+            return False
+        except httpx.NetworkError as e:
+            logger.warning(
+                "Signal Service readiness check failed - network error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            return False
         except Exception as e:
-            logger.warning(f"Signal Service readiness check failed: {e}")
+            logger.warning(
+                "Signal Service readiness check failed - unexpected error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             return False
 
     @retry(
@@ -361,8 +386,33 @@ class ExecutionGatewayClient:
         try:
             response = await self.client.get(f"{self.base_url}/health")
             return response.status_code == 200
+        except httpx.ConnectTimeout as e:
+            logger.warning(
+                "Execution Gateway health check failed - connection timeout",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            return False
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "Execution Gateway health check failed - HTTP error",
+                extra={
+                    "status_code": e.response.status_code,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
+            return False
+        except httpx.NetworkError as e:
+            logger.warning(
+                "Execution Gateway health check failed - network error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            return False
         except Exception as e:
-            logger.warning(f"Execution Gateway health check failed: {e}")
+            logger.warning(
+                "Execution Gateway health check failed - unexpected error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             return False
 
     @retry(

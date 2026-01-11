@@ -82,9 +82,27 @@ try:
     else:
         print("\n⚠ Warning: IC is very negative (may be due to synthetic data)")
 
-except Exception as e:
-    print(f"\n❌ Training test FAILED: {e}")
+except FileNotFoundError as e:
+    print(f"\n❌ Training test FAILED: Required file not found: {e}")
     import traceback
 
     traceback.print_exc()
-    exit(1)
+    exit(2)
+except OSError as e:
+    print(f"\n❌ Training test FAILED: File I/O error: {e}")
+    import traceback
+
+    traceback.print_exc()
+    exit(3)
+except (ValueError, KeyError) as e:
+    print(f"\n❌ Training test FAILED: Data validation error: {e}")
+    import traceback
+
+    traceback.print_exc()
+    exit(4)
+except RuntimeError as e:
+    print(f"\n❌ Training test FAILED: Runtime error: {e}")
+    import traceback
+
+    traceback.print_exc()
+    exit(5)

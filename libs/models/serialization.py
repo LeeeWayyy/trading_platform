@@ -85,7 +85,18 @@ def _get_package_version(package: str) -> str | None:
         from importlib.metadata import version
 
         return version(package)
-    except Exception:
+    except (ImportError, ModuleNotFoundError) as e:
+        logger.debug(
+            "Package version not available - package not installed",
+            extra={"package": package, "error": str(e)},
+        )
+        return None
+    except Exception as e:
+        logger.warning(
+            "Failed to get package version - metadata read error",
+            extra={"package": package, "error": str(e)},
+            exc_info=True,
+        )
         return None
 
 
@@ -104,7 +115,18 @@ def _compute_dependencies_hash() -> str:
         packages = sorted(f"{d.name}=={d.version}" for d in distributions())
         content = "\n".join(packages)
         return hashlib.sha256(content.encode()).hexdigest()
-    except Exception:
+    except (ImportError, ModuleNotFoundError) as e:
+        logger.debug(
+            "Dependencies hash unavailable - metadata not accessible",
+            extra={"error": str(e)},
+        )
+        return "unknown"
+    except Exception as e:
+        logger.warning(
+            "Failed to compute dependencies hash - metadata enumeration error",
+            extra={"error": str(e)},
+            exc_info=True,
+        )
         return "unknown"
 
 
@@ -209,12 +231,18 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
         # Clean up temp file on failure
         try:
             os.close(fd)
-        except Exception:
-            pass
+        except OSError as close_err:
+            logger.debug(
+                "Failed to close temp file descriptor during cleanup",
+                extra={"fd": fd, "error": str(close_err)},
+            )
         try:
             os.unlink(temp_path)
-        except Exception:
-            pass
+        except OSError as unlink_err:
+            logger.warning(
+                "Failed to unlink temp file during cleanup",
+                extra={"temp_path": temp_path, "error": str(unlink_err)},
+            )
         raise PartialWriteError(path, str(e)) from e
 
 

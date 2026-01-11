@@ -19,6 +19,7 @@ import logging
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+import psycopg
 from nicegui import app, ui
 
 from apps.web_console_ng import config
@@ -119,8 +120,17 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
         nonlocal rules_data
         try:
             rules_data = await alert_service.get_rules()
-        except Exception as e:
-            logger.warning("rules_fetch_failed", extra={"error": str(e)})
+        except psycopg.OperationalError as e:
+            logger.warning(
+                "rules_fetch_db_error",
+                extra={"error": str(e), "operation": "fetch_rules"},
+            )
+            rules_data = []
+        except ValueError as e:
+            logger.warning(
+                "rules_fetch_validation_error",
+                extra={"error": str(e), "operation": "fetch_rules"},
+            )
             rules_data = []
 
     await fetch_rules()
@@ -169,9 +179,24 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
                                 ui.notify("Rule deleted", type="positive")
                                 await fetch_rules()
                                 rules_list.refresh()
-                            except Exception as e:
-                                logger.exception("rule_delete_failed", extra={"rule_id": rule_id, "error": str(e)})
-                                ui.notify("Failed to delete rule. Please try again.", type="negative")
+                            except PermissionError as e:
+                                logger.exception(
+                                    "rule_delete_permission_denied",
+                                    extra={"rule_id": rule_id, "error": str(e), "operation": "delete_rule"},
+                                )
+                                ui.notify(f"Permission denied: {e}", type="negative")
+                            except psycopg.OperationalError as e:
+                                logger.exception(
+                                    "rule_delete_db_error",
+                                    extra={"rule_id": rule_id, "error": str(e), "operation": "delete_rule"},
+                                )
+                                ui.notify("Database error. Please try again.", type="negative")
+                            except ValueError as e:
+                                logger.exception(
+                                    "rule_delete_validation_error",
+                                    extra={"rule_id": rule_id, "error": str(e), "operation": "delete_rule"},
+                                )
+                                ui.notify(f"Invalid rule ID: {e}", type="negative")
 
                         ui.button("Delete", on_click=delete_rule, color="red").props("flat")
 
@@ -275,9 +300,18 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
                     rules_list.refresh()
                 except PermissionError as e:
                     ui.notify(f"Permission denied: {e}", type="negative")
-                except Exception as e:
-                    logger.exception("rule_create_failed", extra={"error": str(e)})
-                    ui.notify("Failed to create rule. Please try again.", type="negative")
+                except psycopg.OperationalError as e:
+                    logger.exception(
+                        "rule_create_db_error",
+                        extra={"error": str(e), "operation": "create_rule"},
+                    )
+                    ui.notify("Database error. Please try again.", type="negative")
+                except ValueError as e:
+                    logger.exception(
+                        "rule_create_validation_error",
+                        extra={"error": str(e), "operation": "create_rule"},
+                    )
+                    ui.notify(f"Invalid input: {e}", type="negative")
 
             ui.button("Create Rule", on_click=create_rule, color="primary").classes("mt-4")
     else:
@@ -292,8 +326,17 @@ async def _render_alert_history(user: dict[str, Any], alert_service: AlertConfig
         nonlocal events_data
         try:
             events_data = await alert_service.get_alert_events()
-        except Exception as e:
-            logger.warning("events_fetch_failed", extra={"error": str(e)})
+        except psycopg.OperationalError as e:
+            logger.warning(
+                "events_fetch_db_error",
+                extra={"error": str(e), "operation": "fetch_events"},
+            )
+            events_data = []
+        except ValueError as e:
+            logger.warning(
+                "events_fetch_validation_error",
+                extra={"error": str(e), "operation": "fetch_events"},
+            )
             events_data = []
 
     await fetch_events()
@@ -377,9 +420,24 @@ async def _render_alert_history(user: dict[str, Any], alert_service: AlertConfig
                     note_input.value = ""
                     await fetch_events()
                     history_display.refresh()
-                except Exception as e:
-                    logger.exception("alert_acknowledge_failed", extra={"event_id": event_select.value, "error": str(e)})
-                    ui.notify("Failed to acknowledge alert. Please try again.", type="negative")
+                except PermissionError as e:
+                    logger.exception(
+                        "alert_acknowledge_permission_denied",
+                        extra={"event_id": event_select.value, "error": str(e), "operation": "acknowledge_alert"},
+                    )
+                    ui.notify(f"Permission denied: {e}", type="negative")
+                except psycopg.OperationalError as e:
+                    logger.exception(
+                        "alert_acknowledge_db_error",
+                        extra={"event_id": event_select.value, "error": str(e), "operation": "acknowledge_alert"},
+                    )
+                    ui.notify("Database error. Please try again.", type="negative")
+                except ValueError as e:
+                    logger.exception(
+                        "alert_acknowledge_validation_error",
+                        extra={"event_id": event_select.value, "error": str(e), "operation": "acknowledge_alert"},
+                    )
+                    ui.notify(f"Invalid input: {e}", type="negative")
 
             ui.button("Acknowledge", on_click=acknowledge, color="primary").classes("mt-2")
 
@@ -392,8 +450,16 @@ async def _render_channels(user: dict[str, Any], alert_service: AlertConfigServi
 
     try:
         rules_data = await alert_service.get_rules()
-    except Exception as e:
-        logger.warning("channels_fetch_failed", extra={"error": str(e)})
+    except psycopg.OperationalError as e:
+        logger.warning(
+            "channels_fetch_db_error",
+            extra={"error": str(e), "operation": "get_rules_for_channels"},
+        )
+    except ValueError as e:
+        logger.warning(
+            "channels_fetch_validation_error",
+            extra={"error": str(e), "operation": "get_rules_for_channels"},
+        )
 
     ui.label("Notification Channels").classes("text-xl font-bold mb-2")
     ui.label("Channels configured for each alert rule.").classes("text-gray-500 text-sm mb-4")

@@ -20,17 +20,20 @@ from apps.web_console_ng.core.realtime import (
 
 
 class DummyClient:
-    """Minimal NiceGUI client context stub."""
+    """Minimal NiceGUI client context stub.
+
+    NiceGUI Client uses sync context manager (with ... :), not async.
+    """
 
     def __init__(self) -> None:
         self.entered = 0
         self.exited = 0
 
-    async def __aenter__(self) -> DummyClient:
+    def __enter__(self) -> DummyClient:
         self.entered += 1
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, exc_type, exc, tb) -> None:
         self.exited += 1
         return None
 

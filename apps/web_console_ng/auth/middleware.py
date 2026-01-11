@@ -36,8 +36,8 @@ def _get_request_from_storage() -> Request:
         if request is not None:
             logger.debug("Got request from storage.request_contextvar")
             return request
-    except (LookupError, AttributeError):
-        pass
+    except (LookupError, AttributeError) as e:
+        logger.debug("storage.request_contextvar not available: %s", type(e).__name__)
 
     # Try ui.context.client.request (available in UI context)
     try:
@@ -45,8 +45,8 @@ def _get_request_from_storage() -> Request:
         if request is not None:
             logger.debug("Got request from ui.context.client.request")
             return request
-    except (AttributeError, RuntimeError):
-        pass
+    except (AttributeError, RuntimeError) as e:
+        logger.debug("ui.context.client.request not available: %s", type(e).__name__)
 
     # Fallback for tests only
     if config.DEBUG:
@@ -215,8 +215,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                             app.storage.user["session_id"] = cookie_value
                             app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
                         logger.debug("Stored user in app.storage.user from AuthMiddleware")
-                    except Exception:
-                        pass  # Storage may not be available in all contexts
+                    except (RuntimeError, AttributeError, KeyError) as storage_err:
+                        # Storage may not be available in all contexts (e.g., non-NiceGUI requests)
+                        logger.debug(
+                            "Failed to store user in app.storage",
+                            extra={"error_type": type(storage_err).__name__},
+                        )
             except SessionValidationError:
                 # Redis unavailable - for API requests return JSON 503
                 # For HTML requests, let request proceed so page decorators can render error UI
@@ -319,8 +323,12 @@ class SessionMiddleware(BaseHTTPMiddleware):
                         # Store session_id for cache validation (prevents stale cache bypass)
                         app.storage.user["session_id"] = cookie_value
                         app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
-                    except Exception:
-                        pass  # Storage may not be available in all contexts
+                    except (RuntimeError, AttributeError, KeyError) as storage_err:
+                        # Storage may not be available in all contexts (e.g., non-NiceGUI requests)
+                        logger.debug(
+                            "Failed to store user in app.storage from SessionMiddleware",
+                            extra={"error_type": type(storage_err).__name__},
+                        )
             except SessionValidationError:
                 # Redis unavailable - for API requests return JSON 503
                 # For HTML requests, let request proceed so page decorators can render error UI

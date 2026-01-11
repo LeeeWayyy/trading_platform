@@ -96,9 +96,21 @@ async def mfa_verify_page() -> None:
                 else:
                     ui.notify(result.error_message or "Invalid code", type="negative")
                     code_input.value = ""
-            except Exception:
+            except ValueError as e:
                 # SECURITY: Log error details but show generic message to user
-                logger.exception("MFA verification error")
+                logger.error(
+                    "MFA verification error - invalid code format",
+                    extra={"error": str(e), "page": "mfa_verify"},
+                    exc_info=True,
+                )
+                ui.notify("Invalid code format. Please try again.", type="negative")
+            except Exception as e:
+                # SECURITY: Log error details but show generic message to user
+                logger.error(
+                    "MFA verification error",
+                    extra={"error": str(e), "page": "mfa_verify"},
+                    exc_info=True,
+                )
                 ui.notify("Verification failed. Please try again.", type="negative")
 
         ui.button("Verify", on_click=verify).classes("w-full bg-blue-600 text-white")

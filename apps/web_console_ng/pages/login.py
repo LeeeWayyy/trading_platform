@@ -27,16 +27,16 @@ def _get_request_from_storage(path: str) -> StarletteRequest:
         request = storage.request_contextvar.get()
         if request is not None:
             return request
-    except (LookupError, AttributeError):
-        pass
+    except (LookupError, AttributeError) as e:
+        logger.debug("storage.request_contextvar not available: %s", type(e).__name__)
 
     # Try ui.context.client.request (available in UI context)
     try:
         request = nicegui_ui.context.client.request
         if request is not None:
             return request
-    except (AttributeError, RuntimeError):
-        pass
+    except (AttributeError, RuntimeError) as e:
+        logger.debug("ui.context.client.request not available: %s", type(e).__name__)
 
     # Fallback for tests
     scope = {
@@ -147,8 +147,19 @@ async def login_page() -> None:
                 return
             else:
                 mtls_error = result.error_message
-        except Exception:
-            logger.exception("mTLS authentication failed")
+        except ValueError as e:
+            logger.error(
+                "mTLS authentication failed - invalid certificate data",
+                extra={"error": str(e), "page": "login"},
+                exc_info=True,
+            )
+            mtls_error = "Invalid certificate. Please check your certificate configuration."
+        except Exception as e:
+            logger.error(
+                "mTLS authentication failed - unexpected error",
+                extra={"error": str(e), "page": "login"},
+                exc_info=True,
+            )
             mtls_error = "Authentication error. Please try again."
 
     # Get redirect reason if any
@@ -258,8 +269,19 @@ async def login_page() -> None:
                         console.log('Submitting form...');
                         f.submit();
                     """)
-                except Exception as e:
-                    logger.exception("JavaScript execution failed", extra={"error": str(e)})
+                except TypeError as e:
+                    logger.error(
+                        "Login form submission failed - invalid input type",
+                        extra={"error": str(e), "username": username_input.value, "page": "login"},
+                        exc_info=True,
+                    )
+                    ui.notify("Invalid input. Please check your credentials.", type="negative")
+                except (RuntimeError, AttributeError) as e:
+                    logger.error(
+                        "JavaScript execution failed during login",
+                        extra={"error": str(e), "username": username_input.value, "page": "login"},
+                        exc_info=True,
+                    )
                     error_label.set_text("Login form submission failed. Please refresh and retry.")
                     error_label.classes(remove="hidden")
                     ui.notify("Login error. Please try again.", type="negative")
@@ -283,8 +305,26 @@ async def login_page() -> None:
                     # but runtime duck typing works
                     auth_url = await handler.get_authorization_url()
                     ui.navigate.to(auth_url, new_tab=False)
-                except Exception:
-                    logger.exception("OAuth2 init failed")
+                except AttributeError as e:
+                    logger.error(
+                        "OAuth2 init failed - missing authorization URL method",
+                        extra={"error": str(e), "page": "login"},
+                        exc_info=True,
+                    )
+                    ui.notify("OAuth2 configuration error. Please contact support.", type="negative")
+                except ValueError as e:
+                    logger.error(
+                        "OAuth2 init failed - invalid configuration",
+                        extra={"error": str(e), "page": "login"},
+                        exc_info=True,
+                    )
+                    ui.notify("OAuth2 configuration error. Please try again.", type="negative")
+                except Exception as e:
+                    logger.error(
+                        "OAuth2 initialization failed",
+                        extra={"error": str(e), "page": "login"},
+                        exc_info=True,
+                    )
                     ui.notify("Authentication error. Please try again.", type="negative")
 
             ui.button("Sign in with Auth0", on_click=oauth2_login).classes(

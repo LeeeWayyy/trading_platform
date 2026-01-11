@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pickle
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -115,8 +116,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         message="Manifest checksum does not match registry state"
                     )
                 logger.info("Manifest integrity verified")
-            except Exception as e:
-                logger.error(f"Manifest integrity check failed: {e}")
+            except (FileNotFoundError, OSError) as e:
+                # File system errors during integrity check
+                logger.error(
+                    "Manifest integrity check failed: file system error",
+                    extra={
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "registry_dir": str(registry_dir),
+                    },
+                    exc_info=True,
+                )
+                raise ManifestIntegrityError(message=f"Integrity check failed: {e}") from e
+            except (ValueError, pickle.PickleError) as e:
+                # Data corruption or invalid manifest format
+                logger.error(
+                    "Manifest integrity check failed: data corruption or invalid format",
+                    extra={
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "registry_dir": str(registry_dir),
+                    },
+                    exc_info=True,
+                )
                 raise ManifestIntegrityError(message=f"Integrity check failed: {e}") from e
 
         # Load manifest info
@@ -136,8 +158,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         yield
 
-    except Exception as e:
-        logger.error(f"Failed to start Model Registry Service: {e}", exc_info=True)
+    except (RuntimeError, ManifestIntegrityError) as e:
+        # Expected startup failures: auth config, manifest integrity
+        logger.error(
+            "Failed to start Model Registry Service: configuration or integrity error",
+            extra={
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "registry_dir": str(settings["registry_dir"]),
+            },
+            exc_info=True,
+        )
+        raise
+    except (FileNotFoundError, OSError) as e:
+        # File system errors during startup
+        logger.error(
+            "Failed to start Model Registry Service: file system error",
+            extra={
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "registry_dir": str(settings["registry_dir"]),
+            },
+            exc_info=True,
+        )
+        raise
+    except (ValueError, pickle.PickleError) as e:
+        # Data corruption or invalid model format
+        logger.error(
+            "Failed to start Model Registry Service: data corruption or invalid format",
+            extra={
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "registry_dir": str(settings["registry_dir"]),
+            },
+            exc_info=True,
+        )
         raise
 
     finally:

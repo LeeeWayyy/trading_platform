@@ -1201,6 +1201,6 @@ class HistoricalETL:
         for path in (self.storage_path / "daily").glob("*.parquet"):
             try:
                 years.append(int(path.stem))
-            except ValueError:
-                pass
+            except ValueError as e:
+                logger.debug("Skipping non-year file %s: %s", path.name, e)
         return sorted(years)

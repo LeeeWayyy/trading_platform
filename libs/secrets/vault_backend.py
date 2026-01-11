@@ -255,16 +255,36 @@ class VaultSecretManager(SecretManager):
                 reason=f"Vault server unreachable at {vault_url}: {e}",
             ) from e
         except VaultError as e:
+            logger.error(
+                "Vault initialization failed - server error",
+                extra={
+                    "vault_url": vault_url,
+                    "backend": "vault",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise SecretAccessError(
                 secret_name="vault_init",
                 backend="vault",
                 reason=f"Vault initialization failed: {e}",
             ) from e
-        except Exception as e:
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "Vault initialization failed - invalid configuration",
+                extra={
+                    "vault_url": vault_url,
+                    "backend": "vault",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
             raise SecretAccessError(
                 secret_name="vault_init",
                 backend="vault",
-                reason=f"Unexpected error connecting to Vault: {e}",
+                reason=f"Invalid Vault configuration: {e}",
             ) from e
 
     def get_secret(self, name: str) -> str:
@@ -437,16 +457,52 @@ class VaultSecretManager(SecretManager):
                 # (VaultDown is a subclass of VaultError, so must be caught first)
                 raise
             except VaultError as e:
+                logger.error(
+                    "Vault secret read failed - server error",
+                    extra={
+                        "secret_name": name,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretAccessError(
                     secret_name=name,
                     backend="vault",
                     reason=f"Vault error reading '{name}': {e}",
                 ) from e
-            except Exception as e:
+            except (KeyError, ValueError) as e:
+                logger.error(
+                    "Vault secret read failed - invalid response format",
+                    extra={
+                        "secret_name": name,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretAccessError(
                     secret_name=name,
                     backend="vault",
-                    reason=f"Unexpected error reading '{name}': {e}",
+                    reason=f"Invalid secret data format for '{name}': {e}",
+                ) from e
+            except RuntimeError as e:
+                logger.error(
+                    "Vault secret read failed - runtime error",
+                    extra={
+                        "secret_name": name,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": "RuntimeError",
+                    },
+                    exc_info=True,
+                )
+                raise SecretAccessError(
+                    secret_name=name,
+                    backend="vault",
+                    reason=f"Unexpected runtime error reading '{name}': {e}",
                 ) from e
 
     def list_secrets(self, prefix: str | None = None) -> list[str]:
@@ -572,16 +628,52 @@ class VaultSecretManager(SecretManager):
                 # (VaultDown is a subclass of VaultError, so must be caught first)
                 raise
             except VaultError as e:
+                logger.error(
+                    "Vault secret listing failed - server error",
+                    extra={
+                        "prefix": prefix,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretAccessError(
                     secret_name=f"list_secrets(prefix={prefix})",
                     backend="vault",
                     reason=f"Vault error listing secrets: {e}",
                 ) from e
-            except Exception as e:
+            except (KeyError, ValueError, TypeError) as e:
+                logger.error(
+                    "Vault secret listing failed - invalid response format",
+                    extra={
+                        "prefix": prefix,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretAccessError(
                     secret_name=f"list_secrets(prefix={prefix})",
                     backend="vault",
-                    reason=f"Unexpected error listing secrets: {e}",
+                    reason=f"Invalid response format listing secrets: {e}",
+                ) from e
+            except RuntimeError as e:
+                logger.error(
+                    "Vault secret listing failed - runtime error",
+                    extra={
+                        "prefix": prefix,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": "RuntimeError",
+                    },
+                    exc_info=True,
+                )
+                raise SecretAccessError(
+                    secret_name=f"list_secrets(prefix={prefix})",
+                    backend="vault",
+                    reason=f"Unexpected runtime error listing secrets: {e}",
                 ) from e
 
     def set_secret(self, name: str, value: str) -> None:
@@ -686,16 +778,52 @@ class VaultSecretManager(SecretManager):
                 # (VaultDown is a subclass of VaultError, so must be caught first)
                 raise
             except VaultError as e:
+                logger.error(
+                    "Vault secret write failed - server error",
+                    extra={
+                        "secret_name": name,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretWriteError(
                     secret_name=name,
                     backend="vault",
                     reason=f"Vault error writing '{name}': {e}",
                 ) from e
-            except Exception as e:
+            except (ValueError, TypeError) as e:
+                logger.error(
+                    "Vault secret write failed - invalid value",
+                    extra={
+                        "secret_name": name,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 raise SecretWriteError(
                     secret_name=name,
                     backend="vault",
-                    reason=f"Unexpected error writing '{name}': {e}",
+                    reason=f"Invalid secret value for '{name}': {e}",
+                ) from e
+            except RuntimeError as e:
+                logger.error(
+                    "Vault secret write failed - runtime error",
+                    extra={
+                        "secret_name": name,
+                        "backend": "vault",
+                        "error": str(e),
+                        "error_type": "RuntimeError",
+                    },
+                    exc_info=True,
+                )
+                raise SecretWriteError(
+                    secret_name=name,
+                    backend="vault",
+                    reason=f"Unexpected runtime error writing '{name}': {e}",
                 ) from e
 
     def close(self) -> None:

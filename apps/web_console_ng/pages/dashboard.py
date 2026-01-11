@@ -152,10 +152,11 @@ class MarketPriceCache:
                 if cls._in_flight.get(scope_key) is task:
                     del cls._in_flight[scope_key]
                 return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
-        except Exception as exc:
-            # Catch non-HTTP exceptions (e.g., ValueError from malformed payload)
+        except (ValueError, KeyError) as exc:
+            # Catch validation errors (e.g., malformed payload) to reset _in_flight
+            # and allow recovery on next call
             logger.warning(
-                "market_price_cache_fetch_unexpected_error",
+                "market_price_cache_fetch_validation_error",
                 extra={
                     "error": type(exc).__name__,
                     "detail": str(exc)[:100],
@@ -296,8 +297,12 @@ async def dashboard(client: Client) -> None:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=UTC)
             event["time"] = dt.astimezone(UTC).strftime("%H:%M")
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError) as e:
+            # Invalid timestamp format - skip time formatting
+            logger.debug(
+                "Failed to parse event timestamp",
+                extra={"error": str(e), "error_type": type(e).__name__, "timestamp": event.get("timestamp")},
+            )
         return event
 
     def _update_last_sync_label(events: list[dict[str, Any]]) -> None:

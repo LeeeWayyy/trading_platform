@@ -5,6 +5,7 @@ Enforces dataset-level access on all read paths for licensing compliance.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -18,6 +19,8 @@ from apps.web_console.schemas.data_management import (
 )
 from apps.web_console.utils.auth_helpers import get_user_id
 from libs.web_console_auth.permissions import Permission, has_dataset_permission, has_permission
+
+logger = logging.getLogger(__name__)
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french")
 
@@ -214,8 +217,8 @@ class DataQualityService:
             idx = int(alert_id.split("-")[1]) - 1
             if 0 <= idx < len(_SUPPORTED_DATASETS):
                 return _SUPPORTED_DATASETS[idx]
-        except (ValueError, IndexError):
-            pass
+        except (ValueError, IndexError) as e:
+            logger.debug("Failed to parse alert_id '%s': %s", alert_id, e)
         raise ValueError(f"Could not resolve dataset for alert_id: {alert_id}")
 
 

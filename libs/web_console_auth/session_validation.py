@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from psycopg import DatabaseError, OperationalError
+
 from libs.web_console_auth.db import acquire_connection
 
 logger = logging.getLogger(__name__)
@@ -52,9 +54,37 @@ async def invalidate_user_sessions(
                     (admin_user_id, user_id),
                 )
                 row = await cursor.fetchone()
-    except Exception as exc:  # pragma: no cover
+    except OperationalError as exc:
+        # Database connection/operational errors (network, timeout, etc.)
         logger.exception(
-            "session_invalidation_failed", extra={"user_id": user_id, "error": str(exc)}
+            "session_invalidation_failed_db_operational_error",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise
+    except DatabaseError as exc:
+        # Database errors (constraint violations, query errors, etc.)
+        logger.exception(
+            "session_invalidation_failed_db_error",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise
+    except Exception as exc:  # Generic catch justified - must raise but log unexpected errors
+        # Unexpected errors (should be rare, but defensive logging)
+        logger.exception(
+            "session_invalidation_failed_unexpected_error",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
         )
         raise
 
@@ -72,14 +102,38 @@ async def invalidate_user_sessions(
                 target_user_id=user_id,
                 details={"new_session_version": new_version},
             )
-        except Exception:  # pragma: no cover
-            logger.warning("audit_log_failure_during_invalidation", exc_info=True)
+        except (OperationalError, DatabaseError) as exc:
+            # Database errors in audit logging - log warning but don't fail invalidation
+            logger.warning(
+                "audit_log_db_error_during_invalidation",
+                extra={
+                    "user_id": user_id,
+                    "admin_user_id": admin_user_id,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
+        except Exception as exc:  # Generic catch justified - audit log failures should not block invalidation
+            # Unexpected errors in audit logging - log warning but don't fail invalidation
+            logger.warning(
+                "audit_log_unexpected_error_during_invalidation",
+                extra={
+                    "user_id": user_id,
+                    "admin_user_id": admin_user_id,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
 
     return new_version
 
 
 async def validate_session_version(user_id: str, session_version: int, db_pool: Any) -> bool:
-    """Return True if provided session_version matches DB."""
+    """Return True if provided session_version matches DB.
+
+    Returns False on any error (fail closed for security).
+    """
 
     try:
         async with acquire_connection(db_pool) as conn:
@@ -89,9 +143,38 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
                     (user_id,),
                 )
                 row = await cursor.fetchone()
-    except Exception as exc:  # pragma: no cover
-        logger.exception(
-            "session_version_validation_failed", extra={"user_id": user_id, "error": str(exc)}
+    except OperationalError as exc:
+        # Database connection/operational errors - fail closed (deny access)
+        logger.warning(
+            "session_version_validation_failed_db_operational_error",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+        return False
+    except DatabaseError as exc:
+        # Database errors - fail closed (deny access)
+        logger.warning(
+            "session_version_validation_failed_db_error",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+        return False
+    except Exception as exc:  # Generic catch justified - validation must fail closed on unexpected errors
+        # Unexpected errors - fail closed (deny access)
+        logger.warning(
+            "session_version_validation_failed_unexpected_error",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
         )
         return False
 

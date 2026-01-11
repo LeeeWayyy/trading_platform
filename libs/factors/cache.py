@@ -218,11 +218,35 @@ class DiskExpressionCache:
                             },
                         )
                         return df, True
-                    except Exception as e:
+                    except OSError as e:
                         logger.warning(
-                            f"Failed to read cached file, recomputing: {e}",
-                            extra={"path": str(cache_path)},
+                            "Factor cache read failed - file I/O error, will recalculate",
+                            extra={
+                                "path": str(cache_path),
+                                "factor": factor_name,
+                                "as_of_date": str(as_of_date),
+                                "error": str(e),
+                            },
+                            exc_info=True,
                         )
+                    except (pl.exceptions.ComputeError, ValueError) as e:
+                        logger.error(
+                            "Factor cache corruption - invalid Parquet format, clearing corrupted entry",
+                            extra={
+                                "path": str(cache_path),
+                                "factor": factor_name,
+                                "as_of_date": str(as_of_date),
+                                "error": str(e),
+                            },
+                            exc_info=True,
+                        )
+                        # Clear corrupted cache entry
+                        try:
+                            cache_path.unlink(missing_ok=True)
+                        except OSError as cleanup_err:
+                            logger.debug(
+                                "Failed to remove corrupted cache file: %s", cleanup_err
+                            )
 
         # Cache miss - compute
         logger.debug(
@@ -242,16 +266,25 @@ class DiskExpressionCache:
                 version_ids=version_ids,
                 config_hash=config_hash,
             )
-        except Exception as idx_err:
+        except (sqlite3.Error, OSError) as idx_err:
             # Rollback: delete orphaned parquet file if index update fails
             logger.error(
-                f"Index update failed, rolling back cache file: {idx_err}",
-                extra={"path": str(cache_path)},
+                "Index update failed, rolling back cache file",
+                extra={
+                    "path": str(cache_path),
+                    "factor": factor_name,
+                    "as_of_date": str(as_of_date),
+                    "error": str(idx_err),
+                },
+                exc_info=True,
             )
             try:
                 cache_path.unlink(missing_ok=True)
             except OSError as del_err:
-                logger.error(f"Failed to rollback cache file {cache_path}: {del_err}")
+                logger.error(
+                    "Failed to rollback cache file after index failure",
+                    extra={"path": str(cache_path), "error": str(del_err)},
+                )
             raise  # Re-raise original error
 
         logger.info(
@@ -301,7 +334,34 @@ class DiskExpressionCache:
 
             try:
                 return pl.read_parquet(cache_path)
-            except Exception:
+            except OSError as e:
+                logger.warning(
+                    "Factor cache read failed - file I/O error, returning None",
+                    extra={
+                        "path": str(cache_path),
+                        "factor": factor_name,
+                        "as_of_date": str(as_of_date),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                return None
+            except (pl.exceptions.ComputeError, ValueError) as e:
+                logger.error(
+                    "Factor cache corruption - invalid Parquet format, clearing corrupted entry",
+                    extra={
+                        "path": str(cache_path),
+                        "factor": factor_name,
+                        "as_of_date": str(as_of_date),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+                # Clear corrupted cache entry
+                try:
+                    cache_path.unlink(missing_ok=True)
+                except OSError as cleanup_err:
+                    logger.debug("Failed to cleanup corrupted cache: %s", cleanup_err)
                 return None
 
     def set(
@@ -594,12 +654,37 @@ class DiskExpressionCache:
             df.write_parquet(temp_path)
             # Atomic rename
             shutil.move(temp_path, path)
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Factor cache atomic write failed - file I/O error",
+                extra={
+                    "path": str(path),
+                    "temp_path": str(temp_path),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             # Clean up temp file on failure
             try:
                 Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError as cleanup_err:
+                logger.debug("Failed to cleanup temp file: %s", cleanup_err)
+            raise
+        except (pl.exceptions.ComputeError, ValueError) as e:
+            logger.error(
+                "Factor cache atomic write failed - Parquet write error",
+                extra={
+                    "path": str(path),
+                    "temp_path": str(temp_path),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            # Clean up temp file on failure
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except OSError as cleanup_err:
+                logger.debug("Failed to cleanup temp file: %s", cleanup_err)
             raise
 
     # =========================================================================
@@ -687,7 +772,33 @@ class DiskExpressionCache:
 
             with open(legacy_path) as f:
                 data = json.load(f)
-        except Exception:
+        except OSError as e:
+            logger.warning(
+                "Failed to read legacy cache index JSON - file I/O error, skipping migration",
+                extra={"path": str(legacy_path), "error": str(e)},
+            )
+            return
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Failed to parse legacy cache index JSON - corrupted format, skipping migration",
+                extra={"path": str(legacy_path), "error": str(e), "position": e.pos},
+                exc_info=True,
+            )
+            return
+        except ValueError as e:
+            logger.warning(
+                "Failed to load legacy cache index - invalid data format, skipping migration",
+                extra={"path": str(legacy_path), "error": str(e)},
+                exc_info=True,
+            )
+            return
+
+        # Validate data is a dict (e.g., JSON "null" would result in None)
+        if not isinstance(data, dict):
+            logger.warning(
+                "Legacy cache index has invalid structure (expected dict), skipping migration",
+                extra={"path": str(legacy_path), "data_type": type(data).__name__},
+            )
             return
 
         with self._index_connection() as conn:
@@ -710,8 +821,8 @@ class DiskExpressionCache:
         # Cleanup legacy file after successful migration
         try:
             legacy_path.unlink()
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug("Failed to cleanup legacy cache index: %s", e)
 
     def _update_index(
         self,

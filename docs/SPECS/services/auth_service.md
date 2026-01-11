@@ -146,6 +146,6 @@ curl -I http://localhost:8001/login
 - `docs/SPECS/libs/redis_client.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `apps/auth_service/main.py`, `apps/auth_service/routes/*.py`, `apps/auth_service/dependencies.py`
 - **ADRs:** N/A

@@ -99,10 +99,13 @@ def render_equity_curve(
 
         ui.plotly(fig).classes("w-full")
 
-    except Exception:
-        # L-2 Fix: Log exception server-side, show generic message to user
-        logger.exception("equity_curve_render_error")
-        ui.notify("Unable to render equity curve. Please try again.", type="negative")
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        logger.warning(
+            "Equity curve rendering failed - invalid data",
+            extra={"chart": "equity_curve", "error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        ui.label("Chart unavailable - data error").classes("text-gray-500 text-center p-4")
 
 
 __all__ = ["render_equity_curve"]

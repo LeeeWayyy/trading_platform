@@ -87,8 +87,24 @@ class PositionBasedSubscription:
             if self.initial_sync:
                 try:
                     await self._sync_subscriptions()
+                except httpx.HTTPStatusError as e:
+                    logger.error(
+                        "Initial subscription sync failed - HTTP error",
+                        extra={"status_code": e.response.status_code, "url": str(e.request.url)},
+                        exc_info=True,
+                    )
+                except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+                    logger.error(
+                        "Initial subscription sync failed - Network error",
+                        extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                        exc_info=True,
+                    )
                 except Exception as e:
-                    logger.error(f"Initial subscription sync failed: {e}")
+                    logger.error(
+                        "Initial subscription sync failed - Unexpected error",
+                        extra={"error": str(e), "error_type": type(e).__name__},
+                        exc_info=True,
+                    )
 
             # Main sync loop
             # M2 Fix: Use Event.wait() with timeout instead of sleep() for clean shutdown
@@ -116,8 +132,36 @@ class PositionBasedSubscription:
                     logger.info("Subscription sync loop cancelled")
                     raise  # Re-raise to exit the loop
 
+                except SubscriptionError as e:
+                    logger.error(
+                        "Subscription sync error - SubscriptionError",
+                        extra={"error": str(e), "error_type": type(e).__name__},
+                        exc_info=True,
+                    )
+                    # Continue loop even on error
+
+                except httpx.HTTPStatusError as e:
+                    logger.error(
+                        "Subscription sync error - HTTP error",
+                        extra={"status_code": e.response.status_code, "url": str(e.request.url)},
+                        exc_info=True,
+                    )
+                    # Continue loop even on error
+
+                except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+                    logger.error(
+                        "Subscription sync error - Network error",
+                        extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                        exc_info=True,
+                    )
+                    # Continue loop even on error
+
                 except Exception as e:
-                    logger.error(f"Subscription sync error: {e}", exc_info=True)
+                    logger.error(
+                        "Subscription sync error - Unexpected error",
+                        extra={"error": str(e), "error_type": type(e).__name__},
+                        exc_info=True,
+                    )
                     # Continue loop even on error
 
         finally:
@@ -240,8 +284,30 @@ class PositionBasedSubscription:
             # Update tracking
             self._last_position_symbols = position_symbols
 
+        except SubscriptionError as e:
+            logger.error(
+                "Subscription sync failed - SubscriptionError",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Subscription sync failed - HTTP error",
+                extra={"status_code": e.response.status_code, "url": str(e.request.url)},
+                exc_info=True,
+            )
+        except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+            logger.error(
+                "Subscription sync failed - Network error",
+                extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                exc_info=True,
+            )
         except Exception as e:
-            logger.error(f"Subscription sync failed: {e}", exc_info=True)
+            logger.error(
+                "Subscription sync failed - Unexpected error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
 
     async def _fetch_position_symbols(self) -> set[str] | None:
         """
@@ -271,18 +337,36 @@ class PositionBasedSubscription:
 
                 return symbols
 
-        except httpx.TimeoutException:
-            logger.error("Timeout fetching positions from Execution Gateway")
+        except httpx.TimeoutException as e:
+            logger.error(
+                "Timeout fetching positions from Execution Gateway",
+                extra={"error": str(e), "gateway_url": self.gateway_url, "timeout": 10.0},
+                exc_info=True,
+            )
             return None
 
-        except httpx.ConnectError:
+        except httpx.ConnectError as e:
             logger.error(
-                f"Cannot connect to Execution Gateway at {self.gateway_url}. " f"Is it running?"
+                "Cannot connect to Execution Gateway",
+                extra={"error": str(e), "gateway_url": self.gateway_url},
+                exc_info=True,
+            )
+            return None
+
+        except (ValueError, KeyError, TypeError) as e:
+            logger.error(
+                "Data processing failed - invalid response structure",
+                extra={"error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
             )
             return None
 
         except Exception as e:
-            logger.error(f"Error fetching positions: {e}", exc_info=True)
+            logger.error(
+                "Error fetching positions - Unexpected error",
+                extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                exc_info=True,
+            )
             return None
 
     def get_stats(self) -> dict[str, Any]:

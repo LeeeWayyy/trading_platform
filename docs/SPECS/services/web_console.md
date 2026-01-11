@@ -75,6 +75,6 @@ Until then, they remain in `apps/web_console/` for backward compatibility with e
 - `docs/ADRs/ADR-0031-nicegui-migration.md` - Migration rationale
 
 ## Metadata
-- **Last Updated:** 2026-01-09 (housekeeping refresh)
+- **Last Updated:** 2026-01-10
 - **Source Files:** `apps/web_console/__init__.py`, `apps/web_console/services/`, `apps/web_console/utils/`, `apps/web_console/data/`, `apps/web_console/auth/`, `apps/web_console/config.py`
 - **ADRs:** ADR-0031-nicegui-migration

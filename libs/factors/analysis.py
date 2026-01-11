@@ -67,9 +67,30 @@ class FactorAnalysisService:
                     )
                     stock_exposures_list.append(exp_df)
                 else:
-                    logger.warning(f"Factor {factor_name} result missing zscore column")
-            except Exception as e:
-                logger.error(f"Failed to compute factor {factor_name}: {e}")
+                    logger.warning(
+                        "Factor result missing zscore column, skipping factor",
+                        extra={"factor": factor_name, "as_of_date": str(as_of_date)},
+                    )
+            except (KeyError, ValueError) as e:
+                logger.error(
+                    "Factor computation failed - data error",
+                    extra={
+                        "factor": factor_name,
+                        "as_of_date": str(as_of_date),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
+            except (pl.exceptions.ComputeError, pl.exceptions.ColumnNotFoundError) as e:
+                logger.error(
+                    "Factor computation failed - Polars computation error",
+                    extra={
+                        "factor": factor_name,
+                        "as_of_date": str(as_of_date),
+                        "error": str(e),
+                    },
+                    exc_info=True,
+                )
 
         if not stock_exposures_list:
             return self._empty_result(as_of_date)

@@ -292,9 +292,30 @@ def get_alpaca_executor() -> AlpacaExecutor | None:
         return AlpacaExecutor(
             api_key=api_key, secret_key=secret_key, base_url=base_url, paper=paper_flag
         )
-    except Exception:
-        # Keep None to allow fail-closed responses; actual errors logged by caller
-        logger.exception("alpaca_executor_init_failed")
+    except (ValueError, TypeError) as exc:
+        # Invalid credentials or configuration - fail closed with None
+        logger.error(
+            "alpaca_executor_init_failed",
+            extra={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "base_url": base_url,
+                "paper": paper_flag,
+            },
+            exc_info=True,
+        )
+        return None
+    except (ConnectionError, TimeoutError) as exc:
+        # Network error connecting to Alpaca - fail closed with None
+        logger.error(
+            "alpaca_executor_connection_failed",
+            extra={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "base_url": base_url,
+            },
+            exc_info=True,
+        )
         return None
 
 
@@ -459,11 +480,56 @@ async def check_rate_limit_with_fallback(
             user_id, action, max_requests, window_seconds
         )
         return allowed, remaining, False
+    except redis.exceptions.ConnectionError as exc:
+        # Redis connection error - fail closed per task doc
+        logger.error(
+            "rate_limit_redis_connection_error",
+            extra={
+                "action": action,
+                "user_id": user_id,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+            exc_info=True,
+        )
+        return False, 0, True
+    except redis.exceptions.RedisError as exc:
+        # Redis operation error (timeout, pipeline error, etc.) - fail closed
+        logger.error(
+            "rate_limit_redis_error",
+            extra={
+                "action": action,
+                "user_id": user_id,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+            exc_info=True,
+        )
+        return False, 0, True
+    except (ValueError, KeyError) as exc:
+        # Invalid data structure or missing key - fail closed
+        logger.error(
+            "rate_limit_data_error",
+            extra={
+                "action": action,
+                "user_id": user_id,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+            exc_info=True,
+        )
+        return False, 0, True
     except Exception as exc:
-        # Fail closed per task doc - log error for debugging
-        logger.warning(
-            "rate_limit_fallback",
-            extra={"action": action, "user_id": user_id, "error": str(exc)},
+        # Catch-all for unexpected errors - fail closed for safety
+        logger.error(
+            "rate_limit_unexpected_error",
+            extra={
+                "action": action,
+                "user_id": user_id,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+            exc_info=True,
         )
         return False, 0, True
 
@@ -499,10 +565,39 @@ async def verify_2fa_token(
         return False, "token_not_yet_valid", None
     except httpx.RequestError as exc:
         # Network error fetching JWKS - return specific error for observability
-        logger.warning("mfa_jwks_fetch_failed", extra={"error": str(exc)})
+        logger.error(
+            "mfa_jwks_fetch_failed",
+            extra={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "requesting_user_id": requesting_user_id,
+            },
+            exc_info=True,
+        )
         return False, "mfa_unavailable", None
-    except Exception:
-        logger.exception("mfa_token_validation_failed")
+    except (jwt.InvalidTokenError, jwt.DecodeError) as exc:
+        # JWT decode/validation error (malformed token, invalid signature, etc.)
+        logger.error(
+            "mfa_token_validation_failed",
+            extra={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "requesting_user_id": requesting_user_id,
+            },
+            exc_info=True,
+        )
+        return False, "invalid_jwt", None
+    except (ValueError, KeyError) as exc:
+        # Invalid data structure or missing claims
+        logger.error(
+            "mfa_token_data_error",
+            extra={
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "requesting_user_id": requesting_user_id,
+            },
+            exc_info=True,
+        )
         return False, "invalid_jwt", None
 
     if claims.get("sub") != requesting_user_id:

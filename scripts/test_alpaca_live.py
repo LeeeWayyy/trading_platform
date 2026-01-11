@@ -102,8 +102,11 @@ def test_1_connection():
         print("\n✅ PASSED: Account is active and ready for trading")
         return executor
 
-    except Exception as e:
-        print(f"❌ FAILED: {e}")
+    except (ValueError, KeyError) as e:
+        print(f"❌ FAILED: Invalid account data: {e}")
+        return None
+    except OSError as e:
+        print(f"❌ FAILED: Connection error: {e}")
         return None
 
 
@@ -151,7 +154,7 @@ def test_2_submit_market_order(executor: AlpacaExecutor):
     except AlpacaClientError as e:
         print(f"❌ FAILED: {e}")
         return None
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         print(f"❌ FAILED: Unexpected error: {e}")
         return None
 
@@ -194,7 +197,7 @@ def test_3_submit_limit_order(executor: AlpacaExecutor):
     except AlpacaClientError as e:
         print(f"❌ FAILED: {e}")
         return None
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         print(f"❌ FAILED: Unexpected error: {e}")
         return None
 
@@ -224,7 +227,7 @@ def test_4_query_order(executor: AlpacaExecutor, client_order_id: str):
 
         return order
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         print(f"❌ FAILED: {e}")
         return None
 
@@ -250,7 +253,7 @@ def test_5_cancel_order(executor: AlpacaExecutor, broker_order_id: str):
         print(f"⚠️  Order could not be cancelled: {e}")
         print("   (This is OK if order already filled/cancelled)")
         return False
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         print(f"❌ FAILED: Unexpected error: {e}")
         return False
 
@@ -306,7 +309,7 @@ def test_6_idempotency(executor: AlpacaExecutor):
 
         return True
 
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         print(f"❌ FAILED: {e}")
         return False
 

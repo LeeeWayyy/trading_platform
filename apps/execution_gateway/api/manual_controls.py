@@ -11,6 +11,8 @@ from decimal import Decimal
 from typing import Any, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from psycopg import DatabaseError, OperationalError
+from pydantic import ValidationError
 
 from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
 from apps.execution_gateway.api.dependencies import (
@@ -309,7 +311,18 @@ async def cancel_order(
     try:
         # Mark as pending_cancel BEFORE broker call to avoid stale active state.
         await _db_call(db_client.update_order_status, order_id, "pending_cancel")
-    except Exception as exc:
+    except (OperationalError, DatabaseError) as exc:
+        # Database errors: connection failures, query errors, transaction issues
+        logger.error(
+            "Database error updating order status before cancel",
+            extra={
+                "client_order_id": order_id,
+                "action": "cancel_order",
+                "user_id": user.user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
         await audit_logger.log_action(
             user_id=user.user_id,
             action="cancel_order",
@@ -321,6 +334,30 @@ async def cancel_order(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_detail("db_error", "Failed to update order status before cancel"),
+        ) from exc
+    except ValidationError as exc:
+        # Pydantic validation errors when constructing OrderDetail from DB row
+        logger.error(
+            "Validation error updating order status before cancel",
+            extra={
+                "client_order_id": order_id,
+                "action": "cancel_order",
+                "user_id": user.user_id,
+                "error": str(exc),
+                "validation_errors": exc.errors(),
+            },
+        )
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="cancel_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="failed",
+            details={"reason": request.reason, "error": f"validation_failed: {exc}"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_detail("validation_error", "Invalid order data after status update"),
         ) from exc
 
     try:
@@ -464,7 +501,19 @@ async def cancel_all_orders(
         strategies_affected.add(order.strategy_id or "")
         try:
             await _db_call(db_client.update_order_status, order.client_order_id, "pending_cancel")
-        except Exception as exc:
+        except (OperationalError, DatabaseError) as exc:
+            # Database errors: connection failures, query errors, transaction issues
+            logger.error(
+                "Database error updating order status in cancel_all",
+                extra={
+                    "client_order_id": order.client_order_id,
+                    "action": "cancel_all_orders",
+                    "user_id": user.user_id,
+                    "symbol": request.symbol,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
             failed_ids.append(order.client_order_id)
             await audit_logger.log_action(
                 user_id=user.user_id,
@@ -473,6 +522,29 @@ async def cancel_all_orders(
                 resource_id=order.client_order_id,
                 outcome="failed",
                 details={"reason": request.reason, "error": f"db_update_failed: {exc}"},
+            )
+            continue
+        except ValidationError as exc:
+            # Pydantic validation errors when constructing OrderDetail from DB row
+            logger.error(
+                "Validation error updating order status in cancel_all",
+                extra={
+                    "client_order_id": order.client_order_id,
+                    "action": "cancel_all_orders",
+                    "user_id": user.user_id,
+                    "symbol": request.symbol,
+                    "error": str(exc),
+                    "validation_errors": exc.errors(),
+                },
+            )
+            failed_ids.append(order.client_order_id)
+            await audit_logger.log_action(
+                user_id=user.user_id,
+                action="cancel_order",
+                resource_type="order",
+                resource_id=order.client_order_id,
+                outcome="failed",
+                details={"reason": request.reason, "error": f"validation_failed: {exc}"},
             )
             continue
 

@@ -156,9 +156,31 @@ async def fetch_current_prices(symbols: list[str], config: dict[str, Any]) -> di
         print("     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
         return {}
 
+    except httpx.HTTPStatusError as e:
+        # HTTP error from Alpaca API - log with status code
+        print(
+            f"  ⚠️  Warning: Alpaca API HTTP error {e.response.status_code}: {e}",
+            file=sys.stderr,
+        )
+        print("     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
+        return {}
+
+    except httpx.ConnectTimeout as e:
+        # Connection timeout - log and fallback
+        print(f"  ⚠️  Warning: Alpaca API connection timeout: {e}", file=sys.stderr)
+        print("     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
+        return {}
+
+    except (OSError, ValueError) as e:
+        # Unexpected I/O or validation errors - log and fallback
+        print(f"  ⚠️  Warning: Error fetching prices (I/O or validation): {e}", file=sys.stderr)
+        print("     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
+        return {}
+
     except Exception as e:
-        # Unexpected error - log and return empty dict
+        # Catch-all for unexpected errors - log and fallback
         print(f"  ⚠️  Unexpected error fetching prices: {e}", file=sys.stderr)
+        print("     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
         return {}
 
 
@@ -231,7 +253,17 @@ async def fetch_positions(execution_gateway_url: str) -> list[dict[str, Any]]:
             try:
                 error_json = e.response.json()
                 error_detail = error_json.get("detail", str(error_json))
-            except Exception:
+            except json.JSONDecodeError as e_json:
+                # JSON parsing failed - use raw text
+                print(
+                    f"  Warning: Could not parse error JSON from T4 API: {e_json}", file=sys.stderr
+                )
+                error_detail = e.response.text[:500]
+            except (OSError, ValueError) as e_other:
+                # Other errors parsing response
+                print(
+                    f"  Warning: Error reading T4 API response: {e_other}", file=sys.stderr
+                )
                 error_detail = e.response.text[:500]
 
             raise RuntimeError(
@@ -833,7 +865,19 @@ async def trigger_orchestration(config: dict[str, Any]) -> dict[str, Any]:
             try:
                 error_json = e.response.json()
                 error_detail = error_json.get("detail", str(error_json))
-            except Exception:
+            except json.JSONDecodeError as e_json:
+                # JSON parsing failed - use raw text
+                print(
+                    f"  Warning: Could not parse error JSON from orchestrator: {e_json}",
+                    file=sys.stderr,
+                )
+                error_detail = e.response.text[:500]
+            except (OSError, ValueError) as e_other:
+                # Other errors parsing response
+                print(
+                    f"  Warning: Error reading orchestrator response: {e_other}",
+                    file=sys.stderr,
+                )
                 error_detail = e.response.text[:500]
 
             raise RuntimeError(
@@ -1280,10 +1324,23 @@ async def main() -> int:
         print("\n\n⚠️  Cancelled by user", file=sys.stderr)
         return 130  # Standard exit code for SIGINT
 
+    except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
+        # HTTP/network errors - log with specific error type
+        print("\n❌ Network/API Error:", file=sys.stderr)
+        print(f"{type(e).__name__}: {e}", file=sys.stderr)
+        print("\nCheck service availability and network connectivity", file=sys.stderr)
+        return 2
+
+    except (OSError, FileNotFoundError, PermissionError) as e:
+        # File I/O errors - log with file context
+        print("\n❌ File I/O Error:", file=sys.stderr)
+        print(f"{type(e).__name__}: {e}", file=sys.stderr)
+        return 3
+
     except Exception as e:
-        # Unexpected errors
+        # Unexpected errors - log with type and full details
         print("\n❌ Unexpected Error:", file=sys.stderr)
-        print(f"{e}", file=sys.stderr)
+        print(f"{type(e).__name__}: {e}", file=sys.stderr)
 
         # Print full traceback in verbose mode
         if "config" in locals() and locals()["config"].get("verbose"):

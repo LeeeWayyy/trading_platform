@@ -211,8 +211,32 @@ async def model_reload_task() -> None:
                         logger.info("Cold-load recovery successful - model now loaded")
                     else:
                         logger.warning("Cold-load recovery failed - will retry next interval")
-                except Exception as e:
-                    logger.warning(f"Cold-load recovery error: {e} - will retry next interval")
+                except (ValueError, KeyError) as e:
+                    logger.warning(
+                        "Cold-load recovery error: invalid model data - will retry next interval",
+                        extra={
+                            "strategy": settings.default_strategy,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                    )
+                except (FileNotFoundError, OSError) as e:
+                    logger.warning(
+                        "Cold-load recovery error: model file not accessible - will retry next interval",
+                        extra={
+                            "strategy": settings.default_strategy,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                    )
+                except RedisConnectionError as e:
+                    logger.warning(
+                        "Cold-load recovery error: Redis connection failed - will retry next interval",
+                        extra={
+                            "strategy": settings.default_strategy,
+                            "error": str(e),
+                        },
+                    )
                 continue
 
             # Check for model updates
@@ -242,8 +266,35 @@ async def model_reload_task() -> None:
             else:
                 logger.debug("No model updates found")
 
-        except Exception as e:
-            logger.error(f"Model reload task failed: {e}", exc_info=True)
+        except (ValueError, KeyError) as e:
+            logger.error(
+                "Model reload task failed: invalid model data",
+                extra={
+                    "strategy": settings.default_strategy,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+        except (FileNotFoundError, OSError) as e:
+            logger.error(
+                "Model reload task failed: model file not accessible",
+                extra={
+                    "strategy": settings.default_strategy,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+        except RedisConnectionError as e:
+            logger.error(
+                "Model reload task failed: Redis connection error",
+                extra={
+                    "strategy": settings.default_strategy,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             # Continue polling even if one check fails
             # This provides resilience against transient errors
 
@@ -291,9 +342,39 @@ async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
             settings.feature_hydration_timeout_seconds,
         )
         # Keep hydration_complete = False to maintain degraded health status
-    except Exception as e:
+    except (ValueError, KeyError, TypeError) as e:
         logger.error(
-            f"Feature cache hydration failed: {e}; health will remain degraded", exc_info=True
+            "Feature cache hydration failed: invalid data format; health will remain degraded",
+            extra={
+                "symbols_count": len(symbols),
+                "history_days": history_days,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        # Keep hydration_complete = False to maintain degraded health status
+    except (FileNotFoundError, OSError) as e:
+        logger.error(
+            "Feature cache hydration failed: data file not accessible; health will remain degraded",
+            extra={
+                "symbols_count": len(symbols),
+                "history_days": history_days,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        # Keep hydration_complete = False to maintain degraded health status
+    except RedisConnectionError as e:
+        logger.error(
+            "Feature cache hydration failed: Redis connection error; health will remain degraded",
+            extra={
+                "symbols_count": len(symbols),
+                "history_days": history_days,
+                "error": str(e),
+            },
+            exc_info=True,
         )
         # Keep hydration_complete = False to maintain degraded health status
 
@@ -668,8 +749,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         yield  # Application runs here
 
-    except Exception as e:
-        logger.error(f"Failed to start Signal Service: {e}", exc_info=True)
+    except (ValueError, KeyError, TypeError) as e:
+        logger.error(
+            "Failed to start Signal Service: invalid configuration or data",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        raise
+    except (FileNotFoundError, OSError) as e:
+        logger.error(
+            "Failed to start Signal Service: file or database not accessible",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        raise
+    except RedisConnectionError as e:
+        logger.error(
+            "Failed to start Signal Service: Redis connection error",
+            extra={
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise
+    except RuntimeError as e:
+        logger.error(
+            "Failed to start Signal Service: runtime initialization error",
+            extra={
+                "error": str(e),
+            },
+            exc_info=True,
+        )
         raise
 
     finally:
@@ -976,7 +1092,36 @@ def _shadow_validate(old_model: Any, new_model: Any) -> ShadowValidationResult:
         status_label = "passed" if result.passed else "rejected"
         _record_shadow_validation(result, status_label)
         return result
-    except Exception:
+    except (ValueError, KeyError, TypeError) as e:
+        logger.error(
+            "Shadow validation failed: invalid model data",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        _record_shadow_validation(None, "failed")
+        raise
+    except (FileNotFoundError, OSError) as e:
+        logger.error(
+            "Shadow validation failed: data file not accessible",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        _record_shadow_validation(None, "failed")
+        raise
+    except RuntimeError as e:
+        logger.error(
+            "Shadow validation failed: validation runtime error",
+            extra={
+                "error": str(e),
+            },
+            exc_info=True,
+        )
         _record_shadow_validation(None, "failed")
         raise
 
@@ -1577,8 +1722,51 @@ async def generate_signals(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request: {str(exc)}"
             ) from exc
-        except Exception as exc:
-            logger.error(f"Signal generation failed: {exc}", exc_info=True)
+        except (KeyError, TypeError) as exc:
+            logger.error(
+                "Signal generation failed: invalid data format",
+                extra={
+                    "symbols": request.symbols,
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "strategy": (
+                        model_registry.current_metadata.strategy_name
+                        if model_registry.current_metadata
+                        else "unknown"
+                    ),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Signal generation failed: {str(exc)}",
+            ) from exc
+        except OSError as exc:
+            logger.error(
+                "Signal generation failed: data file I/O error",
+                extra={
+                    "symbols": request.symbols,
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Signal generation failed: {str(exc)}",
+            ) from exc
+        except RedisConnectionError as exc:
+            logger.error(
+                "Signal generation failed: Redis connection error",
+                extra={
+                    "symbols": request.symbols,
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Signal generation failed: {str(exc)}",
@@ -1649,9 +1837,40 @@ async def generate_signals(
     except HTTPException:
         request_status = "error"
         raise
-    except Exception:
+    except (ValueError, KeyError, TypeError) as e:
         request_status = "error"
-        logger.exception("Unhandled failure in generate_signals")
+        logger.error(
+            "Unhandled failure in generate_signals: invalid data or type error",
+            extra={
+                "symbols": request.symbols if "request" in locals() else [],
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        raise
+    except (FileNotFoundError, OSError) as e:
+        request_status = "error"
+        logger.error(
+            "Unhandled failure in generate_signals: file or I/O error",
+            extra={
+                "symbols": request.symbols if "request" in locals() else [],
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        raise
+    except RuntimeError as e:
+        request_status = "error"
+        logger.error(
+            "Unhandled failure in generate_signals: runtime error",
+            extra={
+                "symbols": request.symbols if "request" in locals() else [],
+                "error": str(e),
+            },
+            exc_info=True,
+        )
         raise
     finally:
         # Always record metrics
@@ -1956,8 +2175,56 @@ async def reload_model() -> dict[str, Any]:
 
         return response
 
-    except Exception as e:
-        logger.error(f"Manual model reload failed: {e}", exc_info=True)
+    except (ValueError, KeyError) as e:
+        logger.error(
+            "Manual model reload failed: invalid model data",
+            extra={
+                "strategy": settings.default_strategy,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Model reload failed: {str(e)}",
+        ) from e
+    except (FileNotFoundError, OSError) as e:
+        logger.error(
+            "Manual model reload failed: model file not accessible",
+            extra={
+                "strategy": settings.default_strategy,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Model reload failed: {str(e)}",
+        ) from e
+    except RedisConnectionError as e:
+        logger.error(
+            "Manual model reload failed: Redis connection error",
+            extra={
+                "strategy": settings.default_strategy,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Model reload failed: {str(e)}",
+        ) from e
+    except RuntimeError as e:
+        logger.error(
+            "Manual model reload failed: runtime error",
+            extra={
+                "strategy": settings.default_strategy,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Model reload failed: {str(e)}",

@@ -371,8 +371,12 @@ class ManifestManager:
                     # Can't read lock file, remove it
                     logger.warning("Removing unreadable lock for %s", dataset)
                     lock_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug(
+                "Failed to check/break stale lock for %s: %s",
+                dataset,
+                e,
+            )
 
     def _release_lock(self, lock_path: Path, lock_data: dict[str, Any], dataset: str) -> None:
         """Release lock with atomic verification.
@@ -963,8 +967,11 @@ class ManifestManager:
             if staging_path.exists():
                 try:
                     shutil.rmtree(staging_path)
-                except OSError:
-                    pass
+                except OSError as cleanup_err:
+                    logger.debug(
+                        "Failed to cleanup staging path during error recovery: %s",
+                        cleanup_err,
+                    )
             raise QuarantineError(f"Failed to quarantine data: {e}") from e
 
     def list_manifests(self) -> list[SyncManifest]:
@@ -1036,7 +1043,22 @@ class ManifestManager:
             finally:
                 os.close(dir_fd)
 
-        except Exception:
+        except OSError as e:
+            logger.error(
+                "Failed to write manifest file - I/O error during atomic write",
+                extra={"path": str(path), "temp_path": str(temp_path), "error": str(e)},
+                exc_info=True,
+            )
+            # Clean up temp file on failure
+            if Path(temp_path).exists():
+                Path(temp_path).unlink()
+            raise
+        except TypeError as e:
+            logger.error(
+                "Failed to write manifest file - JSON serialization error",
+                extra={"path": str(path), "error": str(e)},
+                exc_info=True,
+            )
             # Clean up temp file on failure
             if Path(temp_path).exists():
                 Path(temp_path).unlink()

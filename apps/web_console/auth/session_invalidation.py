@@ -56,9 +56,18 @@ async def invalidate_user_sessions(
                     (admin_user_id, user_id),
                 )
                 row = await cursor.fetchone()
-    except Exception as exc:  # pragma: no cover
+    except (OSError, TimeoutError) as exc:  # pragma: no cover
+        # JUSTIFIED: Fail-closed database error handler during session invalidation
+        # OSError: Database connection errors (psycopg.OperationalError inherits from OSError)
+        # TimeoutError: Query timeout during UPDATE
         logger.exception(
-            "session_invalidation_failed", extra={"user_id": user_id, "error": str(exc)}
+            "session_invalidation_failed",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "admin_user_id": admin_user_id,
+            },
         )
         raise
 
@@ -77,8 +86,20 @@ async def invalidate_user_sessions(
                 target_user_id=user_id,
                 details={"new_session_version": new_version},
             )
-        except Exception:  # pragma: no cover
-            logger.warning("audit_log_failure_during_invalidation", exc_info=True)
+        except (OSError, TimeoutError) as exc:  # pragma: no cover
+            # JUSTIFIED: Defensive handler for audit logging failures during invalidation
+            # OSError: Database connection errors for audit log write
+            # TimeoutError: Audit log INSERT timeout
+            logger.warning(
+                "audit_log_failure_during_invalidation",
+                extra={
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "user_id": user_id,
+                    "admin_user_id": admin_user_id,
+                },
+                exc_info=True,
+            )
 
     return new_version
 
@@ -95,9 +116,17 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
                     (user_id,),
                 )
                 row = await cursor.fetchone()
-    except Exception as exc:  # pragma: no cover
+    except (OSError, TimeoutError) as exc:  # pragma: no cover
+        # JUSTIFIED: Fail-closed database error handler during session version validation
+        # OSError: Database connection errors (psycopg.OperationalError inherits from OSError)
+        # TimeoutError: Query timeout during SELECT
         logger.exception(
-            "session_version_validation_failed", extra={"user_id": user_id, "error": str(exc)}
+            "session_version_validation_failed",
+            extra={
+                "user_id": user_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
         )
         return False
 

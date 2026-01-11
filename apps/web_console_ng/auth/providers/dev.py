@@ -116,5 +116,12 @@ class DevAuthHandler(AuthProvider):
                 requires_mfa=False,
             )
         except Exception as e:
-            logger.exception("dev_auth_session_error")
+            logger.exception(
+                "dev_auth_session_error",
+                extra={
+                    "user_id": dev_user["user_id"],
+                    "client_ip": kwargs.get("client_ip", "unknown"),
+                    "error_type": type(e).__name__,
+                },
+            )
             return AuthResult(success=False, error_message=f"Session creation failed: {e}")

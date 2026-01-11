@@ -259,7 +259,12 @@ class IdPHealthChecker:
                     },
                 )
 
-        except Exception as e:
+        except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError, ValueError) as e:
+            # IdP health check failures
+            # httpx.TimeoutException: Timeout connecting to IdP
+            # httpx.HTTPStatusError: HTTP 4xx/5xx from IdP
+            # httpx.RequestError: Network errors (connection refused, DNS failure)
+            # ValueError: OIDC configuration validation failures (missing fields, issuer mismatch)
             self._consecutive_failures += 1
             self._consecutive_successes = 0  # Reset success counter on any failure
             self._stability_start = None  # Reset stability timer on failure
@@ -319,6 +324,7 @@ class IdPHealthChecker:
                 extra={
                     "auth0_domain": self.auth0_domain,
                     "error": str(e),
+                    "error_type": type(e).__name__,
                     "consecutive_failures": self._consecutive_failures,
                     "fallback_mode": self._fallback_mode,
                 },

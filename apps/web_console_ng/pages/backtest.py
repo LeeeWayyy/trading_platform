@@ -115,8 +115,11 @@ def _get_user_jobs_sync(
         if progress_raw is not None:
             try:
                 progress = json.loads(progress_raw)
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.debug(
+                    "Failed to parse progress JSON, using default",
+                    extra={"error": str(e)},
+                )
         # Coerce and clamp progress_pct to handle string/None values from Redis
         raw_pct = progress.get("pct", 0)
         try:
@@ -325,9 +328,20 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
 
                 job = await run.io_bound(submit_sync)
                 ui.notify(f"Backtest queued! Job ID: {job.id}", type="positive")
-            except Exception as e:
-                logger.exception("backtest_submit_failed", extra={"error": str(e)})
-                ui.notify("Failed to submit backtest. Please try again.", type="negative")
+            except (ConnectionError, OSError) as e:
+                logger.error(
+                    "backtest_submit_db_connection_failed",
+                    extra={"user_id": user_id, "alpha_name": job_config.alpha_name, "error": str(e)},
+                    exc_info=True,
+                )
+                ui.notify("Failed to submit backtest: Database connection error", type="negative")
+            except (ValueError, TypeError) as e:
+                logger.error(
+                    "backtest_submit_data_error",
+                    extra={"user_id": user_id, "alpha_name": job_config.alpha_name, "error": str(e)},
+                    exc_info=True,
+                )
+                ui.notify("Failed to submit backtest: Invalid configuration", type="negative")
 
         ui.button("Run Backtest", on_click=submit_job, color="primary").classes("mt-4")
 
@@ -401,9 +415,20 @@ async def _render_running_jobs(
                             ui.notify("Job cancelled", type="positive")
                             await fetch_jobs()
                             jobs_list.refresh()
-                        except Exception as e:
-                            logger.exception("job_cancel_failed", extra={"job_id": job_id, "error": str(e)})
-                            ui.notify("Failed to cancel job. Please try again.", type="negative")
+                        except (ConnectionError, OSError) as e:
+                            logger.error(
+                                "job_cancel_db_connection_failed",
+                                extra={"job_id": job_id, "error": str(e)},
+                                exc_info=True,
+                            )
+                            ui.notify("Failed to cancel job: Database connection error", type="negative")
+                        except (ValueError, TypeError) as e:
+                            logger.error(
+                                "job_cancel_data_error",
+                                extra={"job_id": job_id, "error": str(e)},
+                                exc_info=True,
+                            )
+                            ui.notify("Failed to cancel job: Invalid operation", type="negative")
 
                     ui.button("Cancel", on_click=cancel, color="red").props("flat")
 
@@ -533,9 +558,20 @@ async def _render_backtest_results(
                     try:
                         result = await run.io_bound(load_result, job_id)
                         results.append(result)
-                    except Exception as e:
-                        logger.exception("result_load_failed", extra={"job_id": job_id, "error": str(e)})
-                        ui.notify("Failed to load result. Please try again.", type="negative")
+                    except (ConnectionError, OSError) as e:
+                        logger.error(
+                            "result_load_db_connection_failed",
+                            extra={"job_id": job_id, "error": str(e)},
+                            exc_info=True,
+                        )
+                        ui.notify("Failed to load result: Database connection error", type="negative")
+                    except (ValueError, KeyError, TypeError) as e:
+                        logger.error(
+                            "result_load_data_error",
+                            extra={"job_id": job_id, "error": str(e)},
+                            exc_info=True,
+                        )
+                        ui.notify("Failed to load result: Data processing error", type="negative")
 
                 if len(results) >= 2:
                     _render_comparison_table(results)
@@ -584,9 +620,20 @@ async def _render_backtest_results(
                                 storage = BacktestResultStorage(db_pool)
                                 result = await run.io_bound(lambda: storage.get_result(job_id))
                                 _render_backtest_result(result, user)
-                            except Exception as e:
-                                logger.exception("result_load_failed", extra={"job_id": job_id, "error": str(e)})
-                                ui.notify("Failed to load result. Please try again.", type="negative")
+                            except (ConnectionError, OSError) as e:
+                                logger.error(
+                                    "result_load_db_connection_failed",
+                                    extra={"job_id": job_id, "error": str(e)},
+                                    exc_info=True,
+                                )
+                                ui.notify("Failed to load result: Database connection error", type="negative")
+                            except (ValueError, KeyError, TypeError) as e:
+                                logger.error(
+                                    "result_load_data_error",
+                                    extra={"job_id": job_id, "error": str(e)},
+                                    exc_info=True,
+                                )
+                                ui.notify("Failed to load result: Data processing error", type="negative")
 
                         ui.button("Load Details", on_click=show_result).props("flat")
 

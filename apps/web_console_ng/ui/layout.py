@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
@@ -13,6 +14,8 @@ from apps.web_console_ng.auth.middleware import get_current_user
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from libs.web_console_auth.permissions import Permission, has_permission
+
+logger = logging.getLogger(__name__)
 
 AsyncPage = Callable[..., Awaitable[Any]]
 
@@ -124,33 +127,45 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 async def logout() -> None:
                     # Fire-and-forget logout. Handle redirect fully in the browser
                     # to avoid server-side JS timeouts.
-                    ui.run_javascript(
-                        """
-                        (async () => {
-                          const getCookie = (name) => {
-                            const match = document.cookie
-                              .split('; ')
-                              .find((row) => row.startsWith(`${name}=`));
-                            return match ? match.split('=')[1] : '';
-                          };
-                          const csrf = getCookie('ng_csrf');
-                          try {
-                            const resp = await fetch('/auth/logout', {
-                              method: 'POST',
-                              headers: { 'X-CSRF-Token': csrf || '' },
-                            });
-                            let logoutUrl = null;
-                            if (resp.ok) {
-                              const data = await resp.json().catch(() => null);
-                              logoutUrl = data && data.logout_url ? data.logout_url : null;
-                            }
-                            window.location.href = logoutUrl || '/login';
-                          } catch (e) {
-                            window.location.href = '/login';
-                          }
-                        })();
-                        """
-                    )
+                    try:
+                        ui.run_javascript(
+                            """
+                            (async () => {
+                              const getCookie = (name) => {
+                                const match = document.cookie
+                                  .split('; ')
+                                  .find((row) => row.startsWith(`${name}=`));
+                                return match ? match.split('=')[1] : '';
+                              };
+                              const csrf = getCookie('ng_csrf');
+                              try {
+                                const resp = await fetch('/auth/logout', {
+                                  method: 'POST',
+                                  headers: { 'X-CSRF-Token': csrf || '' },
+                                });
+                                let logoutUrl = null;
+                                if (resp.ok) {
+                                  const data = await resp.json().catch(() => null);
+                                  logoutUrl = data && data.logout_url ? data.logout_url : null;
+                                }
+                                window.location.href = logoutUrl || '/login';
+                              } catch (e) {
+                                window.location.href = '/login';
+                              }
+                            })();
+                            """
+                        )
+                    except (RuntimeError, TimeoutError) as e:
+                        logger.warning(
+                            "Logout JavaScript execution failed",
+                            extra={
+                                "user_id": user_id,
+                                "error": str(e),
+                                "error_type": type(e).__name__,
+                            },
+                            exc_info=True,
+                        )
+                        ui.notify("Logout failed. Please try again.", type="negative")
 
                 ui.button(icon="logout", on_click=logout).props("flat color=white").tooltip(
                     "Logout"
@@ -260,7 +275,16 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         user_id, role=user_role, strategies=user_strategies
                     )
                     cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
-                except Exception:
+                except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError, TypeError) as e:
+                    # Circuit breaker status fetch failed - fallback to UNKNOWN and continue
+                    logger.warning(
+                        "Circuit breaker status fetch failed",
+                        extra={
+                            "user_id": user_id,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                    )
                     cb_state = "UNKNOWN"
 
                 if state == "ENGAGED":
@@ -318,7 +342,16 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
                 last_kill_switch_state = state
                 set_kill_switch_controls(state)
-            except Exception:
+            except (ValueError, KeyError, TypeError, ConnectionError, httpx.HTTPError) as e:
+                logger.warning(
+                    "Kill switch status update failed",
+                    extra={
+                        "user_id": user_id,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 kill_switch_button.set_text("STATUS UNKNOWN")
                 kill_switch_button.classes(
                     "bg-yellow-500 text-black",

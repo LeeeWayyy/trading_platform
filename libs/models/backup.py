@@ -137,7 +137,13 @@ class RegistryBackupManager:
         except (BlockingIOError, OSError):
             # Lock held by another process
             if self._restore_lock_file:
-                self._restore_lock_file.close()
+                try:
+                    self._restore_lock_file.close()
+                except OSError as close_err:
+                    logger.debug(
+                        "Failed to close restore lock file during error handling",
+                        extra={"error": str(close_err)},
+                    )
                 self._restore_lock_file = None
             # Check if it was a locking error or actual lock held
             raise RegistryLockError("Registry restore in progress (lock held).") from None
@@ -205,7 +211,13 @@ class RegistryBackupManager:
             yield
         except (BlockingIOError, OSError):
             if self._backup_lock_file:
-                self._backup_lock_file.close()
+                try:
+                    self._backup_lock_file.close()
+                except OSError as close_err:
+                    logger.debug(
+                        "Failed to close backup lock file during error handling",
+                        extra={"error": str(close_err)},
+                    )
                 self._backup_lock_file = None
             raise RegistryLockError("Registry backup in progress (lock held).") from None
         except Exception:
@@ -603,8 +615,8 @@ class RegistryBackupManager:
                 unit = parts[1]
                 if unit in multipliers:
                     return int(value * multipliers[unit])
-            except ValueError:
-                pass
+            except ValueError as e:
+                logger.debug("Failed to parse size value '%s': %s", size_str, e)
 
         # If parsing fails, try to interpret as raw bytes
         try:

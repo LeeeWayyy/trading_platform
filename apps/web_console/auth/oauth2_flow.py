@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+import jwt
 from pydantic import BaseModel
 
 from apps.web_console.auth.audit_log import AuditLogger
@@ -191,13 +192,21 @@ class OAuth2FlowHandler:
                 audit_logged = True
 
             return session_id, session_data
-        except Exception as exc:
+        except (httpx.HTTPStatusError, httpx.RequestError, jwt.InvalidTokenError, ValueError) as exc:
+            # OAuth2/OIDC token exchange and validation errors
+            # httpx.HTTPStatusError: HTTP 4xx/5xx from Auth0 token endpoint
+            # httpx.RequestError: Network errors (timeout, connection refused)
+            # jwt.InvalidTokenError: ID token validation failures
+            # ValueError: State validation, token parsing, or RBAC provisioning errors
             if audit_logger and not audit_logged:
                 await audit_logger.log_auth_event(
                     user_id=user_id,
                     action="login",
                     outcome="denied",
-                    details={"error": str(exc)},
+                    details={
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
                 )
             raise
 
@@ -230,11 +239,32 @@ class OAuth2FlowHandler:
             )
             return tokens, id_token_claims
         except httpx.HTTPStatusError as e:
-            logger.error(f"Token exchange failed: HTTP {e.response.status_code}")
+            # Auth0 token endpoint returned HTTP error (4xx/5xx)
+            logger.error(
+                "token_exchange_failed_http_error",
+                extra={
+                    "status_code": e.response.status_code,
+                    "response_text": e.response.text[:200],
+                },
+            )
             raise ValueError(f"Token exchange failed: {e.response.status_code}") from e
         except httpx.RequestError as e:
-            logger.error(f"Token exchange network error: {e}")
+            # Network error (timeout, connection refused, DNS failure)
+            logger.error(
+                "token_exchange_network_error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             raise ValueError(f"Token exchange network error: {str(e)}") from e
+        except jwt.InvalidTokenError as e:
+            # ID token validation failed (signature, claims, expiry)
+            logger.error(
+                "id_token_validation_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            raise ValueError(f"ID token validation failed: {str(e)}") from e
+        except ValueError:
+            # Re-raise ValueError from _assert_required_tokens or other validation
+            raise
         except Exception as e:
             logger.error(f"Callback validation failed: {e}")
             raise ValueError(f"Authentication validation failed: {str(e)}") from e
@@ -477,8 +507,29 @@ class OAuth2FlowHandler:
 
                     # Subject matches - safe to update
                     session_data.id_token = tokens["id_token"]
+                except jwt.InvalidTokenError as e:
+                    # ID token validation failed (signature, claims, expiry)
+                    logger.error(
+                        "id_token_validation_failed_on_refresh",
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "user_id": session_data.user_id,
+                        },
+                    )
+                    # Delete session on validation failure
+                    await self.session_store.delete_session(session_id)
+                    raise ValueError(f"ID token validation failed: {e}") from e
                 except Exception as e:
-                    logger.error(f"ID token validation failed on refresh: {e}")
+                    # Unexpected errors during ID token validation
+                    logger.error(
+                        "id_token_validation_unexpected_error",
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "user_id": session_data.user_id,
+                        },
+                    )
                     # Delete session on validation failure
                     await self.session_store.delete_session(session_id)
                     raise ValueError(f"ID token validation failed: {e}") from e
@@ -517,13 +568,21 @@ class OAuth2FlowHandler:
                 audit_logged = True
 
             return session_data
-        except Exception as exc:
+        except (httpx.HTTPStatusError, httpx.RequestError, jwt.InvalidTokenError, ValueError) as exc:
+            # Token refresh errors
+            # httpx.HTTPStatusError: HTTP 4xx/5xx from Auth0 token endpoint
+            # httpx.RequestError: Network errors (timeout, connection refused)
+            # jwt.InvalidTokenError: ID token validation failures
+            # ValueError: Session not found, binding mismatch, session version mismatch
             if audit_logger and not audit_logged:
                 await audit_logger.log_auth_event(
                     user_id=session_data.user_id if session_data else None,
                     action="refresh",
                     outcome="denied",
-                    details={"error": str(exc)},
+                    details={
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
                 )
             raise
 
@@ -561,9 +620,18 @@ class OAuth2FlowHandler:
                 logger.info(
                     "Refresh token revoked at Auth0", extra={"user_id": session_data.user_id}
                 )
-            except Exception as e:
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 # Non-critical: Session will still be deleted locally
-                logger.error(f"Refresh token revocation failed (non-critical): {e}")
+                # httpx.HTTPStatusError: HTTP 4xx/5xx from Auth0 revocation endpoint
+                # httpx.RequestError: Network errors during revocation
+                logger.error(
+                    "refresh_token_revocation_failed_non_critical",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "user_id": session_data.user_id,
+                    },
+                )
         elif not session_data:
             # Binding failed - delete session locally but don't revoke at Auth0
             logger.warning(

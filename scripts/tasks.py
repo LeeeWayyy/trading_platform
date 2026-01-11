@@ -439,8 +439,8 @@ def complete_task(task_id: str) -> None:
             end_date = date.today()
             days = (end_date - start_date).days
             duration = f"{days} days"
-        except ValueError:
-            pass
+        except ValueError as e:
+            print(f"Warning: Could not parse start date '{started}': {e}")
 
     # Update front matter
     update_front_matter(done_file, {"state": "DONE", "completed": today, "duration": duration})

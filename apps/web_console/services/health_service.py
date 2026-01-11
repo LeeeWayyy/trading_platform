@@ -144,8 +144,21 @@ class HealthMonitorService:
                         await cur.fetchone()
                 latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000
                 return True, latency_ms, None
+            except (ConnectionError, TimeoutError, OSError) as exc:
+                # Network/connection errors
+                logger.warning(
+                    "Postgres health check failed: %s (type=%s)",
+                    exc,
+                    type(exc).__name__,
+                )
+                return False, None, str(exc)
             except Exception as exc:
-                logger.warning("Postgres health check failed: %s", exc)
+                # Other database errors (query errors, etc.)
+                logger.warning(
+                    "Postgres health check failed unexpectedly: %s (type=%s)",
+                    exc,
+                    type(exc).__name__,
+                )
                 return False, None, str(exc)
 
         try:
@@ -205,9 +218,34 @@ class HealthMonitorService:
             self._connectivity_cache = (result, now)
             return result
 
+        except TimeoutError as exc:
+            # Timeout errors from wait_for
+            logger.warning(
+                "Connectivity check timed out: %s (type=%s)",
+                exc,
+                type(exc).__name__,
+            )
+
+            stale_result = self._get_stale_connectivity_or_none(now)
+            if stale_result:
+                return stale_result
+
+            return ConnectivityStatus(
+                redis_connected=False,
+                redis_info=None,
+                redis_error=str(exc),
+                postgres_connected=False,
+                postgres_latency_ms=None,
+                postgres_error=str(exc),
+                checked_at=now,
+            )
         except Exception as exc:
             # Safeguard for unexpected errors (should rarely be reached with gather)
-            logger.warning("Connectivity check failed unexpectedly: %s", exc)
+            logger.warning(
+                "Connectivity check failed unexpectedly: %s (type=%s)",
+                exc,
+                type(exc).__name__,
+            )
 
             stale_result = self._get_stale_connectivity_or_none(now)
             if stale_result:

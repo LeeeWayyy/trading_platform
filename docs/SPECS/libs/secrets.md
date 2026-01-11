@@ -84,6 +84,6 @@ cache = SecretCache(ttl_seconds=3600)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/secrets/__init__.py`, `libs/secrets/factory.py`, `libs/secrets/manager.py`
 - **ADRs:** `docs/ADRs/0017-secrets-management.md`

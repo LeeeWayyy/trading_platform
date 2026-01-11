@@ -146,6 +146,6 @@ ic = FactorAnalytics().compute_ic(exposures, forward_returns)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/factors/__init__.py`, `libs/factors/factor_builder.py`, `libs/factors/factor_definitions.py`, `libs/factors/factor_analytics.py`, `libs/factors/cache.py`
 - **ADRs:** N/A

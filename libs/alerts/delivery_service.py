@@ -9,7 +9,9 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
+import psycopg
 import redis.asyncio as redis_async
+import redis.exceptions
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -203,8 +205,18 @@ class DeliveryExecutor:
             # Atomic claim - prevents duplicate delivery by concurrent workers
             try:
                 delivery = await self._claim_delivery(delivery_id)
-            except Exception:
+            except (psycopg.Error, redis.exceptions.RedisError) as e:
                 # Release reserved queue slot if claim fails (e.g., DB outage)
+                logger.warning(
+                    "delivery_claim_failed",
+                    extra={
+                        "delivery_id": delivery_id,
+                        "channel": channel.value,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
                 await self.queue_depth_manager.decrement()
                 raise
             if delivery is None:
@@ -229,10 +241,16 @@ class DeliveryExecutor:
                 # consuming retry attempts on rate limits
                 try:
                     rate_limit_result = await self._check_rate_limits(delivery, channel)
-                except Exception:  # noqa: BLE001
-                    logger.exception(
-                        "rate_limit_check_error",
-                        extra={"delivery_id": delivery_id, "channel": channel.value},
+                except redis.exceptions.RedisError as e:
+                    logger.warning(
+                        "rate_limit_check_redis_error",
+                        extra={
+                            "delivery_id": delivery_id,
+                            "channel": channel.value,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                        exc_info=True,
                     )
                     rate_limit_result = DeliveryResult(
                         success=False,
@@ -277,15 +295,18 @@ class DeliveryExecutor:
                         )
                         try:
                             await self.retry_scheduler(retry_delay, rate_limit_attempt)
-                        except Exception:
-                            logger.exception(
+                        except (psycopg.Error, redis.exceptions.RedisError) as e:
+                            logger.warning(
                                 "retry_scheduler_enqueue_failed",
                                 extra={
                                     "delivery_id": delivery_id,
                                     "channel": channel.value,
                                     "delay": retry_delay,
                                     "attempt": current_attempt,
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
                                 },
+                                exc_info=True,
                             )
                             last_result = DeliveryResult(
                                 success=False,
@@ -459,7 +480,19 @@ class DeliveryExecutor:
                         try:
                             await self.retry_scheduler(delay, attempt_number)
                             alert_retry_total.labels(channel=channel.value).inc()
-                        except Exception:
+                        except (psycopg.Error, redis.exceptions.RedisError) as e:
+                            logger.warning(
+                                "retry_scheduler_enqueue_failed",
+                                extra={
+                                    "delivery_id": delivery_id,
+                                    "channel": channel.value,
+                                    "delay": delay,
+                                    "attempt": attempt_number,
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
+                                },
+                                exc_info=True,
+                            )
                             # Keep status unchanged; allow finally to decrement depth
                             raise
                         handoff_to_scheduler = True

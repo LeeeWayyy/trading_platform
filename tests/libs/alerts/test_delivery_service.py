@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import psycopg
 import pytest
+import redis.exceptions
 
 from libs.alerts.delivery_service import (
     DeliveryExecutor,
@@ -278,3 +280,208 @@ class TestDeliveryExecutor:
 
         assert result.success is True
         executor.queue_depth_manager.decrement.assert_awaited_once()
+
+
+class TestDeliveryExecutorExceptionHandling:
+    """Test DeliveryExecutor exception handling improvements."""
+
+    @pytest.fixture()
+    def mock_db_pool(self):
+        """Create mock database pool."""
+        pool = AsyncMock()
+        conn = AsyncMock()
+        cursor = AsyncMock()
+
+        # Setup context managers
+        pool.connection = MagicMock(return_value=conn)
+        conn.__aenter__ = AsyncMock(return_value=conn)
+        conn.__aexit__ = AsyncMock(return_value=None)
+        conn.cursor = MagicMock(return_value=cursor)
+        conn.commit = AsyncMock()
+        cursor.__aenter__ = AsyncMock(return_value=cursor)
+        cursor.__aexit__ = AsyncMock(return_value=None)
+        cursor.execute = AsyncMock()
+        cursor.fetchone = AsyncMock(return_value=None)
+
+        return pool
+
+    @pytest.fixture()
+    def mock_redis(self):
+        """Create mock Redis client."""
+        redis = AsyncMock()
+        redis.incr = AsyncMock(return_value=1)
+        redis.get = AsyncMock(return_value=None)
+        redis.set = AsyncMock(return_value=True)
+        redis.eval = AsyncMock(return_value=0)
+        return redis
+
+    @pytest.fixture()
+    def mock_poison_queue(self):
+        """Create mock poison queue."""
+        return AsyncMock()
+
+    @pytest.fixture()
+    def mock_channel(self):
+        """Create mock channel handler."""
+        channel = AsyncMock()
+        channel.send = AsyncMock(return_value=DeliveryResult(success=True, message_id="msg-123"))
+        return channel
+
+    @pytest.mark.asyncio()
+    async def test_claim_delivery_db_error_logs_and_decrements(
+        self, mock_db_pool, mock_redis, mock_poison_queue, mock_channel
+    ):
+        """Test DB error during claim logs warning and decrements queue depth."""
+        executor = DeliveryExecutor(
+            channels={ChannelType.SLACK: mock_channel},
+            db_pool=mock_db_pool,
+            redis_client=mock_redis,
+            poison_queue=mock_poison_queue,
+        )
+        executor.queue_depth_manager = MagicMock()
+        executor.queue_depth_manager.decrement = AsyncMock()
+
+        # Mock claim to raise psycopg.Error
+        db_error = psycopg.OperationalError("DB connection failed")
+        executor._claim_delivery = AsyncMock(side_effect=db_error)  # type: ignore[method-assign]
+
+        with pytest.raises(psycopg.OperationalError):
+            await executor.execute(
+                delivery_id="test-id",
+                channel=ChannelType.SLACK,
+                recipient="https://hooks.slack.com/services/T000/B000/XXXX",
+                subject="Test",
+                body="Body",
+            )
+
+        # Verify queue depth was decremented
+        executor.queue_depth_manager.decrement.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_claim_delivery_redis_error_logs_and_decrements(
+        self, mock_db_pool, mock_redis, mock_poison_queue, mock_channel
+    ):
+        """Test Redis error during claim logs warning and decrements queue depth."""
+        executor = DeliveryExecutor(
+            channels={ChannelType.SLACK: mock_channel},
+            db_pool=mock_db_pool,
+            redis_client=mock_redis,
+            poison_queue=mock_poison_queue,
+        )
+        executor.queue_depth_manager = MagicMock()
+        executor.queue_depth_manager.decrement = AsyncMock()
+
+        # Mock claim to raise redis error
+        redis_error = redis.exceptions.ConnectionError("Redis connection failed")
+        executor._claim_delivery = AsyncMock(side_effect=redis_error)  # type: ignore[method-assign]
+
+        with pytest.raises(redis.exceptions.ConnectionError):
+            await executor.execute(
+                delivery_id="test-id",
+                channel=ChannelType.SLACK,
+                recipient="https://hooks.slack.com/services/T000/B000/XXXX",
+                subject="Test",
+                body="Body",
+            )
+
+        # Verify queue depth was decremented
+        executor.queue_depth_manager.decrement.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_rate_limit_check_redis_error_continues_with_fallback(
+        self, mock_db_pool, mock_redis, mock_poison_queue, mock_channel
+    ):
+        """Test Redis error during rate limit check logs warning and continues with fallback."""
+        delivery_id = uuid4()
+        claimed_delivery = AlertDelivery(
+            id=delivery_id,
+            alert_id=uuid4(),
+            channel=ChannelType.SLACK,
+            recipient="https://hooks.slack.com/services/T000/B000/XXXX",
+            dedup_key="dedup:slack:hash",
+            status=DeliveryStatus.IN_PROGRESS,
+            attempts=0,
+            created_at=datetime.now(UTC),
+        )
+
+        executor = DeliveryExecutor(
+            channels={ChannelType.SLACK: mock_channel},
+            db_pool=mock_db_pool,
+            redis_client=mock_redis,
+            poison_queue=mock_poison_queue,
+        )
+        executor.queue_depth_manager = MagicMock()
+        executor.queue_depth_manager.decrement = AsyncMock()
+        executor._claim_delivery = AsyncMock(return_value=claimed_delivery)  # type: ignore[method-assign]
+        executor._record_attempt = AsyncMock()  # type: ignore[method-assign]
+
+        # Mock rate limit check to raise redis error
+        redis_error = redis.exceptions.ConnectionError("Redis connection failed")
+        executor._check_rate_limits = AsyncMock(side_effect=redis_error)  # type: ignore[method-assign]
+
+        # Should not raise - fallback to retryable error
+        # After MAX_RATE_LIMIT_WAITS (3), it will exhaust and return error
+        result = await executor.execute(
+            delivery_id=str(delivery_id),
+            channel=ChannelType.SLACK,
+            recipient="https://hooks.slack.com/services/T000/B000/XXXX",
+            subject="Test",
+            body="Body",
+        )
+
+        # Verify it exhausted rate limit waits (no retry scheduler available)
+        assert result.success is False
+        assert result.error == "rate_limit_wait_exhausted"
+        assert result.retryable is False
+
+    @pytest.mark.asyncio()
+    async def test_retry_scheduler_redis_error_logs_and_propagates(
+        self, mock_db_pool, mock_redis, mock_poison_queue, mock_channel
+    ):
+        """Test Redis error in retry scheduler logs warning and propagates."""
+        delivery_id = uuid4()
+        claimed_delivery = AlertDelivery(
+            id=delivery_id,
+            alert_id=uuid4(),
+            channel=ChannelType.SLACK,
+            recipient="https://hooks.slack.com/services/T000/B000/XXXX",
+            dedup_key="dedup:slack:hash",
+            status=DeliveryStatus.IN_PROGRESS,
+            attempts=0,
+            created_at=datetime.now(UTC),
+        )
+
+        # Create failing retry scheduler
+        redis_error = redis.exceptions.ConnectionError("Redis connection failed")
+        retry_scheduler = AsyncMock(side_effect=redis_error)
+
+        # Channel fails with retryable error and long retry delay
+        channel = AsyncMock()
+        channel.send = AsyncMock(
+            return_value=DeliveryResult(
+                success=False, error="timeout", retryable=True, metadata={"retry_after": "10"}
+            )
+        )
+
+        executor = DeliveryExecutor(
+            channels={ChannelType.SLACK: channel},
+            db_pool=mock_db_pool,
+            redis_client=mock_redis,
+            poison_queue=mock_poison_queue,
+            retry_scheduler=retry_scheduler,
+        )
+        executor.queue_depth_manager = MagicMock()
+        executor.queue_depth_manager.decrement = AsyncMock()
+        executor._claim_delivery = AsyncMock(return_value=claimed_delivery)  # type: ignore[method-assign]
+        executor._record_attempt = AsyncMock()  # type: ignore[method-assign]
+        executor._check_rate_limits = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        # Should propagate the redis error
+        with pytest.raises(redis.exceptions.ConnectionError):
+            await executor.execute(
+                delivery_id=str(delivery_id),
+                channel=ChannelType.SLACK,
+                recipient="https://hooks.slack.com/services/T000/B000/XXXX",
+                subject="Test",
+                body="Body",
+            )

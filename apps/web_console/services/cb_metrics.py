@@ -22,6 +22,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
+import redis
 from prometheus_client import Counter, Gauge
 
 if TYPE_CHECKING:
@@ -94,6 +95,24 @@ def update_cb_staleness_metric(redis_client: RedisClient) -> None:
         # Success! Set to 0
         cb_staleness_seconds.set(0)
 
+    except redis.RedisError as exc:
+        # Redis connection/operation errors
+        logger.exception(
+            "cb_verification_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+        )
+        cb_staleness_seconds.set(CB_VERIFICATION_FAILED_SENTINEL)
+    except json.JSONDecodeError as exc:
+        # JSON parsing errors (already logged above, but catch separately for clarity)
+        logger.exception(
+            "cb_verification_failed",
+            extra={"error": str(exc), "error_type": "json_decode"},
+        )
+        cb_staleness_seconds.set(CB_VERIFICATION_FAILED_SENTINEL)
     except Exception as exc:
-        logger.exception("cb_verification_failed", extra={"error": str(exc)})
+        # Unexpected errors
+        logger.exception(
+            "cb_verification_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+        )
         cb_staleness_seconds.set(CB_VERIFICATION_FAILED_SENTINEL)

@@ -91,6 +91,6 @@ combined = combiner.combine(signals)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-09
 - **Source Files:** `libs/alpha/__init__.py`, `libs/alpha/research_platform.py`, `libs/alpha/alpha_library.py`
 - **ADRs:** N/A

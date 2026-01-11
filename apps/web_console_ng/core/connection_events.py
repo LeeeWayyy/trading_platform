@@ -7,6 +7,7 @@ import logging
 from typing import Any, cast
 
 from nicegui import Client, app
+from redis.exceptions import RedisError
 
 from apps.web_console_ng import config
 from apps.web_console_ng.core import health
@@ -54,7 +55,11 @@ def _get_metrics() -> Any | None:
         from apps.web_console_ng import metrics
 
         return metrics
-    except Exception:
+    except (ImportError, ModuleNotFoundError) as exc:
+        logger.debug(
+            "metrics_unavailable",
+            extra={"error": str(exc), "type": type(exc).__name__},
+        )
         return None
 
 
@@ -112,10 +117,15 @@ def setup_connection_handlers() -> None:
 
                 redis = await get_redis_store().get_master()
                 await redis.eval(_DECR_SESSION_CONN_LUA, 1, session_conn_key)  # type: ignore[misc]
-            except Exception as exc:
+            except (RedisError, OSError, ConnectionError, TimeoutError) as exc:
                 logger.warning(
                     "session_conn_decr_failed",
-                    extra={"client_id": client_id, "error": str(exc)},
+                    extra={
+                        "client_id": client_id,
+                        "session_conn_key": session_conn_key,
+                        "error": str(exc),
+                        "type": type(exc).__name__,
+                    },
                 )
 
         if handshake_complete:
