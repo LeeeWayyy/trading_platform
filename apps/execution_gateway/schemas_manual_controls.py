@@ -20,6 +20,13 @@ class ErrorPayload(BaseModel):
     timestamp: datetime
 
 
+def _validate_symbol(value: str) -> str:
+    cleaned = value.strip().upper()
+    if not cleaned or not cleaned.isalnum() or not (1 <= len(cleaned) <= 5):
+        raise ValueError("symbol must be 1-5 alphanumeric characters")
+    return cleaned
+
+
 class CancelOrderRequest(BaseModel):
     reason: str = Field(..., min_length=10)
     requested_by: str
@@ -41,7 +48,7 @@ class CancelAllOrdersRequest(BaseModel):
     @field_validator("symbol")
     @classmethod
     def uppercase_symbol(cls, value: str) -> str:
-        return value.upper()
+        return _validate_symbol(value)
 
 
 class CancelAllOrdersResponse(BaseModel):
@@ -80,6 +87,55 @@ class ClosePositionResponse(BaseModel):
     symbol: str
     order_id: str | None = None
     qty_to_close: Decimal
+
+
+class ManualOrderRequest(BaseModel):
+    symbol: str
+    side: Literal["buy", "sell"]
+    qty: Decimal
+    order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
+    time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day"
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    reason: str = Field(..., min_length=10)
+    requested_by: str
+    requested_at: datetime
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, value: str) -> str:
+        return _validate_symbol(value)
+
+    @field_validator("qty")
+    @classmethod
+    def qty_positive(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("qty must be positive")
+        return value
+
+    @field_validator("limit_price")
+    @classmethod
+    def limit_price_required_for_limit(
+        cls, value: Decimal | None, info: ValidationInfo
+    ) -> Decimal | None:
+        order_type = info.data.get("order_type")
+        if order_type in {"limit", "stop_limit"} and value is None:
+            raise ValueError("limit_price required for limit/stop_limit orders")
+        if value is not None and value <= 0:
+            raise ValueError("limit_price must be positive")
+        return value
+
+    @field_validator("stop_price")
+    @classmethod
+    def stop_price_required_for_stop(
+        cls, value: Decimal | None, info: ValidationInfo
+    ) -> Decimal | None:
+        order_type = info.data.get("order_type")
+        if order_type in {"stop", "stop_limit"} and value is None:
+            raise ValueError("stop_price required for stop/stop_limit orders")
+        if value is not None and value <= 0:
+            raise ValueError("stop_price must be positive")
+        return value
 
 
 class AdjustPositionRequest(BaseModel):

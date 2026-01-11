@@ -38,6 +38,9 @@
 | `/api/v1/positions/{symbol}/adjust` | POST | Manual controls | `AdjustPositionResponse` |
 | `/api/v1/positions/flatten-all` | POST | Manual controls | `FlattenAllResponse` |
 | `/api/v1/orders/pending` | GET | Manual controls | `PendingOrdersResponse` |
+| `/api/v1/orders/recent-fills` | GET | Manual controls | `RecentFillsResponse` |
+| `/api/v1/manual/orders` | POST | `ManualOrderRequest` | `OrderResponse` |
+| `/api/v1/reconciliation/fills-backfill` | POST | `ReconciliationFillsBackfillRequest` | Status JSON |
 | `/metrics` | GET | None | Prometheus metrics |
 
 ## Behavioral Contracts
@@ -71,6 +74,50 @@
 
 **Postconditions:**
 - Returns plan and (when enabled) schedules slices for execution.
+
+#### submit_manual_order(request: ManualOrderRequest) -> OrderResponse
+**Purpose:** Submit manual orders with circuit breaker checks and audit trail.
+
+**Preconditions:**
+- Circuit breaker is not tripped (double-check: before DB AND before broker).
+- User has `SUBMIT_ORDER` permission and authorized strategies.
+
+**Postconditions:**
+- Order is recorded in DB with `pending_new` status before broker submission.
+- If broker submission succeeds, status updated to broker response status.
+- If broker submission fails, status updated to `failed` with error message.
+
+**Behavior:**
+1. Permission check, rate limit, and strategy scope validation.
+2. Circuit breaker check (first check).
+3. Create order in DB with `pending_new` status.
+4. Circuit breaker check (second check - TOCTOU mitigation).
+5. Submit to Alpaca broker.
+6. Update order status based on broker response.
+
+**Raises:**
+- `HTTPException 403` for permission/strategy authorization failures.
+- `HTTPException 409` for duplicate order (idempotent retry returns existing order).
+- `HTTPException 422` for validation errors.
+- `HTTPException 503` for circuit breaker tripped or broker unavailable.
+
+#### run_fills_backfill(request: ReconciliationFillsBackfillRequest) -> dict
+**Purpose:** Backfill fills from Alpaca account activities API.
+
+**Preconditions:**
+- User has `MANAGE_RECONCILIATION` permission.
+- Not in DRY_RUN mode.
+
+**Postconditions:**
+- Fills are appended to order metadata with idempotent deduplication.
+- Trades table populated from fills.
+- Realized P&L recalculated for affected symbols.
+
+**Behavior:**
+1. Fetch FILL activities from Alpaca with pagination overlap.
+2. Match fills to local orders by broker_order_id.
+3. Insert fills and trades in single atomic transaction.
+4. Recalculate P&L within same transaction (rollback on failure).
 
 #### webhook_handler(payload) -> dict
 **Purpose:** Ingest Alpaca order updates and reconcile order/position state.

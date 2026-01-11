@@ -109,6 +109,7 @@ from apps.execution_gateway.schemas import (
     PositionsResponse,
     RealtimePnLResponse,
     RealtimePositionPnL,
+    ReconciliationFillsBackfillRequest,
     ReconciliationForceCompleteRequest,
     SliceDetail,
     SlicingPlan,
@@ -663,6 +664,10 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  #
 ORDER_SUBMIT_LIMIT = int(os.getenv("ORDER_SUBMIT_RATE_LIMIT", "40"))
 ORDER_SLICE_LIMIT = int(os.getenv("ORDER_SLICE_RATE_LIMIT", "10"))
 ORDER_CANCEL_LIMIT = int(os.getenv("ORDER_CANCEL_RATE_LIMIT", "100"))  # Higher limit for safety ops
+FILLS_BACKFILL_LIMIT = int(os.getenv("FILLS_BACKFILL_RATE_LIMIT", "2"))
+FILLS_BACKFILL_WINDOW_SECONDS = int(
+    os.getenv("FILLS_BACKFILL_RATE_LIMIT_WINDOW_SECONDS", "300")
+)
 
 order_submit_rl = rate_limit(
     RateLimitConfig(
@@ -694,6 +699,17 @@ order_cancel_rl = rate_limit(
         burst_buffer=20,  # Allow burst for kill-switch scenarios
         fallback_mode="allow",  # Allow cancels on Redis failure (safety-first)
         global_limit=200,  # Higher global for emergency cancellations
+    )
+)
+
+reconciliation_fills_backfill_rl = rate_limit(
+    RateLimitConfig(
+        action="fills_backfill",
+        max_requests=FILLS_BACKFILL_LIMIT,
+        window_seconds=FILLS_BACKFILL_WINDOW_SECONDS,
+        burst_buffer=1,
+        fallback_mode="deny",
+        global_limit=FILLS_BACKFILL_LIMIT,
     )
 )
 
@@ -2559,6 +2575,39 @@ async def run_reconciliation(
 
     await reconciliation_service.run_reconciliation_once("manual")
     return {"status": "ok", "message": "Reconciliation run complete"}
+
+
+@app.post("/api/v1/reconciliation/fills-backfill", tags=["Reconciliation"])
+@require_permission(Permission.MANAGE_RECONCILIATION)
+async def run_fills_backfill(
+    payload: ReconciliationFillsBackfillRequest | None = None,
+    user: dict[str, Any] = Depends(_build_user_context),
+    _rate_limit_remaining: int = Depends(reconciliation_fills_backfill_rl),
+) -> dict[str, Any]:
+    """Manually trigger Alpaca fills backfill."""
+    if DRY_RUN:
+        return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+    if not reconciliation_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation service not initialized",
+        )
+
+    lookback_hours = None
+    recalc_all_trades = False
+    if payload:
+        lookback_hours = payload.lookback_hours
+        recalc_all_trades = payload.recalc_all_trades
+
+    result = await reconciliation_service.run_fills_backfill_once(
+        lookback_hours=lookback_hours,
+        recalc_all_trades=recalc_all_trades,
+    )
+    return {
+        "status": "ok",
+        "message": "Fills backfill complete",
+        "result": result,
+    }
 
 
 @app.post("/api/v1/reconciliation/force-complete", tags=["Reconciliation"])

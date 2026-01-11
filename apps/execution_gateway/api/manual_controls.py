@@ -10,9 +10,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, TypeVar
 
+import redis.asyncio as redis_async
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from psycopg import DatabaseError, OperationalError
+from psycopg import DatabaseError, IntegrityError, OperationalError
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 
 from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
 from apps.execution_gateway.api.dependencies import (
@@ -22,13 +24,14 @@ from apps.execution_gateway.api.dependencies import (
     error_detail,
     get_2fa_validator,
     get_alpaca_executor,
+    get_async_redis,
     get_audit_logger,
     get_authenticated_user,
     get_db_client,
     get_rate_limiter,
 )
 from apps.execution_gateway.database import DatabaseClient
-from apps.execution_gateway.schemas import OrderRequest
+from apps.execution_gateway.schemas import OrderRequest, OrderResponse
 from apps.execution_gateway.schemas_manual_controls import (
     AdjustPositionRequest,
     AdjustPositionResponse,
@@ -40,6 +43,7 @@ from apps.execution_gateway.schemas_manual_controls import (
     ClosePositionResponse,
     FlattenAllRequest,
     FlattenAllResponse,
+    ManualOrderRequest,
     PendingOrdersResponse,
     RecentFillEvent,
     RecentFillsResponse,
@@ -64,6 +68,7 @@ RATE_LIMITS = {
     "close_position": (10, 60),
     "adjust_position": (10, 60),
     "flatten_all": (1, 300),
+    "manual_order": (10, 60),
     "pending_orders": (10, 60),
     "recent_fills": (5, 60),  # Tighter limit: fills are higher-cardinality than orders
 }
@@ -76,12 +81,14 @@ MANUAL_CONTROL_STRATEGIES = (
     f"{MANUAL_CONTROL_STRATEGY_PREFIX}close_position",
     f"{MANUAL_CONTROL_STRATEGY_PREFIX}adjust_position",
     f"{MANUAL_CONTROL_STRATEGY_PREFIX}flatten_all",
+    f"{MANUAL_CONTROL_STRATEGY_PREFIX}trade",
 )
 MANUAL_CONTROL_PERMISSIONS = (
     Permission.CANCEL_ORDER,
     Permission.CLOSE_POSITION,
     Permission.ADJUST_POSITION,
     Permission.FLATTEN_ALL,
+    Permission.SUBMIT_ORDER,
 )
 
 # Default MFA error mapping fallback (avoids per-request tuple creation).
@@ -90,6 +97,87 @@ MFA_DEFAULT_ERROR: tuple[int, str, str] = (
     "mfa_required",
     "MFA verification required. Please re-authenticate.",
 )
+
+# Circuit breaker Redis key (consistent with libs/risk_management/breaker.py)
+CIRCUIT_BREAKER_STATE_KEY = "circuit_breaker:state"
+REASON_MAX_LEN = 512
+
+
+def _sanitize_reason(reason: str) -> str:
+    """Sanitize reason strings for audit logs (truncate + strip newlines)."""
+    cleaned = " ".join(reason.splitlines()).strip()
+    if len(cleaned) > REASON_MAX_LEN:
+        return cleaned[:REASON_MAX_LEN].rstrip()
+    return cleaned
+
+
+async def _check_circuit_breaker(
+    redis_client: redis_async.Redis | None,
+    *,
+    user: AuthenticatedUser,
+    action: str,
+    reason: str,
+    audit_logger: AuditLogger,
+) -> None:
+    """Fail-closed if circuit breaker is tripped or state unavailable."""
+    if redis_client is None:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type="circuit_breaker",
+            resource_id="state",
+            outcome="failed",
+            details={"reason": reason, "error": "redis_unavailable"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail("circuit_breaker_unavailable", "Circuit breaker state unavailable"),
+        )
+
+    try:
+        state = await redis_client.get(CIRCUIT_BREAKER_STATE_KEY)
+    except RedisError as exc:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type="circuit_breaker",
+            resource_id="state",
+            outcome="failed",
+            details={"reason": reason, "error": f"redis_error: {exc}"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail("circuit_breaker_unavailable", "Circuit breaker state unavailable"),
+        ) from exc
+
+    if not state:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type="circuit_breaker",
+            resource_id="state",
+            outcome="failed",
+            details={"reason": reason, "error": "state_missing"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail("circuit_breaker_unavailable", "Circuit breaker state unavailable"),
+        )
+
+    state_value = state.decode() if isinstance(state, bytes | bytearray) else str(state)
+    if state_value.upper() == "TRIPPED":
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type="circuit_breaker",
+            resource_id="state",
+            outcome="denied",
+            details={"reason": reason, "state": state_value},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail("circuit_breaker_tripped", "Trading blocked: circuit breaker active"),
+        )
 
 
 def _strategy_allowed(user: AuthenticatedUser, strategy_id: str | None) -> bool:
@@ -151,6 +239,32 @@ def _manual_controls_allowed(user: AuthenticatedUser) -> bool:
     """Return True if the user can access manual-control orders."""
 
     return any(has_permission(user, permission) for permission in MANUAL_CONTROL_PERMISSIONS)
+
+
+async def _require_non_empty_strategy_scope(
+    user: AuthenticatedUser,
+    *,
+    action: str,
+    audit_logger: AuditLogger,
+    resource_type: str,
+    resource_id: str,
+) -> list[str] | None:
+    """Return strategy scope or raise 403 when user has no authorized strategies."""
+    scope = _apply_strategy_scope(user, get_authorized_strategies(user))
+    if scope is not None and len(scope) == 0:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            outcome="failed",
+            details={"error": "no_authorized_strategies"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
+        )
+    return scope
 
 
 def _generate_manual_order_id(
@@ -260,9 +374,19 @@ async def cancel_order(
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
 ) -> CancelOrderResponse:
     """Cancel a single order with permission, strategy, and rate-limit enforcement."""
+    sanitized_reason = _sanitize_reason(request.reason)
 
     await _ensure_permission_with_audit(user, Permission.CANCEL_ORDER, "cancel_order", audit_logger)
     await _enforce_rate_limit(rate_limiter, user.user_id, "cancel_order", audit_logger)
+
+    # Centralized strategy scope guard for consistency
+    await _require_non_empty_strategy_scope(
+        user,
+        action="cancel_order",
+        audit_logger=audit_logger,
+        resource_type="order",
+        resource_id=order_id,
+    )
 
     order = await _db_call(db_client.get_order_by_client_id, order_id)
     # Combine order existence and strategy authorization check to prevent
@@ -275,7 +399,7 @@ async def cancel_order(
             resource_id=order_id,
             outcome="denied",
             details={
-                "reason": request.reason,
+                "reason": sanitized_reason,
                 "error": "not_found_or_unauthorized",
             },
         )
@@ -283,6 +407,8 @@ async def cancel_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", f"Order {order_id} not found"),
         )
+
+    previous_status = order.status
 
     # Fail-closed: require broker executor for destructive operations
     if alpaca_executor is None:
@@ -292,7 +418,7 @@ async def cancel_order(
             resource_type="order",
             resource_id=order_id,
             outcome="failed",
-            details={"reason": request.reason, "error": "broker_unavailable"},
+            details={"reason": sanitized_reason, "error": "broker_unavailable"},
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -305,7 +431,7 @@ async def cancel_order(
         resource_type="order",
         resource_id=order_id,
         outcome="pending",
-        details={"reason": request.reason, "strategy_id": order.strategy_id},
+        details={"reason": sanitized_reason, "strategy_id": order.strategy_id},
     )
 
     try:
@@ -329,7 +455,7 @@ async def cancel_order(
             resource_type="order",
             resource_id=order_id,
             outcome="failed",
-            details={"reason": request.reason, "error": f"db_update_failed: {exc}"},
+            details={"reason": sanitized_reason, "error": f"db_update_failed: {exc}"},
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -353,7 +479,7 @@ async def cancel_order(
             resource_type="order",
             resource_id=order_id,
             outcome="failed",
-            details={"reason": request.reason, "error": f"validation_failed: {exc}"},
+            details={"reason": sanitized_reason, "error": f"validation_failed: {exc}"},
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -364,13 +490,26 @@ async def cancel_order(
         if alpaca_executor and order.broker_order_id:
             alpaca_executor.cancel_order(order.broker_order_id)
     except TimeoutError as exc:
+        try:
+            await _db_call(
+                db_client.update_order_status,
+                order_id,
+                previous_status,
+                error_message=f"cancel_failed_timeout: {exc}",
+            )
+        except (OperationalError, DatabaseError):
+            logger.error(
+                "Failed to revert order status after cancel timeout",
+                extra={"client_order_id": order_id, "error": str(exc)},
+                exc_info=True,
+            )
         await audit_logger.log_action(
             user_id=user.user_id,
             action="cancel_order",
             resource_type="order",
             resource_id=order_id,
             outcome="timeout",
-            details={"reason": request.reason},
+            details={"reason": sanitized_reason},
         )
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -379,13 +518,26 @@ async def cancel_order(
             ),
         ) from exc
     except AlpacaClientError as exc:
+        try:
+            await _db_call(
+                db_client.update_order_status,
+                order_id,
+                previous_status,
+                error_message=f"cancel_failed_broker: {exc}",
+            )
+        except (OperationalError, DatabaseError):
+            logger.error(
+                "Failed to revert order status after broker cancel error",
+                extra={"client_order_id": order_id, "error": str(exc)},
+                exc_info=True,
+            )
         await audit_logger.log_action(
             user_id=user.user_id,
             action="cancel_order",
             resource_type="order",
             resource_id=order_id,
             outcome="failed",
-            details={"reason": request.reason, "error": str(exc)},
+            details={"reason": sanitized_reason, "error": str(exc)},
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -399,7 +551,7 @@ async def cancel_order(
         resource_type="order",
         resource_id=order_id,
         outcome="success",
-        details={"reason": request.reason, "strategy_id": order.strategy_id},
+        details={"reason": sanitized_reason, "strategy_id": order.strategy_id},
     )
 
     return CancelOrderResponse(
@@ -419,30 +571,20 @@ async def cancel_all_orders(
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
 ) -> CancelAllOrdersResponse:
     """Cancel all pending orders for a symbol within authorized strategies."""
+    sanitized_reason = _sanitize_reason(request.reason)
 
     await _ensure_permission_with_audit(
         user, Permission.CANCEL_ORDER, "cancel_all_orders", audit_logger
     )
     await _enforce_rate_limit(rate_limiter, user.user_id, "cancel_all", audit_logger)
 
-    strategy_scope = _apply_strategy_scope(user, get_authorized_strategies(user))
-    # Fail fast if user has no authorized strategies (non-admins with empty list)
-    if strategy_scope is not None and len(strategy_scope) == 0:
-        await audit_logger.log_action(
-            user_id=user.user_id,
-            action="cancel_all_orders",
-            resource_type="symbol",
-            resource_id=request.symbol,
-            outcome="failed",
-            details={"reason": request.reason, "error": "no_authorized_strategies"},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail(
-                "strategy_unauthorized",
-                "User has no authorized strategies",
-            ),
-        )
+    strategy_scope = await _require_non_empty_strategy_scope(
+        user,
+        action="cancel_all_orders",
+        audit_logger=audit_logger,
+        resource_type="symbol",
+        resource_id=request.symbol,
+    )
     orders, _ = await _db_call(
         db_client.get_pending_orders, symbol=request.symbol, strategy_ids=strategy_scope
     )
@@ -455,7 +597,7 @@ async def cancel_all_orders(
             resource_type="symbol",
             resource_id=request.symbol,
             outcome="no_op",
-            details={"reason": request.reason, "message": "no_pending_orders_found"},
+            details={"reason": sanitized_reason, "message": "no_pending_orders_found"},
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -473,7 +615,7 @@ async def cancel_all_orders(
             resource_type="symbol",
             resource_id=request.symbol,
             outcome="failed",
-            details={"reason": request.reason, "error": "broker_unavailable"},
+            details={"reason": sanitized_reason, "error": "broker_unavailable"},
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -495,10 +637,11 @@ async def cancel_all_orders(
                 resource_type="order",
                 resource_id=order.client_order_id,
                 outcome="denied",
-                details={"reason": request.reason, "strategy_id": order.strategy_id},
+                details={"reason": sanitized_reason, "strategy_id": order.strategy_id},
             )
             continue
         strategies_affected.add(order.strategy_id or "")
+        previous_status = order.status
         try:
             await _db_call(db_client.update_order_status, order.client_order_id, "pending_cancel")
         except (OperationalError, DatabaseError) as exc:
@@ -521,7 +664,7 @@ async def cancel_all_orders(
                 resource_type="order",
                 resource_id=order.client_order_id,
                 outcome="failed",
-                details={"reason": request.reason, "error": f"db_update_failed: {exc}"},
+                details={"reason": sanitized_reason, "error": f"db_update_failed: {exc}"},
             )
             continue
         except ValidationError as exc:
@@ -544,7 +687,7 @@ async def cancel_all_orders(
                 resource_type="order",
                 resource_id=order.client_order_id,
                 outcome="failed",
-                details={"reason": request.reason, "error": f"validation_failed: {exc}"},
+                details={"reason": sanitized_reason, "error": f"validation_failed: {exc}"},
             )
             continue
 
@@ -553,6 +696,19 @@ async def cancel_all_orders(
                 alpaca_executor.cancel_order(order.broker_order_id)
             cancelled_ids.append(order.client_order_id)
         except AlpacaClientError as exc:
+            try:
+                await _db_call(
+                    db_client.update_order_status,
+                    order.client_order_id,
+                    previous_status,
+                    error_message=f"cancel_failed_broker: {exc}",
+                )
+            except (OperationalError, DatabaseError):
+                logger.error(
+                    "Failed to revert order status after broker cancel error",
+                    extra={"client_order_id": order.client_order_id, "error": str(exc)},
+                    exc_info=True,
+                )
             failed_ids.append(order.client_order_id)
             await audit_logger.log_action(
                 user_id=user.user_id,
@@ -560,7 +716,7 @@ async def cancel_all_orders(
                 resource_type="order",
                 resource_id=order.client_order_id,
                 outcome="failed",
-                details={"reason": request.reason, "error": str(exc)},
+                details={"reason": sanitized_reason, "error": str(exc)},
             )
 
     # Determine overall outcome based on successes and failures
@@ -578,7 +734,7 @@ async def cancel_all_orders(
         resource_id=request.symbol,
         outcome=outcome,
         details={
-            "reason": request.reason,
+            "reason": sanitized_reason,
             "cancelled": cancelled_ids,
             "failed": failed_ids,
             "skipped_unauthorized": skipped_unauthorized,
@@ -615,6 +771,7 @@ async def close_position(
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
 ) -> ClosePositionResponse:
     """Close (fully or partially) a position."""
+    sanitized_reason = _sanitize_reason(request.reason)
 
     await _ensure_permission_with_audit(
         user, Permission.CLOSE_POSITION, "close_position", audit_logger
@@ -630,12 +787,20 @@ async def close_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "error": "no_authorized_strategies"},
+            details={"reason": sanitized_reason, "error": "no_authorized_strategies"},
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
         )
+
+    await _require_non_empty_strategy_scope(
+        user,
+        action="close_position",
+        audit_logger=audit_logger,
+        resource_type="position",
+        resource_id=symbol.upper(),
+    )
 
     if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         positions = await _db_call(db_client.get_positions_for_strategies, strategies)
@@ -650,7 +815,7 @@ async def close_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "error": "position_not_found"},
+            details={"reason": sanitized_reason, "error": "position_not_found"},
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -664,7 +829,7 @@ async def close_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="no_op",
-            details={"reason": request.reason, "message": "position_already_flat"},
+            details={"reason": sanitized_reason, "message": "position_already_flat"},
         )
         return ClosePositionResponse(
             status="already_flat",
@@ -673,8 +838,31 @@ async def close_position(
             qty_to_close=Decimal(0),
         )
 
+    position_qty = Decimal(position.qty)
+    if position_qty != position_qty.to_integral_value():
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="close_position",
+            resource_type="position",
+            resource_id=symbol.upper(),
+            outcome="failed",
+            details={
+                "reason": sanitized_reason,
+                "error": "fractional_position_unsupported",
+                "position_qty": str(position_qty),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_detail(
+                "fractional_position_unsupported",
+                "Fractional positions cannot be closed via manual controls. "
+                "Use broker tools or reconcile fractional positions before retrying.",
+            ),
+        )
+
     # Determine qty to close: use request.qty (always positive) or full position (abs value)
-    qty_to_close = Decimal(request.qty) if request.qty is not None else abs(Decimal(position.qty))
+    qty_to_close = Decimal(request.qty) if request.qty is not None else abs(position_qty)
     qty_int = _require_integral_qty(qty_to_close, "qty")
 
     # Fail-closed: require broker executor for destructive operations
@@ -685,7 +873,7 @@ async def close_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "error": "broker_unavailable"},
+            details={"reason": sanitized_reason, "error": "broker_unavailable"},
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -731,7 +919,7 @@ async def close_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="success",
-            details={"reason": request.reason, "qty": float(qty_to_close), "order_id": order_id},
+            details={"reason": sanitized_reason, "qty": float(qty_to_close), "order_id": order_id},
         )
     except AlpacaClientError as exc:
         await audit_logger.log_action(
@@ -740,7 +928,7 @@ async def close_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "qty": float(qty_to_close), "error": str(exc)},
+            details={"reason": sanitized_reason, "qty": float(qty_to_close), "error": str(exc)},
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -766,6 +954,7 @@ async def adjust_position(
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
 ) -> AdjustPositionResponse:
     """Force position adjustment to a target quantity."""
+    sanitized_reason = _sanitize_reason(request.reason)
 
     await _ensure_permission_with_audit(
         user, Permission.ADJUST_POSITION, "adjust_position", audit_logger
@@ -781,12 +970,20 @@ async def adjust_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "error": "no_authorized_strategies"},
+            details={"reason": sanitized_reason, "error": "no_authorized_strategies"},
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
         )
+
+    await _require_non_empty_strategy_scope(
+        user,
+        action="adjust_position",
+        audit_logger=audit_logger,
+        resource_type="position",
+        resource_id=symbol.upper(),
+    )
 
     if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         positions = await _db_call(db_client.get_positions_for_strategies, strategies)
@@ -801,13 +998,35 @@ async def adjust_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "error": "position_not_found"},
+            details={"reason": sanitized_reason, "error": "position_not_found"},
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", f"Position for {symbol} not found"),
         )
     current_qty = Decimal(position.qty)
+    if current_qty != current_qty.to_integral_value():
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="adjust_position",
+            resource_type="position",
+            resource_id=symbol.upper(),
+            outcome="failed",
+            details={
+                "reason": sanitized_reason,
+                "error": "fractional_position_unsupported",
+                "current_qty": str(current_qty),
+                "target_qty": str(request.target_qty),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_detail(
+                "fractional_position_unsupported",
+                "Fractional positions cannot be adjusted via manual controls. "
+                "Use broker tools or reconcile fractional positions before retrying.",
+            ),
+        )
     delta = Decimal(request.target_qty) - current_qty
 
     if delta == 0:
@@ -819,7 +1038,7 @@ async def adjust_position(
             resource_id=symbol.upper(),
             outcome="no_op",
             details={
-                "reason": request.reason,
+                "reason": sanitized_reason,
                 "current_qty": float(current_qty),
                 "target_qty": float(request.target_qty),
                 "message": "position_already_at_target",
@@ -841,7 +1060,7 @@ async def adjust_position(
             resource_type="position",
             resource_id=symbol.upper(),
             outcome="failed",
-            details={"reason": request.reason, "error": "broker_unavailable"},
+            details={"reason": sanitized_reason, "error": "broker_unavailable"},
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -889,7 +1108,7 @@ async def adjust_position(
             resource_id=symbol.upper(),
             outcome="success",
             details={
-                "reason": request.reason,
+                "reason": sanitized_reason,
                 "current_qty": float(current_qty),
                 "target_qty": float(request.target_qty),
                 "order_id": order_id,
@@ -903,7 +1122,7 @@ async def adjust_position(
             resource_id=symbol.upper(),
             outcome="failed",
             details={
-                "reason": request.reason,
+                "reason": sanitized_reason,
                 "current_qty": float(current_qty),
                 "target_qty": float(request.target_qty),
                 "error": str(exc),
@@ -934,6 +1153,7 @@ async def flatten_all_positions(
     two_fa_validator: TwoFaValidator = Depends(get_2fa_validator),
 ) -> FlattenAllResponse:
     """Flatten all positions across authorized strategies with MFA."""
+    sanitized_reason = _sanitize_reason(request.reason)
 
     await _ensure_permission_with_audit(user, Permission.FLATTEN_ALL, "flatten_all", audit_logger)
     await _enforce_rate_limit(rate_limiter, user.user_id, "flatten_all", audit_logger)
@@ -1003,7 +1223,7 @@ async def flatten_all_positions(
             resource_type="positions",
             resource_id="*",
             outcome="failed",
-            details={"reason": request.reason, "mfa_error": mfa_error or "mfa_required"},
+            details={"reason": sanitized_reason, "mfa_error": mfa_error or "mfa_required"},
         )
         raise HTTPException(
             status_code=status_code,
@@ -1022,7 +1242,7 @@ async def flatten_all_positions(
                 resource_type="positions",
                 resource_id="*",
                 outcome="failed",
-                details={"reason": request.reason, "error": "no_authorized_strategies"},
+                details={"reason": sanitized_reason, "error": "no_authorized_strategies"},
                 amr_method=amr_method,
             )
             raise HTTPException(
@@ -1039,7 +1259,7 @@ async def flatten_all_positions(
             resource_type="positions",
             resource_id="*",
             outcome="no_op",
-            details={"reason": request.reason, "message": "no_positions_to_flatten"},
+            details={"reason": sanitized_reason, "message": "no_positions_to_flatten"},
             amr_method=amr_method,
         )
         return FlattenAllResponse(
@@ -1057,7 +1277,7 @@ async def flatten_all_positions(
             resource_type="positions",
             resource_id="*",
             outcome="failed",
-            details={"reason": request.reason, "error": "broker_unavailable"},
+            details={"reason": sanitized_reason, "error": "broker_unavailable"},
             amr_method=amr_method,
         )
         raise HTTPException(
@@ -1116,7 +1336,7 @@ async def flatten_all_positions(
                 resource_id="*",
                 outcome="failed",
                 details={
-                    "reason": request.reason,
+                    "reason": sanitized_reason,
                     "orders_created_before_failure": orders_created,
                     "failed_position": position.symbol,
                     "error": str(exc),
@@ -1135,7 +1355,7 @@ async def flatten_all_positions(
         resource_type="positions",
         resource_id="*",
         outcome="success",
-        details={"reason": request.reason, "orders": orders_created},
+        details={"reason": sanitized_reason, "orders": orders_created},
         amr_method=amr_method,
     )
 
@@ -1145,6 +1365,264 @@ async def flatten_all_positions(
         orders_created=orders_created,
         strategies_affected=sorted(s for s in strategies_affected if s),
     )
+
+
+@router.post("/manual/orders", response_model=OrderResponse)
+async def submit_manual_order(
+    request: ManualOrderRequest,
+    user: AuthenticatedUser = Depends(get_authenticated_user),
+    db_client: DatabaseClient = Depends(get_db_client),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+    alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
+    redis_client: redis_async.Redis | None = Depends(get_async_redis),
+) -> OrderResponse:
+    """Submit a manual order with manual_controls strategy attribution."""
+    await _ensure_permission_with_audit(user, Permission.SUBMIT_ORDER, "manual_order", audit_logger)
+    await _enforce_rate_limit(rate_limiter, user.user_id, "manual_order", audit_logger)
+    sanitized_reason = _sanitize_reason(request.reason)
+
+    await _require_non_empty_strategy_scope(
+        user,
+        action="manual_order",
+        audit_logger=audit_logger,
+        resource_type="order",
+        resource_id="*",
+    )
+
+    qty_int = _require_integral_qty(request.qty, "qty")
+
+    order_req = OrderRequest(
+        symbol=request.symbol.upper(),
+        side=request.side,
+        qty=qty_int,
+        order_type=request.order_type,
+        limit_price=request.limit_price,
+        stop_price=request.stop_price,
+        time_in_force=request.time_in_force,
+    )
+
+    order_id = _generate_manual_order_id(
+        action="manual_trade",
+        symbol=order_req.symbol,
+        side=order_req.side,
+        qty=qty_int,
+        user_id=user.user_id,
+    )
+
+    await _check_circuit_breaker(
+        redis_client,
+        user=user,
+        action="manual_order",
+        reason=sanitized_reason,
+        audit_logger=audit_logger,
+    )
+
+    if alpaca_executor is None:
+        try:
+            await _db_call(
+                db_client.create_order,
+                client_order_id=order_id,
+                strategy_id=f"{MANUAL_CONTROL_STRATEGY_PREFIX}trade",
+                order_request=order_req,
+                status="dry_run",
+                broker_order_id=None,
+            )
+        except IntegrityError:
+            existing = await _db_call(db_client.get_order_by_client_id, order_id)
+            if existing:
+                return OrderResponse(
+                    client_order_id=order_id,
+                    status=existing.status,
+                    broker_order_id=existing.broker_order_id,
+                    symbol=existing.symbol,
+                    side=existing.side,
+                    qty=existing.qty,
+                    order_type=existing.order_type,
+                    limit_price=existing.limit_price,
+                    created_at=existing.created_at,
+                    message="Order already submitted (idempotent retry)",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=error_detail("duplicate_order", "Order already submitted"),
+            ) from None
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="success",
+            details={
+                "symbol": order_req.symbol,
+                "side": order_req.side,
+                "qty": qty_int,
+                "order_type": order_req.order_type,
+                "reason": sanitized_reason,
+                "mode": "dry_run",
+            },
+        )
+        return OrderResponse(
+            client_order_id=order_id,
+            status="dry_run",
+            broker_order_id=None,
+            symbol=order_req.symbol,
+            side=order_req.side,
+            qty=qty_int,
+            order_type=order_req.order_type,
+            limit_price=order_req.limit_price,
+            created_at=datetime.now(UTC),
+            message="Order logged (manual DRY_RUN)",
+        )
+
+    try:
+        # Create DB record first for idempotency and webhook safety
+        try:
+            order_detail = await _db_call(
+                db_client.create_order,
+                client_order_id=order_id,
+                strategy_id=f"{MANUAL_CONTROL_STRATEGY_PREFIX}trade",
+                order_request=order_req,
+                status="pending_new",
+                broker_order_id=None,
+            )
+        except IntegrityError:
+            existing = await _db_call(db_client.get_order_by_client_id, order_id)
+            if existing:
+                return OrderResponse(
+                    client_order_id=order_id,
+                    status=existing.status,
+                    broker_order_id=existing.broker_order_id,
+                    symbol=existing.symbol,
+                    side=existing.side,
+                    qty=existing.qty,
+                    order_type=existing.order_type,
+                    limit_price=existing.limit_price,
+                    created_at=existing.created_at,
+                    message="Order already submitted (idempotent retry)",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=error_detail("duplicate_order", "Order already submitted"),
+            ) from None
+
+        try:
+            await _check_circuit_breaker(
+                redis_client,
+                user=user,
+                action="manual_order",
+                reason=sanitized_reason,
+                audit_logger=audit_logger,
+            )
+        except HTTPException as exc:
+            try:
+                await _db_call(
+                    db_client.update_order_status,
+                    order_id,
+                    "failed",
+                    error_message="circuit_breaker_tripped_before_submit",
+                )
+            except (OperationalError, DatabaseError):
+                logger.error(
+                    "Failed to update manual order after circuit breaker trip",
+                    extra={"client_order_id": order_id},
+                    exc_info=True,
+                )
+            raise exc
+
+        alpaca_response = alpaca_executor.submit_order(order_req, order_id)
+        updated = await _db_call(
+            db_client.update_order_status,
+            order_id,
+            alpaca_response["status"],
+            broker_order_id=alpaca_response["id"],
+            error_message=None,
+        )
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="success",
+            details={
+                "symbol": order_req.symbol,
+                "side": order_req.side,
+                "qty": qty_int,
+                "order_type": order_req.order_type,
+                "reason": sanitized_reason,
+            },
+        )
+        return OrderResponse(
+            client_order_id=order_id,
+            status=alpaca_response["status"],
+            broker_order_id=alpaca_response["id"],
+            symbol=order_req.symbol,
+            side=order_req.side,
+            qty=qty_int,
+            order_type=order_req.order_type,
+            limit_price=order_req.limit_price,
+            created_at=(updated.created_at if updated else order_detail.created_at),
+            message="Order submitted (manual)",
+        )
+    except AlpacaClientError as exc:
+        try:
+            await _db_call(
+                db_client.update_order_status,
+                order_id,
+                "failed",
+                error_message=str(exc),
+            )
+        except (OperationalError, DatabaseError):
+            logger.error(
+                "Failed to update manual order after broker error",
+                extra={"client_order_id": order_id, "error": str(exc)},
+                exc_info=True,
+            )
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="failed",
+            details={
+                "symbol": order_req.symbol,
+                "side": order_req.side,
+                "qty": qty_int,
+                "order_type": order_req.order_type,
+                "reason": sanitized_reason,
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=error_detail("broker_error", f"Broker error: {exc}"),
+        ) from exc
+    except (OperationalError, DatabaseError) as exc:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="failed",
+            details={"reason": sanitized_reason, "error": f"db_error: {exc}"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_detail("db_error", "Failed to persist manual order"),
+        ) from exc
+    except ValidationError as exc:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="failed",
+            details={"reason": sanitized_reason, "error": f"validation_failed: {exc}"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_detail("validation_error", "Invalid order data after status update"),
+        ) from exc
 
 
 @router.get("/orders/pending", response_model=PendingOrdersResponse)
@@ -1167,6 +1645,14 @@ async def list_pending_orders(
     )
     await _enforce_rate_limit(rate_limiter, user.user_id, "pending_orders", audit_logger)
 
+    scope = await _require_non_empty_strategy_scope(
+        user,
+        action="list_pending_orders",
+        audit_logger=audit_logger,
+        resource_type="orders",
+        resource_id="*",
+    )
+
     if sort_by not in {"created_at", "updated_at", "symbol", "strategy_id", "status"}:
         sort_by = "created_at"
 
@@ -1174,7 +1660,6 @@ async def list_pending_orders(
         sort_order = "desc"
 
     scope_strategies = get_authorized_strategies(user)
-    scope = _apply_strategy_scope(user, scope_strategies)
     filtered_by_strategy = True
 
     if has_permission(user, Permission.VIEW_ALL_STRATEGIES):

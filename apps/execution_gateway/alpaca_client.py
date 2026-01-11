@@ -419,8 +419,8 @@ class AlpacaExecutor:
                     if alpaca_order.filled_avg_price
                     else None
                 ),
-                "created_at": alpaca_order.created_at,
-                "updated_at": alpaca_order.updated_at,
+                "created_at": self._parse_datetime(alpaca_order.created_at),
+                "updated_at": self._parse_datetime(alpaca_order.updated_at),
             }
 
         except AlpacaAPIError as e:
@@ -508,10 +508,10 @@ class AlpacaExecutor:
                             "notional": (
                                 Decimal(str(order.notional)) if order.notional is not None else None
                             ),
-                            "created_at": order.created_at,
-                            "updated_at": order.updated_at,
-                            "submitted_at": order.submitted_at,
-                            "filled_at": order.filled_at,
+                            "created_at": self._parse_datetime(order.created_at),
+                            "updated_at": self._parse_datetime(order.updated_at),
+                            "submitted_at": self._parse_datetime(order.submitted_at),
+                            "filled_at": self._parse_datetime(order.filled_at),
                         }
                     )
 
@@ -736,6 +736,86 @@ class AlpacaExecutor:
                 exc_info=True,
             )
             return False
+
+    def _activities_base_url(self) -> str:
+        base = (self.base_url or "").rstrip("/")
+        if base.endswith("/v2"):
+            return base[:-3]
+        return base
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(AlpacaConnectionError),
+        reraise=True,
+    )
+    def get_account_activities(
+        self,
+        activity_type: str,
+        *,
+        after: datetime | None = None,
+        until: datetime | None = None,
+        page_size: int = 100,
+        page_token: str | None = None,
+        direction: str = "desc",
+    ) -> list[dict[str, Any]]:
+        """Fetch account activities of one type (Trading API REST)."""
+        base_url = self._activities_base_url()
+        url = f"{base_url}/v2/account/activities/{activity_type}"
+
+        params: dict[str, Any] = {
+            "direction": direction,
+            "page_size": page_size,
+        }
+        if after is not None:
+            params["after"] = after.isoformat().replace("+00:00", "Z")
+        if until is not None:
+            params["until"] = until.isoformat().replace("+00:00", "Z")
+        if page_token:
+            params["page_token"] = page_token
+
+        headers = {
+            "APCA-API-KEY-ID": self.api_key,
+            "APCA-API-SECRET-KEY": self.secret_key,
+        }
+
+        try:
+            resp = httpx.get(url, params=params, headers=headers, timeout=15.0)
+            resp.raise_for_status()
+            payload = resp.json()
+            if not isinstance(payload, list):
+                logger.error(
+                    "Unexpected activities response type",
+                    extra={"activity_type": activity_type, "response_type": type(payload).__name__},
+                )
+                return []
+            return payload
+        except httpx.HTTPStatusError as e:
+            status_code = getattr(e.response, "status_code", None)
+            logger.error(
+                "Alpaca activities HTTP error",
+                extra={
+                    "status_code": status_code,
+                    "activity_type": activity_type,
+                    "url": str(e.request.url),
+                },
+                exc_info=True,
+            )
+            raise AlpacaConnectionError(f"Alpaca activities HTTP error: {e}") from e
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as e:
+            logger.error(
+                "Network error fetching account activities",
+                extra={"activity_type": activity_type, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise AlpacaConnectionError(f"Network error fetching account activities: {e}") from e
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "Data validation error fetching account activities",
+                extra={"activity_type": activity_type, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            return []
 
     def get_account_info(self) -> dict[str, Any] | None:
         """

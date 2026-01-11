@@ -695,6 +695,17 @@ class ReconciliationForceCompleteRequest(BaseModel):
     )
 
 
+class ReconciliationFillsBackfillRequest(BaseModel):
+    """Request to trigger Alpaca fills backfill."""
+
+    lookback_hours: int | None = Field(
+        None, description="Override lookback window in hours (optional)"
+    )
+    recalc_all_trades: bool = Field(
+        False, description="Recalculate realized P&L for all trades in scope"
+    )
+
+
 # ============================================================================
 # TWAP Order Slicing Schemas (P2T0)
 # ============================================================================

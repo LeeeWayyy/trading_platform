@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -261,8 +262,14 @@ async def manual_order_page(client: Client) -> None:
 
                         # Submit order - backend generates deterministic client_order_id
                         # for idempotency based on order params + date
-                        result = await trading_client.submit_order(
-                            order_data,
+                        payload = {
+                            **order_data,
+                            "reason": reason,
+                            "requested_by": user_id,
+                            "requested_at": datetime.now(UTC).isoformat(),
+                        }
+                        result = await trading_client.submit_manual_order(
+                            payload,
                             user_id,
                             role=user_role,
                         )

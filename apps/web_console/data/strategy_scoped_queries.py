@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from psycopg.rows import dict_row
 
 from apps.web_console.auth.permissions import get_authorized_strategies
 from apps.web_console.utils.db import acquire_connection
@@ -283,8 +284,9 @@ class StrategyScopedDataAccess:
     @staticmethod
     async def _execute_fetchall(conn: Any, query: str, params: tuple[Any, ...]) -> list[Any]:
         """Execute query and return rows using psycopg-style interfaces."""
-        cursor = await conn.execute(query, params)
-        rows = await cursor.fetchall()
+        async with conn.cursor(row_factory=dict_row) as cursor:
+            await cursor.execute(query, params)
+            rows = await cursor.fetchall()
         return cast(list[Any], rows)
 
     @staticmethod
@@ -389,6 +391,7 @@ class StrategyScopedDataAccess:
         query = f"""
             SELECT * FROM trades
             WHERE strategy_id = ANY(%s)
+              AND COALESCE(superseded, FALSE) = FALSE
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
             ORDER BY executed_at DESC
             LIMIT %s OFFSET %s
@@ -433,6 +436,7 @@ class StrategyScopedDataAccess:
                 MIN(realized_pnl) AS largest_loss
             FROM trades
             WHERE strategy_id = ANY(%s)
+              AND COALESCE(superseded, FALSE) = FALSE
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
         """
         exec_params = [strategies, *params]
@@ -470,6 +474,7 @@ class StrategyScopedDataAccess:
         query = f"""
             SELECT * FROM trades
             WHERE strategy_id = ANY(%s)
+              AND COALESCE(superseded, FALSE) = FALSE
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
             ORDER BY executed_at DESC
         """

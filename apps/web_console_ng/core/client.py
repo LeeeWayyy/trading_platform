@@ -281,6 +281,29 @@ class AsyncTradingClient:
         resp.raise_for_status()
         return self._json_dict(resp)
 
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def run_fills_backfill(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        *,
+        lookback_hours: int | None = None,
+        recalc_all_trades: bool = False,
+    ) -> dict[str, Any]:
+        """Trigger Alpaca fills backfill (admin only)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        payload: dict[str, Any] = {"recalc_all_trades": recalc_all_trades}
+        if lookback_hours is not None:
+            payload["lookback_hours"] = lookback_hours
+        resp = await self._client.post(
+            "/api/v1/reconciliation/fills-backfill",
+            headers=headers,
+            json=payload,
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
     async def fetch_realtime_pnl(
         self,
@@ -350,6 +373,19 @@ class AsyncTradingClient:
         """Submit a new order (POST)."""
         headers = self._get_auth_headers(user_id, role, None)
         resp = await self._client.post("/api/v1/orders", headers=headers, json=order_data)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def submit_manual_order(
+        self,
+        order_data: dict[str, Any],
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a manual order (POST)."""
+        headers = self._get_auth_headers(user_id, role, None)
+        resp = await self._client.post("/api/v1/manual/orders", headers=headers, json=order_data)
         resp.raise_for_status()
         return self._json_dict(resp)
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from nicegui import run, ui
@@ -425,7 +425,11 @@ def _render_trade_table(trades: list[dict[str, Any]], page_size: int, page: int)
         rows = []
         for trade in trades:
             executed_at = trade.get("executed_at")
-            date_str = str(executed_at)[:19] if executed_at else "-"
+            if isinstance(executed_at, datetime):
+                date_str = executed_at.astimezone(UTC).isoformat(timespec="milliseconds")
+                date_str = date_str.replace("T", " ").replace("+00:00", "Z")
+            else:
+                date_str = str(executed_at) if executed_at else "-"
 
             pnl = trade.get("realized_pnl", 0)
             pnl_str = f"${pnl:,.2f}" if pnl else "-"
