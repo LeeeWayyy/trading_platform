@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
@@ -165,8 +166,14 @@ async def _check_circuit_breaker(
             detail=error_detail("circuit_breaker_unavailable", "Circuit breaker state unavailable"),
         )
 
-    state_value = state.decode() if isinstance(state, bytes | bytearray) else str(state)
-    if state_value.upper() == "TRIPPED":
+    state_json = state.decode() if isinstance(state, bytes | bytearray) else str(state)
+    try:
+        state_data = json.loads(state_json)
+        state_value = state_data.get("state", "").upper()
+    except (json.JSONDecodeError, TypeError):
+        # Fallback: treat raw value as state string (legacy compatibility)
+        state_value = state_json.upper()
+    if state_value == "TRIPPED":
         await audit_logger.log_action(
             user_id=user.user_id,
             action=action,
@@ -1142,7 +1149,16 @@ async def adjust_position(
         try:
             if redis_client:
                 state = await redis_client.get(CIRCUIT_BREAKER_STATE_KEY)
-                if state == b"TRIPPED":
+                # Parse JSON to extract state field (circuit breaker stores JSON object)
+                cb_state = ""
+                if state:
+                    state_str = state.decode() if isinstance(state, bytes) else str(state)
+                    try:
+                        state_data = json.loads(state_str)
+                        cb_state = state_data.get("state", "").upper()
+                    except (json.JSONDecodeError, TypeError):
+                        cb_state = state_str.upper()
+                if cb_state == "TRIPPED":
                     await audit_logger.log_action(
                         user_id=user.user_id,
                         action="adjust_position",

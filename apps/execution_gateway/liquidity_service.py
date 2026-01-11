@@ -159,14 +159,6 @@ class LiquidityService:
                     "response_body_preview": response.text[:200],
                 },
             )
-            logger.warning(
-                "ADV no bars details: symbol=%s feed=%s status=%s payload_keys=%s body_preview=%s",
-                symbol,
-                self._data_feed or "default",
-                response.status_code,
-                sorted(payload.keys()) if isinstance(payload, dict) else [],
-                response.text[:200],
-            )
             return _maybe_use_stale_cache("no_bars")
 
         volumes: list[int] = []

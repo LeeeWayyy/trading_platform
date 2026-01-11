@@ -48,7 +48,7 @@ CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.metadata->'fills', '[]'::json
 WHERE fill->>'fill_id' IS NOT NULL
   AND fill->>'fill_id' <> ''
   -- Validate qty and price to satisfy CHECK constraints (qty > 0, price > 0)
-  -- Fills with missing/invalid values are logged and skipped
+  -- Fills with missing/invalid values are filtered out by the WHERE clause
   AND COALESCE(NULLIF(fill->>'fill_qty', '')::NUMERIC, 0) > 0
   AND COALESCE(NULLIF(fill->>'fill_price', '')::NUMERIC, 0) > 0
 ON CONFLICT (trade_id) DO NOTHING;

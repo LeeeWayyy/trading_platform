@@ -318,10 +318,11 @@ def test_order_metadata_append_and_status_with_conn():
         "filled_qty": Decimal("0"),
         "metadata": {"fills": []},
     }
-    db = make_db_with_rows([fill_row])
+    # Provide multiple rows: one for FOR UPDATE check, one for RETURNING *
+    db = make_db_with_rows([fill_row, fill_row])
     conn = db._pool.connection()
     cur = conn.cursor()
-    cur.rows = [fill_row]
+    cur.rows = [fill_row, fill_row]
     appended = db.append_fill_to_order_metadata(
         "cid",
         {"fill_id": "cid_1", "realized_pl": "1", "timestamp": datetime.now(UTC).isoformat()},
