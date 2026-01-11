@@ -166,13 +166,7 @@ async def _check_circuit_breaker(
             detail=error_detail("circuit_breaker_unavailable", "Circuit breaker state unavailable"),
         )
 
-    state_json = state.decode() if isinstance(state, bytes | bytearray) else str(state)
-    try:
-        state_data = json.loads(state_json)
-        state_value = state_data.get("state", "").upper()
-    except (json.JSONDecodeError, TypeError):
-        # Fallback: treat raw value as state string (legacy compatibility)
-        state_value = state_json.upper()
+    state_value = _parse_circuit_breaker_state(state)
     if state_value == "TRIPPED":
         await audit_logger.log_action(
             user_id=user.user_id,
@@ -186,6 +180,33 @@ async def _check_circuit_breaker(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=error_detail("circuit_breaker_tripped", "Trading blocked: circuit breaker active"),
         )
+
+
+def _parse_circuit_breaker_state(state: bytes | str | None) -> str:
+    """
+    Parse circuit breaker state from Redis value.
+
+    Args:
+        state: Raw Redis value (bytes, str, or None)
+
+    Returns:
+        Uppercase state string (e.g., "TRIPPED", "OPEN", "QUIET_PERIOD")
+        or empty string if state is None/empty or unparseable.
+
+    Notes:
+        Circuit breaker stores JSON like {"state": "TRIPPED", ...}.
+        Falls back to treating raw value as state string for legacy compatibility.
+    """
+    if not state:
+        return ""
+    state_str = state.decode() if isinstance(state, bytes | bytearray) else str(state)
+    try:
+        state_data = json.loads(state_str)
+        raw_state = state_data.get("state", "") if isinstance(state_data, dict) else ""
+        return str(raw_state).upper()
+    except (json.JSONDecodeError, TypeError):
+        # Fallback: treat raw value as state string (legacy compatibility)
+        return state_str.upper()
 
 
 def _strategy_allowed(user: AuthenticatedUser, strategy_id: str | None) -> bool:
@@ -1149,15 +1170,27 @@ async def adjust_position(
         try:
             if redis_client:
                 state = await redis_client.get(CIRCUIT_BREAKER_STATE_KEY)
-                # Parse JSON to extract state field (circuit breaker stores JSON object)
-                cb_state = ""
-                if state:
-                    state_str = state.decode() if isinstance(state, bytes) else str(state)
-                    try:
-                        state_data = json.loads(state_str)
-                        cb_state = state_data.get("state", "").upper()
-                    except (json.JSONDecodeError, TypeError):
-                        cb_state = state_str.upper()
+                cb_state = _parse_circuit_breaker_state(state)
+                # Fail-closed: missing state blocks exposure-increasing adjustments
+                if not cb_state:
+                    await audit_logger.log_action(
+                        user_id=user.user_id,
+                        action="adjust_position",
+                        resource_type="circuit_breaker",
+                        resource_id=symbol.upper(),
+                        outcome="blocked",
+                        details={
+                            "reason": sanitized_reason,
+                            "error": "circuit_breaker_state_missing",
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=error_detail(
+                            "circuit_breaker_unavailable",
+                            "Circuit breaker state unavailable. Only risk-reducing adjustments allowed.",
+                        ),
+                    )
                 if cb_state == "TRIPPED":
                     await audit_logger.log_action(
                         user_id=user.user_id,
