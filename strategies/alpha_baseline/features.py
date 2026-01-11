@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import cast
 
 import pandas as pd
-
 import qlib
 from qlib.contrib.data.handler import Alpha158
 

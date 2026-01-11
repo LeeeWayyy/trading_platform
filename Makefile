@@ -42,10 +42,10 @@ up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 	@sleep 5
 	@docker compose ps
 
-up-dev: ## Start all dev services (infrastructure + APIs + web console)
+up-dev: ## Start all dev services (infrastructure + APIs + web console + workers)
 	@PYTHON=$$( [ -x .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3 ); \
 	$$PYTHON scripts/ensure_web_console_jwt_keys.py
-	docker compose --profile dev up -d
+	docker compose --profile dev --profile workers up -d
 	@echo "Waiting for services to be healthy..."
 	@sleep 10
 	@docker compose --profile dev ps

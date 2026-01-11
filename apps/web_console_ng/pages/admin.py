@@ -26,6 +26,7 @@ from nicegui import ui
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
 from libs.common.log_sanitizer import sanitize_dict
@@ -158,6 +159,7 @@ async def admin_page() -> None:
     with ui.tabs().classes("w-full") as tabs:
         tab_api = ui.tab("API Keys")
         tab_config = ui.tab("System Config")
+        tab_recon = ui.tab("Reconciliation")
         tab_audit = ui.tab("Audit Logs")
 
     with ui.tab_panels(tabs, value=tab_api).classes("w-full"):
@@ -166,6 +168,9 @@ async def admin_page() -> None:
 
         with ui.tab_panel(tab_config):
             await _render_config_editor(user, async_pool)
+
+        with ui.tab_panel(tab_recon):
+            await _render_reconciliation_tools(user)
 
         with ui.tab_panel(tab_audit):
             await _render_audit_log_viewer(user, async_pool)
@@ -401,6 +406,72 @@ async def _render_config_editor(user: dict[str, Any], db_pool: AsyncConnectionPo
 
         with ui.tab_panel(tab_defaults):
             await _render_system_defaults_form(user, db_pool)
+
+
+# === Reconciliation Tools ===
+
+
+async def _render_reconciliation_tools(user: dict[str, Any]) -> None:
+    """Render reconciliation tools (fills backfill)."""
+    if not has_permission(user, Permission.MANAGE_RECONCILIATION):
+        ui.label("Permission denied: MANAGE_RECONCILIATION required").classes("text-red-500")
+        return
+
+    ui.label("Reconciliation Tools").classes("text-xl font-bold mb-2")
+    ui.label("Manual controls for fills backfill and trade P&L reconstruction.").classes(
+        "text-gray-500 text-sm mb-4"
+    )
+
+    user_id = _get_user_identifier(user)
+    user_role = str(user.get("role") or "viewer")
+    strategies = user.get("strategies") or []
+    if isinstance(strategies, str):
+        user_strategies = [strategies]
+    else:
+        user_strategies = [str(s) for s in strategies if s]
+
+    client = AsyncTradingClient.get()
+
+    with ui.card().classes("w-full p-4"):
+        ui.label("Alpaca Fills Backfill").classes("text-lg font-bold mb-2")
+
+        lookback_input = ui.number(
+            label="Lookback Hours (optional)",
+            value=None,
+            min=1,
+            max=720,
+            step=1,
+        ).classes("w-48")
+        recalc_all = ui.checkbox("Recalculate realized P&L for all trades").classes("mt-2")
+
+        result_box = ui.label("").classes("text-xs text-gray-500 mt-2")
+
+        async def run_backfill() -> None:
+            lookback_hours = None
+            if lookback_input.value:
+                try:
+                    lookback_hours = int(lookback_input.value)
+                except (TypeError, ValueError):
+                    ui.notify("Lookback hours must be a number", type="negative")
+                    return
+            try:
+                result = await client.run_fills_backfill(
+                    user_id=user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                    lookback_hours=lookback_hours,
+                    recalc_all_trades=bool(recalc_all.value),
+                )
+                result_box.text = json.dumps(result, indent=2)
+                ui.notify("Fills backfill completed", type="positive")
+            except Exception as exc:
+                logger.error(
+                    "fills_backfill_failed",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
+                ui.notify("Fills backfill failed", type="negative")
+
+        ui.button("Run Fills Backfill", on_click=run_backfill, color="primary").classes("mt-4")
 
 
 async def _get_config(

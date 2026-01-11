@@ -68,6 +68,7 @@
 - Positions grid uses AG Grid with `getRowId` for efficient delta updates via `applyTransaction`.
 - Orders table displays open orders with cancel functionality.
 - Account metrics (equity, buying power, P&L) update in real-time.
+- Activity feed displays recent trades from trades table via `StrategyScopedDataAccess` (P5T10).
 - WebSocket connection with automatic reconnection and disconnect overlay.
 - `RealtimeUpdater` subscribes to Redis pub/sub channels for live data.
 - `ClientLifecycleManager` handles cleanup on disconnect.
@@ -200,19 +201,26 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 - Requires `VIEW_PNL` permission.
 
 ### Admin Dashboard (P5T7)
-**Purpose:** Administrative functions for API keys, system configuration, and audit logs.
+**Purpose:** Administrative functions for API keys, system configuration, reconciliation tools, and audit logs.
 
 **Behavior:**
 - API Keys tab: List and create API keys (revoke/rotate TODO).
 - System Config tab: View and update system configuration.
+- Reconciliation tab: Fills backfill from Alpaca account activities API (P5T10).
 - Audit Logs tab: Searchable audit log viewer with pagination.
 - Permission-gated navigation (only visible with admin permissions).
+
+**Reconciliation Tools (P5T10):**
+- Alpaca Fills Backfill: Fetches fills from broker, populates trades table, recalculates P&L.
+- Configurable lookback hours (1-720).
+- Optional recalculate all trades P&L flag.
+- Requires `MANAGE_RECONCILIATION` permission.
 
 **Components:**
 - `pages/admin.py` - Admin dashboard with tabbed interface.
 
 **Access Control:**
-- Navigation requires MANAGE_API_KEYS, MANAGE_SYSTEM_CONFIG, or VIEW_AUDIT.
+- Navigation requires MANAGE_API_KEYS, MANAGE_SYSTEM_CONFIG, MANAGE_RECONCILIATION, or VIEW_AUDIT.
 - Individual tabs permission-gated.
 
 ### Alert Configuration (P5T7)
@@ -307,7 +315,8 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 - Symbol and side filters for trade search.
 - Paginated trade table with configurable page size.
 - Trade statistics summary (total trades, P&L, win rate, avg win/loss).
-- CSV and Excel export functionality.
+- CSV and Excel export functionality with streaming for large datasets.
+- Trades query excludes superseded entries from fills backfill (P5T10).
 - Demo mode fallback when trade data unavailable.
 - Feature flag controlled (`FEATURE_TRADE_JOURNAL`).
 
@@ -490,7 +499,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-10
+- **Last Updated:** 2026-01-11
 - **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`
 - **ADRs:** N/A
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation)

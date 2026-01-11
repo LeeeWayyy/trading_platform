@@ -196,6 +196,49 @@ def calculate_position_update(
     return (new_qty, new_avg_price, new_realized_pl)
 
 
+def calculate_position_update_decimal(
+    old_qty: Decimal,
+    old_avg_price: Decimal,
+    fill_qty: Decimal,
+    fill_price: Decimal,
+    side: str,
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Decimal-safe position update for trade reconstruction (returns realized delta)."""
+    signed_fill_qty = fill_qty if side == "buy" else -fill_qty
+    new_qty = old_qty + signed_fill_qty
+
+    is_adding_to_position = (old_qty > 0 and side == "buy") or (old_qty < 0 and side == "sell")
+
+    def _get_realized_pnl(qty_closed: Decimal) -> Decimal:
+        if side == "sell" and old_qty > 0:
+            return (fill_price - old_avg_price) * qty_closed
+        if side == "buy" and old_qty < 0:
+            return (old_avg_price - fill_price) * qty_closed
+        return Decimal("0")
+
+    if new_qty == 0:
+        pnl = _get_realized_pnl(abs(signed_fill_qty))
+        new_avg_price = Decimal("0")
+        realized_delta = pnl
+    elif old_qty == 0:
+        new_avg_price = fill_price
+        realized_delta = Decimal("0")
+    elif is_adding_to_position:
+        total_cost = (old_avg_price * abs(old_qty)) + (fill_price * abs(signed_fill_qty))
+        new_avg_price = total_cost / abs(new_qty)
+        realized_delta = Decimal("0")
+    elif old_qty * new_qty < 0:
+        pnl = _get_realized_pnl(abs(old_qty))
+        new_avg_price = fill_price
+        realized_delta = pnl
+    else:
+        pnl = _get_realized_pnl(abs(signed_fill_qty))
+        new_avg_price = old_avg_price
+        realized_delta = pnl
+
+    return (new_qty, new_avg_price, realized_delta)
+
+
 class DatabaseClient:
     """
     Database client for orders and positions.
@@ -1104,6 +1147,106 @@ class DatabaseClient:
             logger.error(f"Database error fetching order ids: {e}")
             raise
 
+    def get_orders_by_broker_ids(self, broker_order_ids: list[str]) -> dict[str, OrderDetail]:
+        """Return orders keyed by broker_order_id for the provided list."""
+        ids = [broker_id for broker_id in dict.fromkeys(broker_order_ids) if broker_id]
+        if not ids:
+            return {}
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT * FROM orders
+                        WHERE broker_order_id = ANY(%s)
+                        """,
+                        (ids,),
+                    )
+                    rows = cur.fetchall()
+                    return {
+                        row["broker_order_id"]: OrderDetail(**row)
+                        for row in rows
+                        if row.get("broker_order_id")
+                    }
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching orders by broker id: {e}")
+            raise
+
+    def recalculate_trade_realized_pnl(
+        self,
+        strategy_id: str,
+        symbol: str,
+        *,
+        update_all: bool = False,
+        update_sources: set[str] | None = None,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        """Recalculate realized P&L for trades of a symbol/strategy."""
+        if update_sources is None:
+            update_sources = {"alpaca_activity", "reconciliation_backfill", "reconciliation_db_backfill"}
+
+        def _execute(connection: psycopg.Connection) -> dict[str, int]:
+            with connection.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT trade_id, side, qty, price, realized_pnl, source, synthetic, executed_at
+                    FROM trades
+                    WHERE strategy_id = %s
+                      AND symbol = %s
+                      AND COALESCE(superseded, FALSE) = FALSE
+                    ORDER BY executed_at ASC, trade_id ASC
+                    """,
+                    (strategy_id, symbol),
+                )
+                rows = cur.fetchall()
+
+            position_qty = Decimal("0")
+            avg_price = Decimal("0")
+            updates: list[tuple[Decimal, str]] = []
+
+            for row in rows:
+                try:
+                    side = str(row.get("side") or "").lower()
+                    if side not in ("buy", "sell"):
+                        continue
+                    qty = Decimal(str(row.get("qty")))
+                    price = Decimal(str(row.get("price")))
+                except (TypeError, ValueError, ArithmeticError):
+                    continue
+
+                if qty <= 0 or price <= 0:
+                    continue
+
+                position_qty, avg_price, realized_delta = calculate_position_update_decimal(
+                    position_qty,
+                    avg_price,
+                    qty,
+                    price,
+                    side,
+                )
+
+                source = row.get("source")
+                synthetic = bool(row.get("synthetic", False))
+                should_update = update_all or synthetic or (source in update_sources)
+                if should_update:
+                    updates.append((realized_delta, row["trade_id"]))
+
+            if updates:
+                with connection.cursor() as cur:
+                    cur.executemany(
+                        "UPDATE trades SET realized_pnl = %s WHERE trade_id = %s",
+                        updates,
+                    )
+
+            return {"trades_total": len(rows), "trades_updated": len(updates)}
+
+        try:
+            return self._execute_with_conn(conn, _execute)
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error recalculating trade P&L: {e}")
+            raise
+
     def get_non_terminal_orders(self, created_before: datetime | None = None) -> list[OrderDetail]:
         """Return all non-terminal orders (optionally filtered by created_at)."""
         try:
@@ -1823,6 +1966,13 @@ class DatabaseClient:
             return None
 
         with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT 1 FROM orders WHERE client_order_id = %s FOR UPDATE",
+                (client_order_id,),
+            )
+            if cur.fetchone() is None:
+                return None
+
             # IDEMPOTENCY: Only append if fill_id doesn't already exist in fills array
             # This prevents double-counting from webhook + reconciliation race
             # COALESCE handles NULL fill_id in existing fills (should not happen but defensive)
@@ -1839,7 +1989,7 @@ class DatabaseClient:
                         '{total_realized_pl}',
                         to_jsonb(
                             COALESCE((metadata->>'total_realized_pl')::NUMERIC, 0)
-                            + (%s::jsonb->>'realized_pl')::NUMERIC
+                            + COALESCE((%s::jsonb->>'realized_pl')::NUMERIC, 0)
                         )
                     ),
                     updated_at = NOW()
@@ -1913,13 +2063,139 @@ class DatabaseClient:
                     row = superseded_row
 
             try:
-                return self._row_to_order_detail(row)
+                order_detail = self._row_to_order_detail(row)
+                self._insert_trade_from_fill(order_detail, fill_data, conn)
+                return order_detail
             except PydanticValidationError as exc:
                 logger.warning(
                     "Failed to build OrderDetail from metadata append row",
                     extra={"client_order_id": client_order_id, "error": str(exc)},
                 )
                 return None
+
+    def _insert_trade_from_fill(
+        self,
+        order: OrderDetail | Mapping[str, Any],
+        fill_data: dict[str, Any],
+        conn: psycopg.Connection,
+    ) -> None:
+        """Insert a trade row from a fill record (idempotent)."""
+
+        def _get(field: str, default: Any | None = None) -> Any:
+            if isinstance(order, Mapping):
+                return order.get(field, default)
+            return getattr(order, field, default)
+
+        fill_id = str(fill_data.get("fill_id") or "").strip()
+        if not fill_id:
+            logger.warning("trade_insert_skipped_missing_fill_id")
+            return
+
+        try:
+            qty = Decimal(str(fill_data.get("fill_qty", 0)))
+            price = Decimal(str(fill_data.get("fill_price", 0)))
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            logger.warning(
+                "trade_insert_invalid_numeric",
+                extra={"fill_id": fill_id, "error": str(exc)},
+            )
+            return
+
+        if qty <= 0 or price <= 0:
+            logger.warning(
+                "trade_insert_invalid_qty_price",
+                extra={"fill_id": fill_id, "qty": str(qty), "price": str(price)},
+            )
+            return
+
+        realized_pnl_raw = fill_data.get("realized_pl", 0)
+        try:
+            realized_pnl = Decimal(str(realized_pnl_raw or 0))
+        except (TypeError, ValueError, ArithmeticError):
+            realized_pnl = Decimal("0")
+
+        timestamp_raw = fill_data.get("timestamp")
+        executed_at: datetime | None = None
+        if isinstance(timestamp_raw, datetime):
+            executed_at = timestamp_raw
+        elif isinstance(timestamp_raw, str) and timestamp_raw:
+            try:
+                executed_at = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00"))
+            except ValueError:
+                executed_at = None
+
+        if executed_at is None:
+            executed_at = (
+                _get("filled_at")
+                or _get("updated_at")
+                or datetime.now(UTC)
+            )
+
+        # Ensure executed_at is timezone-aware (UTC) - guard against naive datetimes
+        if executed_at.tzinfo is None:
+            executed_at = executed_at.replace(tzinfo=UTC)
+
+        source = fill_data.get("source")
+        synthetic = bool(fill_data.get("synthetic", False))
+        superseded = bool(fill_data.get("superseded", False))
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO trades (
+                    trade_id,
+                    client_order_id,
+                    broker_order_id,
+                    strategy_id,
+                    symbol,
+                    side,
+                    qty,
+                    price,
+                    executed_at,
+                    realized_pnl,
+                    source,
+                    synthetic,
+                    superseded
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (trade_id) DO NOTHING
+                """,
+                (
+                    fill_id,
+                    _get("client_order_id"),
+                    _get("broker_order_id"),
+                    _get("strategy_id"),
+                    _get("symbol"),
+                    _get("side"),
+                    qty,
+                    price,
+                    executed_at,
+                    realized_pnl,
+                    source,
+                    synthetic,
+                    superseded,
+                ),
+            )
+            # If a real fill arrives, mark any synthetic trades for this order as superseded.
+            if not synthetic:
+                cur.execute(
+                    """
+                    UPDATE trades
+                    SET superseded = TRUE
+                    WHERE client_order_id = %s
+                      AND superseded = FALSE
+                      AND (
+                            synthetic = TRUE
+                            OR trade_id LIKE %s
+                            OR trade_id LIKE %s
+                          )
+                    """,
+                    (
+                        _get("client_order_id"),
+                        "%_recon_%",
+                        "%_recon_db_%",
+                    ),
+                )
 
     def update_position_on_fill_with_conn(
         self,

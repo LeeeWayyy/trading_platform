@@ -15,7 +15,7 @@ The `apps/web_console/` directory now contains only **backend services and utili
 |-----------|---------|--------|
 | `services/` | Backend service integrations (market data, orders, risk, alerts) | Active - used by NiceGUI |
 | `utils/` | Database pools, validators, helpers | Active - used by NiceGUI |
-| `data/` | Data models and repositories | Active - used by NiceGUI |
+| `data/` | Data models, repositories, and strategy-scoped queries | Active - used by NiceGUI |
 | `auth/` | Authentication handlers for API integration | Active - used by NiceGUI |
 | `config.py` | Configuration management | Active - used by NiceGUI |
 
@@ -29,6 +29,21 @@ from apps.web_console.services.market_data_service import MarketDataService
 from apps.web_console.services.order_service import OrderService
 from apps.web_console.utils.validators import validate_risk_metrics
 ```
+
+## Strategy-Scoped Data Access (`data/strategy_scoped_queries.py`)
+**Purpose:** Provide RBAC-filtered data access for trades, orders, positions with server-side filtering.
+
+**Key Features:**
+- `get_trades()` - Fetch trades with `superseded=FALSE` filter to exclude backfill-replaced entries.
+- `get_trade_stats()` - Aggregate trade statistics (win rate, P&L, volume) with break-even epsilon.
+- `stream_trades_for_export()` - Async generator for memory-efficient CSV/Excel export.
+- Encrypted Redis caching with per-user strategy scope isolation.
+- Pagination with configurable limits (max 5000 for multi-year comparisons).
+
+**Behavior:**
+- All queries filter by user's authorized strategies (RBAC).
+- Trades marked as `superseded=TRUE` (from fills backfill) are excluded from queries.
+- Cache is scoped by user ID + strategy hash + session version.
 
 ## Data Validators (`utils/validators.py`)
 **Purpose:** Validate API response data before rendering in UI components.

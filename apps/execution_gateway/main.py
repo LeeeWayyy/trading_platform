@@ -109,6 +109,7 @@ from apps.execution_gateway.schemas import (
     PositionsResponse,
     RealtimePnLResponse,
     RealtimePositionPnL,
+    ReconciliationFillsBackfillRequest,
     ReconciliationForceCompleteRequest,
     SliceDetail,
     SlicingPlan,
@@ -197,6 +198,7 @@ ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+ALPACA_DATA_FEED = os.getenv("ALPACA_DATA_FEED", "").strip() or None
 CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
 LIQUIDITY_CHECK_ENABLED = os.getenv("LIQUIDITY_CHECK_ENABLED", "true").lower() in (
     "1",
@@ -442,6 +444,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     liquidity_service = LiquidityService(
                         api_key=alpaca_api_key_id,
                         api_secret=alpaca_api_secret_key,
+                        data_feed=ALPACA_DATA_FEED,
                     )
                     logger.info("Liquidity service initialized successfully")
             except AlpacaConnectionError as e:
@@ -661,6 +664,10 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  #
 ORDER_SUBMIT_LIMIT = int(os.getenv("ORDER_SUBMIT_RATE_LIMIT", "40"))
 ORDER_SLICE_LIMIT = int(os.getenv("ORDER_SLICE_RATE_LIMIT", "10"))
 ORDER_CANCEL_LIMIT = int(os.getenv("ORDER_CANCEL_RATE_LIMIT", "100"))  # Higher limit for safety ops
+FILLS_BACKFILL_LIMIT = int(os.getenv("FILLS_BACKFILL_RATE_LIMIT", "2"))
+FILLS_BACKFILL_WINDOW_SECONDS = int(
+    os.getenv("FILLS_BACKFILL_RATE_LIMIT_WINDOW_SECONDS", "300")
+)
 
 order_submit_rl = rate_limit(
     RateLimitConfig(
@@ -692,6 +699,17 @@ order_cancel_rl = rate_limit(
         burst_buffer=20,  # Allow burst for kill-switch scenarios
         fallback_mode="allow",  # Allow cancels on Redis failure (safety-first)
         global_limit=200,  # Higher global for emergency cancellations
+    )
+)
+
+reconciliation_fills_backfill_rl = rate_limit(
+    RateLimitConfig(
+        action="fills_backfill",
+        max_requests=FILLS_BACKFILL_LIMIT,
+        window_seconds=FILLS_BACKFILL_WINDOW_SECONDS,
+        burst_buffer=1,
+        fallback_mode="deny",
+        global_limit=FILLS_BACKFILL_LIMIT,
     )
 )
 
@@ -2559,6 +2577,39 @@ async def run_reconciliation(
     return {"status": "ok", "message": "Reconciliation run complete"}
 
 
+@app.post("/api/v1/reconciliation/fills-backfill", tags=["Reconciliation"])
+@require_permission(Permission.MANAGE_RECONCILIATION)
+async def run_fills_backfill(
+    payload: ReconciliationFillsBackfillRequest | None = None,
+    user: dict[str, Any] = Depends(_build_user_context),
+    _rate_limit_remaining: int = Depends(reconciliation_fills_backfill_rl),
+) -> dict[str, Any]:
+    """Manually trigger Alpaca fills backfill."""
+    if DRY_RUN:
+        return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+    if not reconciliation_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation service not initialized",
+        )
+
+    lookback_hours = None
+    recalc_all_trades = False
+    if payload:
+        lookback_hours = payload.lookback_hours
+        recalc_all_trades = payload.recalc_all_trades
+
+    result = await reconciliation_service.run_fills_backfill_once(
+        lookback_hours=lookback_hours,
+        recalc_all_trades=recalc_all_trades,
+    )
+    return {
+        "status": "ok",
+        "message": "Fills backfill complete",
+        "result": result,
+    }
+
+
 @app.post("/api/v1/reconciliation/force-complete", tags=["Reconciliation"])
 @require_permission(Permission.MANAGE_RECONCILIATION)
 async def force_complete_reconciliation(
@@ -3041,6 +3092,7 @@ async def submit_order(
                 if isinstance(raw_missing, list):
                     missing_fields.update(str(item) for item in raw_missing)
             if missing_fields:
+                adv_missing = "adv" in missing_fields
                 logger.warning(
                     "Fat-finger data unavailable; treating as breach",
                     extra={
@@ -3049,6 +3101,8 @@ async def submit_order(
                         "side": order.side,
                         "qty": order.qty,
                         "missing_fields": sorted(missing_fields),
+                        "adv_missing": adv_missing,
+                        "alpaca_data_feed": ALPACA_DATA_FEED or "default",
                     },
                 )
             logger.warning(
@@ -3077,6 +3131,13 @@ async def submit_order(
                 _record_order_metrics(order, start_time, "blocked")
 
                 if missing_fields:
+                    hint = "Verify market data feed availability."
+                    if "adv" in missing_fields:
+                        hint = (
+                            "ADV lookup failed. For Alpaca free data, set "
+                            "ALPACA_DATA_FEED=iex or disable ADV checks via "
+                            "FAT_FINGER_MAX_ADV_PCT=0 for local dev."
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={
@@ -3085,6 +3146,9 @@ async def submit_order(
                                 "Order rejected: market data unavailable for fat-finger checks "
                                 f"(missing: {', '.join(sorted(missing_fields))})"
                             ),
+                            "hint": hint,
+                            "missing_fields": sorted(missing_fields),
+                            "alpaca_data_feed": ALPACA_DATA_FEED or "default",
                             **fat_finger_result.to_response(),
                         },
                     )

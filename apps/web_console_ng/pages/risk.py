@@ -321,12 +321,11 @@ async def risk_dashboard(client: Client) -> None:
     # (Same pattern as dashboard.py to prevent timer leaks and concurrent refreshes)
     lifecycle = ClientLifecycleManager.get()
     client_id = client.storage.get("client_id")
-
-    # Guard: Require valid client_id before starting timers to prevent leaks
-    if not client_id:
-        logger.warning("risk_dashboard_no_client_id", extra={"user_id": user_id})
-        ui.notify("Session error: missing client ID. Auto-refresh disabled.", type="warning")
-        return
+    # Get or generate client_id (may not be set yet if WebSocket hasn't connected)
+    if not isinstance(client_id, str) or not client_id:
+        client_id = lifecycle.generate_client_id()
+        client.storage["client_id"] = client_id
+        logger.debug("risk_dashboard_generated_client_id", extra={"client_id": client_id})
 
     # Auto-refresh every 60 seconds (M-3: justified interval, parity with Streamlit)
     refresh_timer = ui.timer(RISK_REFRESH_INTERVAL_SECONDS, guarded_refresh)

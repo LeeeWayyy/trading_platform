@@ -104,6 +104,27 @@ WEB_CONSOLE_USER=admin
 WEB_CONSOLE_PASSWORD=changeme
 ```
 
+#### Step 6: Alpha Explorer (optional)
+Alpha Explorer reads models from the local model registry directory.
+
+- **Local model registry (host):** `data/models/`
+- **Container path:** `/app/data/models` (mounted from `data/models/`, needs write access for `.registry.lock`)
+
+Enable the feature in `.env`:
+```
+FEATURE_ALPHA_EXPLORER=true
+```
+
+If you override the model registry location, set:
+```
+MODEL_REGISTRY_DIR=/app/data/models
+```
+
+Then restart the web console:
+```bash
+docker compose --profile dev up -d web_console_dev
+```
+
 ---
 
 ### A.1 Prerequisites
@@ -176,6 +197,11 @@ ALPACA_API_KEY_ID=PK...your_key...
 ALPACA_API_SECRET_KEY=...your_secret...
 ALPACA_BASE_URL=https://paper-api.alpaca.markets  # Paper trading (recommended)
 # ALPACA_BASE_URL=https://api.alpaca.markets      # Live trading (CAUTION!)
+# Optional: Backfill fills from Alpaca account activities (FILL)
+ALPACA_FILLS_BACKFILL_ENABLED=false
+ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS=24
+ALPACA_FILLS_BACKFILL_PAGE_SIZE=100
+ALPACA_FILLS_BACKFILL_MAX_PAGES=5
 
 # ═══════════════════════════════════════════════════════════════════
 # REQUIRED: Database Configuration
@@ -316,6 +342,10 @@ openssl rand -base64 32
 | `ALPACA_API_KEY_ID` | ✅ | 20+ char string from Alpaca | 🔐 Secret | Never log or commit |
 | `ALPACA_API_SECRET_KEY` | ✅ | 40+ char secret from Alpaca | 🔐 Secret | Store in secrets manager |
 | `ALPACA_BASE_URL` | ✅ | `https://paper-api.alpaca.markets` (paper) or `https://api.alpaca.markets` (live) | ⚠️ Critical | Wrong URL = real money trades! |
+| `ALPACA_FILLS_BACKFILL_ENABLED` | ❌ | `true` / `false` | - | Enables Alpaca FILL activity backfill |
+| `ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS` | ❌ | Integer (default: 24) | - | Lookback window on first run |
+| `ALPACA_FILLS_BACKFILL_PAGE_SIZE` | ❌ | Integer (default: 100) | - | Alpaca activity page size |
+| `ALPACA_FILLS_BACKFILL_MAX_PAGES` | ❌ | Integer (default: 5) | - | Max pages per reconciliation run |
 | **Database** |||||
 | `DATABASE_URL` | ✅ | `postgresql://user:pass@host:port/db` | 🔐 Secret | Prefer TLS, non-superuser (local uses port 5433) |
 | `POSTGRES_USER` | ✅ | String | 🔐 Secret | Default: `trader` |
@@ -917,6 +947,42 @@ Notes:
 #### Web Console: Panels Empty / "No strategy access"
 Symptom: Strategy list, positions, or performance panels are blank and API
 returns `403 No strategy access`.
+
+#### Trade Journal: Empty / Missing Trades
+Symptom: `/journal` loads but shows no trades (or "relation trades does not exist").
+
+Checklist:
+```bash
+# 1) Ensure trades table exists
+docker exec -i trading_platform_postgres psql -U trader -d trader -c "\\d trades"
+
+# 2) Ensure fills exist in orders metadata (backfill source)
+docker exec -i trading_platform_postgres psql -U trader -d trader \
+  -c "SELECT client_order_id, metadata->'fills' FROM orders WHERE metadata ? 'fills' LIMIT 1"
+```
+
+If fills are missing (webhooks down or missed), trigger Alpaca fills backfill:
+```bash
+curl -X POST http://localhost:8002/api/v1/reconciliation/fills-backfill \
+  -H "X-User-Role: admin" -H "X-User-Id: admin"
+```
+
+Optional: force a wider lookback (hours) and recalculate realized P&L:
+```bash
+curl -X POST http://localhost:8002/api/v1/reconciliation/fills-backfill \
+  -H "X-User-Role: admin" -H "X-User-Id: admin" \
+  -H "Content-Type: application/json" \
+  -d '{"lookback_hours": 72, "recalc_all_trades": true}'
+```
+
+If the endpoint returns `status=disabled`, ensure in `.env`:
+```
+ALPACA_FILLS_BACKFILL_ENABLED=true
+```
+Then restart:
+```bash
+docker compose --profile dev up -d --build execution_gateway
+```
 
 Cause: The web console did not send `X-User-Strategies` (missing strategy scope).
 

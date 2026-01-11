@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 from nicegui import Client, events, ui
 
+from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
@@ -29,6 +30,7 @@ from apps.web_console_ng.components.positions_grid import (
 )
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.realtime import (
     RealtimeUpdater,
     circuit_breaker_channel,
@@ -318,7 +320,15 @@ async def dashboard(client: Client) -> None:
     async def load_initial_data() -> None:
         nonlocal position_symbols, order_ids
         try:
-            pnl_data, positions, orders, account_info, recent_fills = await asyncio.gather(
+            async_pool = get_db_pool()
+            trades_task = None
+            if async_pool is not None:
+                data_access = StrategyScopedDataAccess(async_pool, None, user)
+                trades_task = data_access.get_trades(limit=activity_feed.MAX_ITEMS, offset=0)
+            else:
+                trades_task = asyncio.sleep(0, result=[])
+
+            pnl_data, positions, orders, account_info, recent_trades = await asyncio.gather(
                 trading_client.fetch_realtime_pnl(
                     user_id,
                     role=user_role,
@@ -339,11 +349,7 @@ async def dashboard(client: Client) -> None:
                     role=user_role,
                     strategies=user_strategies,
                 ),
-                trading_client.fetch_recent_fills(
-                    user_id,
-                    role=user_role,
-                    strategies=user_strategies,
-                ),
+                trades_task,
             )
         except httpx.HTTPStatusError as exc:
             logger.exception(
@@ -384,7 +390,18 @@ async def dashboard(client: Client) -> None:
                 user_id=user_id,
                 client_id=client_id,
             )
-        recent_events = recent_fills.get("events", []) if isinstance(recent_fills, dict) else []
+        recent_events = []
+        if isinstance(recent_trades, list):
+            for trade in recent_trades:
+                event = {
+                    "timestamp": trade.get("executed_at"),
+                    "symbol": trade.get("symbol"),
+                    "side": trade.get("side"),
+                    "qty": trade.get("qty"),
+                    "price": trade.get("price"),
+                    "status": "filled",
+                }
+                recent_events.append(event)
         normalized_events = [_format_event_time(dict(event)) for event in recent_events]
         _update_last_sync_label(normalized_events)
         await activity_feed.add_items(normalized_events, highlight=False)

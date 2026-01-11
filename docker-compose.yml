@@ -5,6 +5,7 @@ x-backtest-worker-env-base: &backtest-worker-env-base
   REDIS_URL: ${REDIS_URL_DOCKER:-redis://redis:6379/0}
   DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}}
   BACKTEST_JOB_MEMORY_LIMIT: ${BACKTEST_JOB_MEMORY_LIMIT:-4294967296}
+  DATA_ROOT: /app/data/market_data
   DATA_LOCK_DIR: /app/locks  # Lock directory outside read-only data mount
 
 x-backtest-worker-base: &backtest-worker-base
@@ -16,7 +17,7 @@ x-backtest-worker-base: &backtest-worker-base
     <<: *backtest-worker-env-base
     RQ_QUEUES: backtest_high
   volumes: &backtest-worker-volumes
-    - ./data:/app/data:ro  # Market data (CRSP, Compustat parquets) - read-only for safety
+    - ./data:/app/data/market_data:ro  # Market data (CRSP, Compustat parquets) - read-only for safety
     - backtest_data:/app/data/backtest_results  # Results output (writable)
     - /tmp/backtest_locks:/app/locks  # Writable lock directory outside data
   depends_on: &backtest-worker-depends
@@ -184,10 +185,16 @@ services:
       - ALPACA_API_KEY_ID=${ALPACA_API_KEY_ID:-}
       - ALPACA_API_SECRET_KEY=${ALPACA_API_SECRET_KEY:-}
       - ALPACA_BASE_URL=${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      # For free Alpaca data, use IEX feed (SIP requires a paid subscription).
+      - ALPACA_DATA_FEED=${ALPACA_DATA_FEED:-iex}
       - DRY_RUN=${DRY_RUN:-true}
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - RECONCILIATION_INTERVAL_SECONDS=${RECONCILIATION_INTERVAL_SECONDS:-10}
+      - ALPACA_FILLS_BACKFILL_ENABLED=${ALPACA_FILLS_BACKFILL_ENABLED:-false}
+      - ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS=${ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS:-24}
+      - ALPACA_FILLS_BACKFILL_PAGE_SIZE=${ALPACA_FILLS_BACKFILL_PAGE_SIZE:-100}
+      - ALPACA_FILLS_BACKFILL_MAX_PAGES=${ALPACA_FILLS_BACKFILL_MAX_PAGES:-5}
       # Default to false for local dev to simplify setup. Production should use true.
       - INTERNAL_TOKEN_REQUIRED=${INTERNAL_TOKEN_REQUIRED:-false}
       - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:-}
@@ -357,8 +364,8 @@ services:
     container_name: trading_platform_web_console
     # SECURITY: Create .env file with credentials (see .env.example)
     # Required: WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
-    # env_file:
-    #   - .env
+    env_file:
+      - .env
     environment:
       # Use Docker DNS for in-network execution gateway access
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
@@ -427,12 +434,16 @@ services:
       - PROMETHEUS_URL=http://prometheus:9090
       # Enable dev mode (allows AUTH_TYPE=dev)
       - WEB_CONSOLE_NG_DEBUG=true
+      - FEATURE_ALPHA_EXPLORER=${FEATURE_ALPHA_EXPLORER:-false}
+      - FEATURE_TRADE_JOURNAL=${FEATURE_TRADE_JOURNAL:-false}
+      - MODEL_REGISTRY_DIR=/app/data/models
       # Session store keys (dev defaults - DO NOT use in production)
       - HMAC_SIGNING_KEYS=01:0000000000000000000000000000000000000000000000000000000000000000
       - HMAC_CURRENT_KEY_ID=01
       - SESSION_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     volumes:
       - backtest_data:/app/data/backtest_results:ro
+      - ./data/models:/app/data/models
       - ./apps/web_console_ng/certs:/app/apps/web_console_ng/certs:ro  # JWT keys for auth
     depends_on:
       postgres:

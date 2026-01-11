@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
+import threading
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -20,26 +22,32 @@ from libs.redis_client.keys import RedisKeys
 
 logger = logging.getLogger(__name__)
 
+# Pod label for Prometheus metrics (fallback to hostname)
+POD_LABEL = os.getenv("POD_NAME") or os.getenv("HOSTNAME") or "unknown"
+
 # Prometheus metrics
 reconciliation_mismatches_total = Counter(
     "execution_gateway_reconciliation_mismatches_total",
     "Total order mismatches corrected by reconciliation",
+    ["pod"],
 )
 
 reconciliation_conflicts_skipped_total = Counter(
     "execution_gateway_reconciliation_conflicts_skipped_total",
     "Total reconciliation updates skipped due to CAS conflict",
+    ["pod"],
 )
 
 reconciliation_last_run_timestamp = Gauge(
     "execution_gateway_reconciliation_last_run_timestamp",
     "Last successful reconciliation timestamp (epoch seconds)",
+    ["pod"],
 )
 
 symbols_quarantined_total = Counter(
     "execution_gateway_symbols_quarantined_total",
     "Total symbols quarantined due to orphan orders",
-    ["symbol"],
+    ["pod", "symbol"],
 )
 
 # Source priority ordering (lower number = higher priority)
@@ -79,6 +87,7 @@ class ReconciliationService:
         self._last_reconciliation_result: dict[str, Any] | None = None  # Track last recon result
 
         self._lock = asyncio.Lock()
+        self._state_lock = threading.Lock()
         self._stop_event = asyncio.Event()
 
         self.poll_interval_seconds = int(os.getenv("RECONCILIATION_INTERVAL_SECONDS", "300"))
@@ -88,11 +97,23 @@ class ReconciliationService:
         self.submitted_unconfirmed_grace_seconds = int(
             os.getenv("RECONCILIATION_SUBMITTED_UNCONFIRMED_GRACE_SECONDS", "300")
         )
+        self.fills_backfill_enabled = os.getenv("ALPACA_FILLS_BACKFILL_ENABLED", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.fills_backfill_initial_lookback_hours = int(
+            os.getenv("ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS", "24")
+        )
+        self.fills_backfill_page_size = int(os.getenv("ALPACA_FILLS_BACKFILL_PAGE_SIZE", "100"))
+        self.fills_backfill_max_pages = int(os.getenv("ALPACA_FILLS_BACKFILL_MAX_PAGES", "5"))
 
     def is_startup_complete(self) -> bool:
         if self.dry_run:
             return True
-        return self._startup_complete
+        with self._state_lock:
+            return self._startup_complete
 
     def startup_elapsed_seconds(self) -> float:
         return (datetime.now(UTC) - self._startup_started_at).total_seconds()
@@ -120,7 +141,9 @@ class ReconciliationService:
             # SECURITY: Require at least one reconciliation attempt before allowing forced bypass
             # This prevents completely skipping safety checks while still allowing emergency
             # scenarios where reconciliation fails but operator needs to proceed
-            if self._last_reconciliation_result is None:
+            with self._state_lock:
+                last_result = self._last_reconciliation_result
+            if last_result is None:
                 raise ValueError(
                     "Cannot force startup complete without running reconciliation first. "
                     "Run reconciliation at least once before using forced bypass. "
@@ -130,32 +153,42 @@ class ReconciliationService:
                 raise ValueError(
                     "Both user_id and reason are required for forced startup bypass"
                 )
-            self._override_active = True
-            self._override_context = {
-                "user_id": user_id,
-                "reason": reason,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "last_reconciliation_result": self._last_reconciliation_result,
-            }
+            with self._state_lock:
+                self._override_active = True
+                self._override_context = {
+                    "user_id": user_id,
+                    "reason": reason,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "last_reconciliation_result": last_result,
+                }
             logger.warning(
                 "Startup reconciliation gate FORCED BYPASSED",
                 extra={
                     "user_id": user_id,
                     "reason": reason,
-                    "last_reconciliation_result": self._last_reconciliation_result,
+                    "last_reconciliation_result": last_result,
                 },
             )
-        self._startup_complete = True
+        with self._state_lock:
+            self._startup_complete = True
 
     def override_active(self) -> bool:
-        return self._override_active
+        with self._state_lock:
+            return self._override_active
 
     def override_context(self) -> dict[str, Any]:
-        return dict(self._override_context)
+        with self._state_lock:
+            return dict(self._override_context)
+
+    async def _record_last_reconciliation_result(self, result: dict[str, Any]) -> None:
+        """Record last reconciliation result under lock for thread safety."""
+        with self._state_lock:
+            self._last_reconciliation_result = result
 
     async def run_startup_reconciliation(self) -> bool:
         if self.dry_run:
-            self._startup_complete = True
+            with self._state_lock:
+                self._startup_complete = True
             return True
 
         try:
@@ -164,12 +197,14 @@ class ReconciliationService:
         except AlpacaConnectionError as exc:
             # Store failed result to enable forced bypass after failure
             # (SECURITY: operator can still force after seeing the error)
-            self._last_reconciliation_result = {
-                "status": "failed",
-                "mode": "startup",
-                "timestamp": datetime.now(UTC).isoformat(),
-                "error": str(exc),
-            }
+            await self._record_last_reconciliation_result(
+                {
+                    "status": "failed",
+                    "mode": "startup",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "error": str(exc),
+                }
+            )
             logger.error(
                 "Startup reconciliation failed: Alpaca connection error",
                 exc_info=True,
@@ -183,12 +218,14 @@ class ReconciliationService:
         except (psycopg.OperationalError, psycopg.IntegrityError) as exc:
             # Store failed result to enable forced bypass after failure
             # (SECURITY: operator can still force after seeing the error)
-            self._last_reconciliation_result = {
-                "status": "failed",
-                "mode": "startup",
-                "timestamp": datetime.now(UTC).isoformat(),
-                "error": str(exc),
-            }
+            await self._record_last_reconciliation_result(
+                {
+                    "status": "failed",
+                    "mode": "startup",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "error": str(exc),
+                }
+            )
             logger.error(
                 "Startup reconciliation failed: Database error",
                 exc_info=True,
@@ -202,12 +239,14 @@ class ReconciliationService:
         except ValueError as exc:
             # Store failed result to enable forced bypass after failure
             # (SECURITY: operator can still force after seeing the error)
-            self._last_reconciliation_result = {
-                "status": "failed",
-                "mode": "startup",
-                "timestamp": datetime.now(UTC).isoformat(),
-                "error": str(exc),
-            }
+            await self._record_last_reconciliation_result(
+                {
+                    "status": "failed",
+                    "mode": "startup",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "error": str(exc),
+                }
+            )
             logger.error(
                 "Startup reconciliation failed: Data validation error",
                 exc_info=True,
@@ -223,9 +262,12 @@ class ReconciliationService:
         while not self._stop_event.is_set():
             try:
                 await self.run_reconciliation_once("periodic")
-                if not self._startup_complete:
-                    self._startup_complete = True
-                    logger.info("Startup reconciliation gate opened after successful periodic run")
+                with self._state_lock:
+                    if not self._startup_complete:
+                        self._startup_complete = True
+                        logger.info(
+                            "Startup reconciliation gate opened after successful periodic run"
+                        )
             except AlpacaConnectionError as exc:
                 logger.error(
                     "Periodic reconciliation failed: Alpaca connection error",
@@ -266,15 +308,32 @@ class ReconciliationService:
             return
 
         async with self._lock:
-            await asyncio.to_thread(self._run_reconciliation, mode)
-            if not self._startup_complete:
-                self._startup_complete = True
-                logger.info(
-                    "Startup reconciliation gate opened after successful run",
-                    extra={"mode": mode},
-                )
+            result = await asyncio.to_thread(self._run_reconciliation, mode)
+            await self._record_last_reconciliation_result(result)
+            with self._state_lock:
+                if not self._startup_complete:
+                    self._startup_complete = True
+                    logger.info(
+                        "Startup reconciliation gate opened after successful run",
+                        extra={"mode": mode},
+                    )
 
-    def _run_reconciliation(self, mode: str) -> None:
+    async def run_fills_backfill_once(
+        self,
+        *,
+        lookback_hours: int | None = None,
+        recalc_all_trades: bool = False,
+    ) -> dict[str, Any]:
+        if self.dry_run:
+            return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._backfill_alpaca_fills,
+                lookback_hours=lookback_hours,
+                recalc_all_trades=recalc_all_trades,
+            )
+
+    def _run_reconciliation(self, mode: str) -> dict[str, Any]:
         start_time = datetime.now(UTC)
         logger.info("Reconciliation started", extra={"mode": mode})
 
@@ -350,6 +409,15 @@ class ReconciliationService:
             if status in ("filled", "partially_filled"):
                 self._backfill_fill_metadata(client_id, broker_order)
 
+        # Backfill fills using Alpaca account activities (granular fills API)
+        try:
+            self._backfill_alpaca_fills()
+        except Exception as exc:
+            logger.warning(
+                "Reconciliation Alpaca fills backfill failed",
+                extra={"error": str(exc)},
+            )
+
         # Reconcile positions
         self._reconcile_positions()
 
@@ -366,10 +434,10 @@ class ReconciliationService:
 
         # Update high-water mark on success
         self.db_client.set_reconciliation_high_water_mark(start_time)
-        reconciliation_last_run_timestamp.set(start_time.timestamp())
+        reconciliation_last_run_timestamp.labels(pod=POD_LABEL).set(start_time.timestamp())
 
         # Store result for forced bypass validation (SECURITY: enables safe emergency overrides)
-        self._last_reconciliation_result = {
+        result = {
             "status": "success",
             "mode": mode,
             "timestamp": start_time.isoformat(),
@@ -377,6 +445,174 @@ class ReconciliationService:
             "db_orders_checked": len(db_orders),
         }
         logger.info("Reconciliation completed", extra={"mode": mode})
+        return result
+
+    def _backfill_alpaca_fills(
+        self,
+        *,
+        lookback_hours: int | None = None,
+        recalc_all_trades: bool = False,
+    ) -> dict[str, Any]:
+        if not self.fills_backfill_enabled and lookback_hours is None:
+            return {"status": "disabled"}
+
+        now = datetime.now(UTC)
+        last_check = self.db_client.get_reconciliation_high_water_mark("alpaca_fills")
+        if lookback_hours is not None:
+            after_time = now - timedelta(hours=lookback_hours)
+        elif last_check:
+            after_time = last_check - timedelta(seconds=self.overlap_seconds)
+        else:
+            after_time = now - timedelta(hours=self.fills_backfill_initial_lookback_hours)
+
+        page_token: str | None = None
+        last_activity_id: str | None = None
+        pages = 0
+        fills: list[dict[str, Any]] = []
+
+        while pages < self.fills_backfill_max_pages:
+            page_size = self.fills_backfill_page_size + (1 if page_token else 0)
+            raw_page = self.alpaca_client.get_account_activities(
+                "FILL",
+                after=after_time,
+                until=now,
+                page_size=page_size,
+                page_token=page_token,
+                direction="desc",
+            )
+            if not raw_page:
+                break
+            page = raw_page
+            if last_activity_id:
+                page = [item for item in raw_page if str(item.get("id")) != last_activity_id]
+            fills.extend(page)
+            if len(raw_page) < page_size:
+                break
+            last_id = raw_page[-1].get("id")
+            if not last_id:
+                break
+            last_activity_id = str(last_id)
+            page_token = last_activity_id
+            pages += 1
+
+        if not fills:
+            self.db_client.set_reconciliation_high_water_mark(now, name="alpaca_fills")
+            return {"status": "ok", "fills_seen": 0, "fills_inserted": 0, "unmatched": 0}
+
+        broker_ids = [
+            str(fill.get("order_id"))
+            for fill in fills
+            if fill.get("order_id")
+        ]
+        orders_by_broker = self.db_client.get_orders_by_broker_ids(broker_ids)
+
+        fills_by_client: dict[str, list[dict[str, Any]]] = {}
+        affected: set[tuple[str, str]] = set()
+        unmatched = 0
+
+        for fill in fills:
+            broker_order_id = fill.get("order_id")
+            if not broker_order_id:
+                unmatched += 1
+                continue
+            order = orders_by_broker.get(str(broker_order_id))
+            if not order:
+                unmatched += 1
+                continue
+
+            fill_id = str(fill.get("id") or "").strip()
+            if not fill_id:
+                # Fallback: deterministic id using multiple fields to avoid collisions
+                fallback_parts = {
+                    "broker_order_id": str(broker_order_id),
+                    "symbol": str(fill.get("symbol") or ""),
+                    "side": str(fill.get("side") or ""),
+                    "qty": str(fill.get("qty") or ""),
+                    "price": str(fill.get("price") or ""),
+                    "transaction_time": str(fill.get("transaction_time") or ""),
+                    "activity_time": str(fill.get("activity_time") or ""),
+                    "id_hint": str(fill.get("id") or ""),
+                }
+                fallback_payload = "|".join(
+                    f"{key}={value}" for key, value in sorted(fallback_parts.items())
+                )
+                fill_id = hashlib.sha256(fallback_payload.encode()).hexdigest()[:32]
+
+            qty = fill.get("qty")
+            price = fill.get("price")
+            timestamp = fill.get("transaction_time") or fill.get("activity_time")
+
+            fill_data = {
+                "fill_id": fill_id,
+                "fill_qty": qty,
+                "fill_price": price,
+                "realized_pl": "0",
+                "timestamp": timestamp,
+                "synthetic": False,
+                "source": "alpaca_activity",
+            }
+            fills_by_client.setdefault(order.client_order_id, []).append(fill_data)
+            affected.add((order.strategy_id, order.symbol))
+
+        inserted = 0
+        pnl_updates = 0
+        pnl_failures = 0
+        with self.db_client.transaction() as conn:
+            for client_order_id, fill_items in fills_by_client.items():
+                for fill_data in fill_items:
+                    updated = self.db_client.append_fill_to_order_metadata(
+                        client_order_id=client_order_id,
+                        fill_data=fill_data,
+                        conn=conn,
+                    )
+                    if updated is not None:
+                        inserted += 1
+
+            for strategy_id, symbol in affected:
+                try:
+                    result = self.db_client.recalculate_trade_realized_pnl(
+                        strategy_id,
+                        symbol,
+                        update_all=recalc_all_trades,
+                        conn=conn,
+                    )
+                    pnl_updates += int(result.get("trades_updated", 0))
+                except Exception as exc:
+                    pnl_failures += 1
+                    logger.error(
+                        "Alpaca fills backfill P&L recalculation failed - rolling back",
+                        extra={
+                            "strategy_id": strategy_id,
+                            "symbol": symbol,
+                            "error": str(exc),
+                        },
+                        exc_info=True,
+                    )
+                    raise RuntimeError(
+                        f"P&L recalculation failed for {strategy_id}:{symbol}"
+                    ) from exc
+
+        self.db_client.set_reconciliation_high_water_mark(now, name="alpaca_fills")
+        logger.info(
+            "Alpaca fills backfill completed",
+            extra={
+                "fills_seen": len(fills),
+                "fills_inserted": inserted,
+                "unmatched": unmatched,
+                "pnl_updates": pnl_updates,
+                "pnl_failures": pnl_failures,
+                "after": after_time.isoformat(),
+                "until": now.isoformat(),
+            },
+        )
+        return {
+            "status": "ok",
+            "fills_seen": len(fills),
+            "fills_inserted": inserted,
+            "unmatched": unmatched,
+            "pnl_updates": pnl_updates,
+            "pnl_failures": pnl_failures,
+        }
 
     def _apply_broker_update(self, client_order_id: str, broker_order: dict[str, Any]) -> None:
         status = broker_order.get("status") or ""
@@ -401,7 +637,7 @@ class ReconciliationService:
         )
 
         if updated is None:
-            reconciliation_conflicts_skipped_total.inc()
+            reconciliation_conflicts_skipped_total.labels(pod=POD_LABEL).inc()
             logger.warning(
                 "Reconciliation CAS skipped",
                 extra={"client_order_id": client_order_id, "status": status},
@@ -413,7 +649,7 @@ class ReconciliationService:
             self._backfill_fill_metadata(client_order_id, broker_order, updated_at, updated)
 
         if updated is not None:
-            reconciliation_mismatches_total.inc()
+            reconciliation_mismatches_total.labels(pod=POD_LABEL).inc()
 
     def _calculate_synthetic_fill(
         self,
@@ -645,9 +881,9 @@ class ReconciliationService:
                     broker_order_id=db_order.broker_order_id,
                 )
                 if updated is None:
-                    reconciliation_conflicts_skipped_total.inc()
+                    reconciliation_conflicts_skipped_total.labels(pod=POD_LABEL).inc()
                 else:
-                    reconciliation_mismatches_total.inc()
+                    reconciliation_mismatches_total.labels(pod=POD_LABEL).inc()
 
     def _handle_orphan_order(self, broker_order: dict[str, Any], resolve_terminal: bool) -> None:
         symbol = broker_order.get("symbol")
@@ -711,7 +947,7 @@ class ReconciliationService:
         try:
             key = RedisKeys.quarantine(strategy_id=strategy_id, symbol=symbol)
             self.redis_client.set(key, "orphan_order_detected")
-            symbols_quarantined_total.labels(symbol=symbol).inc()
+            symbols_quarantined_total.labels(pod=POD_LABEL, symbol=symbol).inc()
         except redis.RedisError as exc:
             logger.warning(
                 "Failed to set quarantine key: Redis error",
