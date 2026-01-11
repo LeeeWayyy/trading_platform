@@ -161,6 +161,28 @@ class CSPMiddleware(BaseHTTPMiddleware):
             )
             # Return 500 response with CSP header
             return response
+        except Exception as e:
+            # Catch-all for any other unexpected exceptions (KeyError, AttributeError, etc.)
+            # Ensures CSP headers are added to ALL 500 responses as per security guarantee
+            from fastapi.responses import JSONResponse
+
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+            response.headers[header_name] = csp_policy
+            logger.error(
+                "Unexpected error in request processing - returning 500 with CSP header",
+                extra={
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "path": request.url.path,
+                    "nonce": nonce[:8] + "...",
+                },
+                exc_info=True,  # Include full traceback for debugging
+            )
+            # Return 500 response with CSP header
+            return response
 
         # Add CSP header to successful response
         response.headers[header_name] = csp_policy
