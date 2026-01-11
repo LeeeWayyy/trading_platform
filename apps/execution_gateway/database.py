@@ -1989,7 +1989,7 @@ class DatabaseClient:
                         '{total_realized_pl}',
                         to_jsonb(
                             COALESCE((metadata->>'total_realized_pl')::NUMERIC, 0)
-                            + (%s::jsonb->>'realized_pl')::NUMERIC
+                            + COALESCE((%s::jsonb->>'realized_pl')::NUMERIC, 0)
                         )
                     ),
                     updated_at = NOW()
@@ -2130,6 +2130,10 @@ class DatabaseClient:
                 or _get("updated_at")
                 or datetime.now(UTC)
             )
+
+        # Ensure executed_at is timezone-aware (UTC) - guard against naive datetimes
+        if executed_at.tzinfo is None:
+            executed_at = executed_at.replace(tzinfo=UTC)
 
         source = fill_data.get("source")
         synthetic = bool(fill_data.get("synthetic", False))

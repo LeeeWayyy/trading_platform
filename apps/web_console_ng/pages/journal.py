@@ -426,6 +426,9 @@ def _render_trade_table(trades: list[dict[str, Any]], page_size: int, page: int)
         for trade in trades:
             executed_at = trade.get("executed_at")
             if isinstance(executed_at, datetime):
+                # Guard against naive datetime (no tzinfo) to prevent ValueError
+                if executed_at.tzinfo is None:
+                    executed_at = executed_at.replace(tzinfo=UTC)
                 date_str = executed_at.astimezone(UTC).isoformat(timespec="milliseconds")
                 date_str = date_str.replace("T", " ").replace("+00:00", "Z")
             else:

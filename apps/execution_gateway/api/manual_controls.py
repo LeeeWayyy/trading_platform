@@ -18,6 +18,7 @@ from redis.exceptions import RedisError
 
 from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
 from apps.execution_gateway.api.dependencies import (
+    DRY_RUN,
     TwoFaResult,
     TwoFaValidator,
     check_rate_limit_with_fallback,
@@ -274,6 +275,11 @@ def _generate_manual_order_id(
     qty: Decimal | int,
     user_id: str,
     as_of_datetime: datetime | None = None,
+    *,
+    order_type: str | None = None,
+    limit_price: Decimal | None = None,
+    stop_price: Decimal | None = None,
+    time_in_force: str | None = None,
 ) -> str:
     """Generate deterministic order ID for manual control operations.
 
@@ -291,6 +297,10 @@ def _generate_manual_order_id(
         qty: Order quantity
         user_id: User initiating the operation
         as_of_datetime: Datetime for ID generation (defaults to now, truncated to minute)
+        order_type: Order type (market, limit, stop, stop_limit)
+        limit_price: Limit price for limit/stop_limit orders
+        stop_price: Stop price for stop/stop_limit orders
+        time_in_force: Time in force (day, gtc, ioc, fok)
 
     Returns:
         24-character alphanumeric ID compatible with Alpaca
@@ -301,7 +311,19 @@ def _generate_manual_order_id(
     target_dt = as_of_datetime or datetime.now(UTC)
     minute_key = target_dt.strftime("%Y%m%d%H%M")  # Minute precision
     qty_int = int(qty)
+
+    # Include all economically relevant fields to prevent collisions
+    # between different order types with same symbol/side/qty
     components = f"{action}:{symbol}:{side}:{qty_int}:{user_id}:{minute_key}"
+    if order_type:
+        components += f":{order_type}"
+    if limit_price is not None:
+        components += f":lp{limit_price}"
+    if stop_price is not None:
+        components += f":sp{stop_price}"
+    if time_in_force:
+        components += f":{time_in_force}"
+
     digest = hashlib.sha256(components.encode()).hexdigest()
     return digest[:24]
 
@@ -486,8 +508,30 @@ async def cancel_order(
             detail=error_detail("validation_error", "Invalid order data after status update"),
         ) from exc
 
+    # If no broker_order_id, the order was never submitted to broker (dry_run or pre-submit)
+    # Update directly to canceled status instead of waiting for webhook
+    if not order.broker_order_id:
+        await _db_call(db_client.update_order_status, order_id, "canceled")
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="cancel_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="success",
+            details={
+                "reason": sanitized_reason,
+                "strategy_id": order.strategy_id,
+                "note": "no_broker_order_id",
+            },
+        )
+        return CancelOrderResponse(
+            status="cancelled",
+            order_id=order_id,
+            cancelled_at=datetime.now(UTC),
+        )
+
     try:
-        if alpaca_executor and order.broker_order_id:
+        if alpaca_executor:
             alpaca_executor.cancel_order(order.broker_order_id)
     except TimeoutError as exc:
         try:
@@ -691,9 +735,14 @@ async def cancel_all_orders(
             )
             continue
 
+        # If no broker_order_id, update directly to canceled status
+        if not order.broker_order_id:
+            await _db_call(db_client.update_order_status, order.client_order_id, "canceled")
+            cancelled_ids.append(order.client_order_id)
+            continue
+
         try:
-            if order.broker_order_id:
-                alpaca_executor.cancel_order(order.broker_order_id)
+            alpaca_executor.cancel_order(order.broker_order_id)
             cancelled_ids.append(order.client_order_id)
         except AlpacaClientError as exc:
             try:
@@ -863,6 +912,32 @@ async def close_position(
 
     # Determine qty to close: use request.qty (always positive) or full position (abs value)
     qty_to_close = Decimal(request.qty) if request.qty is not None else abs(position_qty)
+
+    # Safety: prevent over-close that would flip the position
+    max_closeable = abs(position_qty)
+    if qty_to_close > max_closeable:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="close_position",
+            resource_type="position",
+            resource_id=symbol.upper(),
+            outcome="rejected",
+            details={
+                "reason": sanitized_reason,
+                "error": "qty_exceeds_position",
+                "requested_qty": float(qty_to_close),
+                "position_qty": float(max_closeable),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_detail(
+                "qty_exceeds_position",
+                f"Requested qty ({qty_to_close}) exceeds position size ({max_closeable}). "
+                "This would flip the position, which is not allowed via close endpoint.",
+            ),
+        )
+
     qty_int = _require_integral_qty(qty_to_close, "qty")
 
     # Fail-closed: require broker executor for destructive operations
@@ -900,14 +975,43 @@ async def close_position(
     try:
         # Persist order in DB BEFORE broker submission to ensure webhooks can find it
         # Strategy ID uses manual_controls prefix to identify operator-initiated orders
-        await _db_call(
-            db_client.create_order,
-            client_order_id=order_id,
-            strategy_id="manual_controls_close_position",
-            order_request=order_req,
-            status="pending_new",
-            broker_order_id=None,
-        )
+        try:
+            await _db_call(
+                db_client.create_order,
+                client_order_id=order_id,
+                strategy_id="manual_controls_close_position",
+                order_request=order_req,
+                status="pending_new",
+                broker_order_id=None,
+            )
+        except IntegrityError:
+            # Idempotency: order already exists (e.g., retry within same minute)
+            existing = await _db_call(db_client.get_order_by_client_id, order_id)
+            if existing:
+                await audit_logger.log_action(
+                    user_id=user.user_id,
+                    action="close_position",
+                    resource_type="position",
+                    resource_id=symbol.upper(),
+                    outcome="success",
+                    details={
+                        "reason": sanitized_reason,
+                        "qty": float(qty_to_close),
+                        "order_id": order_id,
+                        "idempotent": True,
+                    },
+                )
+                return ClosePositionResponse(
+                    status="closing",
+                    symbol=symbol.upper(),
+                    order_id=order_id,
+                    qty_to_close=qty_to_close,
+                    message="Order already submitted (idempotent retry)",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=error_detail("db_error", "Order creation conflict"),
+            ) from None
 
         # Submit to broker after DB persistence
         alpaca_executor.submit_order(order_req, order_id)
@@ -952,6 +1056,7 @@ async def adjust_position(
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
     audit_logger: AuditLogger = Depends(get_audit_logger),
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
+    redis_client: redis_async.Redis | None = Depends(get_async_redis),
 ) -> AdjustPositionResponse:
     """Force position adjustment to a target quantity."""
     sanitized_reason = _sanitize_reason(request.reason)
@@ -1029,6 +1134,77 @@ async def adjust_position(
         )
     delta = Decimal(request.target_qty) - current_qty
 
+    # Circuit breaker check: only allow risk-reducing adjustments during breaker trips
+    # Risk-reducing = abs(target_qty) < abs(current_qty)
+    is_risk_reducing = abs(request.target_qty) < abs(current_qty)
+    if not is_risk_reducing and delta != 0:
+        # Check circuit breaker for exposure-increasing adjustments
+        try:
+            if redis_client:
+                state = await redis_client.get(CIRCUIT_BREAKER_STATE_KEY)
+                if state == b"TRIPPED":
+                    await audit_logger.log_action(
+                        user_id=user.user_id,
+                        action="adjust_position",
+                        resource_type="circuit_breaker",
+                        resource_id=symbol.upper(),
+                        outcome="blocked",
+                        details={
+                            "reason": sanitized_reason,
+                            "error": "circuit_breaker_tripped",
+                            "current_qty": float(current_qty),
+                            "target_qty": float(request.target_qty),
+                            "delta": float(delta),
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=error_detail(
+                            "circuit_breaker_tripped",
+                            "Trading blocked: circuit breaker active. Only risk-reducing adjustments allowed.",
+                        ),
+                    )
+            else:
+                # Fail-closed: no Redis connection, block exposure-increasing adjustments
+                await audit_logger.log_action(
+                    user_id=user.user_id,
+                    action="adjust_position",
+                    resource_type="circuit_breaker",
+                    resource_id=symbol.upper(),
+                    outcome="blocked",
+                    details={
+                        "reason": sanitized_reason,
+                        "error": "circuit_breaker_unavailable",
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=error_detail(
+                        "circuit_breaker_unavailable",
+                        "Circuit breaker state unavailable. Only risk-reducing adjustments allowed.",
+                    ),
+                )
+        except RedisError as exc:
+            # Fail-closed: Redis error, block exposure-increasing adjustments
+            await audit_logger.log_action(
+                user_id=user.user_id,
+                action="adjust_position",
+                resource_type="circuit_breaker",
+                resource_id=symbol.upper(),
+                outcome="blocked",
+                details={
+                    "reason": sanitized_reason,
+                    "error": f"redis_error: {exc}",
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=error_detail(
+                    "circuit_breaker_unavailable",
+                    "Circuit breaker state unavailable. Only risk-reducing adjustments allowed.",
+                ),
+            ) from exc
+
     if delta == 0:
         # Audit no-op case for completeness
         await audit_logger.log_action(
@@ -1084,18 +1260,51 @@ async def adjust_position(
         side=side,
         qty=Decimal(qty_int),
         user_id=user.user_id,
+        order_type=request.order_type,
+        limit_price=request.limit_price,
     )
     try:
         # Persist order in DB BEFORE broker submission to ensure webhooks can find it
         # Strategy ID uses manual_controls prefix to identify operator-initiated orders
-        await _db_call(
-            db_client.create_order,
-            client_order_id=order_id,
-            strategy_id="manual_controls_adjust_position",
-            order_request=order_req,
-            status="pending_new",
-            broker_order_id=None,
-        )
+        try:
+            await _db_call(
+                db_client.create_order,
+                client_order_id=order_id,
+                strategy_id="manual_controls_adjust_position",
+                order_request=order_req,
+                status="pending_new",
+                broker_order_id=None,
+            )
+        except IntegrityError:
+            # Idempotency: order already exists (e.g., retry within same minute)
+            existing = await _db_call(db_client.get_order_by_client_id, order_id)
+            if existing:
+                await audit_logger.log_action(
+                    user_id=user.user_id,
+                    action="adjust_position",
+                    resource_type="position",
+                    resource_id=symbol.upper(),
+                    outcome="success",
+                    details={
+                        "reason": sanitized_reason,
+                        "current_qty": float(current_qty),
+                        "target_qty": float(request.target_qty),
+                        "order_id": order_id,
+                        "idempotent": True,
+                    },
+                )
+                return AdjustPositionResponse(
+                    status="adjusting",
+                    symbol=symbol.upper(),
+                    current_qty=current_qty,
+                    target_qty=request.target_qty,
+                    order_id=order_id,
+                    message="Order already submitted (idempotent retry)",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=error_detail("db_error", "Order creation conflict"),
+            ) from None
 
         # Submit to broker after DB persistence
         alpaca_executor.submit_order(order_req, order_id)
@@ -1313,17 +1522,24 @@ async def flatten_all_positions(
         try:
             # Persist order in DB BEFORE broker submission to ensure webhooks can find it
             # Strategy ID uses manual_controls prefix to identify operator-initiated orders
-            await _db_call(
-                db_client.create_order,
-                client_order_id=order_id,
-                strategy_id="manual_controls_flatten_all",
-                order_request=order_req,
-                status="pending_new",
-                broker_order_id=None,
-            )
+            order_already_exists = False
+            try:
+                await _db_call(
+                    db_client.create_order,
+                    client_order_id=order_id,
+                    strategy_id="manual_controls_flatten_all",
+                    order_request=order_req,
+                    status="pending_new",
+                    broker_order_id=None,
+                )
+            except IntegrityError:
+                # Idempotency: order already exists (e.g., retry within same minute)
+                # Continue to add to orders_created since broker may already have the order
+                order_already_exists = True
 
-            # Submit to broker after DB persistence
-            alpaca_executor.submit_order(order_req, order_id)
+            if not order_already_exists:
+                # Submit to broker only if this is a new order
+                alpaca_executor.submit_order(order_req, order_id)
             orders_created.append(order_id)
             strategy_id = strategy_map.get(position.symbol)
             strategies_affected.add(strategy_id or "manual_controls_flatten_all")
@@ -1408,6 +1624,10 @@ async def submit_manual_order(
         side=order_req.side,
         qty=qty_int,
         user_id=user.user_id,
+        order_type=request.order_type,
+        limit_price=request.limit_price,
+        stop_price=request.stop_price,
+        time_in_force=request.time_in_force,
     )
 
     await _check_circuit_breaker(
@@ -1419,6 +1639,32 @@ async def submit_manual_order(
     )
 
     if alpaca_executor is None:
+        # Fail-closed: if DRY_RUN=false but broker unavailable, reject the order
+        if not DRY_RUN:
+            await audit_logger.log_action(
+                user_id=user.user_id,
+                action="manual_order",
+                resource_type="order",
+                resource_id=order_id,
+                outcome="failed",
+                details={
+                    "symbol": order_req.symbol,
+                    "side": order_req.side,
+                    "qty": qty_int,
+                    "order_type": order_req.order_type,
+                    "reason": sanitized_reason,
+                    "error": "broker_unavailable",
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=error_detail(
+                    "broker_unavailable",
+                    "Broker connection unavailable. DRY_RUN is disabled, cannot proceed.",
+                ),
+            )
+
+        # DRY_RUN=true: allow dry_run mode
         try:
             await _db_call(
                 db_client.create_order,

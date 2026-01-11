@@ -87,6 +87,7 @@ class ClosePositionResponse(BaseModel):
     symbol: str
     order_id: str | None = None
     qty_to_close: Decimal
+    message: str | None = None
 
 
 class ManualOrderRequest(BaseModel):
@@ -172,6 +173,7 @@ class AdjustPositionResponse(BaseModel):
     current_qty: Decimal
     target_qty: Decimal
     order_id: str | None = None
+    message: str | None = None
 
 
 class FlattenAllRequest(BaseModel):
