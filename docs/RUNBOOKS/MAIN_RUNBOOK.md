@@ -125,6 +125,29 @@ Then restart the web console:
 docker compose --profile dev up -d web_console_dev
 ```
 
+#### Step 7: Notebook Launcher (optional)
+The Notebook Launcher runs JupyterLab sessions inside `web_console_dev`.
+
+Prerequisites:
+- `notebooks/templates/` exists (mounted into the container)
+- `NOTEBOOK_LAUNCH_COMMAND` and `NOTEBOOK_BASE_URL` set in `.env`
+
+Recommended local dev settings:
+```
+NOTEBOOK_BASE_URL=http://localhost
+NOTEBOOK_LAUNCH_COMMAND=jupyter lab --ip=0.0.0.0 --port={port} --no-browser --NotebookApp.token={token} --NotebookApp.allow_remote_access=True /app/{template_path}
+NOTEBOOK_LOG_DIR=artifacts/notebook_logs
+```
+
+Then restart the web console:
+```bash
+docker compose --profile dev up -d web_console_dev
+```
+
+Troubleshooting:
+- **“NOTEBOOK_LAUNCH_COMMAND is not configured”** → add the env vars above and restart.
+- **“Templates directory not found”** → ensure `notebooks/templates/` exists.
+
 ---
 
 ### A.1 Prerequisites

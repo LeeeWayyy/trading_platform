@@ -26,18 +26,16 @@ from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 
+_SESSION_STORE_BY_USER: dict[str, dict[str, Any]] = {}
 
-def _get_service(user: dict[str, Any]) -> Any:
+
+def _get_service(user: dict[str, Any], session_store: dict[str, Any]) -> Any:
     """Get or create NotebookLauncherService with session storage."""
     from apps.web_console.services.notebook_launcher_service import NotebookLauncherService
 
-    # Use app storage for session store (persists across requests)
-    if "notebook_launcher_sessions" not in app.storage.user:
-        app.storage.user["notebook_launcher_sessions"] = {}
-
     return NotebookLauncherService(
         user=dict(user),
-        session_store=app.storage.user["notebook_launcher_sessions"],
+        session_store=session_store,
     )
 
 
@@ -47,6 +45,7 @@ def _get_service(user: dict[str, Any]) -> Any:
 async def notebook_launcher_page() -> None:
     """Research Notebook Launcher page."""
     user = get_current_user()
+    user_id = str(user.get("user_id") or user.get("username") or "unknown")
 
     # Page title
     ui.label("Research Notebook Launcher").classes("text-2xl font-bold mb-4")
@@ -60,9 +59,12 @@ async def notebook_launcher_page() -> None:
             )
         return
 
+    # Use in-memory store keyed by user to avoid NiceGUI ObservableDict issues.
+    session_store = _SESSION_STORE_BY_USER.setdefault(user_id, {})
+
     # Try to get service
     try:
-        service = await run.io_bound(_get_service, user)
+        service = await run.io_bound(_get_service, user, session_store)
     except ImportError as e:
         logger.error(
             "Failed to initialize NotebookLauncherService - missing dependencies",
@@ -70,6 +72,15 @@ async def notebook_launcher_page() -> None:
             exc_info=True,
         )
         _render_demo_mode()
+        return
+    except RuntimeError as e:
+        message = str(e)
+        logger.error(
+            "Failed to initialize NotebookLauncherService - runtime configuration error",
+            extra={"error": message, "page": "notebook_launcher"},
+            exc_info=True,
+        )
+        _render_notebook_config_help(message)
         return
     except Exception as e:
         logger.error(
@@ -116,13 +127,34 @@ async def notebook_launcher_page() -> None:
     await _render_notebook_launcher(service, templates)
 
 
+def _render_notebook_config_help(error_message: str) -> None:
+    """Render actionable setup instructions when notebook launch config is missing."""
+    with ui.card().classes("w-full p-6 border border-yellow-300 bg-yellow-50"):
+        ui.label("Notebook launcher is not configured.").classes(
+            "text-lg font-semibold text-yellow-800 mb-2"
+        )
+        ui.label(error_message).classes("text-yellow-700 mb-4")
+        ui.label("To enable notebooks in local dev:").classes("text-sm font-semibold mb-2")
+        ui.markdown(
+            """
+1. Add to `.env`:
+```
+NOTEBOOK_BASE_URL=http://localhost
+NOTEBOOK_LAUNCH_COMMAND=jupyter lab --ip=0.0.0.0 --port={port} --no-browser --NotebookApp.token={token} --NotebookApp.allow_remote_access=True /app/{template_path}
+```
+2. Ensure `notebooks/templates/` exists (mounted into the container).
+3. Restart the web console: `docker compose --profile dev up -d web_console_dev`
+""",
+        ).classes("text-sm")
+
+
 async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
     """Render the full notebook launcher interface."""
     # Template selector
     with ui.card().classes("w-full mb-4 p-4"):
         ui.label("Select Template").classes("text-lg font-bold mb-2")
 
-        template_options = {t.template_id: t.display_name for t in templates}
+        template_options = {t.template_id: t.name for t in templates}
         template_select = ui.select(
             label="Notebook Template",
             options=template_options,
@@ -165,11 +197,11 @@ async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
 
                 with ui.column().classes("gap-4"):
                     for param in selected.parameters:
-                        param_name = param.get("name", "unknown")
-                        param_type = param.get("type", "string")
-                        param_label = param.get("label", param_name)
-                        default = param.get("default", "")
-                        options = param.get("options", [])
+                        param_name = param.key
+                        param_type = param.kind
+                        param_label = param.label or param_name
+                        default = param.default
+                        options = list(param.options or [])
 
                         inp: Any  # Can be Select, Number, or Input
                         if options:
@@ -181,12 +213,12 @@ async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
                         elif param_type == "number":
                             inp = ui.number(
                                 label=param_label,
-                                value=float(default) if default else 0,
+                                value=float(default) if default is not None else 0,
                             ).classes("w-full max-w-md")
                         else:
                             inp = ui.input(
                                 label=param_label,
-                                value=str(default) if default else "",
+                                value=str(default) if default is not None else "",
                             ).classes("w-full max-w-md")
 
                         param_inputs[param_name] = inp
