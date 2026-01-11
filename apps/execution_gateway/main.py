@@ -197,6 +197,7 @@ ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+ALPACA_DATA_FEED = os.getenv("ALPACA_DATA_FEED", "").strip() or None
 CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
 LIQUIDITY_CHECK_ENABLED = os.getenv("LIQUIDITY_CHECK_ENABLED", "true").lower() in (
     "1",
@@ -442,6 +443,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     liquidity_service = LiquidityService(
                         api_key=alpaca_api_key_id,
                         api_secret=alpaca_api_secret_key,
+                        data_feed=ALPACA_DATA_FEED,
                     )
                     logger.info("Liquidity service initialized successfully")
             except AlpacaConnectionError as e:
@@ -3041,6 +3043,7 @@ async def submit_order(
                 if isinstance(raw_missing, list):
                     missing_fields.update(str(item) for item in raw_missing)
             if missing_fields:
+                adv_missing = "adv" in missing_fields
                 logger.warning(
                     "Fat-finger data unavailable; treating as breach",
                     extra={
@@ -3049,6 +3052,8 @@ async def submit_order(
                         "side": order.side,
                         "qty": order.qty,
                         "missing_fields": sorted(missing_fields),
+                        "adv_missing": adv_missing,
+                        "alpaca_data_feed": ALPACA_DATA_FEED or "default",
                     },
                 )
             logger.warning(
@@ -3077,6 +3082,13 @@ async def submit_order(
                 _record_order_metrics(order, start_time, "blocked")
 
                 if missing_fields:
+                    hint = "Verify market data feed availability."
+                    if "adv" in missing_fields:
+                        hint = (
+                            "ADV lookup failed. For Alpaca free data, set "
+                            "ALPACA_DATA_FEED=iex or disable ADV checks via "
+                            "FAT_FINGER_MAX_ADV_PCT=0 for local dev."
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={
@@ -3085,6 +3097,9 @@ async def submit_order(
                                 "Order rejected: market data unavailable for fat-finger checks "
                                 f"(missing: {', '.join(sorted(missing_fields))})"
                             ),
+                            "hint": hint,
+                            "missing_fields": sorted(missing_fields),
+                            "alpaca_data_feed": ALPACA_DATA_FEED or "default",
                             **fat_finger_result.to_response(),
                         },
                     )

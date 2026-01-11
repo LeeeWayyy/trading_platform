@@ -329,9 +329,18 @@ async def get_authenticated_user(
     debug_mode = os.getenv("DEBUG", "false").lower().strip() in ("true", "1", "yes")
     dry_run = os.getenv("DRY_RUN", "true").lower().strip() in ("true", "1", "yes")
 
-    # SECURITY: log_only mode ONLY allowed when BOTH DEBUG=true AND DRY_RUN=true
+    alpaca_paper = os.getenv("ALPACA_PAPER", "true").lower().strip() in (
+        "true",
+        "1",
+        "yes",
+    )
+    alpaca_base_url = os.getenv("ALPACA_BASE_URL", "").lower().strip()
+    paper_url = "paper" in alpaca_base_url if alpaca_base_url else False
+    paper_enabled = alpaca_paper or paper_url
+
+    # SECURITY: log_only mode only allowed in debug + non-live trading contexts.
     # This prevents accidental production deployment with auth bypass.
-    # Even in DEBUG mode, if DRY_RUN=false (real trades), auth must be enforced.
+    # In debug mode, allow log_only when DRY_RUN=true OR when paper trading is enabled.
     if mode == "log_only":
         if not debug_mode:
             logger.error(
@@ -340,23 +349,37 @@ async def get_authenticated_user(
                     "mode": mode,
                     "debug": debug_mode,
                     "dry_run": dry_run,
-                    "message": "API_AUTH_MODE=log_only requires DEBUG=true. Falling back to enforce mode.",
+                    "detail": "API_AUTH_MODE=log_only requires DEBUG=true. Falling back to enforce mode.",
                 },
             )
             mode = "enforce"
-        elif not dry_run:
+        elif not dry_run and not paper_enabled:
             logger.error(
                 "auth_mode_security_violation",
                 extra={
                     "mode": mode,
                     "debug": debug_mode,
                     "dry_run": dry_run,
-                    "message": "API_AUTH_MODE=log_only requires DRY_RUN=true. Falling back to enforce mode.",
+                    "alpaca_paper": alpaca_paper,
+                    "alpaca_base_url": alpaca_base_url,
+                    "detail": "API_AUTH_MODE=log_only requires DRY_RUN=true or ALPACA_PAPER=true. Falling back to enforce mode.",
                 },
             )
             mode = "enforce"
+        elif paper_enabled and not dry_run:
+            logger.warning(
+                "auth_mode_log_only_paper_allowed",
+                extra={
+                    "mode": mode,
+                    "debug": debug_mode,
+                    "dry_run": dry_run,
+                    "alpaca_paper": alpaca_paper,
+                    "alpaca_base_url": alpaca_base_url,
+                    "detail": "API_AUTH_MODE=log_only allowed for paper trading in debug mode.",
+                },
+            )
 
-    log_only = mode == "log_only" and debug_mode and dry_run
+    log_only = mode == "log_only" and debug_mode and (dry_run or paper_enabled)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):

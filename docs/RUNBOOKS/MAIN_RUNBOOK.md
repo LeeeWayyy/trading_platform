@@ -104,6 +104,27 @@ WEB_CONSOLE_USER=admin
 WEB_CONSOLE_PASSWORD=changeme
 ```
 
+#### Step 6: Alpha Explorer (optional)
+Alpha Explorer reads models from the local model registry directory.
+
+- **Local model registry (host):** `data/models/`
+- **Container path:** `/app/data/models` (mounted from `data/models/`, needs write access for `.registry.lock`)
+
+Enable the feature in `.env`:
+```
+FEATURE_ALPHA_EXPLORER=true
+```
+
+If you override the model registry location, set:
+```
+MODEL_REGISTRY_DIR=/app/data/models
+```
+
+Then restart the web console:
+```bash
+docker compose --profile dev up -d web_console_dev
+```
+
 ---
 
 ### A.1 Prerequisites

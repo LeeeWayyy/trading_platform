@@ -297,12 +297,21 @@ async def manual_order_page(client: Client) -> None:
                         limit_price_container.set_visibility(False)
 
                     except httpx.HTTPStatusError as exc:
+                        error_detail = ""
+                        try:
+                            payload = exc.response.json()
+                            detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
+                            if isinstance(detail, dict):
+                                error_detail = detail.get("message") or detail.get("error") or ""
+                        except (ValueError, TypeError):
+                            error_detail = ""
                         logger.warning(
                             "manual_order_failed",
                             extra={
                                 "user_id": user_id,
                                 "symbol": order_data["symbol"],
                                 "status": exc.response.status_code,
+                                "detail": error_detail or None,
                             },
                         )
                         audit_log(
@@ -311,9 +320,19 @@ async def manual_order_page(client: Client) -> None:
                             details={
                                 "symbol": order_data["symbol"],
                                 "error": f"HTTP {exc.response.status_code}",
+                                "detail": error_detail or None,
                             },
                         )
-                        ui.notify(f"Order failed: HTTP {exc.response.status_code}", type="negative")
+                        if error_detail:
+                            ui.notify(
+                                f"Order failed: {error_detail} (HTTP {exc.response.status_code})",
+                                type="negative",
+                            )
+                        else:
+                            ui.notify(
+                                f"Order failed: HTTP {exc.response.status_code}",
+                                type="negative",
+                            )
                     except httpx.RequestError as exc:
                         logger.warning(
                             "manual_order_failed",

@@ -33,6 +33,7 @@ class LiquidityService:
         api_key: str,
         api_secret: str,
         base_url: str = "https://data.alpaca.markets",
+        data_feed: str | None = None,
         lookback_days: int = 20,
         ttl_seconds: int = 24 * 60 * 60,
         max_stale_seconds: int | None = None,
@@ -42,6 +43,7 @@ class LiquidityService:
         self._api_key = api_key
         self._api_secret = api_secret
         self._base_url = base_url.rstrip("/")
+        self._data_feed = data_feed.strip() if data_feed else None
         self._lookback_days = lookback_days
         self._ttl = timedelta(seconds=ttl_seconds)
         self._max_stale = (
@@ -108,6 +110,8 @@ class LiquidityService:
 
         url = f"{self._base_url}/v2/stocks/{symbol}/bars"
         params: dict[str, str | int] = {"timeframe": "1Day", "limit": self._lookback_days}
+        if self._data_feed:
+            params["feed"] = self._data_feed
         headers = {
             "APCA-API-KEY-ID": self._api_key,
             "APCA-API-SECRET-KEY": self._api_secret,
@@ -146,7 +150,22 @@ class LiquidityService:
         if not isinstance(bars, list) or not bars:
             logger.warning(
                 "ADV lookup returned no bars",
-                extra={"symbol": symbol, "bars_count": len(bars) if isinstance(bars, list) else 0},
+                extra={
+                    "symbol": symbol,
+                    "bars_count": len(bars) if isinstance(bars, list) else 0,
+                    "status_code": response.status_code,
+                    "feed": self._data_feed or "default",
+                    "payload_keys": sorted(payload.keys()) if isinstance(payload, dict) else [],
+                    "response_body_preview": response.text[:200],
+                },
+            )
+            logger.warning(
+                "ADV no bars details: symbol=%s feed=%s status=%s payload_keys=%s body_preview=%s",
+                symbol,
+                self._data_feed or "default",
+                response.status_code,
+                sorted(payload.keys()) if isinstance(payload, dict) else [],
+                response.text[:200],
             )
             return _maybe_use_stale_cache("no_bars")
 
