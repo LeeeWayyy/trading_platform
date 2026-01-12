@@ -6,9 +6,10 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from psycopg.rows import dict_row
 
@@ -48,7 +49,7 @@ class ReportRun:
     started_at: datetime | None
     completed_at: datetime | None
     error_message: str | None
-    format: str = "pdf"
+    format: str | None = None
 
 
 class ScheduledReportsService:
@@ -294,11 +295,19 @@ class ScheduledReportsService:
 
                 await cur.execute(
                     """
-                    SELECT id, schedule_id, run_key, status, started_at,
-                           completed_at, error_message
-                    FROM report_schedule_runs
-                    WHERE schedule_id = %s
-                    ORDER BY started_at DESC NULLS LAST, completed_at DESC NULLS LAST
+                    SELECT r.id, r.schedule_id, r.run_key, r.status, r.started_at,
+                           r.completed_at, r.error_message,
+                           a.file_format
+                    FROM report_schedule_runs r
+                    LEFT JOIN LATERAL (
+                        SELECT file_format
+                        FROM report_archives
+                        WHERE idempotency_key = r.run_key
+                        ORDER BY generated_at DESC
+                        LIMIT 1
+                    ) a ON TRUE
+                    WHERE r.schedule_id = %s
+                    ORDER BY r.started_at DESC NULLS LAST, r.completed_at DESC NULLS LAST
                     LIMIT %s
                     """,
                     (schedule_id, limit),
@@ -314,9 +323,226 @@ class ScheduledReportsService:
                 started_at=row.get("started_at"),
                 completed_at=row.get("completed_at"),
                 error_message=row.get("error_message"),
+                format=row.get("file_format"),
             )
             for row in rows
         ]
+
+    async def run_now(self, schedule_id: str) -> ReportRun:
+        """Generate a report immediately and store the archive metadata."""
+        self._require_permission(Permission.MANAGE_REPORTS)
+
+        current_user_id = self._user.get("user_id")
+        role = self._user.get("role")
+        strategies = (
+            self._user.get("strategies")
+            if isinstance(self._user.get("strategies"), list)
+            else None
+        )
+        has_manage = has_permission(self._user, Permission.MANAGE_REPORTS)
+
+        data_errors: list[str] = []
+        positions_payload: dict[str, Any] = {}
+        fills_payload: dict[str, Any] = {}
+
+        try:
+            from apps.web_console_ng.core.client import AsyncTradingClient
+
+            client = AsyncTradingClient.get()
+            await client.startup()
+            positions_payload = await client.fetch_positions(
+                current_user_id or "",
+                role=role,
+                strategies=strategies,
+            )
+            fills_payload = await client.fetch_recent_fills(
+                current_user_id or "",
+                role=role,
+                strategies=strategies,
+                limit=100,
+            )
+        except Exception as exc:  # noqa: BLE001 - renderable error in report
+            data_errors.append(f"Failed to fetch trading data: {exc}")
+
+        async with acquire_connection(self._db_pool) as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                if has_manage:
+                    await cur.execute(
+                        """
+                        SELECT id, user_id, name, template_type, schedule_config
+                        FROM report_schedules
+                        WHERE id = %s
+                        """,
+                        (schedule_id,),
+                    )
+                else:
+                    await cur.execute(
+                        """
+                        SELECT id, user_id, name, template_type, schedule_config
+                        FROM report_schedules
+                        WHERE id = %s AND user_id = %s
+                        """,
+                        (schedule_id, current_user_id),
+                    )
+                schedule_row = await cur.fetchone()
+
+                if not schedule_row:
+                    raise ValueError("Schedule not found or access denied")
+
+                run_key = f"manual-{uuid4().hex}"
+                now = datetime.now(timezone.utc)
+
+                await cur.execute(
+                    """
+                    INSERT INTO report_schedule_runs (
+                        schedule_id, run_key, status, started_at, completed_at
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (schedule_id, run_key, "completed", now, now),
+                )
+
+                report_output_dir = Path(
+                    os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")
+                ).resolve()
+                report_output_dir.mkdir(parents=True, exist_ok=True)
+
+                file_name = f"report_{run_key}.html"
+                file_path = report_output_dir / file_name
+
+                schedule_name = schedule_row.get("name") or "Scheduled Report"
+                report_type = schedule_row.get("template_type") or "custom"
+                config = self._normalize_config(schedule_row.get("schedule_config"))
+                params = config.get("params") or {}
+
+                positions = positions_payload.get("positions", []) if isinstance(positions_payload, dict) else []
+                total_realized = positions_payload.get("total_realized_pl") if isinstance(positions_payload, dict) else None
+                total_unrealized = positions_payload.get("total_unrealized_pl") if isinstance(positions_payload, dict) else None
+                total_positions = positions_payload.get("total_positions") if isinstance(positions_payload, dict) else 0
+
+                fills = fills_payload.get("events", []) if isinstance(fills_payload, dict) else []
+
+                def _fmt_money(value: Any) -> str:
+                    try:
+                        return f"${float(value):,.2f}"
+                    except (TypeError, ValueError):
+                        return "-" if value is None else str(value)
+
+                def _fmt_value(value: Any) -> str:
+                    return "-" if value is None else str(value)
+
+                positions_rows = "\n".join(
+                    f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"
+                    f"<td>{_fmt_value(p.get('qty'))}</td>"
+                    f"<td>{_fmt_money(p.get('avg_entry_price'))}</td>"
+                    f"<td>{_fmt_money(p.get('current_price'))}</td>"
+                    f"<td>{_fmt_money(p.get('unrealized_pl'))}</td>"
+                    f"<td>{_fmt_money(p.get('realized_pl'))}</td></tr>"
+                    for p in positions
+                ) or "<tr><td colspan=\"6\">No positions</td></tr>"
+
+                fills_rows = "\n".join(
+                    f"<tr><td>{_fmt_value(f.get('timestamp'))}</td>"
+                    f"<td>{_fmt_value(f.get('symbol'))}</td>"
+                    f"<td>{_fmt_value(f.get('side'))}</td>"
+                    f"<td>{_fmt_value(f.get('qty'))}</td>"
+                    f"<td>{_fmt_money(f.get('price'))}</td>"
+                    f"<td>{_fmt_money(f.get('realized_pl'))}</td>"
+                    f"<td>{_fmt_value(f.get('status'))}</td></tr>"
+                    for f in fills
+                ) or "<tr><td colspan=\"7\">No recent fills</td></tr>"
+
+                error_block = ""
+                if data_errors:
+                    error_block = (
+                        "<div style=\"color:#b91c1c; margin-bottom:12px;\">"
+                        "<strong>Data warnings:</strong><ul>"
+                        + "".join(f"<li>{e}</li>" for e in data_errors)
+                        + "</ul></div>"
+                    )
+
+                content = f"""<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>{schedule_name}</title></head>
+<body>
+  <h1>{schedule_name}</h1>
+  <p>Report Type: {report_type}</p>
+  <p>Generated At (UTC): {now.strftime("%Y-%m-%d %H:%M:%S")}</p>
+  {error_block}
+  <h2>Summary</h2>
+  <ul>
+    <li>Total Positions: {_fmt_value(total_positions)}</li>
+    <li>Total Realized P&amp;L: {_fmt_money(total_realized)}</li>
+    <li>Total Unrealized P&amp;L: {_fmt_money(total_unrealized)}</li>
+  </ul>
+  <h2>Positions</h2>
+  <table border="1" cellpadding="6" cellspacing="0">
+    <thead>
+      <tr>
+        <th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th>
+        <th>Unrealized P&amp;L</th><th>Realized P&amp;L</th>
+      </tr>
+    </thead>
+    <tbody>
+      {positions_rows}
+    </tbody>
+  </table>
+  <h2>Recent Fills</h2>
+  <table border="1" cellpadding="6" cellspacing="0">
+    <thead>
+      <tr>
+        <th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th>
+        <th>Price</th><th>Realized P&amp;L</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {fills_rows}
+    </tbody>
+  </table>
+  <h2>Parameters</h2>
+  <pre>{json.dumps(params, indent=2)}</pre>
+</body>
+</html>
+"""
+                file_path.write_text(content)
+                size_bytes = file_path.stat().st_size
+
+                await cur.execute(
+                    """
+                    INSERT INTO report_archives (
+                        schedule_id, user_id, idempotency_key, generated_at,
+                        file_path, file_format, file_size_bytes
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        schedule_id,
+                        schedule_row.get("user_id") or current_user_id,
+                        run_key,
+                        now,
+                        str(file_path),
+                        "html",
+                        size_bytes,
+                    ),
+                )
+
+                await cur.execute(
+                    """
+                    UPDATE report_schedules
+                    SET last_run_at = %s, updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (now, schedule_id),
+                )
+            await conn.commit()
+
+        return ReportRun(
+            id=run_key,
+            schedule_id=schedule_id,
+            run_key=run_key,
+            status="completed",
+            started_at=now,
+            completed_at=now,
+            error_message=None,
+        )
 
     async def download_archive(self, run_id: str) -> Path | None:
         """Return path to archived report for streaming by the API layer.

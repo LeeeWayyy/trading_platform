@@ -42,6 +42,7 @@ plotly==5.24.1
 python-dotenv==1.1.1
 tenacity==8.5.0
 jupyterlab==4.3.5
+croniter==2.0.5
 
 # Data Processing (for analytics pages)
 pandas==2.2.3
