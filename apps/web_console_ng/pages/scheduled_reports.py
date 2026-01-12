@@ -20,7 +20,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from croniter import CroniterBadCronError, croniter
+from croniter import CroniterBadCronError, croniter  # type: ignore[import-untyped]
 from nicegui import run, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -418,8 +418,8 @@ async def _render_schedule_form(
             )
             try:
                 iterator = croniter(cron_value, datetime.now())
-                next_dt = iterator.get_next(datetime)
-                return next_dt.strftime("%Y-%m-%d %H:%M")
+                next_dt: datetime = iterator.get_next(datetime)
+                return str(next_dt.strftime("%Y-%m-%d %H:%M"))
             except (CroniterBadCronError, ValueError, TypeError):
                 return "Invalid schedule"
 

@@ -408,7 +408,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     universe: list[str] = [
                         s.strip().upper() for s in raw_universe.split(",") if s.strip()
                     ]
-                elif isinstance(raw_universe, (list, tuple)):
+                elif isinstance(raw_universe, list | tuple):
                     universe = [s.strip().upper() for s in raw_universe if isinstance(s, str) and s.strip()]
                 else:
                     universe = []

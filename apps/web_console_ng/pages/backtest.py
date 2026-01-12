@@ -21,8 +21,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import polars as pl
 import plotly.graph_objects as go
+import polars as pl
 from nicegui import run, ui
 
 from apps.web_console_ng import config
@@ -78,11 +78,11 @@ def _get_user_id(user: dict[str, Any]) -> str:
 
 def _get_job_queue() -> BacktestJobQueue:
     """Get BacktestJobQueue instance (sync context manager)."""
-    from libs.backtest.job_queue import BacktestJobQueue as _BacktestJobQueue
-
     # RQ expects binary Redis responses; decode_responses=True can raise
     # UnicodeDecodeError when RQ stores non-UTF8 payloads.
     from redis import Redis
+
+    from libs.backtest.job_queue import BacktestJobQueue as _BacktestJobQueue
 
     redis_client = Redis.from_url(config.REDIS_URL, decode_responses=False)
     db_pool = get_sync_db_pool()
@@ -629,8 +629,8 @@ async def _render_backtest_results(
     redis_client: Redis,
 ) -> None:
     """Render completed backtest results with visualization."""
-    from libs.backtest.result_storage import BacktestResultStorage
     from libs.backtest.models import ResultPathMissing
+    from libs.backtest.result_storage import BacktestResultStorage
 
     jobs_data: list[dict[str, Any]] = []
     comparison_mode = False
@@ -862,7 +862,7 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
 
     # Metrics summary
     ic_note = None
-    if hasattr(result, "daily_ic") and getattr(result, "daily_ic") is not None:
+    if hasattr(result, "daily_ic") and result.daily_ic is not None:
         try:
             ic_df = result.daily_ic
             if hasattr(ic_df, "is_empty") and not ic_df.is_empty():
@@ -969,7 +969,7 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                 events = events.filter(pl.col("symbol") == symbol)
 
             events = events.sort("date", descending=True).head(200)
-            rows = events.select(
+            rows: list[dict[str, Any]] = events.select(
                 [
                     pl.col("date").cast(pl.Date),
                     pl.col("symbol"),
@@ -1067,7 +1067,7 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                             y=buy["price"].to_list(),
                             mode="markers",
                             name="BUY",
-                            marker=dict(color="green", size=7, symbol="triangle-up"),
+                            marker={"color": "green", "size": 7, "symbol": "triangle-up"},
                         )
                     )
                 if not sell.is_empty():
@@ -1077,14 +1077,14 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                             y=sell["price"].to_list(),
                             mode="markers",
                             name="SELL",
-                            marker=dict(color="red", size=7, symbol="triangle-down"),
+                            marker={"color": "red", "size": 7, "symbol": "triangle-down"},
                         )
                     )
 
             fig.update_layout(
-                margin=dict(l=20, r=20, t=20, b=20),
+                margin={"l": 20, "r": 20, "t": 20, "b": 20},
                 height=360,
-                legend=dict(orientation="h"),
+                legend={"orientation": "h"},
             )
             ui.plotly(fig).classes("w-full")
 
@@ -1121,7 +1121,6 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
             position = 0  # -1, 0, 1
             entry_date = None
             entry_price = None
-            entry_signal = None
 
             for row in sigs.to_dicts():
                 date_val = row["date"]
@@ -1152,11 +1151,9 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                 if side != 0:
                     entry_date = date_val
                     entry_price = price_map.get(date_val)
-                    entry_signal = sig_val
                 else:
                     entry_date = None
                     entry_price = None
-                    entry_signal = None
                 position = side
 
             # Mark-to-market open position at end of series

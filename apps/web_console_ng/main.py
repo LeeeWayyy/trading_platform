@@ -6,9 +6,9 @@ import logging
 import traceback
 
 from nicegui import app, ui
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from apps.web_console_ng import config
 

@@ -37,7 +37,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Literal
 
 import polars as pl
@@ -484,7 +484,8 @@ class SimpleBacktester:
         )
 
         # Summary Metrics
-        mean_ic = daily_ic["rank_ic"].mean() if not daily_ic.is_empty() else 0.0
+        _mean_ic_raw = daily_ic["rank_ic"].mean() if not daily_ic.is_empty() else 0.0
+        mean_ic: float = float(_mean_ic_raw) if isinstance(_mean_ic_raw, int | float) else 0.0
         icir_res = self._metrics.compute_icir(daily_ic)
         hit_rate = self._metrics.compute_hit_rate(daily_signals, daily_returns)
 
@@ -493,7 +494,8 @@ class SimpleBacktester:
             daily_signals.group_by("date")
             .agg(pl.col("signal").is_not_null().mean().alias("cov"))
         )
-        coverage = daily_cov["cov"].mean() if not daily_cov.is_empty() else 0.0
+        _coverage_raw = daily_cov["cov"].mean() if not daily_cov.is_empty() else 0.0
+        coverage: float = float(_coverage_raw) if isinstance(_coverage_raw, int | float) else 0.0
 
         long_short = self._metrics.compute_long_short_spread(daily_signals, daily_returns)
 
@@ -550,11 +552,11 @@ class SimpleBacktester:
                 "provider_type": "yfinance",
                 "provider": self._fetcher.get_active_provider(),
                 "version": "N/A",  # Yahoo Finance has no versioning
-                "pit_compliant": False,
+                "pit_compliant": "false",
             },
             daily_signals=daily_signals,
             daily_ic=daily_ic,
-            mean_ic=mean_ic or 0.0,
+            mean_ic=mean_ic,
             icir=icir_res.icir or 0.0,
             hit_rate=hit_rate or 0.0,
             coverage=coverage,

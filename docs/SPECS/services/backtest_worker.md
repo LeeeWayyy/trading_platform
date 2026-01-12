@@ -91,6 +91,6 @@ RQ_QUEUES=backtest_high,backtest_normal   python apps/backtest_worker/entrypoint
 - `docs/SPECS/libs/backtest.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-03
+- **Last Updated:** 2026-01-11
 - **Source Files:** `apps/backtest_worker/entrypoint.py`
 - **ADRs:** N/A

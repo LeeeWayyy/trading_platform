@@ -44,7 +44,7 @@ class DataProvider(str, Enum):
     YFINANCE = "yfinance"
 
     @classmethod
-    def from_string(cls, value: str) -> "DataProvider":
+    def from_string(cls, value: str) -> DataProvider:
         """Parse provider string with validation.
 
         Raises:

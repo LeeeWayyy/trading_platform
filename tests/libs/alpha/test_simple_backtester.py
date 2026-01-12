@@ -11,7 +11,7 @@ Tests cover:
 from __future__ import annotations
 
 import importlib.util
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,7 +35,7 @@ from libs.alpha.metrics import AlphaMetricsAdapter
 from libs.alpha.simple_backtester import SimpleBacktester
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_fetcher():
     """Create a mock UnifiedDataFetcher."""
     fetcher = MagicMock()
@@ -43,7 +43,7 @@ def mock_fetcher():
     return fetcher
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_metrics():
     """Create a mock AlphaMetricsAdapter."""
     metrics = MagicMock(spec=AlphaMetricsAdapter)
@@ -73,7 +73,7 @@ def mock_metrics():
     return metrics
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_price_data():
     """Create sample price data for testing."""
     dates = [date(2024, 1, i) for i in range(1, 32)]  # 31 days
@@ -179,7 +179,7 @@ class TestForwardReturns:
         # Create price data with known returns
         dates = [date(2024, 1, i) for i in range(1, 11)]  # 10 days
         rows = []
-        for i, d in enumerate(dates):
+        for d in dates:
             rows.append({
                 "date": d,
                 "symbol": "AAPL",
@@ -381,7 +381,7 @@ class TestResultMetadata:
         # Check dataset_version_ids structure
         assert "provider_type" in result.dataset_version_ids
         assert result.dataset_version_ids["provider_type"] == "yfinance"
-        assert result.dataset_version_ids["pit_compliant"] is False
+        assert result.dataset_version_ids["pit_compliant"] == "false"
         assert result.dataset_version_ids["version"] == "N/A"
 
         # Check snapshot_id format
@@ -403,7 +403,7 @@ class TestCallbacks:
         )
 
         # Immediate second call should be rate-limited (return early)
-        t2 = backtester._invoke_callbacks(
+        _t2 = backtester._invoke_callbacks(
             progress_callback, cancel_check, t1, 60, date(2024, 1, 2)
         )
 
