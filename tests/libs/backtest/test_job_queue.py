@@ -34,7 +34,13 @@ if _missing:
 
 
 import libs.backtest.job_queue as job_queue
-from libs.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider, JobPriority
+from libs.backtest.job_queue import (
+    BacktestJobConfig,
+    BacktestJobQueue,
+    DataProvider,
+    JobPriority,
+    WeightMethod,
+)
 
 
 class DummyCursor:
@@ -106,7 +112,7 @@ def test_compute_job_id_and_roundtrip():
         alpha_name="alpha1",
         start_date=date(2024, 1, 1),
         end_date=date(2024, 1, 31),
-        weight_method="zscore",
+        weight_method=WeightMethod.ZSCORE,
         extra_params={"window": 5},
     )
     first = config.compute_job_id("tester")

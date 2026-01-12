@@ -18,7 +18,10 @@ except ImportError:
     Screen = None  # type: ignore[misc,assignment]
     By = None  # type: ignore[misc,assignment]
 
-pytestmark = pytest.mark.skipif(not SELENIUM_AVAILABLE, reason="selenium not installed")
+pytestmark = [
+    pytest.mark.e2e(),
+    pytest.mark.skipif(not SELENIUM_AVAILABLE, reason="selenium not installed"),
+]
 
 
 def _type_into_input(screen: Screen, label_text: str, value: str) -> None:  # type: ignore[type-arg]

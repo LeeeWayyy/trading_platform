@@ -620,6 +620,8 @@ def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
         daily_weights=DummyDF(),
         daily_ic=DummyDF(),
         daily_portfolio_returns=DummyPortfolioDF(),
+        daily_returns=None,
+        daily_prices=None,
         mean_ic=0.1,
         icir=0.2,
         hit_rate=0.3,
@@ -946,7 +948,7 @@ class TestProviderRouting:
         )
         monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
 
-        with pytest.raises(ValueError, match="not allowed in production"):
+        with pytest.raises(ValueError, match="only allowed in development"):
             worker_module.run_backtest(
                 {
                     "alpha_name": "test",
@@ -1017,7 +1019,7 @@ class TestProviderRouting:
         )
         monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
 
-        with pytest.raises(ValueError, match="not allowed in production"):
+        with pytest.raises(ValueError, match="only allowed in development"):
             worker_module.run_backtest(
                 {
                     "alpha_name": "test",
