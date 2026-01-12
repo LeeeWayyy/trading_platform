@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -425,10 +426,12 @@ class ScheduledReportsService:
                     try:
                         return f"${float(value):,.2f}"
                     except (TypeError, ValueError):
-                        return "-" if value is None else str(value)
+                        # SECURITY: Escape to prevent HTML injection
+                        return "-" if value is None else html.escape(str(value))
 
                 def _fmt_value(value: Any) -> str:
-                    return "-" if value is None else str(value)
+                    # SECURITY: Escape to prevent HTML injection (stored XSS)
+                    return "-" if value is None else html.escape(str(value))
 
                 positions_rows = "\n".join(
                     f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"
@@ -453,19 +456,26 @@ class ScheduledReportsService:
 
                 error_block = ""
                 if data_errors:
+                    # SECURITY: Escape error messages to prevent HTML injection
+                    # Use generic messages for internal errors to avoid leaking details
+                    escaped_errors = [html.escape(str(e)[:200]) for e in data_errors]
                     error_block = (
                         "<div style=\"color:#b91c1c; margin-bottom:12px;\">"
                         "<strong>Data warnings:</strong><ul>"
-                        + "".join(f"<li>{e}</li>" for e in data_errors)
+                        + "".join(f"<li>{e}</li>" for e in escaped_errors)
                         + "</ul></div>"
                     )
 
+                # SECURITY: Escape user-controlled strings to prevent stored XSS
+                safe_schedule_name = html.escape(str(schedule_name))
+                safe_report_type = html.escape(str(report_type))
+
                 content = f"""<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>{schedule_name}</title></head>
+<head><meta charset="utf-8"><title>{safe_schedule_name}</title></head>
 <body>
-  <h1>{schedule_name}</h1>
-  <p>Report Type: {report_type}</p>
+  <h1>{safe_schedule_name}</h1>
+  <p>Report Type: {safe_report_type}</p>
   <p>Generated At (UTC): {now.strftime("%Y-%m-%d %H:%M:%S")}</p>
   {error_block}
   <h2>Summary</h2>
@@ -499,7 +509,7 @@ class ScheduledReportsService:
     </tbody>
   </table>
   <h2>Parameters</h2>
-  <pre>{json.dumps(params, indent=2)}</pre>
+  <pre>{html.escape(json.dumps(params, indent=2))}</pre>
 </body>
 </html>
 """

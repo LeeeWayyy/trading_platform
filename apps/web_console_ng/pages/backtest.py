@@ -989,6 +989,10 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
             _render_trade_pnl.refresh()
 
         def _download_signal_csv() -> None:
+            # SECURITY: Verify EXPORT_DATA permission before allowing download
+            if not has_permission(user, Permission.EXPORT_DATA):
+                ui.notify("Export requires EXPORT_DATA permission", type="negative")
+                return
             rows = _build_events(state["symbol"])
             if not rows:
                 ui.notify("No signal events to export for this symbol.", type="warning")
@@ -1012,7 +1016,9 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                 value=symbols[0],
                 on_change=lambda e: _update_symbol(str(e.value)),
             ).classes("w-60")
-            ui.button("Download Signals CSV", on_click=_download_signal_csv).props("flat")
+            # Only show download button if user has EXPORT_DATA permission
+            if has_permission(user, Permission.EXPORT_DATA):
+                ui.button("Download Signals CSV", on_click=_download_signal_csv).props("flat")
 
         ui.separator().classes("my-4")
         ui.label("Price + Signal Triggers").classes("text-lg font-bold mb-2")
@@ -1211,6 +1217,10 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
             ui.table(columns=columns, rows=rows, row_key="entry_date").classes("w-full")
 
         def _download_trades_csv() -> None:
+            # SECURITY: Verify EXPORT_DATA permission before allowing download
+            if not has_permission(user, Permission.EXPORT_DATA):
+                ui.notify("Export requires EXPORT_DATA permission", type="negative")
+                return
             trades = _compute_trades(state["symbol"])
             if not trades:
                 ui.notify("No trades to export for this symbol.", type="warning")
@@ -1227,7 +1237,9 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                 filename=f"trades_{result.backtest_id}_{state['symbol']}.csv",
             )
 
-        ui.button("Download Trades CSV", on_click=_download_trades_csv).props("flat")
+        # Only show download button if user has EXPORT_DATA permission
+        if has_permission(user, Permission.EXPORT_DATA):
+            ui.button("Download Trades CSV", on_click=_download_trades_csv).props("flat")
         _render_trade_pnl()
 
     # Export buttons (if permitted)
