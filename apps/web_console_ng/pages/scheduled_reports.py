@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from nicegui import run, ui
 from croniter import CroniterBadCronError, croniter
+from nicegui import run, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
@@ -374,7 +374,9 @@ async def _render_schedule_form(
         next_run_preview = ui.label("").classes("text-xs text-gray-500")
 
         def _compute_cron_from_preset() -> str:
-            time_value = time_input.value or "06:00"
+            time_value = time_input.value
+            if not isinstance(time_value, str) or not time_value.strip():
+                time_value = "06:00"
             try:
                 hour_str, minute_str = time_value.split(":")
                 hour = int(hour_str)

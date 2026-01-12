@@ -7,6 +7,8 @@ x-backtest-worker-env-base: &backtest-worker-env-base
   BACKTEST_JOB_MEMORY_LIMIT: ${BACKTEST_JOB_MEMORY_LIMIT:-4294967296}
   DATA_ROOT: /app/data/market_data
   DATA_LOCK_DIR: /app/locks  # Lock directory outside read-only data mount
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  YFINANCE_DATA_DIR: /app/data/backtest_results/yfinance
 
 x-backtest-worker-base: &backtest-worker-base
   build: &backtest-worker-build

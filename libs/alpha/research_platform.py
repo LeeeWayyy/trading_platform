@@ -70,6 +70,18 @@ class BacktestResult:
         default_factory=lambda: pl.DataFrame(schema={"date": pl.Date, "return": pl.Float64})
     )  # [date, return]
 
+    # Optional price/return detail (used by non-PIT backtests like Yahoo)
+    daily_prices: pl.DataFrame = field(
+        default_factory=lambda: pl.DataFrame(
+            schema={"date": pl.Date, "permno": pl.Int64, "price": pl.Float64, "symbol": pl.Utf8}
+        )
+    )  # [date, permno, price, symbol]
+    daily_returns: pl.DataFrame = field(
+        default_factory=lambda: pl.DataFrame(
+            schema={"date": pl.Date, "permno": pl.Int64, "return": pl.Float64, "symbol": pl.Utf8}
+        )
+    )  # [date, permno, return, symbol]
+
     # Metadata
     computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     n_days: int = 0

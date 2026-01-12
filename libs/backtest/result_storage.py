@@ -198,6 +198,20 @@ class BacktestResultStorage:
                 daily_portfolio_returns = pl.DataFrame(
                     schema={"date": pl.Date, "return": pl.Float64}
                 )
+            daily_returns_path = path / "daily_returns.parquet"
+            if daily_returns_path.exists():
+                daily_returns = pl.read_parquet(daily_returns_path)
+            else:
+                daily_returns = pl.DataFrame(
+                    schema={"date": pl.Date, "permno": pl.Int64, "return": pl.Float64, "symbol": pl.Utf8}
+                )
+            daily_prices_path = path / "daily_prices.parquet"
+            if daily_prices_path.exists():
+                daily_prices = pl.read_parquet(daily_prices_path)
+            else:
+                daily_prices = pl.DataFrame(
+                    schema={"date": pl.Date, "permno": pl.Int64, "price": pl.Float64, "symbol": pl.Utf8}
+                )
 
             summary_path = path / "summary.json"
             if not summary_path.exists():
@@ -304,6 +318,8 @@ class BacktestResultStorage:
             weight_method=weight_method,
             daily_weights=weights,
             daily_portfolio_returns=daily_portfolio_returns,
+            daily_returns=daily_returns,
+            daily_prices=daily_prices,
             turnover_result=turnover_result,
             decay_curve=decay_curve,
             decay_half_life=decay_half_life,

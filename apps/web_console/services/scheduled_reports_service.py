@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -390,7 +390,7 @@ class ScheduledReportsService:
                     raise ValueError("Schedule not found or access denied")
 
                 run_key = f"manual-{uuid4().hex}"
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
 
                 await cur.execute(
                     """

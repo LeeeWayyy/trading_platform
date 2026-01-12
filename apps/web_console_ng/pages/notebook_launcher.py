@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from nicegui import app, run, ui
+from nicegui import run, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.ui.layout import main_layout
