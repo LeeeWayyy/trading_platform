@@ -389,12 +389,16 @@ class ScheduledReportsService:
         def _fmt_value(value: Any) -> str:
             return "-" if value is None else html.escape(str(value))
 
-        positions = positions_payload.get("positions", []) if isinstance(positions_payload, dict) else []
-        total_realized = positions_payload.get("total_realized_pl") if isinstance(positions_payload, dict) else None
-        total_unrealized = positions_payload.get("total_unrealized_pl") if isinstance(positions_payload, dict) else None
-        total_positions = positions_payload.get("total_positions") if isinstance(positions_payload, dict) else 0
+        # Normalize payloads to dicts to avoid repeated isinstance checks
+        pos_data = positions_payload if isinstance(positions_payload, dict) else {}
+        fills_data = fills_payload if isinstance(fills_payload, dict) else {}
 
-        fills = fills_payload.get("events", []) if isinstance(fills_payload, dict) else []
+        positions = pos_data.get("positions", [])
+        total_realized = pos_data.get("total_realized_pl")
+        total_unrealized = pos_data.get("total_unrealized_pl")
+        total_positions = pos_data.get("total_positions", 0)
+
+        fills = fills_data.get("events", [])
 
         positions_rows = "\n".join(
             f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"

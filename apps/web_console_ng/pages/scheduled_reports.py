@@ -381,7 +381,8 @@ async def _render_schedule_form(
                 hour_str, minute_str = time_value.split(":")
                 hour = int(hour_str)
                 minute = int(minute_str)
-            except (ValueError, AttributeError):
+            except ValueError:
+                # ValueError covers: split not returning 2 parts, int() conversion fails
                 hour = 6
                 minute = 0
 

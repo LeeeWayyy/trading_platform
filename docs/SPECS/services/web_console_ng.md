@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-13 - Added Redis session persistence, null format guard -->
+<!-- Last reviewed: 2026-01-13 - Simplified isinstance checks, removed unnecessary AttributeError -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
