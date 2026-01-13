@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-12 - Refactored backtest rendering, Redis session storage, cached RQ client -->
+<!-- Last reviewed: 2026-01-13 - Added Redis session persistence, null format guard -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

@@ -587,7 +587,7 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
             async def download_report(
                 run_id: str = r.id,
                 run_key: str = r.run_key,
-                file_format: str = getattr(r, "format", "pdf").lower(),
+                file_format: str = (getattr(r, "format", None) or "pdf").lower(),
             ) -> None:
                 try:
                     path = await service.download_archive(run_id)

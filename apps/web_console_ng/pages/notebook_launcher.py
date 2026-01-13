@@ -154,7 +154,7 @@ async def notebook_launcher_page() -> None:
             )
         return
 
-    await _render_notebook_launcher(service, templates)
+    await _render_notebook_launcher(service, templates, user_id, session_store)
 
 
 def _render_notebook_config_help(error_message: str) -> None:
@@ -178,7 +178,9 @@ NOTEBOOK_LAUNCH_COMMAND=jupyter lab --ip=0.0.0.0 --port={port} --no-browser --No
         ).classes("text-sm")
 
 
-async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
+async def _render_notebook_launcher(
+    service: Any, templates: list[Any], user_id: str, session_store: dict[str, Any]
+) -> None:
     """Render the full notebook launcher interface."""
     # Template selector
     with ui.card().classes("w-full mb-4 p-4"):
@@ -284,6 +286,8 @@ async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
             session = await run.io_bound(
                 service.create_notebook, selected_id, parameters
             )
+            # Persist session changes to Redis for multi-worker consistency
+            await run.io_bound(_save_redis_session_store, user_id, session_store)
 
             result_container.clear()
             with result_container:
@@ -339,10 +343,12 @@ async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
     ui.separator().classes("my-4")
 
     # Active sessions
-    await _render_active_sessions(service)
+    await _render_active_sessions(service, user_id, session_store)
 
 
-async def _render_active_sessions(service: Any) -> None:
+async def _render_active_sessions(
+    service: Any, user_id: str, session_store: dict[str, Any]
+) -> None:
     """Render active sessions table."""
     with ui.card().classes("w-full p-4"):
         ui.label("Active Sessions").classes("text-lg font-bold mb-2")
@@ -411,6 +417,8 @@ async def _render_active_sessions(service: Any) -> None:
                     async def terminate(session_id: str = s.session_id) -> None:
                         try:
                             await run.io_bound(service.terminate_session, session_id)
+                            # Persist session changes to Redis for multi-worker consistency
+                            await run.io_bound(_save_redis_session_store, user_id, session_store)
                             ui.notify(f"Session {session_id[:8]}... terminated", type="positive")
                             render_sessions.refresh()
                         except FileNotFoundError as e:
