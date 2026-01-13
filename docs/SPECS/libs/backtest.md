@@ -1,5 +1,7 @@
 # backtest
 
+<!-- Last reviewed: 2026-01-12 - Added security logging for invalid column detection -->
+
 ## Identity
 - **Type:** Library
 - **Port:** N/A
@@ -84,6 +86,6 @@ report = sim.run(...)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-09
+- **Last Updated:** 2026-01-11
 - **Source Files:** `libs/backtest/__init__.py`, `libs/backtest/job_queue.py`, `libs/backtest/worker.py`
 - **ADRs:** N/A

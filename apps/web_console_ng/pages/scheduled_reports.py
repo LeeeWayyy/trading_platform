@@ -20,6 +20,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from croniter import CroniterBadCronError, croniter  # type: ignore[import-untyped]
 from nicegui import run, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -63,6 +64,12 @@ async def scheduled_reports_page() -> None:
 
     # Page title
     ui.label("Scheduled Reports").classes("text-2xl font-bold mb-4")
+    ui.label(
+        "This page lets you set up automatic reports. Think of it as a timer that sends you a "
+        "summary of your trading (like daily or weekly results) without you doing anything. "
+        "You can pick what report to send, how often it should run, who should receive it, and "
+        "which strategies it should cover. You can also see past runs to confirm they worked."
+    ).classes("text-sm text-gray-600 mb-6")
 
     # Permission check
     if not has_permission(user, Permission.VIEW_REPORTS):
@@ -106,7 +113,7 @@ async def scheduled_reports_page() -> None:
     # Load schedules
     try:
         user_id = user.get("user_id")
-        schedules = await run.io_bound(service.list_schedules, user_id)
+        schedules = await service.list_schedules(user_id)
     except (ConnectionError, OSError) as exc:
         logger.error(
             "schedules_load_db_connection_failed",
@@ -228,11 +235,29 @@ async def _render_reports_page(
                     with ui.expansion("Edit Schedule").classes("w-full"):
                         await _render_schedule_form(service, user, selected)
 
+                    async def run_now() -> None:
+                        try:
+                            await service.run_now(selected.id)
+                            ui.notify("Report generated", type="positive")
+                            ui.navigate.to("/reports")
+                        except (ConnectionError, OSError) as exc:
+                            logger.error(
+                                "schedule_run_now_db_connection_failed",
+                                extra={"schedule_id": selected.id, "error": str(exc)},
+                                exc_info=True,
+                            )
+                            ui.notify("Run failed: Database connection error", type="negative")
+                        except (ValueError, KeyError, TypeError) as exc:
+                            logger.error(
+                                "schedule_run_now_data_error",
+                                extra={"schedule_id": selected.id, "error": str(exc)},
+                                exc_info=True,
+                            )
+                            ui.notify("Run failed: Data processing error", type="negative")
+
                     async def delete_schedule() -> None:
                         try:
-                            deleted = await run.io_bound(
-                                service.delete_schedule, selected.id
-                            )
+                            deleted = await service.delete_schedule(selected.id)
                             if deleted:
                                 ui.notify("Schedule deleted", type="positive")
                                 ui.navigate.to("/reports")
@@ -252,6 +277,12 @@ async def _render_reports_page(
                                 exc_info=True,
                             )
                             ui.notify("Failed to delete: Data processing error", type="negative")
+
+                    ui.button(
+                        "Run Now",
+                        icon="play_arrow",
+                        on_click=run_now,
+                    ).classes("mt-2")
 
                     ui.button(
                         "Delete Schedule",
@@ -280,6 +311,10 @@ async def _render_schedule_form(
             label="Schedule Name",
             value=schedule.name if schedule else "",
         ).classes("w-full max-w-md")
+        ui.label(
+            "A friendly label so you can recognize this schedule later (e.g., "
+            "'Daily Alpha Summary' or 'Weekly Risk Review')."
+        ).classes("text-gray-500 text-xs")
 
         report_types = list(DEFAULT_REPORT_TYPES)
         if schedule and schedule.report_type not in report_types:
@@ -290,28 +325,142 @@ async def _render_schedule_form(
             options=report_types,
             value=schedule.report_type if schedule else report_types[0],
         ).classes("w-full max-w-md")
+        ui.label(
+            "What kind of report to generate. Pick one of the preset types or a custom "
+            "template if your system supports it."
+        ).classes("text-gray-500 text-xs")
+
+        preset_options = [
+            "Daily",
+            "Weekdays (Mon-Fri)",
+            "Weekly (choose day)",
+            "Monthly (choose day)",
+            "Custom (advanced)",
+        ]
+        preset_select = ui.select(
+            label="Run Frequency",
+            options=preset_options,
+            value="Custom (advanced)" if schedule else "Daily",
+        ).classes("w-full max-w-md")
+        ui.label(
+            "Pick a human-friendly schedule. Use Custom only if you already know cron."
+        ).classes("text-gray-500 text-xs")
+
+        time_input = ui.input(
+            label="Run Time (local)",
+            value="06:00",
+        ).props("type=time").classes("w-full max-w-md")
+
+        weekday_select = ui.select(
+            label="Day of Week",
+            options=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            value="Mon",
+        ).classes("w-full max-w-md")
+
+        monthday_input = ui.input(
+            label="Day of Month",
+            value="1",
+        ).classes("w-full max-w-md").props("type=number min=1 max=31")
 
         cron_input = ui.input(
-            label="Cron Expression",
+            label="Cron Expression (advanced)",
             value=schedule.cron if schedule else "0 6 * * *",
         ).classes("w-full max-w-md")
-        ui.label("Format: minute hour day month weekday (e.g., '0 6 * * *' = 6 AM daily)").classes(
-            "text-gray-500 text-xs"
-        )
+        cron_help = ui.label(
+            "Cron format: minute hour day month weekday (e.g., '0 6 * * *' = 6 AM daily)."
+        ).classes("text-gray-500 text-xs")
+
+        cron_preview = ui.label("").classes("text-xs text-gray-500")
+        next_run_preview = ui.label("").classes("text-xs text-gray-500")
+
+        def _compute_cron_from_preset() -> str:
+            time_value = time_input.value
+            if not isinstance(time_value, str) or not time_value.strip():
+                time_value = "06:00"
+            try:
+                hour_str, minute_str = time_value.split(":")
+                hour = int(hour_str)
+                minute = int(minute_str)
+            except ValueError:
+                # ValueError covers: split not returning 2 parts, int() conversion fails
+                hour = 6
+                minute = 0
+
+            preset = preset_select.value
+            if preset == "Daily":
+                return f"{minute} {hour} * * *"
+            if preset == "Weekdays (Mon-Fri)":
+                return f"{minute} {hour} * * 1-5"
+            if preset == "Weekly (choose day)":
+                day_map = {
+                    "Mon": 1,
+                    "Tue": 2,
+                    "Wed": 3,
+                    "Thu": 4,
+                    "Fri": 5,
+                    "Sat": 6,
+                    "Sun": 0,
+                }
+                return f"{minute} {hour} * * {day_map.get(weekday_select.value, 1)}"
+            if preset == "Monthly (choose day)":
+                try:
+                    day = int(monthday_input.value)
+                except (ValueError, TypeError):
+                    day = 1
+                day = max(1, min(day, 31))
+                return f"{minute} {hour} {day} * *"
+            return cron_input.value or "0 6 * * *"
+
+        def _estimate_next_run() -> str:
+            cron_value = (
+                cron_input.value.strip()
+                if preset_select.value == "Custom (advanced)"
+                else _compute_cron_from_preset()
+            )
+            try:
+                iterator = croniter(cron_value, datetime.now())
+                next_dt: datetime = iterator.get_next(datetime)
+                return str(next_dt.strftime("%Y-%m-%d %H:%M"))
+            except (CroniterBadCronError, ValueError, TypeError):
+                return "Invalid schedule"
+
+        def _sync_visibility() -> None:
+            preset = preset_select.value
+            is_custom = preset == "Custom (advanced)"
+            weekday_select.set_visibility(preset == "Weekly (choose day)")
+            monthday_input.set_visibility(preset == "Monthly (choose day)")
+            cron_input.set_visibility(is_custom)
+            cron_help.set_visibility(is_custom)
+            if not is_custom:
+                cron_preview.set_text(f"Generated cron: {_compute_cron_from_preset()}")
+            else:
+                cron_preview.set_text("")
+            next_run_preview.set_text(f"Next run (estimated): {_estimate_next_run()}")
+
+        preset_select.on_value_change(lambda _: _sync_visibility())
+        time_input.on_value_change(lambda _: _sync_visibility())
+        weekday_select.on_value_change(lambda _: _sync_visibility())
+        monthday_input.on_value_change(lambda _: _sync_visibility())
+        _sync_visibility()
 
         enabled_switch = ui.switch(
             "Enabled",
             value=schedule.enabled if schedule else True,
         )
+        ui.label(
+            "Turn this on to allow the scheduler to run. Turn it off to pause without deleting."
+        ).classes("text-gray-500 text-xs")
 
         params_text = json.dumps(schedule.params, indent=2) if schedule and schedule.params else "{}"
         params_input = ui.textarea(
             label="Report Parameters (JSON)",
             value=params_text,
         ).classes("w-full max-w-md").props("rows=4")
-        ui.label("Optional key/value parameters passed to report generation.").classes(
-            "text-gray-500 text-xs"
-        )
+        ui.label(
+            "Optional JSON settings for the report. Must be a JSON object (key/value pairs). "
+            "Example: {\"timezone\": \"America/Los_Angeles\", \"include_charts\": true, "
+            "\"lookback_days\": 7}. Leave {} if you are not sure."
+        ).classes("text-gray-500 text-xs")
 
         async def submit_form() -> None:
             # Validate JSON
@@ -321,10 +470,16 @@ async def _render_schedule_form(
                 ui.notify(f"Invalid JSON: {exc}", type="negative")
                 return
 
+            cron_value = (
+                cron_input.value.strip()
+                if preset_select.value == "Custom (advanced)"
+                else _compute_cron_from_preset()
+            )
+
             payload = {
                 "name": name_input.value.strip(),
                 "report_type": type_select.value,
-                "cron": cron_input.value.strip(),
+                "cron": cron_value,
                 "params": params,
                 "enabled": enabled_switch.value,
             }
@@ -335,13 +490,10 @@ async def _render_schedule_form(
 
             try:
                 if is_edit and schedule is not None:
-                    await run.io_bound(
-                        service.update_schedule, schedule.id, payload
-                    )
+                    await service.update_schedule(schedule.id, payload)
                     ui.notify("Schedule updated", type="positive")
                 else:
-                    await run.io_bound(
-                        service.create_schedule,
+                    await service.create_schedule(
                         payload["name"],
                         payload["report_type"],
                         payload["cron"],
@@ -378,7 +530,7 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
         ui.label("Run History").classes("text-lg font-bold mb-2")
 
         try:
-            runs = await run.io_bound(service.get_run_history, schedule_id)
+            runs = await service.get_run_history(schedule_id)
         except (ConnectionError, OSError) as exc:
             logger.error(
                 "run_history_load_db_connection_failed",
@@ -436,10 +588,10 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
             async def download_report(
                 run_id: str = r.id,
                 run_key: str = r.run_key,
-                file_format: str = getattr(r, "format", "pdf").lower(),
+                file_format: str = (getattr(r, "format", None) or "pdf").lower(),
             ) -> None:
                 try:
-                    path = await run.io_bound(service.download_archive, run_id)
+                    path = await service.download_archive(run_id)
                     if not path:
                         ui.notify("Report file not available", type="warning")
                         return

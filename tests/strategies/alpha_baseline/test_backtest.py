@@ -133,6 +133,7 @@ class TestPortfolioBacktest:
         # Number of days should match
         assert metrics["n_days"] > 0
 
+    @pytest.mark.integration()
     def test_plot_cumulative_returns(self) -> None:
         """Generate cumulative returns plot."""
         backtest = PortfolioBacktest(
@@ -152,6 +153,7 @@ class TestPortfolioBacktest:
         assert plot_path.exists()
         assert plot_path.stat().st_size > 0
 
+    @pytest.mark.integration()
     def test_plot_drawdown(self) -> None:
         """Generate drawdown plot."""
         backtest = PortfolioBacktest(

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import traceback
 
 from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
 
 from apps.web_console_ng import config
 
@@ -64,6 +67,19 @@ app.add_middleware(
 )
 app.add_middleware(AdmissionControlMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
+
+
+@app.exception_handler(Exception)
+async def log_unhandled_exception(request: Request, exc: Exception) -> PlainTextResponse:
+    """Log unhandled exceptions with full traceback for debug."""
+    logger.error(
+        "unhandled_exception path=%s type=%s message=%s",
+        str(request.url.path),
+        type(exc).__name__,
+        str(exc),
+    )
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    return PlainTextResponse("Server error", status_code=500)
 
 # Static assets for AG Grid renderers and custom CSS (CSP-compliant).
 app.add_static_files("/static", "apps/web_console_ng/static")

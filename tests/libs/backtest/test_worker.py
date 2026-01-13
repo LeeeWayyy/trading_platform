@@ -620,6 +620,8 @@ def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
         daily_weights=DummyDF(),
         daily_ic=DummyDF(),
         daily_portfolio_returns=DummyPortfolioDF(),
+        daily_returns=None,
+        daily_prices=None,
         mean_ic=0.1,
         icir=0.2,
         hit_rate=0.3,
@@ -773,3 +775,376 @@ def test_save_result_to_db_raises_when_missing_row(monkeypatch):
 
     with pytest.raises(RuntimeError):
         worker_module._save_result_to_db(conn, "jid", result, Path("p"))
+
+
+# =============================================================================
+# Provider Routing Tests
+# =============================================================================
+
+
+class TestProviderRouting:
+    """Tests for data provider routing in run_backtest."""
+
+    @pytest.mark.unit()
+    def test_crsp_provider_uses_pit_backtester(self, monkeypatch, tmp_path):
+        """Test that CRSP provider routes to PITBacktester."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        pit_backtester_called = []
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pit_backtester_called.append(True)
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
+                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
+                    snapshot_id="snap", dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(), daily_weights=MagicMock(),
+                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "crsp",  # Explicit CRSP provider
+            },
+            created_by="test_user",
+        )
+
+        assert len(pit_backtester_called) == 1, "PITBacktester should be used for CRSP"
+
+    @pytest.mark.unit()
+    def test_yfinance_provider_uses_simple_backtester(self, monkeypatch, tmp_path):
+        """Test that Yahoo Finance provider routes to SimpleBacktester."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        simple_backtester_called = []
+
+        class MockSimpleBacktester:
+            def __init__(self, *args, **kwargs):
+                simple_backtester_called.append(True)
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
+                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
+                    snapshot_id="snap", dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(), daily_weights=MagicMock(),
+                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "YFinanceProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MagicMock())
+        monkeypatch.setattr(worker_module, "FetcherConfig", MagicMock())
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "yfinance",  # Yahoo Finance provider
+            },
+            created_by="test_user",
+        )
+
+        assert len(simple_backtester_called) == 1, "SimpleBacktester should be used for yfinance"
+
+    @pytest.mark.unit()
+    def test_yfinance_blocked_in_production(self, monkeypatch):
+        """Test that Yahoo Finance provider is blocked in production environment."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "production")  # Production mode
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(ValueError, match="only allowed in development"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "yfinance",
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_invalid_provider_raises_error(self, monkeypatch):
+        """Test that invalid provider strings raise ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                return conn
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", MagicMock())
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+
+        # Invalid provider should fail during config parsing
+        with pytest.raises(ValueError, match="Invalid data provider"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "invalid_provider",  # Invalid
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    @pytest.mark.parametrize("env_value", ["PRODUCTION", "Production", "PrOdUcTiOn"])
+    def test_yfinance_blocked_in_production_case_insensitive(self, monkeypatch, env_value):
+        """Test that Yahoo Finance is blocked regardless of ENVIRONMENT case."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", env_value)  # Various casings
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(ValueError, match="only allowed in development"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "yfinance",
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_universe_normalization(self, monkeypatch, tmp_path):
+        """Test that universe input is normalized (strip, upper, filter empties)."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        captured_universe = []
+
+        class MockSimpleBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, universe=None, **kwargs):
+                captured_universe.extend(universe or [])
+                return types.SimpleNamespace(
+                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
+                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
+                    snapshot_id="snap", dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(), daily_weights=MagicMock(),
+                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "YFinanceProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MagicMock())
+        monkeypatch.setattr(worker_module, "FetcherConfig", MagicMock())
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "yfinance",
+                "extra_params": {
+                    "universe": "  aapl , msft,  ,googl  ",  # Messy input
+                },
+            },
+            created_by="test_user",
+        )
+
+        # Should be normalized to uppercase with whitespace stripped
+        assert captured_universe == ["AAPL", "MSFT", "GOOGL"]
+
+    @pytest.mark.unit()
+    def test_empty_universe_after_normalization_raises(self, monkeypatch):
+        """Test that empty universe after normalization raises error."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "YFinanceProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MagicMock())
+        monkeypatch.setattr(worker_module, "FetcherConfig", MagicMock())
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(ValueError, match="Universe cannot be empty"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "yfinance",
+                    "extra_params": {
+                        "universe": "  ,  ,  ",  # Only whitespace/commas
+                    },
+                },
+                created_by="test_user",
+            )

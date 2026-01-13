@@ -137,8 +137,7 @@ class NotebookLauncherService:
                 token=token,
             )
             env = self._build_launch_env(template, session, command)
-            log_dir = Path("artifacts/notebook_logs")
-            log_dir.mkdir(parents=True, exist_ok=True)
+            log_dir = self._resolve_log_dir()
             stdout_log = open(log_dir / f"{session.session_id}.out.log", "wb")
             stderr_log = open(log_dir / f"{session.session_id}.err.log", "wb")
             process = subprocess.Popen(
@@ -351,6 +350,30 @@ class NotebookLauncherService:
         if token:
             return f"{base_url}:{port}/?token={token}"
         return f"{base_url}:{port}/"
+
+    def _resolve_log_dir(self) -> Path:
+        preferred = Path(os.getenv("NOTEBOOK_LOG_DIR", "artifacts/notebook_logs"))
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            if os.access(preferred, os.W_OK):
+                return preferred
+            logger.warning(
+                "notebook_log_dir_not_writable",
+                extra={"path": str(preferred)},
+            )
+        except OSError as exc:
+            logger.warning(
+                "notebook_log_dir_unusable",
+                extra={"path": str(preferred), "error": str(exc)},
+            )
+
+        fallback = Path("/tmp/notebook_logs")
+        fallback.mkdir(parents=True, exist_ok=True)
+        logger.warning(
+            "notebook_log_dir_fallback",
+            extra={"preferred": str(preferred), "fallback": str(fallback)},
+        )
+        return fallback
 
     def _build_launch_command(
         self,

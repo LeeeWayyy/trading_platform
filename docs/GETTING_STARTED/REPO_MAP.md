@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2026-01-02
+**Last Updated:** 2026-01-11
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 

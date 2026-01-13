@@ -300,7 +300,12 @@ def _render_metrics_table(metrics: dict[str, dict[str, float]]) -> None:
             {"name": "total_return", "label": "Total Return", "field": "total_return", "sortable": True},
             {"name": "volatility", "label": "Volatility", "field": "volatility", "sortable": True},
             {"name": "sharpe", "label": "Sharpe", "field": "sharpe", "sortable": True},
-            {"name": "max_drawdown", "label": "Max Drawdown", "field": "max_drawdown", "sortable": True},
+            {
+                "name": "max_drawdown",
+                "label": "Max Drawdown %",
+                "field": "max_drawdown",
+                "sortable": True,
+            },
         ]
 
         rows = []
@@ -549,8 +554,20 @@ def _render_demo_mode(authorized_strategies: list[str]) -> None:
         ui.label("Performance Metrics").classes("text-lg font-bold mb-2")
 
         demo_metrics = [
-            {"strategy": "strategy_a", "total_return": "$12,500.00", "volatility": "$850.00", "sharpe": "1.45", "max_drawdown": "-$3,200.00"},
-            {"strategy": "strategy_b", "total_return": "$8,200.00", "volatility": "$620.00", "sharpe": "1.12", "max_drawdown": "-$2,100.00"},
+            {
+                "strategy": "strategy_a",
+                "total_return": "$12,500.00",
+                "volatility": "$850.00",
+                "sharpe": "1.45",
+                "max_drawdown": "-3.20%",
+            },
+            {
+                "strategy": "strategy_b",
+                "total_return": "$8,200.00",
+                "volatility": "$620.00",
+                "sharpe": "1.12",
+                "max_drawdown": "-2.10%",
+            },
         ]
 
         columns = [
@@ -558,7 +575,7 @@ def _render_demo_mode(authorized_strategies: list[str]) -> None:
             {"name": "total_return", "label": "Total Return", "field": "total_return"},
             {"name": "volatility", "label": "Volatility", "field": "volatility"},
             {"name": "sharpe", "label": "Sharpe", "field": "sharpe"},
-            {"name": "max_drawdown", "label": "Max Drawdown", "field": "max_drawdown"},
+            {"name": "max_drawdown", "label": "Max Drawdown %", "field": "max_drawdown"},
         ]
 
         ui.table(columns=columns, rows=demo_metrics).classes("w-full")

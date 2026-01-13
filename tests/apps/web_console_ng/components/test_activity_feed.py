@@ -23,6 +23,10 @@ class DummyElement:
                 self._classes.add(cls)
         return self
 
+    def props(self, add: str | None = None, remove: str | None = None):
+        """Mock props method for NiceGUI element properties."""
+        return self
+
     def clear(self) -> None:
         self._children.clear()
 
@@ -63,7 +67,14 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyElement:
     def row() -> DummyElement:
         return DummyElement()
 
-    dummy = types.SimpleNamespace(card=lambda: card, label=label, column=column, row=row)
+    async def run_javascript(script: str, *, timeout: float = 5) -> None:
+        """Mock run_javascript that records calls on the card element."""
+        if "scrollTop" in script:
+            card.calls.append(("scrollTo", {"top": 0}))
+
+    dummy = types.SimpleNamespace(
+        card=lambda: card, label=label, column=column, row=row, run_javascript=run_javascript
+    )
     monkeypatch.setattr(feed_module, "ui", dummy)
     return card
 

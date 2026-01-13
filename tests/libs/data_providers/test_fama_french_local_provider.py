@@ -626,6 +626,7 @@ class TestManifest:
         results = provider.verify_data()
         assert results["test.parquet"] is False
 
+    @pytest.mark.integration()
     def test_manifest_regenerated_for_existing_files_without_entry(
         self, provider: FamaFrenchLocalProvider, mock_ff3_data: pl.DataFrame
     ) -> None:

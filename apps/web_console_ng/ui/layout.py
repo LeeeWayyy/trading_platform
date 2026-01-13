@@ -91,33 +91,33 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             ui.label(label).classes("text-sm")
 
         # Header
-        with ui.header().classes("bg-slate-900 items-center text-white px-4 h-14"):
+        with ui.header().classes("bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"):
             ui.button(icon="menu", on_click=lambda: drawer.toggle()).props("flat color=white")
-            ui.label("Trading Console").classes("text-xl font-bold ml-2")
+            ui.label("Trading Console").classes("text-xl font-bold ml-2 leading-none shrink-0")
             ui.space()
 
-            with ui.row().classes("gap-4 items-center"):
+            with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
                 kill_switch_button = ui.button(
                     "KILL SWITCH: UNKNOWN",
-                ).classes("px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black").props(
+                ).classes("h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black shrink-0").props(
                     "id=kill-switch-badge unelevated"
                 )
                 engage_button = ui.button(
                     "Engage", icon="power_settings_new", on_click=lambda: open_kill_switch_dialog("ENGAGE")
-                ).classes("px-2 py-1 rounded text-xs bg-red-600 text-white").props(
+                ).classes("h-8 px-2 py-1 rounded text-xs bg-red-600 text-white shrink-0").props(
                     "id=kill-switch-engage"
                 )
                 disengage_button = ui.button(
                     "Disengage", icon="power_off", on_click=lambda: open_kill_switch_dialog("DISENGAGE")
-                ).classes("px-2 py-1 rounded text-xs bg-green-600 text-white").props(
+                ).classes("h-8 px-2 py-1 rounded text-xs bg-green-600 text-white shrink-0").props(
                     "id=kill-switch-disengage"
                 )
                 circuit_breaker_badge = ui.label("Circuit: Unknown").classes(
-                    "px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black"
+                    "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black flex items-center shrink-0"
                 ).props("id=circuit-breaker-badge")
                 # Connection status is derived from kill-switch polling, not a websocket heartbeat.
                 connection_badge = ui.label("Connected").classes(
-                    "px-2 py-1 rounded text-xs bg-green-500 text-white"
+                    "h-8 px-2 py-1 rounded text-xs bg-green-500 text-white flex items-center shrink-0"
                 ).props("id=connection-badge")
 
                 with ui.row().classes("items-center gap-2"):

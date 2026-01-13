@@ -22,8 +22,11 @@ class ActivityFeed:
         self._container: ui.card | None = None
         self._items_column: ui.column | None = None
         self._item_elements: deque[ui.row] = deque(maxlen=self.MAX_ITEMS)
+        self._container_id = f"activity-feed-{id(self)}"
 
-        with ui.card().classes("w-full h-64 overflow-y-auto") as card:
+        with ui.card().classes("w-full h-64 overflow-y-auto").props(
+            f"id={self._container_id}"
+        ) as card:
             self._container = card
             ui.label("Recent Activity").classes("text-lg font-bold mb-2")
             self._items_column = ui.column().classes("w-full gap-1")
@@ -60,9 +63,13 @@ class ActivityFeed:
         if self._container is None:
             return
         try:
-            await self._container.run_method(
-                "scrollTo",
-                {"top": 0, "behavior": "smooth"},
+            await ui.run_javascript(
+                f"""
+                (function() {{
+                  const el = document.getElementById({self._container_id!r});
+                  if (el) el.scrollTop = 0;
+                }})();
+                """,
                 timeout=2,
             )
         except TimeoutError:

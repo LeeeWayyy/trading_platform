@@ -71,6 +71,7 @@ data/quarantine/*
 # Artifacts
 artifacts/models/*
 artifacts/backtests/*
+artifacts/notebook_logs/*
 !artifacts/.gitkeep
 
 # Logs

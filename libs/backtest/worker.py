@@ -14,6 +14,7 @@ from typing import Any, cast
 import psutil  # type: ignore[import-untyped]
 import structlog
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 from redis import Redis
 from rq import get_current_job
@@ -22,9 +23,12 @@ from libs.alpha.alpha_library import create_alpha
 from libs.alpha.exceptions import JobCancelled
 from libs.alpha.metrics import AlphaMetricsAdapter
 from libs.alpha.research_platform import BacktestResult, PITBacktester
-from libs.backtest.job_queue import BacktestJobConfig, BacktestJobQueue
+from libs.alpha.simple_backtester import SimpleBacktester
+from libs.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
 from libs.data_providers.compustat_local_provider import CompustatLocalProvider
 from libs.data_providers.crsp_local_provider import CRSPLocalProvider
+from libs.data_providers.unified_fetcher import FetcherConfig, ProviderType, UnifiedDataFetcher
+from libs.data_providers.yfinance_provider import YFinanceProvider
 from libs.data_quality.manifest import ManifestManager
 from libs.data_quality.versioning import DatasetVersionManager
 
@@ -114,9 +118,33 @@ class BacktestWorker:
         if self.should_sync_db_progress(pct):
             self.update_db_progress(job_id, pct)
 
+    # SECURITY: Whitelist of allowed column names for dynamic updates
+    # Prevents SQL injection via kwargs keys
+    _ALLOWED_UPDATE_COLUMNS = frozenset({
+        "status", "started_at", "completed_at", "error_message", "result_path",
+        "mean_ic", "icir", "hit_rate", "coverage", "long_short_spread",
+        "average_turnover", "decay_half_life", "snapshot_id", "dataset_version_ids",
+        "progress_pct", "worker_id", "retry_count",
+    })
+
     def update_db_status(self, job_id: str, status: str, **kwargs: Any) -> None:
-        """Update job status in Postgres (sync)."""
+        """Update job status in Postgres (sync).
+
+        SECURITY: Column names in kwargs are validated against a whitelist
+        to prevent SQL injection via dynamic column name construction.
+        """
         TERMINAL_STATES = {"completed", "failed", "cancelled"}
+
+        # Validate kwargs keys against whitelist
+        invalid_keys = set(kwargs.keys()) - self._ALLOWED_UPDATE_COLUMNS
+        if invalid_keys:
+            self.logger.error(
+                "invalid_db_update_columns_detected",
+                job_id=job_id,
+                invalid_keys=list(invalid_keys),
+            )
+            raise ValueError(f"Invalid column names: {invalid_keys}")
+
         with self.db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             cur.execute("SELECT status FROM backtest_jobs WHERE job_id = %s", (job_id,))
             row = cur.fetchone()
@@ -261,50 +289,156 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
 
             data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
-            manifest_manager = ManifestManager(data_root=data_root)
-            version_manager = DatasetVersionManager(manifest_manager)
-            crsp_provider = CRSPLocalProvider(
-                data_root / "crsp",
-                manifest_manager,
-                data_root=data_root,
-            )
-            compustat_provider = CompustatLocalProvider(
-                data_root / "compustat",
-                manifest_manager,
-                data_root=data_root,
-            )
             metrics_adapter = AlphaMetricsAdapter()
+            alpha = create_alpha(job_config.alpha_name)
 
-            backtester = PITBacktester(
-                version_manager=version_manager,
-                crsp_provider=crsp_provider,
-                compustat_provider=compustat_provider,
-                metrics_adapter=metrics_adapter,
-            )
-
+            # Common setup
             worker.update_db_status(job_id, "running", started_at=datetime.now(UTC))
             worker.update_progress(job_id, 0, "started", job_timeout=job_timeout)
             worker.update_progress(job_id, 10, "loading_data", job_timeout=job_timeout)
 
-            snapshot_id = job_config.extra_params.get("snapshot_id")
+            if job_config.provider == DataProvider.CRSP:
+                # Original PIT Backtest Path
+                manifest_manager = ManifestManager(data_root=data_root)
+                version_manager = DatasetVersionManager(manifest_manager)
+                crsp_provider = CRSPLocalProvider(
+                    data_root / "crsp",
+                    manifest_manager,
+                    data_root=data_root,
+                )
+                compustat_provider = CompustatLocalProvider(
+                    data_root / "compustat",
+                    manifest_manager,
+                    data_root=data_root,
+                )
 
-            alpha = create_alpha(job_config.alpha_name)
+                backtester = PITBacktester(
+                    version_manager=version_manager,
+                    crsp_provider=crsp_provider,
+                    compustat_provider=compustat_provider,
+                    metrics_adapter=metrics_adapter,
+                )
 
-            result = backtester.run_backtest(
-                alpha=alpha,
-                start_date=job_config.start_date,
-                end_date=job_config.end_date,
-                snapshot_id=snapshot_id,
-                weight_method=job_config.weight_method.value,
-                progress_callback=lambda pct, d: worker.update_progress(
-                    job_id,
-                    20 + round(pct * 0.7),
-                    "computing",
-                    str(d) if d else None,
-                    job_timeout=job_timeout,
-                ),
-                cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
-            )
+                snapshot_id = job_config.extra_params.get("snapshot_id")
+
+                result = backtester.run_backtest(
+                    alpha=alpha,
+                    start_date=job_config.start_date,
+                    end_date=job_config.end_date,
+                    snapshot_id=snapshot_id,
+                    weight_method=job_config.weight_method.value,
+                    progress_callback=lambda pct, d: worker.update_progress(
+                        job_id,
+                        20 + round(pct * 0.7),
+                        "computing",
+                        str(d) if d else None,
+                        job_timeout=job_timeout,
+                    ),
+                    cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
+                )
+            elif job_config.provider == DataProvider.YFINANCE:
+                # Simple Backtest Path (Yahoo Finance) - development/testing only
+                # SECURITY: Fail-closed production guard - yfinance has no PIT guarantees
+                # and could introduce look-ahead bias in production backtests.
+                raw_environment = os.getenv("ENVIRONMENT", "").lower().strip()
+
+                # Fail-closed: ENVIRONMENT must be explicitly set to a dev environment
+                if not raw_environment:
+                    raise ValueError(
+                        "ENVIRONMENT variable must be explicitly set to use Yahoo Finance provider. "
+                        "Valid development environments: development, test, local, ci. "
+                        "Use CRSP for production backtests."
+                    )
+
+                # Normalize environment names to FetcherConfig vocabulary
+                # FetcherConfig accepts: development, test, staging, production
+                # Worker allowlist (user-facing): dev, development, testing, test, local, ci
+                ENV_NORMALIZATION = {
+                    "dev": "development",
+                    "development": "development",
+                    "testing": "test",
+                    "test": "test",
+                    "local": "development",
+                    "ci": "development",
+                }
+                ALLOWED_DEV_ENVIRONMENTS = frozenset(ENV_NORMALIZATION.keys())
+
+                if raw_environment not in ALLOWED_DEV_ENVIRONMENTS:
+                    raise ValueError(
+                        f"Yahoo Finance provider is only allowed in development environments "
+                        f"({', '.join(sorted(ALLOWED_DEV_ENVIRONMENTS))}). "
+                        f"Current environment: '{raw_environment}'. "
+                        "Use CRSP for production backtests."
+                    )
+
+                # Normalize to FetcherConfig vocabulary
+                environment = ENV_NORMALIZATION[raw_environment]
+
+                yfinance_env_path = os.getenv("YFINANCE_DATA_DIR", "").strip()
+                if yfinance_env_path:
+                    yfinance_storage = Path(yfinance_env_path)
+                else:
+                    default_path = data_root / "yfinance"
+                    try:
+                        default_path.mkdir(parents=True, exist_ok=True)
+                        yfinance_storage = default_path
+                    except OSError:
+                        # Fall back to a writable backtest results directory
+                        yfinance_storage = data_root.parent / "backtest_results" / "yfinance"
+
+                yf_provider = YFinanceProvider(
+                    storage_path=yfinance_storage,
+                    environment=environment,
+                )
+                fetcher_config = FetcherConfig(
+                    provider=ProviderType.YFINANCE,
+                    yfinance_storage_path=yfinance_storage,  # Use same path for consistency
+                    environment=environment,
+                )
+                fetcher = UnifiedDataFetcher(fetcher_config, yfinance_provider=yf_provider)
+
+                simple_backtester = SimpleBacktester(fetcher, metrics_adapter)
+
+                # Default universe if not provided (immutable tuple to prevent accidental modification)
+                DEFAULT_YFINANCE_UNIVERSE: tuple[str, ...] = (
+                    "SPY", "QQQ", "IWM", "AAPL", "MSFT",
+                    "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+                )
+                raw_universe: str | list[str] | tuple[str, ...] | None = job_config.extra_params.get(
+                    "universe", DEFAULT_YFINANCE_UNIVERSE
+                )
+
+                # Normalize universe input: strip whitespace, uppercase, filter empties
+                if isinstance(raw_universe, str):
+                    universe: list[str] = [
+                        s.strip().upper() for s in raw_universe.split(",") if s.strip()
+                    ]
+                elif isinstance(raw_universe, list | tuple):
+                    universe = [s.strip().upper() for s in raw_universe if isinstance(s, str) and s.strip()]
+                else:
+                    universe = []
+
+                if not universe:
+                    raise ValueError("Universe cannot be empty after normalization")
+
+                result = simple_backtester.run_backtest(
+                    alpha=alpha,
+                    start_date=job_config.start_date,
+                    end_date=job_config.end_date,
+                    universe=universe,
+                    weight_method=job_config.weight_method.value,
+                    progress_callback=lambda pct, d: worker.update_progress(
+                        job_id,
+                        20 + round(pct * 0.7),
+                        "computing",
+                        str(d) if d else None,
+                        job_timeout=job_timeout,
+                    ),
+                    cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
+                )
+            else:
+                # This should never happen due to enum validation in from_dict
+                raise ValueError(f"Unknown provider: {job_config.provider}")
 
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
             result_path = _save_parquet_artifacts(job_id, result)
@@ -345,7 +479,18 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     worker.logger.warning(
                         "cancel_progress_parse_failed", job_id=job_id, raw=last_progress
                     )
-            shutil.rmtree(Path("data/backtest_results") / job_id, ignore_errors=True)
+            # Clean up partial artifacts; log failures instead of ignoring
+            cleanup_path = Path("data/backtest_results") / job_id
+            try:
+                if cleanup_path.exists():
+                    shutil.rmtree(cleanup_path)
+            except OSError as cleanup_err:
+                worker.logger.warning(
+                    "artifact_cleanup_failed",
+                    job_id=job_id,
+                    path=str(cleanup_path),
+                    error=str(cleanup_err),
+                )
             worker.update_db_status(job_id, "cancelled", completed_at=datetime.now(UTC))
             worker.update_progress(
                 job_id,
@@ -387,6 +532,8 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
     required_weight_schema = {"date": pl.Date, "permno": pl.Int64, "weight": pl.Float64}
     required_ic_schema = {"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64}
     required_portfolio_schema = {"date": pl.Date, "return": pl.Float64}
+    required_return_schema = {"date": pl.Date, "permno": pl.Int64, "return": pl.Float64}
+    required_price_schema = {"date": pl.Date, "permno": pl.Int64, "price": pl.Float64}
 
     _validate_schema(result.daily_signals, required_signal_schema)
     _validate_schema(result.daily_weights, required_weight_schema)
@@ -423,6 +570,26 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
         compression="snappy",
     )
 
+    if result.daily_returns is not None and not result.daily_returns.is_empty():
+        _validate_schema(result.daily_returns, required_return_schema)
+        return_cols = ["date", "permno", "return"]
+        if "symbol" in result.daily_returns.columns:
+            return_cols.append("symbol")
+        result.daily_returns.select(return_cols).write_parquet(
+            result_dir / "daily_returns.parquet",
+            compression="snappy",
+        )
+
+    if result.daily_prices is not None and not result.daily_prices.is_empty():
+        _validate_schema(result.daily_prices, required_price_schema)
+        price_cols = ["date", "permno", "price"]
+        if "symbol" in result.daily_prices.columns:
+            price_cols.append("symbol")
+        result.daily_prices.select(price_cols).write_parquet(
+            result_dir / "daily_prices.parquet",
+            compression="snappy",
+        )
+
     _write_summary_json(result_dir, result)
 
     return result_dir
@@ -448,6 +615,10 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
         )
 
     with conn.cursor() as cur:
+        dataset_version_payload: Any = result.dataset_version_ids
+        if isinstance(dataset_version_payload, dict):
+            dataset_version_payload = Json(dataset_version_payload)
+
         cur.execute(
             """
             UPDATE backtest_jobs
@@ -475,7 +646,7 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 result.average_turnover,
                 result.decay_half_life,
                 result.snapshot_id,
-                result.dataset_version_ids,  # psycopg3 handles dict → JSONB conversion automatically
+                dataset_version_payload,
                 datetime.now(UTC),
                 job_id,
             ),

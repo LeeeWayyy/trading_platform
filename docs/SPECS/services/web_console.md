@@ -1,5 +1,7 @@
 # web_console (Legacy Backend Services)
 
+<!-- Last reviewed: 2026-01-13 - Simplified isinstance checks in _generate_html_content -->
+
 ## Identity
 - **Type:** Shared Backend Library (used by web_console_ng)
 - **Status:** ⚠️ LEGACY - UI migrated to NiceGUI (web_console_ng)

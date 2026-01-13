@@ -7,6 +7,8 @@ x-backtest-worker-env-base: &backtest-worker-env-base
   BACKTEST_JOB_MEMORY_LIMIT: ${BACKTEST_JOB_MEMORY_LIMIT:-4294967296}
   DATA_ROOT: /app/data/market_data
   DATA_LOCK_DIR: /app/locks  # Lock directory outside read-only data mount
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  YFINANCE_DATA_DIR: /app/data/backtest_results/yfinance
 
 x-backtest-worker-base: &backtest-worker-base
   build: &backtest-worker-build
@@ -191,6 +193,7 @@ services:
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - RECONCILIATION_INTERVAL_SECONDS=${RECONCILIATION_INTERVAL_SECONDS:-10}
+      - FEATURE_PERFORMANCE_DASHBOARD=${FEATURE_PERFORMANCE_DASHBOARD:-false}
       - ALPACA_FILLS_BACKFILL_ENABLED=${ALPACA_FILLS_BACKFILL_ENABLED:-false}
       - ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS=${ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS:-24}
       - ALPACA_FILLS_BACKFILL_PAGE_SIZE=${ALPACA_FILLS_BACKFILL_PAGE_SIZE:-100}
@@ -402,6 +405,11 @@ services:
       - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-https://web-console.trading-platform.local/callback}
       - OAUTH2_LOGOUT_REDIRECT_URI=${OAUTH2_LOGOUT_REDIRECT_URI:-https://web-console.trading-platform.local/logout}
       - REDIS_SESSION_DB=${REDIS_SESSION_DB:-1}
+      # Jupyter runtime dirs (avoid /home/appuser which doesn't exist)
+      - HOME=/tmp
+      - JUPYTER_RUNTIME_DIR=/tmp/jupyter/runtime
+      - JUPYTER_CONFIG_DIR=/tmp/jupyter/config
+      - JUPYTER_DATA_DIR=/tmp/jupyter/data
       # Health check secret for authenticating /health endpoint (prevents abuse).
       # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
       # When set, health checks require Authorization header: Bearer <secret>
@@ -424,6 +432,7 @@ services:
     container_name: trading_platform_web_console_dev
     ports:
       - "8080:8080"
+      - "8900-8949:8900-8949"
     environment:
       # Override to use internal Docker network (all services run in Docker)
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
@@ -436,7 +445,10 @@ services:
       - WEB_CONSOLE_NG_DEBUG=true
       - FEATURE_ALPHA_EXPLORER=${FEATURE_ALPHA_EXPLORER:-false}
       - FEATURE_TRADE_JOURNAL=${FEATURE_TRADE_JOURNAL:-false}
+      - FEATURE_PERFORMANCE_DASHBOARD=${FEATURE_PERFORMANCE_DASHBOARD:-false}
       - MODEL_REGISTRY_DIR=/app/data/models
+      - NOTEBOOK_BASE_URL=${NOTEBOOK_BASE_URL:-http://localhost}
+      - NOTEBOOK_LAUNCH_COMMAND=${NOTEBOOK_LAUNCH_COMMAND:-}
       # Session store keys (dev defaults - DO NOT use in production)
       - HMAC_SIGNING_KEYS=01:0000000000000000000000000000000000000000000000000000000000000000
       - HMAC_CURRENT_KEY_ID=01
@@ -444,6 +456,8 @@ services:
     volumes:
       - backtest_data:/app/data/backtest_results:ro
       - ./data/models:/app/data/models
+      - ./artifacts:/app/artifacts
+      - ./notebooks:/app/notebooks
       - ./apps/web_console_ng/certs:/app/apps/web_console_ng/certs:ro  # JWT keys for auth
     depends_on:
       postgres:

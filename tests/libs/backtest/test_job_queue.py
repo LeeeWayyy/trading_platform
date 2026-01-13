@@ -34,7 +34,13 @@ if _missing:
 
 
 import libs.backtest.job_queue as job_queue
-from libs.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, JobPriority
+from libs.backtest.job_queue import (
+    BacktestJobConfig,
+    BacktestJobQueue,
+    DataProvider,
+    JobPriority,
+    WeightMethod,
+)
 
 
 class DummyCursor:
@@ -106,7 +112,7 @@ def test_compute_job_id_and_roundtrip():
         alpha_name="alpha1",
         start_date=date(2024, 1, 1),
         end_date=date(2024, 1, 31),
-        weight_method="zscore",
+        weight_method=WeightMethod.ZSCORE,
         extra_params={"window": 5},
     )
     first = config.compute_job_id("tester")
@@ -614,3 +620,85 @@ def test_enqueue_heals_missing_rq_job_preserves_retry_count(redis_mock):
     queue._create_db_job.assert_called()
     call_kwargs = queue._create_db_job.call_args
     assert call_kwargs[1].get("is_rerun") is False or call_kwargs[0][4] is False
+
+
+class TestDataProviderEnum:
+    """Tests for DataProvider enum and from_string validation."""
+
+    def test_from_string_valid_crsp(self):
+        """Test that 'crsp' string parses to CRSP provider."""
+        assert DataProvider.from_string("crsp") == DataProvider.CRSP
+
+    def test_from_string_valid_yfinance(self):
+        """Test that 'yfinance' string parses to YFINANCE provider."""
+        assert DataProvider.from_string("yfinance") == DataProvider.YFINANCE
+
+    def test_from_string_case_insensitive(self):
+        """Test that provider parsing is case-insensitive."""
+        assert DataProvider.from_string("CRSP") == DataProvider.CRSP
+        assert DataProvider.from_string("Crsp") == DataProvider.CRSP
+        assert DataProvider.from_string("YFINANCE") == DataProvider.YFINANCE
+        assert DataProvider.from_string("YFinance") == DataProvider.YFINANCE
+
+    def test_from_string_strips_whitespace(self):
+        """Test that provider parsing strips leading/trailing whitespace."""
+        assert DataProvider.from_string("  crsp  ") == DataProvider.CRSP
+        assert DataProvider.from_string("\tyfinance\n") == DataProvider.YFINANCE
+
+    def test_from_string_invalid_raises(self):
+        """Test that invalid provider string raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid data provider"):
+            DataProvider.from_string("invalid_provider")
+
+    def test_from_string_empty_raises(self):
+        """Test that empty string raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid data provider"):
+            DataProvider.from_string("")
+
+
+class TestBacktestJobConfigFromDict:
+    """Tests for BacktestJobConfig.from_dict edge cases."""
+
+    def test_from_dict_provider_none_defaults_to_crsp(self):
+        """Test that explicit provider=None defaults to CRSP (not crash)."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": None,  # Explicit None
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.CRSP
+
+    def test_from_dict_provider_missing_defaults_to_crsp(self):
+        """Test that missing provider key defaults to CRSP."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            # No provider key at all
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.CRSP
+
+    def test_from_dict_provider_yfinance(self):
+        """Test that yfinance provider is correctly parsed."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "yfinance",
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.YFINANCE
+
+    def test_from_dict_invalid_provider_raises(self):
+        """Test that invalid provider in dict raises ValueError."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "invalid",
+        }
+        with pytest.raises(ValueError, match="Invalid data provider"):
+            BacktestJobConfig.from_dict(data)

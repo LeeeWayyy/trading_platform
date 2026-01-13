@@ -33,6 +33,33 @@ class JobPriority(str, Enum):
     LOW = "low"
 
 
+class DataProvider(str, Enum):
+    """Data provider for backtests.
+
+    CRSP: Production-grade point-in-time data (recommended for real backtests).
+    YFINANCE: Development/testing only - no PIT compliance, limited universe.
+    """
+
+    CRSP = "crsp"
+    YFINANCE = "yfinance"
+
+    @classmethod
+    def from_string(cls, value: str) -> DataProvider:
+        """Parse provider string with validation.
+
+        Raises:
+            ValueError: If provider string is not a valid DataProvider.
+        """
+        normalized = value.lower().strip()
+        try:
+            return cls(normalized)
+        except ValueError as e:
+            valid = [p.value for p in cls]
+            raise ValueError(
+                f"Invalid data provider: '{value}'. Must be one of: {valid}"
+            ) from e
+
+
 def _resolve_rq_finished_status(job: Job) -> tuple[str, str | None]:
     """
     Resolve DB status from an RQ job in finished state.
@@ -60,6 +87,7 @@ class BacktestJobConfig:
     start_date: date
     end_date: date
     weight_method: WeightMethod = WeightMethod.ZSCORE
+    provider: DataProvider = DataProvider.CRSP
     extra_params: dict[str, Any] = field(default_factory=dict)
 
     def compute_job_id(self, created_by: str) -> str:
@@ -68,7 +96,8 @@ class BacktestJobConfig:
                 "alpha": self.alpha_name,
                 "start": str(self.start_date),
                 "end": str(self.end_date),
-                "weight": self.weight_method,
+                "weight": self.weight_method.value,
+                "provider": self.provider.value,
                 "params": self.extra_params,
                 "created_by": created_by,
             },
@@ -81,7 +110,8 @@ class BacktestJobConfig:
             "alpha_name": self.alpha_name,
             "start_date": str(self.start_date),
             "end_date": str(self.end_date),
-            "weight_method": self.weight_method,
+            "weight_method": self.weight_method.value,
+            "provider": self.provider.value,
             "extra_params": self.extra_params,
         }
 
@@ -91,12 +121,30 @@ class BacktestJobConfig:
         try:
             weight = WeightMethod(weight_str)
         except ValueError as e:
-            raise ValueError(f"Invalid weight_method: {weight_str}") from e
+            valid = [wm.value for wm in WeightMethod]
+            raise ValueError(
+                f"Invalid weight_method: '{weight_str}'. Must be one of: {valid}"
+            ) from e
+
+        # Validate provider against enum (raises ValueError if invalid)
+        # Use `or` to handle both missing key AND explicit None value
+        provider_str = data.get("provider") or "crsp"
+        provider = DataProvider.from_string(provider_str)
+
+        # Parse and validate dates
+        start_date = date.fromisoformat(data["start_date"])
+        end_date = date.fromisoformat(data["end_date"])
+        if end_date <= start_date:
+            raise ValueError(
+                f"end_date ({end_date}) must be after start_date ({start_date})"
+            )
+
         return cls(
             alpha_name=data["alpha_name"],
-            start_date=date.fromisoformat(data["start_date"]),
-            end_date=date.fromisoformat(data["end_date"]),
+            start_date=start_date,
+            end_date=end_date,
             weight_method=weight,
+            provider=provider,
             extra_params=data.get("extra_params", {}),
         )
 
