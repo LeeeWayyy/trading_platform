@@ -1,5 +1,7 @@
 # web_console_ng
 
+<!-- Last reviewed: 2026-01-12 - Refactored backtest rendering, Redis session storage, cached RQ client -->
+
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
 - **Port:** `WEB_CONSOLE_NG_PORT` (default 8080)

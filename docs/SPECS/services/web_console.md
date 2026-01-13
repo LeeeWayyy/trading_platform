@@ -1,5 +1,7 @@
 # web_console (Legacy Backend Services)
 
+<!-- Last reviewed: 2026-01-12 - Refactored run_now() into helper methods, fixed permission check -->
+
 ## Identity
 - **Type:** Shared Backend Library (used by web_console_ng)
 - **Status:** ⚠️ LEGACY - UI migrated to NiceGUI (web_console_ng)

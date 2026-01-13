@@ -1,5 +1,7 @@
 # backtest
 
+<!-- Last reviewed: 2026-01-12 - Added security logging for invalid column detection -->
+
 ## Identity
 - **Type:** Library
 - **Port:** N/A

@@ -329,19 +329,17 @@ class ScheduledReportsService:
             for row in rows
         ]
 
-    async def run_now(self, schedule_id: str) -> ReportRun:
-        """Generate a report immediately and store the archive metadata."""
-        self._require_permission(Permission.MANAGE_REPORTS)
+    async def _fetch_trading_data(
+        self,
+        current_user_id: str | None,
+        role: str | None,
+        strategies: list[str] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+        """Fetch positions and fills from trading client.
 
-        current_user_id = self._user.get("user_id")
-        role = self._user.get("role")
-        strategies = (
-            self._user.get("strategies")
-            if isinstance(self._user.get("strategies"), list)
-            else None
-        )
-        has_manage = has_permission(self._user, Permission.MANAGE_REPORTS)
-
+        Returns:
+            Tuple of (positions_payload, fills_payload, data_errors)
+        """
         data_errors: list[str] = []
         positions_payload: dict[str, Any] = {}
         fills_payload: dict[str, Any] = {}
@@ -362,115 +360,77 @@ class ScheduledReportsService:
                 strategies=strategies,
                 limit=100,
             )
-        except Exception as exc:  # noqa: BLE001 - renderable error in report
+        except (OSError, ConnectionError, KeyError, ValueError, TypeError) as exc:
             data_errors.append(f"Failed to fetch trading data: {exc}")
 
-        async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                if has_manage:
-                    await cur.execute(
-                        """
-                        SELECT id, user_id, name, template_type, schedule_config
-                        FROM report_schedules
-                        WHERE id = %s
-                        """,
-                        (schedule_id,),
-                    )
-                else:
-                    await cur.execute(
-                        """
-                        SELECT id, user_id, name, template_type, schedule_config
-                        FROM report_schedules
-                        WHERE id = %s AND user_id = %s
-                        """,
-                        (schedule_id, current_user_id),
-                    )
-                schedule_row = await cur.fetchone()
+        return positions_payload, fills_payload, data_errors
 
-                if not schedule_row:
-                    raise ValueError("Schedule not found or access denied")
+    def _generate_html_content(
+        self,
+        schedule_name: str,
+        report_type: str,
+        params: dict[str, Any],
+        positions_payload: dict[str, Any],
+        fills_payload: dict[str, Any],
+        data_errors: list[str],
+        now: datetime,
+    ) -> str:
+        """Generate HTML report content.
 
-                run_key = f"manual-{uuid4().hex}"
-                now = datetime.now(UTC)
+        SECURITY: All user-controlled strings are HTML-escaped to prevent XSS.
+        """
 
-                await cur.execute(
-                    """
-                    INSERT INTO report_schedule_runs (
-                        schedule_id, run_key, status, started_at, completed_at
-                    ) VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    (schedule_id, run_key, "completed", now, now),
-                )
+        def _fmt_money(value: Any) -> str:
+            try:
+                return f"${float(value):,.2f}"
+            except (TypeError, ValueError):
+                return "-" if value is None else html.escape(str(value))
 
-                report_output_dir = Path(
-                    os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")
-                ).resolve()
-                report_output_dir.mkdir(parents=True, exist_ok=True)
+        def _fmt_value(value: Any) -> str:
+            return "-" if value is None else html.escape(str(value))
 
-                file_name = f"report_{run_key}.html"
-                file_path = report_output_dir / file_name
+        positions = positions_payload.get("positions", []) if isinstance(positions_payload, dict) else []
+        total_realized = positions_payload.get("total_realized_pl") if isinstance(positions_payload, dict) else None
+        total_unrealized = positions_payload.get("total_unrealized_pl") if isinstance(positions_payload, dict) else None
+        total_positions = positions_payload.get("total_positions") if isinstance(positions_payload, dict) else 0
 
-                schedule_name = schedule_row.get("name") or "Scheduled Report"
-                report_type = schedule_row.get("template_type") or "custom"
-                config = self._normalize_config(schedule_row.get("schedule_config"))
-                params = config.get("params") or {}
+        fills = fills_payload.get("events", []) if isinstance(fills_payload, dict) else []
 
-                positions = positions_payload.get("positions", []) if isinstance(positions_payload, dict) else []
-                total_realized = positions_payload.get("total_realized_pl") if isinstance(positions_payload, dict) else None
-                total_unrealized = positions_payload.get("total_unrealized_pl") if isinstance(positions_payload, dict) else None
-                total_positions = positions_payload.get("total_positions") if isinstance(positions_payload, dict) else 0
+        positions_rows = "\n".join(
+            f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"
+            f"<td>{_fmt_value(p.get('qty'))}</td>"
+            f"<td>{_fmt_money(p.get('avg_entry_price'))}</td>"
+            f"<td>{_fmt_money(p.get('current_price'))}</td>"
+            f"<td>{_fmt_money(p.get('unrealized_pl'))}</td>"
+            f"<td>{_fmt_money(p.get('realized_pl'))}</td></tr>"
+            for p in positions
+        ) or "<tr><td colspan=\"6\">No positions</td></tr>"
 
-                fills = fills_payload.get("events", []) if isinstance(fills_payload, dict) else []
+        fills_rows = "\n".join(
+            f"<tr><td>{_fmt_value(f.get('timestamp'))}</td>"
+            f"<td>{_fmt_value(f.get('symbol'))}</td>"
+            f"<td>{_fmt_value(f.get('side'))}</td>"
+            f"<td>{_fmt_value(f.get('qty'))}</td>"
+            f"<td>{_fmt_money(f.get('price'))}</td>"
+            f"<td>{_fmt_money(f.get('realized_pl'))}</td>"
+            f"<td>{_fmt_value(f.get('status'))}</td></tr>"
+            for f in fills
+        ) or "<tr><td colspan=\"7\">No recent fills</td></tr>"
 
-                def _fmt_money(value: Any) -> str:
-                    try:
-                        return f"${float(value):,.2f}"
-                    except (TypeError, ValueError):
-                        # SECURITY: Escape to prevent HTML injection
-                        return "-" if value is None else html.escape(str(value))
+        error_block = ""
+        if data_errors:
+            escaped_errors = [html.escape(str(e)[:200]) for e in data_errors]
+            error_block = (
+                "<div style=\"color:#b91c1c; margin-bottom:12px;\">"
+                "<strong>Data warnings:</strong><ul>"
+                + "".join(f"<li>{e}</li>" for e in escaped_errors)
+                + "</ul></div>"
+            )
 
-                def _fmt_value(value: Any) -> str:
-                    # SECURITY: Escape to prevent HTML injection (stored XSS)
-                    return "-" if value is None else html.escape(str(value))
+        safe_schedule_name = html.escape(str(schedule_name))
+        safe_report_type = html.escape(str(report_type))
 
-                positions_rows = "\n".join(
-                    f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"
-                    f"<td>{_fmt_value(p.get('qty'))}</td>"
-                    f"<td>{_fmt_money(p.get('avg_entry_price'))}</td>"
-                    f"<td>{_fmt_money(p.get('current_price'))}</td>"
-                    f"<td>{_fmt_money(p.get('unrealized_pl'))}</td>"
-                    f"<td>{_fmt_money(p.get('realized_pl'))}</td></tr>"
-                    for p in positions
-                ) or "<tr><td colspan=\"6\">No positions</td></tr>"
-
-                fills_rows = "\n".join(
-                    f"<tr><td>{_fmt_value(f.get('timestamp'))}</td>"
-                    f"<td>{_fmt_value(f.get('symbol'))}</td>"
-                    f"<td>{_fmt_value(f.get('side'))}</td>"
-                    f"<td>{_fmt_value(f.get('qty'))}</td>"
-                    f"<td>{_fmt_money(f.get('price'))}</td>"
-                    f"<td>{_fmt_money(f.get('realized_pl'))}</td>"
-                    f"<td>{_fmt_value(f.get('status'))}</td></tr>"
-                    for f in fills
-                ) or "<tr><td colspan=\"7\">No recent fills</td></tr>"
-
-                error_block = ""
-                if data_errors:
-                    # SECURITY: Escape error messages to prevent HTML injection
-                    # Use generic messages for internal errors to avoid leaking details
-                    escaped_errors = [html.escape(str(e)[:200]) for e in data_errors]
-                    error_block = (
-                        "<div style=\"color:#b91c1c; margin-bottom:12px;\">"
-                        "<strong>Data warnings:</strong><ul>"
-                        + "".join(f"<li>{e}</li>" for e in escaped_errors)
-                        + "</ul></div>"
-                    )
-
-                # SECURITY: Escape user-controlled strings to prevent stored XSS
-                safe_schedule_name = html.escape(str(schedule_name))
-                safe_report_type = html.escape(str(report_type))
-
-                content = f"""<!doctype html>
+        return f"""<!doctype html>
 <html>
 <head><meta charset="utf-8"><title>{safe_schedule_name}</title></head>
 <body>
@@ -513,6 +473,82 @@ class ScheduledReportsService:
 </body>
 </html>
 """
+
+    async def run_now(self, schedule_id: str) -> ReportRun:
+        """Generate a report immediately and store the archive metadata."""
+        self._require_permission(Permission.VIEW_REPORTS)
+
+        current_user_id = self._user.get("user_id")
+        role = self._user.get("role")
+        strategies = (
+            self._user.get("strategies")
+            if isinstance(self._user.get("strategies"), list)
+            else None
+        )
+        has_manage = has_permission(self._user, Permission.MANAGE_REPORTS)
+
+        # Fetch trading data using helper method
+        positions_payload, fills_payload, data_errors = await self._fetch_trading_data(
+            current_user_id, role, strategies
+        )
+
+        async with acquire_connection(self._db_pool) as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Dynamic query based on permission level
+                query = """
+                    SELECT id, user_id, name, template_type, schedule_config
+                    FROM report_schedules
+                    WHERE id = %s
+                """
+                params: list[Any] = [schedule_id]
+                if not has_manage:
+                    query += " AND user_id = %s"
+                    params.append(current_user_id)
+
+                await cur.execute(query, tuple(params))
+                schedule_row = await cur.fetchone()
+
+                if not schedule_row:
+                    raise ValueError("Schedule not found or access denied")
+
+                run_key = f"manual-{uuid4().hex}"
+                now = datetime.now(UTC)
+
+                await cur.execute(
+                    """
+                    INSERT INTO report_schedule_runs (
+                        schedule_id, run_key, status, started_at, completed_at
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (schedule_id, run_key, "completed", now, now),
+                )
+
+                report_output_dir = Path(
+                    os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")
+                ).resolve()
+                report_output_dir.mkdir(parents=True, exist_ok=True)
+
+                file_name = f"report_{run_key}.html"
+                file_path = report_output_dir / file_name
+
+                schedule_name = schedule_row.get("name") or "Scheduled Report"
+                report_type = schedule_row.get("template_type") or "custom"
+                config = self._normalize_config(schedule_row.get("schedule_config"))
+                report_params_val = config.get("params")
+                report_params: dict[str, Any] = (
+                    report_params_val if isinstance(report_params_val, dict) else {}
+                )
+
+                # Generate HTML content using helper method
+                content = self._generate_html_content(
+                    schedule_name=schedule_name,
+                    report_type=report_type,
+                    params=report_params,
+                    positions_payload=positions_payload,
+                    fills_payload=fills_payload,
+                    data_errors=data_errors,
+                    now=now,
+                )
                 file_path.write_text(content)
                 size_bytes = file_path.stat().st_size
 

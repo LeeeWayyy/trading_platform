@@ -315,7 +315,7 @@ def _render_metrics_table(metrics: dict[str, dict[str, float]]) -> None:
                 "total_return": f"${m.get('total_return', 0):,.2f}",
                 "volatility": f"${m.get('volatility', 0):,.2f}",
                 "sharpe": f"{m.get('sharpe', 0):.2f}",
-                "max_drawdown": f"{m.get('max_drawdown', 0):.2f}%",
+                "max_drawdown": f"${m.get('max_drawdown', 0):,.2f}",
             })
 
         ui.table(columns=columns, rows=rows).classes("w-full")

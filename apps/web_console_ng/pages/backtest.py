@@ -63,6 +63,23 @@ VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 # Prevents injection via malicious symbol names and enforces exchange naming conventions
 SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
+# Cached Redis client for RQ (decode_responses=False for binary payloads)
+_rq_redis_client: Redis | None = None
+
+
+def _get_rq_redis_client() -> Redis:
+    """Get a cached Redis client instance suitable for RQ.
+
+    RQ expects binary Redis responses; decode_responses=True can raise
+    UnicodeDecodeError when RQ stores non-UTF8 payloads.
+    """
+    global _rq_redis_client
+    if _rq_redis_client is None:
+        from redis import Redis as _Redis
+
+        _rq_redis_client = _Redis.from_url(config.REDIS_URL, decode_responses=False)
+    return _rq_redis_client
+
 
 def _get_user_id(user: dict[str, Any]) -> str:
     """Get user identifier with fail-closed behavior.
@@ -78,13 +95,9 @@ def _get_user_id(user: dict[str, Any]) -> str:
 
 def _get_job_queue() -> BacktestJobQueue:
     """Get BacktestJobQueue instance (sync context manager)."""
-    # RQ expects binary Redis responses; decode_responses=True can raise
-    # UnicodeDecodeError when RQ stores non-UTF8 payloads.
-    from redis import Redis
-
     from libs.backtest.job_queue import BacktestJobQueue as _BacktestJobQueue
 
-    redis_client = Redis.from_url(config.REDIS_URL, decode_responses=False)
+    redis_client = _get_rq_redis_client()
     db_pool = get_sync_db_pool()
     return _BacktestJobQueue(redis_client=redis_client, db_pool=db_pool)
 
@@ -823,29 +836,393 @@ async def _render_backtest_results(
     results_display()
 
 
+def _fmt_float(value: float | None, fmt: str) -> str:
+    """Format a float value with N/A fallback for None/NaN/Inf."""
+    if value is None:
+        return "N/A"
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if not math.isfinite(val):
+        return "N/A"
+    return fmt.format(val)
+
+
+def _fmt_pct(value: float | None, fmt: str) -> str:
+    """Format a decimal as percentage with N/A fallback for None/NaN/Inf."""
+    if value is None:
+        return "N/A"
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if not math.isfinite(val):
+        return "N/A"
+    return fmt.format(val * 100)
+
+
+def _render_yahoo_backtest_details(result: Any, user: dict[str, Any]) -> None:
+    """Render Yahoo Finance-specific backtest details: universe, signals, charts, trades.
+
+    This helper renders:
+    - Universe section with symbol list
+    - Signal Details with symbol selector and CSV export
+    - Price + Signal Triggers chart
+    - Trade P&L section with computed trades table
+
+    Args:
+        result: Backtest result object with daily_prices, daily_signals, etc.
+        user: Current user dict for permission checks.
+    """
+    symbols: list[str] = []
+    prices = getattr(result, "daily_prices", None)
+    signals = getattr(result, "daily_signals", None)
+    returns = getattr(result, "daily_returns", None)
+    weights = getattr(result, "daily_weights", None)
+
+    if prices is not None and hasattr(prices, "is_empty") and not prices.is_empty():
+        if "symbol" in prices.columns:
+            symbols = sorted(prices["symbol"].unique().to_list())
+    elif signals is not None and hasattr(signals, "is_empty") and not signals.is_empty():
+        if "symbol" in signals.columns:
+            symbols = sorted(signals["symbol"].unique().to_list())
+
+    if not symbols:
+        return
+
+    ui.separator().classes("my-4")
+    ui.label("Universe").classes("text-lg font-bold mb-2")
+    ui.label(f"{len(symbols)} symbols").classes("text-sm text-gray-500 mb-2")
+    ui.label(", ".join(symbols)).classes("text-sm text-gray-700")
+
+    ui.separator().classes("my-4")
+    ui.label("Signal Details").classes("text-lg font-bold mb-2")
+
+    state = {"symbol": symbols[0] if symbols else None}
+
+    def _build_events(symbol: str | None) -> list[dict[str, Any]]:
+        if signals is None or returns is None:
+            return []
+        if getattr(signals, "is_empty", lambda: True)():
+            return []
+        base = signals
+        if "symbol" not in base.columns and prices is not None and "symbol" in prices.columns:
+            mapping = prices.select(["permno", "symbol"]).unique()
+            base = base.join(mapping, on="permno", how="left")
+
+        events = base
+        if returns is not None and hasattr(returns, "is_empty") and not returns.is_empty():
+            events = events.join(
+                returns.select(["permno", "date", "return"]),
+                on=["permno", "date"],
+                how="left",
+            )
+        if weights is not None and hasattr(weights, "is_empty") and not weights.is_empty():
+            events = events.join(
+                weights.select(["permno", "date", "weight"]),
+                on=["permno", "date"],
+                how="left",
+            )
+        if prices is not None and hasattr(prices, "is_empty") and not prices.is_empty():
+            events = events.join(
+                prices.select(["permno", "date", "price"]),
+                on=["permno", "date"],
+                how="left",
+            )
+
+        events = events.with_columns(
+            [
+                pl.when(pl.col("signal") > 0)
+                .then(pl.lit("BUY"))
+                .when(pl.col("signal") < 0)
+                .then(pl.lit("SELL"))
+                .otherwise(pl.lit("FLAT"))
+                .alias("side"),
+                pl.col("return").fill_null(0).alias("forward_return"),
+                (pl.col("weight").fill_null(0) * pl.col("return").fill_null(0)).alias(
+                    "weighted_pnl"
+                ),
+            ]
+        ).filter(pl.col("side") != "FLAT")
+
+        if symbol and "symbol" in events.columns:
+            events = events.filter(pl.col("symbol") == symbol)
+
+        events = events.sort("date", descending=True).head(200)
+        rows: list[dict[str, Any]] = events.select(
+            [
+                pl.col("date").cast(pl.Date),
+                pl.col("symbol"),
+                pl.col("side"),
+                pl.col("signal"),
+                pl.col("weight"),
+                pl.col("price"),
+                pl.col("forward_return"),
+                pl.col("weighted_pnl"),
+            ]
+        ).to_dicts()
+        return rows
+
+    def _update_symbol(value: str) -> None:
+        state["symbol"] = value
+        _render_price_chart.refresh()
+        _render_trade_pnl.refresh()
+
+    def _download_signal_csv() -> None:
+        # SECURITY: Verify EXPORT_DATA permission before allowing download
+        if not has_permission(user, Permission.EXPORT_DATA):
+            ui.notify("Export requires EXPORT_DATA permission", type="negative")
+            return
+        rows = _build_events(state["symbol"])
+        if not rows:
+            ui.notify("No signal events to export for this symbol.", type="warning")
+            return
+        import csv
+        import io
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        ui.download(
+            buf.getvalue().encode(),
+            filename=f"signals_{result.backtest_id}_{state['symbol']}.csv",
+        )
+
+    with ui.row().classes("items-center gap-3 mb-2"):
+        ui.select(
+            label="Symbol",
+            options=symbols,
+            value=symbols[0],
+            on_change=lambda e: _update_symbol(str(e.value)),
+        ).classes("w-60")
+        # Only show download button if user has EXPORT_DATA permission
+        if has_permission(user, Permission.EXPORT_DATA):
+            ui.button("Download Signals CSV", on_click=_download_signal_csv).props("flat")
+
+    ui.separator().classes("my-4")
+    ui.label("Price + Signal Triggers").classes("text-lg font-bold mb-2")
+
+    @ui.refreshable
+    def _render_price_chart() -> None:
+        symbol = state["symbol"]
+        if prices is None or prices.is_empty() or symbol is None:
+            ui.label("No price data available for chart.").classes("text-gray-500")
+            return
+
+        price_series = prices.filter(pl.col("symbol") == symbol).sort("date")
+        if price_series.is_empty():
+            ui.label("No price data available for chart.").classes("text-gray-500")
+            return
+
+        sigs = signals
+        if sigs is not None and not sigs.is_empty():
+            if "symbol" not in sigs.columns and prices is not None and "symbol" in prices.columns:
+                mapping = prices.select(["permno", "symbol"]).unique()
+                sigs = sigs.join(mapping, on="permno", how="left")
+            if "symbol" in sigs.columns:
+                sigs = sigs.filter(pl.col("symbol") == symbol)
+            else:
+                sigs = None
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=price_series["date"].to_list(),
+                y=price_series["price"].to_list(),
+                mode="lines",
+                name="Price",
+            )
+        )
+
+        if sigs is not None and not sigs.is_empty():
+            sigs = sigs.select(["date", "signal"]).sort("date")
+            sig_prices = price_series.join(sigs, on="date", how="inner")
+            buy = sig_prices.filter(pl.col("signal") > 0)
+            sell = sig_prices.filter(pl.col("signal") < 0)
+            if not buy.is_empty():
+                fig.add_trace(
+                    go.Scatter(
+                        x=buy["date"].to_list(),
+                        y=buy["price"].to_list(),
+                        mode="markers",
+                        name="BUY",
+                        marker={"color": "green", "size": 7, "symbol": "triangle-up"},
+                    )
+                )
+            if not sell.is_empty():
+                fig.add_trace(
+                    go.Scatter(
+                        x=sell["date"].to_list(),
+                        y=sell["price"].to_list(),
+                        mode="markers",
+                        name="SELL",
+                        marker={"color": "red", "size": 7, "symbol": "triangle-down"},
+                    )
+                )
+
+        fig.update_layout(
+            margin={"l": 20, "r": 20, "t": 20, "b": 20},
+            height=360,
+            legend={"orientation": "h"},
+        )
+        ui.plotly(fig).classes("w-full")
+
+    _render_price_chart()
+
+    ui.separator().classes("my-4")
+    ui.label("Trade P&L (per symbol)").classes("text-lg font-bold mb-2")
+
+    def _compute_trades(symbol: str | None) -> list[dict[str, Any]]:
+        if symbol is None or prices is None or signals is None:
+            return []
+        if prices.is_empty() or signals.is_empty():
+            return []
+
+        # Ensure signals have symbol
+        sigs = signals
+        if "symbol" not in sigs.columns:
+            mapping = prices.select(["permno", "symbol"]).unique()
+            sigs = sigs.join(mapping, on="permno", how="left")
+        if "symbol" not in sigs.columns:
+            return []
+
+        sigs = sigs.filter(pl.col("symbol") == symbol).select(["date", "signal"]).sort("date")
+        if sigs.is_empty():
+            return []
+
+        price_series = prices.filter(pl.col("symbol") == symbol).select(["date", "price"]).sort("date")
+        price_map = {row["date"]: row["price"] for row in price_series.to_dicts()}
+        last_price_row = price_series.tail(1).to_dicts()
+        last_price_date = last_price_row[0]["date"] if last_price_row else None
+        last_price = last_price_row[0]["price"] if last_price_row else None
+
+        trades: list[dict[str, Any]] = []
+        position = 0  # -1, 0, 1
+        entry_date = None
+        entry_price = None
+
+        for row in sigs.to_dicts():
+            date_val = row["date"]
+            sig_val = row["signal"]
+            side = 1 if sig_val > 0 else -1 if sig_val < 0 else 0
+            if side == position:
+                continue
+            # Close existing position
+            if position != 0 and entry_date is not None and entry_price is not None:
+                exit_price = price_map.get(date_val)
+                if exit_price is not None:
+                    pnl = (
+                        (exit_price - entry_price) / entry_price
+                        if position > 0
+                        else (entry_price - exit_price) / entry_price
+                    )
+                    trades.append(
+                        {
+                            "entry_date": entry_date,
+                            "exit_date": date_val,
+                            "side": "BUY" if position > 0 else "SELL",
+                            "entry_price": entry_price,
+                            "exit_price": exit_price,
+                            "pnl_pct": pnl,
+                        }
+                    )
+            # Open new position if non-zero
+            if side != 0:
+                entry_date = date_val
+                entry_price = price_map.get(date_val)
+            else:
+                entry_date = None
+                entry_price = None
+            position = side
+
+        # Mark-to-market open position at end of series
+        if position != 0 and entry_date is not None and entry_price is not None:
+            if last_price_date is not None and last_price is not None:
+                pnl = (
+                    (last_price - entry_price) / entry_price
+                    if position > 0
+                    else (entry_price - last_price) / entry_price
+                )
+                trades.append(
+                    {
+                        "entry_date": entry_date,
+                        "exit_date": last_price_date,
+                        "side": "BUY" if position > 0 else "SELL",
+                        "entry_price": entry_price,
+                        "exit_price": last_price,
+                        "pnl_pct": pnl,
+                    }
+                )
+
+        return trades
+
+    @ui.refreshable
+    def _render_trade_pnl() -> None:
+        symbol = state["symbol"]
+        trades = _compute_trades(symbol)
+        if not trades:
+            ui.label("No trade events computed for this symbol.").classes("text-gray-500")
+            return
+        total_pnl = sum(t.get("pnl_pct", 0) for t in trades)
+        wins = sum(1 for t in trades if t.get("pnl_pct", 0) > 0)
+        win_rate = (wins / len(trades)) if trades else 0.0
+
+        with ui.row().classes("gap-4 mb-2"):
+            with ui.card().classes("p-3 text-center").props("flat bordered"):
+                ui.label("Trades").classes("text-xs text-gray-500")
+                ui.label(f"{len(trades)}").classes("text-lg font-bold")
+            win_rate_text = _fmt_pct(win_rate, "{:.1f}%")
+            total_pnl_text = _fmt_pct(total_pnl, "{:.2f}%")
+            with ui.card().classes("p-3 text-center").props("flat bordered"):
+                ui.label("Win Rate").classes("text-xs text-gray-500")
+                ui.label(win_rate_text).classes("text-lg font-bold")
+            with ui.card().classes("p-3 text-center").props("flat bordered"):
+                ui.label("Total P&L").classes("text-xs text-gray-500")
+                ui.label(total_pnl_text).classes("text-lg font-bold")
+
+        # Show last 50 trades
+        rows = trades[-50:]
+        columns = [
+            {"name": "entry_date", "label": "Entry", "field": "entry_date"},
+            {"name": "exit_date", "label": "Exit", "field": "exit_date"},
+            {"name": "side", "label": "Side", "field": "side"},
+            {"name": "entry_price", "label": "Entry Px", "field": "entry_price"},
+            {"name": "exit_price", "label": "Exit Px", "field": "exit_price"},
+            {"name": "pnl_pct", "label": "P&L (%)", "field": "pnl_pct"},
+        ]
+        ui.table(columns=columns, rows=rows, row_key="entry_date").classes("w-full")
+
+    def _download_trades_csv() -> None:
+        # SECURITY: Verify EXPORT_DATA permission before allowing download
+        if not has_permission(user, Permission.EXPORT_DATA):
+            ui.notify("Export requires EXPORT_DATA permission", type="negative")
+            return
+        trades = _compute_trades(state["symbol"])
+        if not trades:
+            ui.notify("No trades to export for this symbol.", type="warning")
+            return
+        import csv
+        import io
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=list(trades[0].keys()))
+        writer.writeheader()
+        writer.writerows(trades)
+        ui.download(
+            buf.getvalue().encode(),
+            filename=f"trades_{result.backtest_id}_{state['symbol']}.csv",
+        )
+
+    # Only show download button if user has EXPORT_DATA permission
+    if has_permission(user, Permission.EXPORT_DATA):
+        ui.button("Download Trades CSV", on_click=_download_trades_csv).props("flat")
+    _render_trade_pnl()
+
+
 def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
     """Render complete backtest result with metrics and charts."""
-    def _fmt_float(value: float | None, fmt: str) -> str:
-        if value is None:
-            return "N/A"
-        try:
-            val = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        if not math.isfinite(val):
-            return "N/A"
-        return fmt.format(val)
-
-    def _fmt_pct(value: float | None, fmt: str) -> str:
-        if value is None:
-            return "N/A"
-        try:
-            val = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        if not math.isfinite(val):
-            return "N/A"
-        return fmt.format(val * 100)
 
     # Header
     ui.label(f"Backtest: {result.alpha_name}").classes("text-xl font-bold")
@@ -895,349 +1272,8 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
     if ic_note:
         ui.label(ic_note).classes("text-xs text-gray-500 mb-4")
 
-    # Universe + detail views (Yahoo backtests)
-    symbols: list[str] = []
-    prices = getattr(result, "daily_prices", None)
-    signals = getattr(result, "daily_signals", None)
-    returns = getattr(result, "daily_returns", None)
-    weights = getattr(result, "daily_weights", None)
-
-    if prices is not None and hasattr(prices, "is_empty") and not prices.is_empty():
-        if "symbol" in prices.columns:
-            symbols = sorted(prices["symbol"].unique().to_list())
-    elif signals is not None and hasattr(signals, "is_empty") and not signals.is_empty():
-        if "symbol" in signals.columns:
-            symbols = sorted(signals["symbol"].unique().to_list())
-
-    if symbols:
-        ui.separator().classes("my-4")
-        ui.label("Universe").classes("text-lg font-bold mb-2")
-        ui.label(f"{len(symbols)} symbols").classes("text-sm text-gray-500 mb-2")
-        ui.label(", ".join(symbols)).classes("text-sm text-gray-700")
-
-        ui.separator().classes("my-4")
-        ui.label("Signal Details").classes("text-lg font-bold mb-2")
-
-        state = {"symbol": symbols[0] if symbols else None}
-
-        def _build_events(symbol: str | None) -> list[dict[str, Any]]:
-            if signals is None or returns is None:
-                return []
-            if getattr(signals, "is_empty", lambda: True)():
-                return []
-            base = signals
-            if "symbol" not in base.columns and prices is not None and "symbol" in prices.columns:
-                mapping = prices.select(["permno", "symbol"]).unique()
-                base = base.join(mapping, on="permno", how="left")
-
-            events = base
-            if returns is not None and hasattr(returns, "is_empty") and not returns.is_empty():
-                events = events.join(
-                    returns.select(["permno", "date", "return"]),
-                    on=["permno", "date"],
-                    how="left",
-                )
-            if weights is not None and hasattr(weights, "is_empty") and not weights.is_empty():
-                events = events.join(
-                    weights.select(["permno", "date", "weight"]),
-                    on=["permno", "date"],
-                    how="left",
-                )
-            if prices is not None and hasattr(prices, "is_empty") and not prices.is_empty():
-                events = events.join(
-                    prices.select(["permno", "date", "price"]),
-                    on=["permno", "date"],
-                    how="left",
-                )
-
-            events = events.with_columns(
-                [
-                    pl.when(pl.col("signal") > 0)
-                    .then(pl.lit("BUY"))
-                    .when(pl.col("signal") < 0)
-                    .then(pl.lit("SELL"))
-                    .otherwise(pl.lit("FLAT"))
-                    .alias("side"),
-                    pl.col("return").fill_null(0).alias("forward_return"),
-                    (pl.col("weight").fill_null(0) * pl.col("return").fill_null(0)).alias(
-                        "weighted_pnl"
-                    ),
-                ]
-            ).filter(pl.col("side") != "FLAT")
-
-            if symbol and "symbol" in events.columns:
-                events = events.filter(pl.col("symbol") == symbol)
-
-            events = events.sort("date", descending=True).head(200)
-            rows: list[dict[str, Any]] = events.select(
-                [
-                    pl.col("date").cast(pl.Date),
-                    pl.col("symbol"),
-                    pl.col("side"),
-                    pl.col("signal"),
-                    pl.col("weight"),
-                    pl.col("price"),
-                    pl.col("forward_return"),
-                    pl.col("weighted_pnl"),
-                ]
-            ).to_dicts()
-            return rows
-
-        def _update_symbol(value: str) -> None:
-            state["symbol"] = value
-            _render_price_chart.refresh()
-            _render_trade_pnl.refresh()
-
-        def _download_signal_csv() -> None:
-            # SECURITY: Verify EXPORT_DATA permission before allowing download
-            if not has_permission(user, Permission.EXPORT_DATA):
-                ui.notify("Export requires EXPORT_DATA permission", type="negative")
-                return
-            rows = _build_events(state["symbol"])
-            if not rows:
-                ui.notify("No signal events to export for this symbol.", type="warning")
-                return
-            import csv
-            import io
-
-            buf = io.StringIO()
-            writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(rows)
-            ui.download(
-                buf.getvalue().encode(),
-                filename=f"signals_{result.backtest_id}_{state['symbol']}.csv",
-            )
-
-        with ui.row().classes("items-center gap-3 mb-2"):
-            ui.select(
-                label="Symbol",
-                options=symbols,
-                value=symbols[0],
-                on_change=lambda e: _update_symbol(str(e.value)),
-            ).classes("w-60")
-            # Only show download button if user has EXPORT_DATA permission
-            if has_permission(user, Permission.EXPORT_DATA):
-                ui.button("Download Signals CSV", on_click=_download_signal_csv).props("flat")
-
-        ui.separator().classes("my-4")
-        ui.label("Price + Signal Triggers").classes("text-lg font-bold mb-2")
-
-        @ui.refreshable
-        def _render_price_chart() -> None:
-            symbol = state["symbol"]
-            if prices is None or prices.is_empty() or symbol is None:
-                ui.label("No price data available for chart.").classes("text-gray-500")
-                return
-
-            price_series = prices.filter(pl.col("symbol") == symbol).sort("date")
-            if price_series.is_empty():
-                ui.label("No price data available for chart.").classes("text-gray-500")
-                return
-
-            sigs = signals
-            if sigs is not None and not sigs.is_empty():
-                if "symbol" not in sigs.columns and prices is not None and "symbol" in prices.columns:
-                    mapping = prices.select(["permno", "symbol"]).unique()
-                    sigs = sigs.join(mapping, on="permno", how="left")
-                if "symbol" in sigs.columns:
-                    sigs = sigs.filter(pl.col("symbol") == symbol)
-                else:
-                    sigs = None
-
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(
-                    x=price_series["date"].to_list(),
-                    y=price_series["price"].to_list(),
-                    mode="lines",
-                    name="Price",
-                )
-            )
-
-            if sigs is not None and not sigs.is_empty():
-                sigs = sigs.select(["date", "signal"]).sort("date")
-                sig_prices = price_series.join(sigs, on="date", how="inner")
-                buy = sig_prices.filter(pl.col("signal") > 0)
-                sell = sig_prices.filter(pl.col("signal") < 0)
-                if not buy.is_empty():
-                    fig.add_trace(
-                        go.Scatter(
-                            x=buy["date"].to_list(),
-                            y=buy["price"].to_list(),
-                            mode="markers",
-                            name="BUY",
-                            marker={"color": "green", "size": 7, "symbol": "triangle-up"},
-                        )
-                    )
-                if not sell.is_empty():
-                    fig.add_trace(
-                        go.Scatter(
-                            x=sell["date"].to_list(),
-                            y=sell["price"].to_list(),
-                            mode="markers",
-                            name="SELL",
-                            marker={"color": "red", "size": 7, "symbol": "triangle-down"},
-                        )
-                    )
-
-            fig.update_layout(
-                margin={"l": 20, "r": 20, "t": 20, "b": 20},
-                height=360,
-                legend={"orientation": "h"},
-            )
-            ui.plotly(fig).classes("w-full")
-
-        _render_price_chart()
-
-        ui.separator().classes("my-4")
-        ui.label("Trade P&L (per symbol)").classes("text-lg font-bold mb-2")
-
-        def _compute_trades(symbol: str | None) -> list[dict[str, Any]]:
-            if symbol is None or prices is None or signals is None:
-                return []
-            if prices.is_empty() or signals.is_empty():
-                return []
-
-            # Ensure signals have symbol
-            sigs = signals
-            if "symbol" not in sigs.columns:
-                mapping = prices.select(["permno", "symbol"]).unique()
-                sigs = sigs.join(mapping, on="permno", how="left")
-            if "symbol" not in sigs.columns:
-                return []
-
-            sigs = sigs.filter(pl.col("symbol") == symbol).select(["date", "signal"]).sort("date")
-            if sigs.is_empty():
-                return []
-
-            price_series = prices.filter(pl.col("symbol") == symbol).select(["date", "price"]).sort("date")
-            price_map = {row["date"]: row["price"] for row in price_series.to_dicts()}
-            last_price_row = price_series.tail(1).to_dicts()
-            last_price_date = last_price_row[0]["date"] if last_price_row else None
-            last_price = last_price_row[0]["price"] if last_price_row else None
-
-            trades: list[dict[str, Any]] = []
-            position = 0  # -1, 0, 1
-            entry_date = None
-            entry_price = None
-
-            for row in sigs.to_dicts():
-                date_val = row["date"]
-                sig_val = row["signal"]
-                side = 1 if sig_val > 0 else -1 if sig_val < 0 else 0
-                if side == position:
-                    continue
-                # Close existing position
-                if position != 0 and entry_date is not None and entry_price is not None:
-                    exit_price = price_map.get(date_val)
-                    if exit_price is not None:
-                        pnl = (
-                            (exit_price - entry_price) / entry_price
-                            if position > 0
-                            else (entry_price - exit_price) / entry_price
-                        )
-                        trades.append(
-                            {
-                                "entry_date": entry_date,
-                                "exit_date": date_val,
-                                "side": "BUY" if position > 0 else "SELL",
-                                "entry_price": entry_price,
-                                "exit_price": exit_price,
-                                "pnl_pct": pnl,
-                            }
-                        )
-                # Open new position if non-zero
-                if side != 0:
-                    entry_date = date_val
-                    entry_price = price_map.get(date_val)
-                else:
-                    entry_date = None
-                    entry_price = None
-                position = side
-
-            # Mark-to-market open position at end of series
-            if position != 0 and entry_date is not None and entry_price is not None:
-                if last_price_date is not None and last_price is not None:
-                    pnl = (
-                        (last_price - entry_price) / entry_price
-                        if position > 0
-                        else (entry_price - last_price) / entry_price
-                    )
-                    trades.append(
-                        {
-                            "entry_date": entry_date,
-                            "exit_date": last_price_date,
-                            "side": "BUY" if position > 0 else "SELL",
-                            "entry_price": entry_price,
-                            "exit_price": last_price,
-                            "pnl_pct": pnl,
-                        }
-                    )
-
-            return trades
-
-        @ui.refreshable
-        def _render_trade_pnl() -> None:
-            symbol = state["symbol"]
-            trades = _compute_trades(symbol)
-            if not trades:
-                ui.label("No trade events computed for this symbol.").classes("text-gray-500")
-                return
-            total_pnl = sum(t.get("pnl_pct", 0) for t in trades)
-            wins = sum(1 for t in trades if t.get("pnl_pct", 0) > 0)
-            win_rate = (wins / len(trades)) if trades else 0.0
-
-            with ui.row().classes("gap-4 mb-2"):
-                with ui.card().classes("p-3 text-center").props("flat bordered"):
-                    ui.label("Trades").classes("text-xs text-gray-500")
-                    ui.label(f"{len(trades)}").classes("text-lg font-bold")
-                win_rate_text = _fmt_pct(win_rate, "{:.1f}%")
-                total_pnl_text = _fmt_pct(total_pnl, "{:.2f}%")
-                with ui.card().classes("p-3 text-center").props("flat bordered"):
-                    ui.label("Win Rate").classes("text-xs text-gray-500")
-                    ui.label(win_rate_text).classes("text-lg font-bold")
-                with ui.card().classes("p-3 text-center").props("flat bordered"):
-                    ui.label("Total P&L").classes("text-xs text-gray-500")
-                    ui.label(total_pnl_text).classes("text-lg font-bold")
-
-            # Show last 50 trades
-            rows = trades[-50:]
-            columns = [
-                {"name": "entry_date", "label": "Entry", "field": "entry_date"},
-                {"name": "exit_date", "label": "Exit", "field": "exit_date"},
-                {"name": "side", "label": "Side", "field": "side"},
-                {"name": "entry_price", "label": "Entry Px", "field": "entry_price"},
-                {"name": "exit_price", "label": "Exit Px", "field": "exit_price"},
-                {"name": "pnl_pct", "label": "P&L (%)", "field": "pnl_pct"},
-            ]
-            ui.table(columns=columns, rows=rows, row_key="entry_date").classes("w-full")
-
-        def _download_trades_csv() -> None:
-            # SECURITY: Verify EXPORT_DATA permission before allowing download
-            if not has_permission(user, Permission.EXPORT_DATA):
-                ui.notify("Export requires EXPORT_DATA permission", type="negative")
-                return
-            trades = _compute_trades(state["symbol"])
-            if not trades:
-                ui.notify("No trades to export for this symbol.", type="warning")
-                return
-            import csv
-            import io
-
-            buf = io.StringIO()
-            writer = csv.DictWriter(buf, fieldnames=list(trades[0].keys()))
-            writer.writeheader()
-            writer.writerows(trades)
-            ui.download(
-                buf.getvalue().encode(),
-                filename=f"trades_{result.backtest_id}_{state['symbol']}.csv",
-            )
-
-        # Only show download button if user has EXPORT_DATA permission
-        if has_permission(user, Permission.EXPORT_DATA):
-            ui.button("Download Trades CSV", on_click=_download_trades_csv).props("flat")
-        _render_trade_pnl()
+    # Render Yahoo Finance-specific details (universe, signals, charts, trades)
+    _render_yahoo_backtest_details(result, user)
 
     # Export buttons (if permitted)
     if has_permission(user, Permission.EXPORT_DATA):

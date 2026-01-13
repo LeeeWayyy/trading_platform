@@ -15,18 +15,48 @@ NOTE: This page uses demo mode with placeholder data when services are unavailab
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from nicegui import run, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.core.dependencies import get_sync_redis_client
 from apps.web_console_ng.ui.layout import main_layout
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 
-_SESSION_STORE_BY_USER: dict[str, dict[str, Any]] = {}
+# Redis key prefix for notebook sessions
+_NOTEBOOK_SESSION_PREFIX = "notebook_session:"
+_NOTEBOOK_SESSION_TTL = 86400  # 24 hours
+
+
+def _get_redis_session_store(user_id: str) -> dict[str, Any]:
+    """Get notebook session store from Redis for a user.
+
+    Uses Redis for multi-worker consistency instead of module-level dict.
+    """
+    redis_client = get_sync_redis_client()
+    key = f"{_NOTEBOOK_SESSION_PREFIX}{user_id}"
+    data = redis_client.get(key)
+    if data:
+        try:
+            parsed = json.loads(data)  # type: ignore[arg-type]
+            if isinstance(parsed, dict):
+                return parsed
+            return {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _save_redis_session_store(user_id: str, session_store: dict[str, Any]) -> None:
+    """Save notebook session store to Redis for a user."""
+    redis_client = get_sync_redis_client()
+    key = f"{_NOTEBOOK_SESSION_PREFIX}{user_id}"
+    redis_client.setex(key, _NOTEBOOK_SESSION_TTL, json.dumps(session_store))
 
 
 def _get_service(user: dict[str, Any], session_store: dict[str, Any]) -> Any:
@@ -59,8 +89,8 @@ async def notebook_launcher_page() -> None:
             )
         return
 
-    # Use in-memory store keyed by user to avoid NiceGUI ObservableDict issues.
-    session_store = _SESSION_STORE_BY_USER.setdefault(user_id, {})
+    # Use Redis-backed session store for multi-worker consistency.
+    session_store = _get_redis_session_store(user_id)
 
     # Try to get service
     try:

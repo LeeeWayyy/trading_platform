@@ -138,6 +138,11 @@ class BacktestWorker:
         # Validate kwargs keys against whitelist
         invalid_keys = set(kwargs.keys()) - self._ALLOWED_UPDATE_COLUMNS
         if invalid_keys:
+            self.logger.error(
+                "invalid_db_update_columns_detected",
+                job_id=job_id,
+                invalid_keys=list(invalid_keys),
+            )
             raise ValueError(f"Invalid column names: {invalid_keys}")
 
         with self.db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
