@@ -143,13 +143,12 @@ class GridPerformanceMonitor:
                 extra={"grid_id": self.grid_id},
             )
             return
-        _monitor_registry[(self.grid_id, session_id)] = self
         _monitor_by_grid_and_session[(self.grid_id, session_id)] = self
         _schedule_monitor_cleanup(self.grid_id, session_id, self)
 
 
-# Module-level registry for periodic metrics logging
-_monitor_registry: dict[tuple[str, str], GridPerformanceMonitor] = {}
+# Module-level registry for monitors, keyed by (grid_id, session_id)
+# Used for both periodic metrics logging and grid_id-based lookups
 _monitor_by_grid_and_session: dict[tuple[str, str], GridPerformanceMonitor] = {}
 
 # WeakKeyDictionary to map grid instances to monitors without monkey-patching
@@ -164,7 +163,7 @@ def get_monitor(grid: ui.aggrid) -> GridPerformanceMonitor | None:
 
 def get_all_monitors() -> dict[tuple[str, str], GridPerformanceMonitor]:
     """Get all registered monitors for periodic metrics logging."""
-    return _monitor_registry.copy()
+    return _monitor_by_grid_and_session.copy()
 
 
 def get_monitor_by_grid_id(grid_id: str, session_id: str) -> GridPerformanceMonitor | None:
@@ -203,12 +202,11 @@ def _schedule_monitor_cleanup(
 
 
 def _remove_monitor(grid_id: str, session_id: str, monitor: GridPerformanceMonitor) -> None:
-    """Remove registry entries for a monitor, guarding against newer replacements."""
+    """Remove registry entry for a monitor, guarding against newer replacements."""
     key = (grid_id, session_id)
-    current = _monitor_registry.get(key)
+    current = _monitor_by_grid_and_session.get(key)
     if current is not monitor:
         return
-    _monitor_registry.pop(key, None)
     _monitor_by_grid_and_session.pop(key, None)
 
 
