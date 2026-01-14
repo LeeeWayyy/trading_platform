@@ -58,9 +58,7 @@ def validate_grid_id(grid_id: str) -> None:
 async def enforce_max_state_size(request: Request) -> None:
     """Reject requests with body size above MAX_STATE_SIZE (streaming-safe)."""
     content_length = request.headers.get("content-length")
-    if not content_length:
-        content_length = None
-    if content_length is not None:
+    if content_length:
         try:
             length = int(content_length)
         except ValueError as exc:

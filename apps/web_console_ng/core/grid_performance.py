@@ -2,6 +2,11 @@
 
 Note: This module MONITORS update rates and triggers degradation mode.
 Actual batching is handled by AG Grid's asyncTransactionWaitMillis config.
+
+Architecture Note: The module-level registries (_monitor_registry, _monitor_by_grid_and_session,
+_grid_to_monitor) store state in-memory. This implementation assumes a single-process deployment.
+If the application is run with multiple workers, state will be inconsistent across workers.
+For multi-worker deployments, consider using Redis or another shared state store.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from weakref import WeakKeyDictionary
 from nicegui import ui
 
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.utils.session import get_or_create_client_id
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +136,7 @@ class GridPerformanceMonitor:
         Uses WeakKeyDictionary to avoid monkey-patching the grid instance directly.
         """
         _grid_to_monitor[grid] = self
-        session_id = _get_session_id()
+        session_id = get_or_create_client_id()
         if not session_id:
             logger.debug(
                 "grid_performance_missing_session_id",
@@ -169,40 +175,6 @@ def get_monitor_by_grid_id(grid_id: str, session_id: str) -> GridPerformanceMoni
     Passing session_id avoids misattribution across multiple clients.
     """
     return _monitor_by_grid_and_session.get((grid_id, session_id))
-
-
-def _get_session_id() -> str:
-    """Return a stable session ID for registry keys (best-effort)."""
-    try:
-        client = ui.context.client
-    except Exception:
-        return ""
-    if client is None:
-        return ""
-    storage = getattr(client, "storage", None)
-    session_id: str | None = None
-    if storage is not None:
-        storage_get = getattr(storage, "get", None)
-        if callable(storage_get):
-            raw_id = storage_get("client_id")
-            if isinstance(raw_id, str) and raw_id:
-                session_id = raw_id
-            else:
-                lifecycle = ClientLifecycleManager.get()
-                session_id = lifecycle.generate_client_id()
-                try:
-                    storage["client_id"] = session_id
-                except (TypeError, AttributeError):
-                    session_id = None
-                else:
-                    logger.debug(
-                        "grid_performance_generated_client_id",
-                        extra={"client_id": session_id},
-                    )
-    if not session_id:
-        fallback_id = getattr(client, "id", None)
-        session_id = str(fallback_id) if fallback_id else None
-    return session_id or ""
 
 
 def _schedule_monitor_cleanup(

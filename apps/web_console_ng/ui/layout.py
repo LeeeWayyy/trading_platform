@@ -17,32 +17,12 @@ from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.grid_performance import get_all_monitors
 from apps.web_console_ng.ui.dark_theme import enable_dark_mode
+from apps.web_console_ng.utils.session import get_or_create_client_id
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 
 AsyncPage = Callable[..., Awaitable[Any]]
-
-def _ensure_client_id() -> str:
-    """Return a stable client ID, generating and storing if missing."""
-    client = getattr(ui.context, "client", None)
-    if client is None:
-        return ""
-    storage = getattr(client, "storage", None)
-    if storage is None:
-        return ""
-    storage_get = getattr(storage, "get", None)
-    if callable(storage_get):
-        existing = storage_get("client_id")
-        if isinstance(existing, str) and existing:
-            return existing
-    lifecycle = ClientLifecycleManager.get()
-    client_id = lifecycle.generate_client_id()
-    try:
-        storage["client_id"] = client_id
-    except (TypeError, AttributeError):
-        return ""
-    return client_id
 
 
 def main_layout(page_func: AsyncPage) -> AsyncPage:
@@ -419,12 +399,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         await update_global_status()
 
         # Register cleanup on client disconnect to prevent timer leaks
-        client_id = _ensure_client_id()
-        cleanup_id = client_id
-        if not cleanup_id:
-            ui_client = getattr(ui.context, "client", None)
-            fallback_id = getattr(ui_client, "id", None) if ui_client is not None else None
-            cleanup_id = str(fallback_id) if fallback_id else ""
+        cleanup_id = get_or_create_client_id()
         if cleanup_id:
             lifecycle_mgr = ClientLifecycleManager.get()
             await lifecycle_mgr.register_cleanup_callback(cleanup_id, lambda: status_timer.cancel())

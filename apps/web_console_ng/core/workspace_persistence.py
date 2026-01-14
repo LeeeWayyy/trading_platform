@@ -165,15 +165,30 @@ class WorkspacePersistenceService:
             # Return None to use defaults (don't apply stale state)
             return None
 
-        try:
-            result: dict[str, Any] = json.loads(state_json)
-        except (json.JSONDecodeError, TypeError) as exc:
+        # Handle both string JSON (TEXT column) and pre-decoded dict (JSONB column)
+        # psycopg3 returns JSONB as Python objects by default
+        if isinstance(state_json, dict):
+            result = state_json
+        elif isinstance(state_json, str):
+            try:
+                result = json.loads(state_json)
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "workspace_state_corrupt_json",
+                    extra={
+                        "user_id": user_id,
+                        "workspace_key": workspace_key,
+                        "error": type(exc).__name__,
+                    },
+                )
+                return None
+        else:
             logger.warning(
-                "workspace_state_corrupt_json",
+                "workspace_state_unexpected_type",
                 extra={
                     "user_id": user_id,
                     "workspace_key": workspace_key,
-                    "error": type(exc).__name__,
+                    "type": type(state_json).__name__,
                 },
             )
             return None
