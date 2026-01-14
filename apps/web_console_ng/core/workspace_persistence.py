@@ -165,7 +165,28 @@ class WorkspacePersistenceService:
             # Return None to use defaults (don't apply stale state)
             return None
 
-        result: dict[str, Any] = json.loads(state_json)
+        try:
+            result: dict[str, Any] = json.loads(state_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "workspace_state_corrupt_json",
+                extra={
+                    "user_id": user_id,
+                    "workspace_key": workspace_key,
+                    "error": type(exc).__name__,
+                },
+            )
+            return None
+        if not isinstance(result, dict):
+            logger.warning(
+                "workspace_state_invalid_type",
+                extra={
+                    "user_id": user_id,
+                    "workspace_key": workspace_key,
+                    "type": type(result).__name__,
+                },
+            )
+            return None
         return result
 
     async def reset_workspace(self, user_id: str, workspace_key: str | None = None) -> None:

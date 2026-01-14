@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from apps.web_console_ng.auth.csrf import verify_csrf_token
 from apps.web_console_ng.core.workspace_persistence import (
+    MAX_STATE_SIZE,
     DatabaseUnavailableError,
     get_workspace_service,
 )
@@ -54,6 +55,50 @@ def validate_grid_id(grid_id: str) -> None:
         )
 
 
+async def enforce_max_state_size(request: Request) -> None:
+    """Reject requests with body size above MAX_STATE_SIZE (streaming-safe)."""
+    content_length = request.headers.get("content-length")
+    if not content_length:
+        content_length = None
+    if content_length is not None:
+        try:
+            length = int(content_length)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Content-Length header",
+            ) from exc
+        if length > MAX_STATE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="State too large",
+            )
+
+    # If body already cached, validate size and return.
+    cached_body = getattr(request, "_body", None)
+    if cached_body is not None:
+        if len(cached_body) > MAX_STATE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="State too large",
+            )
+        return
+
+    # Stream the body with a hard cap to prevent chunked/misreported sizes.
+    received = bytearray()
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        received.extend(chunk)
+        if len(received) > MAX_STATE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="State too large",
+            )
+    request._body = bytes(received)
+    request._stream_consumed = True
+
+
 class GridState(BaseModel):
     """Grid state model."""
 
@@ -91,6 +136,7 @@ async def save_grid_state(
     grid_id: str,
     request: Request,
     state: GridState = Body(...),
+    _size_guard: None = Depends(enforce_max_state_size),
     user: dict[str, Any] = Depends(require_authenticated_user),
 ) -> dict[str, bool]:
     """Save grid state.

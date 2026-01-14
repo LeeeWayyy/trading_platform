@@ -6,6 +6,7 @@ Actual batching is handled by AG Grid's asyncTransactionWaitMillis config.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -14,6 +15,8 @@ from typing import Any
 from weakref import WeakKeyDictionary
 
 from nicegui import ui
+
+from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +130,21 @@ class GridPerformanceMonitor:
         Uses WeakKeyDictionary to avoid monkey-patching the grid instance directly.
         """
         _grid_to_monitor[grid] = self
-        _monitor_registry[self.grid_id] = self
+        session_id = _get_session_id()
+        if not session_id:
+            logger.debug(
+                "grid_performance_missing_session_id",
+                extra={"grid_id": self.grid_id},
+            )
+            return
+        _monitor_registry[(self.grid_id, session_id)] = self
+        _monitor_by_grid_and_session[(self.grid_id, session_id)] = self
+        _schedule_monitor_cleanup(self.grid_id, session_id, self)
 
 
 # Module-level registry for periodic metrics logging
-_monitor_registry: dict[str, GridPerformanceMonitor] = {}
+_monitor_registry: dict[tuple[str, str], GridPerformanceMonitor] = {}
+_monitor_by_grid_and_session: dict[tuple[str, str], GridPerformanceMonitor] = {}
 
 # WeakKeyDictionary to map grid instances to monitors without monkey-patching
 # When grid is garbage collected, the entry is automatically removed
@@ -143,18 +156,88 @@ def get_monitor(grid: ui.aggrid) -> GridPerformanceMonitor | None:
     return _grid_to_monitor.get(grid)
 
 
-def get_all_monitors() -> dict[str, GridPerformanceMonitor]:
+def get_all_monitors() -> dict[tuple[str, str], GridPerformanceMonitor]:
     """Get all registered monitors for periodic metrics logging."""
     return _monitor_registry.copy()
 
 
-def get_monitor_by_grid_id(grid_id: str) -> GridPerformanceMonitor | None:
-    """Retrieve monitor by grid_id string (for use in realtime.py backpressure logging).
+def get_monitor_by_grid_id(grid_id: str, session_id: str) -> GridPerformanceMonitor | None:
+    """Retrieve monitor by grid_id + session_id (for use in realtime.py backpressure logging).
 
-    This is useful when you have the grid_id but not the grid instance,
+    This is useful when you have identifiers but not the grid instance,
     such as in the realtime update path where backpressure drops occur.
+    Passing session_id avoids misattribution across multiple clients.
     """
-    return _monitor_registry.get(grid_id)
+    return _monitor_by_grid_and_session.get((grid_id, session_id))
+
+
+def _get_session_id() -> str:
+    """Return a stable session ID for registry keys (best-effort)."""
+    try:
+        client = ui.context.client
+    except Exception:
+        return ""
+    if client is None:
+        return ""
+    storage = getattr(client, "storage", None)
+    session_id: str | None = None
+    if storage is not None:
+        storage_get = getattr(storage, "get", None)
+        if callable(storage_get):
+            raw_id = storage_get("client_id")
+            if isinstance(raw_id, str) and raw_id:
+                session_id = raw_id
+            else:
+                lifecycle = ClientLifecycleManager.get()
+                session_id = lifecycle.generate_client_id()
+                try:
+                    storage["client_id"] = session_id
+                except (TypeError, AttributeError):
+                    session_id = None
+                else:
+                    logger.debug(
+                        "grid_performance_generated_client_id",
+                        extra={"client_id": session_id},
+                    )
+    if not session_id:
+        fallback_id = getattr(client, "id", None)
+        session_id = str(fallback_id) if fallback_id else None
+    return session_id or ""
+
+
+def _schedule_monitor_cleanup(
+    grid_id: str,
+    session_id: str,
+    monitor: GridPerformanceMonitor,
+) -> None:
+    """Register cleanup callback to remove monitor entries on disconnect."""
+
+    async def _register_cleanup() -> None:
+        lifecycle = ClientLifecycleManager.get()
+        await lifecycle.register_cleanup_callback(
+            session_id,
+            lambda: _remove_monitor(grid_id, session_id, monitor),
+        )
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug(
+            "grid_performance_cleanup_no_event_loop",
+            extra={"grid_id": grid_id, "session_id": session_id},
+        )
+        return
+    loop.create_task(_register_cleanup())
+
+
+def _remove_monitor(grid_id: str, session_id: str, monitor: GridPerformanceMonitor) -> None:
+    """Remove registry entries for a monitor, guarding against newer replacements."""
+    key = (grid_id, session_id)
+    current = _monitor_registry.get(key)
+    if current is not monitor:
+        return
+    _monitor_registry.pop(key, None)
+    _monitor_by_grid_and_session.pop(key, None)
 
 
 __all__ = [

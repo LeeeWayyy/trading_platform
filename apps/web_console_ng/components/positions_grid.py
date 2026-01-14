@@ -416,7 +416,7 @@ async def on_close_position(
             strategies=strategies,
         )
         cb_state = str(cb_status.get("state", "")).upper()
-        if cb_state in {"TRIPPED", "OPEN", "ENGAGED", "ON"}:
+        if cb_state in {"TRIPPED", "ENGAGED", "ON", "QUIET_PERIOD"}:
             logger.info(
                 "close_position_circuit_breaker_tripped",
                 extra={
@@ -429,7 +429,7 @@ async def on_close_position(
                 },
             )
             ui.notify(
-                "Circuit breaker is TRIPPED (close allowed for risk reduction)",
+                f"Circuit breaker is {cb_state} (close allowed for risk reduction)",
                 type="warning",
             )
     except httpx.HTTPStatusError as exc:
