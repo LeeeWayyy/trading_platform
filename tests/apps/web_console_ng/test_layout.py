@@ -125,6 +125,15 @@ class _FakeUI:
     def add_head_html(self, *_args: Any, **_kwargs: Any) -> None:
         return None
 
+    def add_body_html(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def dark_mode(self) -> Any:
+        class _DarkMode:
+            def enable(self) -> None:
+                return None
+        return _DarkMode()
+
     class navigate:
         to = staticmethod(lambda *_args, **_kwargs: None)
 
@@ -163,6 +172,12 @@ async def _run_layout(
         return True
 
     monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    # Mock enable_dark_mode (it calls real NiceGUI ui.dark_mode() outside of page context)
+    monkeypatch.setattr(layout_module, "enable_dark_mode", lambda: None)
+
+    # Mock get_all_monitors (imported from grid_performance)
+    monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
 
     class _DummyClient:
         async def fetch_kill_switch_status(self, _user_id: str) -> dict[str, str]:

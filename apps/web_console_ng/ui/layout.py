@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
@@ -13,6 +15,9 @@ from nicegui import app, ui
 from apps.web_console_ng.auth.middleware import get_current_user
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.grid_performance import get_all_monitors
+from apps.web_console_ng.ui.dark_theme import enable_dark_mode
+from apps.web_console_ng.utils.session import get_or_create_client_id
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -25,8 +30,22 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
     @wraps(page_func)
     async def wrapper(*args: Any, **kwargs: Any) -> None:
+        enable_dark_mode()
         # Trading state listener JS extracted to separate file for maintainability
         ui.add_head_html('<script src="/static/js/trading_state_listener.js"></script>')
+        ui.add_head_html('<script src="/static/js/grid_throttle.js"></script>')
+        ui.add_head_html('<script src="/static/js/grid_state_manager.js"></script>')
+        ui.add_head_html('<link rel="stylesheet" href="/static/css/density.css">')
+        ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
+
+        degrade_threshold = os.environ.get("GRID_DEGRADE_THRESHOLD", "120")
+        debug_mode = os.environ.get("GRID_DEBUG", "false").lower() == "true"
+        ui.add_body_html(
+            "<script>"
+            f'document.body.dataset.gridDegradeThreshold = "{degrade_threshold}";'
+            f'document.body.dataset.gridDebug = "{str(debug_mode).lower()}";'
+            "</script>"
+        )
 
         user = get_current_user()
         user_role = str(user.get("role", "viewer"))
@@ -47,7 +66,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         client = AsyncTradingClient.get()
 
         # Left drawer (sidebar)
-        drawer = ui.left_drawer(value=True).classes("bg-slate-100 w-64")
+        drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64")
         with drawer:
             with ui.column().classes("w-full gap-1 p-3"):
                 ui.label("Navigation").classes("text-gray-500 text-xs uppercase tracking-wide mb-2")
@@ -172,7 +191,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
 
         # Main content area
-        with ui.column().classes("w-full p-6 bg-gray-50 min-h-screen"):
+        with ui.column().classes("w-full p-2 bg-surface-0 min-h-screen text-text-primary"):
             await page_func(*args, **kwargs)
 
         last_kill_switch_state: str | None = None
@@ -261,123 +280,139 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ).props("color=negative" if action == "ENGAGE" else "color=positive")
             dialog.open()
 
+        status_poll_lock = asyncio.Lock()
+
         async def update_global_status() -> None:
             nonlocal last_kill_switch_state, kill_switch_state
-            try:
-                # Pass full auth context for production with INTERNAL_TOKEN_SECRET
-                status = await client.fetch_kill_switch_status(
-                    user_id, role=user_role, strategies=user_strategies
-                )
-                state = str(status.get("state", "UNKNOWN")).upper()
-                kill_switch_state = state if state else "UNKNOWN"
+            if status_poll_lock.locked():
+                return
+            async with status_poll_lock:
                 try:
-                    cb_status = await client.fetch_circuit_breaker_status(
+                    # Pass full auth context for production with INTERNAL_TOKEN_SECRET
+                    status = await client.fetch_kill_switch_status(
                         user_id, role=user_role, strategies=user_strategies
                     )
-                    cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
-                except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError, TypeError) as e:
-                    # Circuit breaker status fetch failed - fallback to UNKNOWN and continue
+                    state = str(status.get("state", "UNKNOWN")).upper()
+                    kill_switch_state = state if state else "UNKNOWN"
+                    try:
+                        cb_status = await client.fetch_circuit_breaker_status(
+                            user_id, role=user_role, strategies=user_strategies
+                        )
+                        cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
+                    except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError, TypeError) as e:
+                        # Circuit breaker status fetch failed - fallback to UNKNOWN and continue
+                        logger.warning(
+                            "Circuit breaker status fetch failed",
+                            extra={
+                                "user_id": user_id,
+                                "error": str(e),
+                                "error_type": type(e).__name__,
+                            },
+                        )
+                        cb_state = "UNKNOWN"
+
+                    if state == "ENGAGED":
+                        kill_switch_button.set_text("KILL SWITCH: ENGAGED")
+                        kill_switch_button.classes(
+                            "bg-red-500 text-white",
+                            remove="bg-green-500 bg-yellow-500 text-black",
+                        )
+                        if last_kill_switch_state != "ENGAGED":
+                            ui.notify("Kill switch engaged", type="negative")
+                    elif state == "DISENGAGED":
+                        # Only show "TRADING ACTIVE" for explicit DISENGAGED state
+                        kill_switch_button.set_text("KILL SWITCH: DISENGAGED")
+                        kill_switch_button.classes(
+                            "bg-green-500 text-white",
+                            remove="bg-red-500 bg-yellow-500 text-black",
+                        )
+                    else:
+                        # Unknown/invalid state - show warning
+                        kill_switch_button.set_text(f"KILL SWITCH: {state}")
+                        kill_switch_button.classes(
+                            "bg-yellow-500 text-black",
+                            remove="bg-red-500 bg-green-500 text-white",
+                        )
+
+                    if cb_state == "TRIPPED":
+                        circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
+                        circuit_breaker_badge.classes(
+                            "bg-red-500 text-white",
+                            remove="bg-green-500 bg-yellow-500 text-black",
+                        )
+                    elif cb_state == "OPEN":
+                        circuit_breaker_badge.set_text("CIRCUIT OK")
+                        circuit_breaker_badge.classes(
+                            "bg-green-500 text-white",
+                            remove="bg-red-500 bg-yellow-500 text-black",
+                        )
+                    elif cb_state == "QUIET_PERIOD":
+                        circuit_breaker_badge.set_text("CIRCUIT QUIET PERIOD")
+                        circuit_breaker_badge.classes(
+                            "bg-yellow-500 text-black",
+                            remove="bg-red-500 bg-green-500 text-white",
+                        )
+                    else:
+                        circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
+                        circuit_breaker_badge.classes(
+                            "bg-yellow-500 text-black",
+                            remove="bg-red-500 bg-green-500 text-white",
+                        )
+
+                    connection_badge.set_text("Connected")
+                    connection_badge.classes(
+                        "bg-green-500 text-white",
+                        remove="bg-red-500",
+                    )
+                    last_kill_switch_state = state
+                    set_kill_switch_controls(state)
+                except (ValueError, KeyError, TypeError, ConnectionError, httpx.HTTPError) as e:
                     logger.warning(
-                        "Circuit breaker status fetch failed",
+                        "Kill switch status update failed",
                         extra={
                             "user_id": user_id,
                             "error": str(e),
                             "error_type": type(e).__name__,
                         },
+                        exc_info=True,
                     )
-                    cb_state = "UNKNOWN"
-
-                if state == "ENGAGED":
-                    kill_switch_button.set_text("KILL SWITCH: ENGAGED")
+                    kill_switch_state = "UNKNOWN"
+                    kill_switch_button.set_text("STATUS UNKNOWN")
                     kill_switch_button.classes(
+                        "bg-yellow-500 text-black",
+                        remove="bg-red-500 bg-green-500",
+                    )
+                    set_kill_switch_controls("UNKNOWN")
+                    circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
+                    circuit_breaker_badge.classes(
+                        "bg-yellow-500 text-black",
+                        remove="bg-red-500 bg-green-500 text-white",
+                    )
+                    connection_badge.set_text("Disconnected")
+                    connection_badge.classes(
                         "bg-red-500 text-white",
-                        remove="bg-green-500 bg-yellow-500 text-black",
+                        remove="bg-green-500",
                     )
-                    if last_kill_switch_state != "ENGAGED":
-                        ui.notify("Kill switch engaged", type="negative")
-                elif state == "DISENGAGED":
-                    # Only show "TRADING ACTIVE" for explicit DISENGAGED state
-                    kill_switch_button.set_text("KILL SWITCH: DISENGAGED")
-                    kill_switch_button.classes(
-                        "bg-green-500 text-white",
-                        remove="bg-red-500 bg-yellow-500 text-black",
-                    )
-                else:
-                    # Unknown/invalid state - show warning
-                    kill_switch_button.set_text(f"KILL SWITCH: {state}")
-                    kill_switch_button.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500 text-white",
-                    )
-
-                if cb_state == "TRIPPED":
-                    circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
-                    circuit_breaker_badge.classes(
-                        "bg-red-500 text-white",
-                        remove="bg-green-500 bg-yellow-500 text-black",
-                    )
-                elif cb_state == "OPEN":
-                    circuit_breaker_badge.set_text("CIRCUIT OK")
-                    circuit_breaker_badge.classes(
-                        "bg-green-500 text-white",
-                        remove="bg-red-500 bg-yellow-500 text-black",
-                    )
-                elif cb_state == "QUIET_PERIOD":
-                    circuit_breaker_badge.set_text("CIRCUIT QUIET PERIOD")
-                    circuit_breaker_badge.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500 text-white",
-                    )
-                else:
-                    circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
-                    circuit_breaker_badge.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500 text-white",
-                    )
-
-                connection_badge.set_text("Connected")
-                connection_badge.classes(
-                    "bg-green-500 text-white",
-                    remove="bg-red-500",
-                )
-                last_kill_switch_state = state
-                set_kill_switch_controls(state)
-            except (ValueError, KeyError, TypeError, ConnectionError, httpx.HTTPError) as e:
-                logger.warning(
-                    "Kill switch status update failed",
-                    extra={
-                        "user_id": user_id,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
-                    exc_info=True,
-                )
-                kill_switch_button.set_text("STATUS UNKNOWN")
-                kill_switch_button.classes(
-                    "bg-yellow-500 text-black",
-                    remove="bg-red-500 bg-green-500",
-                )
-                set_kill_switch_controls("UNKNOWN")
-                circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
-                circuit_breaker_badge.classes(
-                    "bg-yellow-500 text-black",
-                    remove="bg-red-500 bg-green-500 text-white",
-                )
-                connection_badge.set_text("Disconnected")
-                connection_badge.classes(
-                    "bg-red-500 text-white",
-                    remove="bg-green-500",
-                )
 
         # Create timer for global status polling
         status_timer = ui.timer(5.0, update_global_status)
         await update_global_status()
 
         # Register cleanup on client disconnect to prevent timer leaks
-        client_id = ui.context.client.storage.get("client_id")
-        if client_id:
+        cleanup_id = get_or_create_client_id()
+        if cleanup_id:
             lifecycle_mgr = ClientLifecycleManager.get()
-            await lifecycle_mgr.register_cleanup_callback(client_id, lambda: status_timer.cancel())
+            await lifecycle_mgr.register_cleanup_callback(cleanup_id, lambda: status_timer.cancel())
+
+        async def log_grid_metrics() -> None:
+            """Periodic metrics logging for all grids."""
+            for (_grid_id, _session_id), monitor in get_all_monitors().items():
+                monitor.log_metrics()
+
+        metrics_timer = ui.timer(60.0, log_grid_metrics)
+        if cleanup_id:
+            lifecycle_mgr = ClientLifecycleManager.get()
+            await lifecycle_mgr.register_cleanup_callback(cleanup_id, lambda: metrics_timer.cancel())
 
     return wrapper
 

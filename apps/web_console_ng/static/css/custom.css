@@ -7,3 +7,47 @@
         background-color: transparent;
     }
 }
+
+/* Dark theme custom properties */
+:root {
+    --surface-0: #121212;
+    --surface-1: #1E1E1E;
+    --surface-2: #2D2D2D;
+    --surface-3: #383838;
+    --surface-4: #454545;
+
+    --profit: #00E676;
+    --loss: #FF5252;
+    --warning: #FFB300;
+    --info: #2196F3;
+    --neutral: #90A4AE;
+
+    --text-primary: #FFFFFF;
+    --text-secondary: #B0B0B0;
+    --text-disabled: #757575;
+}
+
+/* Surface level utilities */
+.bg-surface-0 { background-color: var(--surface-0); }
+.bg-surface-1 { background-color: var(--surface-1); }
+.bg-surface-2 { background-color: var(--surface-2); }
+.bg-surface-3 { background-color: var(--surface-3); }
+
+/* Semantic color utilities */
+.text-profit { color: var(--profit); }
+.text-loss { color: var(--loss); }
+.text-warning { color: var(--warning); }
+.text-info { color: var(--info); }
+
+/* Text color utilities */
+.text-text-primary { color: var(--text-primary); }
+.text-text-secondary { color: var(--text-secondary); }
+.text-text-disabled { color: var(--text-disabled); }
+
+/* AG Grid dark theme overrides */
+.ag-theme-alpine-dark {
+    --ag-background-color: var(--surface-1);
+    --ag-header-background-color: var(--surface-2);
+    --ag-odd-row-background-color: var(--surface-0);
+    --ag-row-hover-color: var(--surface-3);
+}

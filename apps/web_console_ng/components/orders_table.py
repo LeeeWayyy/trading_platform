@@ -10,12 +10,17 @@ import httpx
 from nicegui import ui
 
 from apps.web_console_ng.core.client import AsyncTradingClient
+from apps.web_console_ng.core.grid_performance import GridPerformanceMonitor, get_monitor
 from apps.web_console_ng.core.synthetic_id import (
     FALLBACK_ID_PREFIX,
     SYNTHETIC_ID_PREFIX,
     SyntheticIdContext,
     compute_order_fingerprint,
     resolve_synthetic_id,
+)
+from apps.web_console_ng.ui.trading_layout import (
+    apply_compact_grid_classes,
+    apply_compact_grid_options,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,7 +114,7 @@ def create_orders_table() -> ui.aggrid:
             "headerName": "Side",
             "width": 80,
             "cellStyle": {
-                "function": "params.value === 'buy' ? {color: '#16a34a'} : {color: '#dc2626'}"
+                "function": "params.value === 'buy' ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
             },
         },
         {"field": "qty", "headerName": "Qty", "width": 80},
@@ -139,18 +144,40 @@ def create_orders_table() -> ui.aggrid:
         },
     ]
 
-    grid = ui.aggrid(
+    options = apply_compact_grid_options(
         {
             "columnDefs": column_defs,
             "rowData": [],
             "domLayout": "autoHeight",
             ":getRowId": "params => params.data.client_order_id",
-            ":onGridReady": "params => { window._ordersGridApi = params.api; }",
+            "asyncTransactionWaitMillis": 50,
+            "suppressAnimationFrame": False,
+            "animateRows": True,
+            ":onGridReady": "params => { window._ordersGridApi = params.api; if (window.GridThrottle) window.GridThrottle.registerAsyncGrid('orders_grid'); }",
+            ":onAsyncTransactionsFlushed": "params => { if (window.GridThrottle) window.GridThrottle.recordTransactionResult(params.api, 'orders_grid', params.results); }",
+            ":onRowDataUpdated": "params => { if (window.GridThrottle) window.GridThrottle.recordUpdate(params.api, 'orders_grid'); }",
         }
-    ).classes("w-full")
+    )
+    grid = ui.aggrid(options).classes("w-full ag-theme-alpine-dark")
+    apply_compact_grid_classes(grid)
+
+    monitor = GridPerformanceMonitor("orders_grid")
+    monitor.attach_to_grid(grid)
 
     grid._ready_event = asyncio.Event()  # type: ignore[attr-defined]
     grid.on("gridReady", lambda _: grid._ready_event.set())  # type: ignore[attr-defined]
+    grid.on(
+        "gridReady",
+        lambda _: ui.run_javascript(
+            "window.GridStateManager.restoreState(window._ordersGridApi, 'orders_grid')"
+        ),
+    )
+    grid.on(
+        "gridReady",
+        lambda _: ui.run_javascript(
+            "window.GridStateManager.registerAutoSave(window._ordersGridApi, 'orders_grid')"
+        ),
+    )
 
     return grid
 
@@ -230,9 +257,14 @@ async def update_orders_table(
         {"client_order_id": oid} for oid in (previous_order_ids - current_ids)
     ]
 
+    monitor = get_monitor(grid)
+    if monitor:
+        delta_size = len(added_orders) + len(updated_orders) + len(removed_orders)
+        monitor.metrics.record_update(delta_size)
+
     # Fire-and-forget to avoid UI timeouts when the browser is busy.
     grid.run_grid_method(
-        "applyTransaction",
+        "applyTransactionAsync",
         {"add": added_orders, "update": updated_orders, "remove": removed_orders},
         timeout=5,
     )

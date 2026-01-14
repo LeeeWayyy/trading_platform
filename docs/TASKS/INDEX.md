@@ -92,6 +92,8 @@ These documents provide comprehensive phase-level planning, progress tracking, a
 | **P0** | _Not yet created_ | MVP Core planning | 0 tasks |
 | **P1** | [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) | Hardening & Automation | 11 tasks (T0-T10) |
 | **P2** | _Not yet created_ | Advanced Features | 0 tasks |
+| **P5** | [P5_PLANNING.md](./P5_PLANNING.md) | Web Console NiceGUI Migration | 52 tasks (8 phases) |
+| **P6** | [P6_PLANNING.md](./P6_PLANNING.md) | Professional Trading Terminal & Research Platform | 70 tasks (18 tracks) |
 
 ### Existing Task Files by Phase
 

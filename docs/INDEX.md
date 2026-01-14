@@ -501,6 +501,27 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2025-12-31, Task] [P5T8_TASK.md](./TASKS/P5T8_TASK.md) - P5T8: Remaining Pages Migration (alpha explorer, compare, journal, notebooks, performance, reports)
 - [CURRENT, 2025-12-31, Task] [P5T9_TASK.md](./TASKS/P5T9_TASK.md) - P5T9: Streamlit Deprecation & Documentation (archive, documentation, testing)
 
+**Phase 6 Tasks (Professional Trading Terminal):**
+- [CURRENT, 2026-01-13, Planning] [P6_PLANNING.md](./TASKS/P6_PLANNING.md) - P6: Professional Trading Terminal & Research Platform planning
+- [CURRENT, 2026-01-13, Task] [P6T1_TASK.md](./TASKS/P6T1_TASK.md) - P6T1: Core Infrastructure (throttling, dark mode, density, persistence)
+- [CURRENT, 2026-01-13, Task] [P6T2_TASK.md](./TASKS/P6T2_TASK.md) - P6T2: Positions Grid Enhancement
+- [CURRENT, 2026-01-13, Task] [P6T3_TASK.md](./TASKS/P6T3_TASK.md) - P6T3: Orders Blotter Implementation
+- [CURRENT, 2026-01-13, Task] [P6T4_TASK.md](./TASKS/P6T4_TASK.md) - P6T4: Market Watch Widget
+- [CURRENT, 2026-01-13, Task] [P6T5_TASK.md](./TASKS/P6T5_TASK.md) - P6T5: Order Entry Form
+- [CURRENT, 2026-01-13, Task] [P6T6_TASK.md](./TASKS/P6T6_TASK.md) - P6T6: Chart Integration
+- [CURRENT, 2026-01-13, Task] [P6T7_TASK.md](./TASKS/P6T7_TASK.md) - P6T7: Risk Metrics Panel
+- [CURRENT, 2026-01-13, Task] [P6T8_TASK.md](./TASKS/P6T8_TASK.md) - P6T8: Trade Journal Enhancement
+- [CURRENT, 2026-01-13, Task] [P6T9_TASK.md](./TASKS/P6T9_TASK.md) - P6T9: Real-time Alerts
+- [CURRENT, 2026-01-13, Task] [P6T10_TASK.md](./TASKS/P6T10_TASK.md) - P6T10: Performance Dashboard
+- [CURRENT, 2026-01-13, Task] [P6T11_TASK.md](./TASKS/P6T11_TASK.md) - P6T11: Strategy Monitor
+- [CURRENT, 2026-01-13, Task] [P6T12_TASK.md](./TASKS/P6T12_TASK.md) - P6T12: Hotkey System
+- [CURRENT, 2026-01-13, Task] [P6T13_TASK.md](./TASKS/P6T13_TASK.md) - P6T13: Layout Manager
+- [CURRENT, 2026-01-13, Task] [P6T14_TASK.md](./TASKS/P6T14_TASK.md) - P6T14: Reporting Suite
+- [CURRENT, 2026-01-13, Task] [P6T15_TASK.md](./TASKS/P6T15_TASK.md) - P6T15: Audit Trail
+- [CURRENT, 2026-01-13, Task] [P6T16_TASK.md](./TASKS/P6T16_TASK.md) - P6T16: Integration Testing
+- [CURRENT, 2026-01-13, Task] [P6T17_TASK.md](./TASKS/P6T17_TASK.md) - P6T17: Documentation
+- [CURRENT, 2026-01-13, Task] [P6T18_TASK.md](./TASKS/P6T18_TASK.md) - P6T18: Performance Optimization
+
 **Backlog Tasks (B0):**
 - [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./ARCHIVE/TASKS_HISTORY/B0T1_DONE.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
 - [CURRENT, 2025-12-28, Task] [P4T6_DONE.md](ARCHIVE/TASKS_HISTORY/P4T6_DONE.md) - P4T6: Data Management module for web console

@@ -92,7 +92,9 @@ def test_create_positions_grid_columns(dummy_ui: None) -> None:
     assert grid.options[":getRowId"] == "params => params.data.symbol"
     assert grid.options["rowSelection"] == "multiple"
     assert grid.options["animateRows"] is True
-    assert grid.options[":onGridReady"] == "params => { window._positionsGridApi = params.api; }"
+    # P6T1: onGridReady now registers with GridThrottle for per-grid degradation tracking
+    assert "window._positionsGridApi = params.api" in grid.options[":onGridReady"]
+    assert "GridThrottle" in grid.options[":onGridReady"]
 
 
 @pytest.mark.asyncio()
@@ -117,7 +119,8 @@ async def test_update_positions_grid_add_update_remove(dummy_ui: None) -> None:
     assert symbols == {"AAPL", "GOOG"}
 
     method, payload = grid.calls[-1]
-    assert method == "applyTransaction"
+    # P6T1: Changed to applyTransactionAsync for batched updates
+    assert method == "applyTransactionAsync"
     assert payload == {
         "add": [{"symbol": "GOOG", "qty": 3}],
         "update": [{"symbol": "AAPL", "qty": 12}],
