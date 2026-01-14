@@ -46,12 +46,14 @@ state_manager = get_state_manager()
 trading_client = AsyncTradingClient.get()
 
 # Import routes after audit logger + session store are configured.
+from apps.web_console_ng.api.workspace import router as workspace_router  # noqa: E402
 from apps.web_console_ng.auth import logout as auth_logout  # noqa: E402,F401
 from apps.web_console_ng.auth import routes as auth_routes  # noqa: E402,F401
 from apps.web_console_ng.auth.routes import auth_api_router  # noqa: E402
 
 # Register FastAPI router for HTTP-only endpoints (login POST for cookie setting)
 app.include_router(auth_api_router)
+app.include_router(workspace_router)
 
 # Import pages to trigger @ui.page decorator registration (including /login, /dashboard, etc.)
 from apps.web_console_ng import pages  # noqa: E402,F401
@@ -81,10 +83,9 @@ async def log_unhandled_exception(request: Request, exc: Exception) -> PlainText
     traceback.print_exception(type(exc), exc, exc.__traceback__)
     return PlainTextResponse("Server error", status_code=500)
 
-# Static assets for AG Grid renderers and custom CSS (CSP-compliant).
+# Static assets for AG Grid renderers (CSP-compliant). CSS loaded per-page in layout.py.
 app.add_static_files("/static", "apps/web_console_ng/static")
 ui.add_head_html('<script src="/static/js/aggrid_renderers.js"></script>')
-ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
 
 setup_health_endpoint()
 setup_connection_handlers()

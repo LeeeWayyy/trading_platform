@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-13 - Simplified isinstance checks, removed unnecessary AttributeError -->
+<!-- Last reviewed: 2026-01-13 - P6T1 Core Infrastructure: throttling, dark mode, density, workspace persistence -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
@@ -31,6 +31,7 @@
 | `/notebooks` | GET | None | Research notebook launcher with templates and sessions (P5T8). |
 | `/performance` | GET | None | Performance dashboard with real-time P&L and historical charts (P5T8). |
 | `/reports` | GET | None | Scheduled reports management with run history (P5T8). |
+| `/api/workspace/grid/{grid_id}` | GET/POST/DELETE | `grid_id`, state JSON | Workspace persistence API for grid state (P6T1). |
 | `/healthz` | GET | None | Liveness probe (always 200 unless process unhealthy). |
 | `/readyz` | GET | Internal probe headers optional | Readiness probe (checks Redis/backend). |
 | `/metrics` | GET | Internal probe headers optional | Prometheus metrics. |
@@ -383,6 +384,37 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 - Requires `VIEW_REPORTS` permission for viewing.
 - Requires `MANAGE_REPORTS` permission for create/edit/delete.
 
+### Professional Trading Terminal Core (P6T1)
+**Purpose:** High-performance grid infrastructure with dark mode, density controls, and workspace persistence.
+
+**Behavior:**
+- AG Grid async transactions with `asyncTransactionWaitMillis: 50ms` for batched updates.
+- Per-grid throttling with hysteresis to prevent degradation mode flapping.
+- Dark mode using Material Design surface levels (LEVEL_0-4: #121212 to #454545).
+- Semantic trading colors: profit (#00E676), loss (#FF5252), warning (#FFB300).
+- High-density layout with 22px row height and compact cards.
+- Workspace persistence saves grid column state, sort, and filters to database.
+- Kill switch state parsing: ENGAGED→True, DISENGAGED→False, unknown→None (fail-open for risk reduction).
+
+**Security:**
+- Workspace API requires session authentication (user derived from session cookie).
+- CSRF token validation on POST/DELETE mutations.
+- Grid ID allowlist prevents storage fan-out attacks (only `positions_grid`, `orders_grid`, etc.).
+- State size limit (64KB) enforced at app and DB level.
+
+**Components:**
+- `core/grid_performance.py` - Python-side metrics monitoring with WeakKeyDictionary.
+- `core/workspace_persistence.py` - Async DB persistence with DatabaseUnavailableError handling.
+- `api/workspace.py` - REST API with CSRF, session auth, and grid ID allowlist.
+- `ui/dark_theme.py` - Theme constants (SurfaceLevels, SemanticColors).
+- `ui/trading_layout.py` - Layout helpers for compact grids and cards.
+- `static/js/grid_throttle.js` - Browser-side throttle with hysteresis.
+- `static/js/grid_state_manager.js` - Browser state manager with save loop prevention.
+- `static/css/density.css` - Compact grid styles.
+
+**Access Control:**
+- Workspace persistence requires authenticated session.
+
 ## Data Flow
 ```
 Browser
@@ -501,7 +533,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-11
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`
+- **Last Updated:** 2026-01-13
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`
 - **ADRs:** N/A
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence)

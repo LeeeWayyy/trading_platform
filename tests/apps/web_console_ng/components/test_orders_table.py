@@ -97,7 +97,9 @@ def test_create_orders_table_columns(dummy_ui) -> None:
     assert "UTC" in created_col[":valueFormatter"]
 
     assert grid.options[":getRowId"] == "params => params.data.client_order_id"
-    assert grid.options[":onGridReady"] == "params => { window._ordersGridApi = params.api; }"
+    # P6T1: onGridReady now registers with GridThrottle for per-grid degradation tracking
+    assert "window._ordersGridApi = params.api" in grid.options[":onGridReady"]
+    assert "GridThrottle" in grid.options[":onGridReady"]
 
 
 @pytest.mark.asyncio()
@@ -122,7 +124,8 @@ async def test_update_orders_table_add_update_remove(dummy_ui) -> None:
     assert current_ids == {"id-1", "id-3"}
 
     method, payload = grid.calls[-1]
-    assert method == "applyTransaction"
+    # P6T1: Changed to applyTransactionAsync for batched updates
+    assert method == "applyTransactionAsync"
     assert payload == {
         "add": [{"client_order_id": "id-3", "symbol": "GOOG", "status": "new"}],
         "update": [{"client_order_id": "id-1", "symbol": "AAPL", "status": "filled"}],

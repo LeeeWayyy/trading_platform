@@ -40,6 +40,7 @@ from apps.web_console_ng.core.realtime import (
     position_channel,
 )
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ async def dashboard(client: Client) -> None:
         return default
 
     # Metric cards
-    with ui.row().classes("w-full gap-4 mb-6 flex-wrap"):
+    with trading_grid().classes("w-full mb-2"):
         pnl_card = MetricCard(
             title="Unrealized P&L",
             format_fn=lambda v: f"${v:,.2f}",
@@ -261,17 +262,15 @@ async def dashboard(client: Client) -> None:
         )
 
     # Positions grid
-    with ui.card().classes("w-full mb-6"):
-        ui.label("Positions").classes("text-lg font-bold mb-2")
+    with compact_card("Positions").classes("w-full"):
         positions_grid = create_positions_grid()
 
     # Orders + activity
-    with ui.row().classes("w-full gap-4"):
-        with ui.card().classes("flex-1"):
-            ui.label("Open Orders").classes("text-lg font-bold mb-2")
+    with trading_grid().classes("w-full"):
+        with compact_card("Open Orders").classes("w-full"):
             orders_table = create_orders_table()
 
-        with ui.card().classes("w-80"):
+        with compact_card("Activity").classes("w-full"):
             last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
             activity_feed = ActivityFeed()
 
@@ -279,6 +278,7 @@ async def dashboard(client: Client) -> None:
     order_ids: set[str] | None = None
     notified_missing_ids: set[str] = set()
     notified_malformed: set[int] = set()  # Dedupe malformed position notifications
+    notified_filter_restores: set[str] = set()  # Dedupe filter restore toasts per grid
     synthetic_id_map: dict[str, str] = {}
     synthetic_id_miss_counts: dict[str, int] = {}  # Prevent churn from transient snapshot gaps
     grid_update_lock = asyncio.Lock()
@@ -408,14 +408,24 @@ async def dashboard(client: Client) -> None:
 
     await load_initial_data()
 
+    def _parse_kill_switch_state(state_raw: Any) -> bool | None:
+        state = str(state_raw or "").upper()
+        if state == "ENGAGED":
+            return True
+        if state == "DISENGAGED":
+            return False
+        return None
+
     async def check_initial_kill_switch() -> None:
         """Fetch initial kill switch status on page load."""
         nonlocal kill_switch_engaged
         try:
-            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
-            state = str(ks_status.get("state", "")).upper()
-            # Fail-closed: only mark as safe if explicitly DISENGAGED
-            kill_switch_engaged = state != "DISENGAGED"
+            ks_status = await trading_client.fetch_kill_switch_status(
+                user_id,
+                role=user_role,
+                strategies=user_strategies,
+            )
+            kill_switch_engaged = _parse_kill_switch_state(ks_status.get("state"))
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             logger.warning(
                 "kill_switch_initial_check_failed",
@@ -461,12 +471,34 @@ async def dashboard(client: Client) -> None:
             return args[0]
         return {}
 
+    async def handle_grid_filters_restored(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        grid_id = str(detail.get("gridId", "")).strip() or "grid"
+        if grid_id in notified_filter_restores:
+            return
+        notified_filter_restores.add(grid_id)
+        filter_count_raw: Any = detail.get("filterCount")
+        filter_count: int | None
+        try:
+            filter_count = int(filter_count_raw) if filter_count_raw is not None else None
+        except (TypeError, ValueError):
+            filter_count = None
+        if filter_count is not None and filter_count > 0:
+            message = f"Filters active on {grid_id} ({filter_count}). Review before trading."
+        else:
+            message = f"Filters active on {grid_id}. Review before trading."
+        ui.notify(message, type="warning", timeout=12000)
+        logger.info(
+            "grid_filters_restored_notice",
+            extra={"client_id": client_id, "grid_id": grid_id, "filter_count": filter_count},
+        )
+
     async def on_kill_switch_update(data: dict[str, Any]) -> None:
         nonlocal kill_switch_engaged
         logger.info("kill_switch_update", extra={"client_id": client_id, "data": data})
         state = str(data.get("state", "")).upper()
-        # Update cached state for instant UI responses (fail-closed: treat unknown as engaged)
-        kill_switch_engaged = state != "DISENGAGED"
+        # Update cached state for instant UI responses; unknown stays None for fail-open closes
+        kill_switch_engaged = _parse_kill_switch_state(state)
         dispatch_trading_state_event(client_id, {"killSwitchState": state})
 
     async def on_circuit_breaker_update(data: dict[str, Any]) -> None:
@@ -507,10 +539,13 @@ async def dashboard(client: Client) -> None:
         # Fresh API call ensures we have authoritative state for this decision
         fresh_ks_state: bool | None = kill_switch_engaged  # Fallback to cached if API fails
         try:
-            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
+            ks_status = await trading_client.fetch_kill_switch_status(
+                user_id,
+                role=user_role,
+                strategies=user_strategies,
+            )
             state = str(ks_status.get("state", "")).upper()
-            # Fail-closed: only mark as safe if explicitly DISENGAGED
-            fresh_ks_state = state != "DISENGAGED"
+            fresh_ks_state = _parse_kill_switch_state(state)
             logger.debug(
                 "kill_switch_fresh_check",
                 extra={"client_id": client_id, "state": state, "cached": kill_switch_engaged},
@@ -523,7 +558,12 @@ async def dashboard(client: Client) -> None:
             )
 
         await on_close_position(
-            symbol, qty, user_id, user_role, kill_switch_engaged=fresh_ks_state
+            symbol,
+            qty,
+            user_id,
+            user_role,
+            kill_switch_engaged=fresh_ks_state,
+            strategies=user_strategies,
         )
 
     async def handle_cancel_order(event: events.GenericEventArguments) -> None:
@@ -535,6 +575,7 @@ async def dashboard(client: Client) -> None:
 
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
+    ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
 
     await realtime.subscribe(position_channel(user_id), on_position_update)
     await realtime.subscribe(kill_switch_channel(), on_kill_switch_update)

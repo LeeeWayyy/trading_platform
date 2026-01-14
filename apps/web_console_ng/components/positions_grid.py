@@ -12,6 +12,11 @@ import httpx
 from nicegui import ui
 
 from apps.web_console_ng.core.client import AsyncTradingClient
+from apps.web_console_ng.core.grid_performance import GridPerformanceMonitor, get_monitor
+from apps.web_console_ng.ui.trading_layout import (
+    apply_compact_grid_classes,
+    apply_compact_grid_options,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +63,7 @@ def create_positions_grid() -> ui.aggrid:
             # Handle null/undefined and Decimal strings from API
             ":valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "cellStyle": {
-                "function": "params.value >= 0 ? {color: '#16a34a'} : {color: '#dc2626'}"
+                "function": "params.value >= 0 ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
             },
             "type": "numericColumn",
         },
@@ -69,7 +74,7 @@ def create_positions_grid() -> ui.aggrid:
             # Handle null/undefined and Decimal strings from API
             ":valueFormatter": "x => (x.value == null) ? '--.--' + '%' : (Number(x.value) * 100).toFixed(2) + '%'",
             "cellStyle": {
-                "function": "params.value >= 0 ? {color: '#16a34a'} : {color: '#dc2626'}"
+                "function": "params.value >= 0 ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
             },
             "type": "numericColumn",
         },
@@ -83,7 +88,7 @@ def create_positions_grid() -> ui.aggrid:
         },
     ]
 
-    grid = ui.aggrid(
+    options = apply_compact_grid_options(
         {
             "columnDefs": column_defs,
             "rowData": [],
@@ -94,14 +99,35 @@ def create_positions_grid() -> ui.aggrid:
             },
             "rowSelection": "multiple",
             "suppressRowClickSelection": True,
+            "asyncTransactionWaitMillis": 50,
+            "suppressAnimationFrame": False,
             "animateRows": True,
             ":getRowId": "params => params.data.symbol",
-            ":onGridReady": "params => { window._positionsGridApi = params.api; }",
+            ":onGridReady": "params => { window._positionsGridApi = params.api; if (window.GridThrottle) window.GridThrottle.registerAsyncGrid('positions_grid'); }",
+            ":onAsyncTransactionsFlushed": "params => { if (window.GridThrottle) window.GridThrottle.recordTransactionResult(params.api, 'positions_grid', params.results); }",
+            ":onRowDataUpdated": "params => { if (window.GridThrottle) window.GridThrottle.recordUpdate(params.api, 'positions_grid'); }",
         }
-    ).classes("w-full")
+    )
+    grid = ui.aggrid(options).classes("w-full ag-theme-alpine-dark")
+    apply_compact_grid_classes(grid)
+
+    monitor = GridPerformanceMonitor("positions_grid")
+    monitor.attach_to_grid(grid)
 
     grid._ready_event = asyncio.Event()  # type: ignore[attr-defined]
     grid.on("gridReady", lambda _: grid._ready_event.set())  # type: ignore[attr-defined]
+    grid.on(
+        "gridReady",
+        lambda _: ui.run_javascript(
+            "window.GridStateManager.restoreState(window._positionsGridApi, 'positions_grid')"
+        ),
+    )
+    grid.on(
+        "gridReady",
+        lambda _: ui.run_javascript(
+            "window.GridStateManager.registerAutoSave(window._positionsGridApi, 'positions_grid')"
+        ),
+    )
 
     return grid
 
@@ -192,9 +218,14 @@ async def update_positions_grid(
     updated_positions = [p for p in valid_positions if p["symbol"] in previous_symbols]
     removed_symbols = [{"symbol": s} for s in (previous_symbols - current_symbols)]
 
+    monitor = get_monitor(grid)
+    if monitor:
+        delta_size = len(added_positions) + len(updated_positions) + len(removed_symbols)
+        monitor.metrics.record_update(delta_size)
+
     # Fire-and-forget to avoid UI timeouts when the browser is busy.
     grid.run_grid_method(
-        "applyTransaction",
+        "applyTransactionAsync",
         {"add": added_positions, "update": updated_positions, "remove": removed_symbols},
         timeout=5,
     )
@@ -209,6 +240,7 @@ async def on_close_position(
     user_role: str,
     *,
     kill_switch_engaged: bool | None = None,
+    strategies: list[str] | None = None,
 ) -> None:
     """Handle close position button click.
 
@@ -311,7 +343,11 @@ async def on_close_position(
     else:
         # No cached state (None) - fall back to blocking API check
         try:
-            ks_status = await client.fetch_kill_switch_status(user_id, role=user_role)
+            ks_status = await client.fetch_kill_switch_status(
+                user_id,
+                role=user_role,
+                strategies=strategies,
+            )
             if ks_status.get("state") == "ENGAGED":
                 logger.info(
                     "close_blocked_kill_switch",
@@ -374,7 +410,11 @@ async def on_close_position(
             # Do NOT return - proceed to show confirmation dialog
 
     try:
-        cb_status = await client.fetch_circuit_breaker_status(user_id, role=user_role)
+        cb_status = await client.fetch_circuit_breaker_status(
+            user_id,
+            role=user_role,
+            strategies=strategies,
+        )
         cb_state = str(cb_status.get("state", "")).upper()
         if cb_state in {"TRIPPED", "OPEN", "ENGAGED", "ON"}:
             logger.info(
@@ -435,7 +475,11 @@ async def on_close_position(
                     confirm_button.disable()
 
                 try:
-                    ks = await client.fetch_kill_switch_status(user_id, role=user_role)
+                    ks = await client.fetch_kill_switch_status(
+                        user_id,
+                        role=user_role,
+                        strategies=strategies,
+                    )
                     if ks.get("state") == "ENGAGED":
                         logger.info(
                             "close_confirm_kill_switch_engaged_blocked",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
@@ -13,6 +14,8 @@ from nicegui import app, ui
 from apps.web_console_ng.auth.middleware import get_current_user
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.grid_performance import get_all_monitors
+from apps.web_console_ng.ui.dark_theme import enable_dark_mode
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -25,8 +28,22 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
     @wraps(page_func)
     async def wrapper(*args: Any, **kwargs: Any) -> None:
+        enable_dark_mode()
         # Trading state listener JS extracted to separate file for maintainability
         ui.add_head_html('<script src="/static/js/trading_state_listener.js"></script>')
+        ui.add_head_html('<script src="/static/js/grid_throttle.js"></script>')
+        ui.add_head_html('<script src="/static/js/grid_state_manager.js"></script>')
+        ui.add_head_html('<link rel="stylesheet" href="/static/css/density.css">')
+        ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
+
+        degrade_threshold = os.environ.get("GRID_DEGRADE_THRESHOLD", "120")
+        debug_mode = os.environ.get("GRID_DEBUG", "false").lower() == "true"
+        ui.add_body_html(
+            f'<script>document.body.dataset.gridDegradeThreshold = "{degrade_threshold}";</script>'
+        )
+        ui.add_body_html(
+            f'<script>document.body.dataset.gridDebug = "{str(debug_mode).lower()}";</script>'
+        )
 
         user = get_current_user()
         user_role = str(user.get("role", "viewer"))
@@ -47,7 +64,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         client = AsyncTradingClient.get()
 
         # Left drawer (sidebar)
-        drawer = ui.left_drawer(value=True).classes("bg-slate-100 w-64")
+        drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64")
         with drawer:
             with ui.column().classes("w-full gap-1 p-3"):
                 ui.label("Navigation").classes("text-gray-500 text-xs uppercase tracking-wide mb-2")
@@ -172,7 +189,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
 
         # Main content area
-        with ui.column().classes("w-full p-6 bg-gray-50 min-h-screen"):
+        with ui.column().classes("w-full p-2 bg-surface-0 min-h-screen text-text-primary"):
             await page_func(*args, **kwargs)
 
         last_kill_switch_state: str | None = None
@@ -378,6 +395,16 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         if client_id:
             lifecycle_mgr = ClientLifecycleManager.get()
             await lifecycle_mgr.register_cleanup_callback(client_id, lambda: status_timer.cancel())
+
+        async def log_grid_metrics() -> None:
+            """Periodic metrics logging for all grids."""
+            for _grid_id, monitor in get_all_monitors().items():
+                monitor.log_metrics()
+
+        metrics_timer = ui.timer(60.0, log_grid_metrics)
+        if client_id:
+            lifecycle_mgr = ClientLifecycleManager.get()
+            await lifecycle_mgr.register_cleanup_callback(client_id, lambda: metrics_timer.cancel())
 
     return wrapper
 

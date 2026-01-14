@@ -1,0 +1,57 @@
+/* High-density trading layout utilities */
+
+/* Compact AG Grid rows */
+.ag-grid-compact .ag-row {
+    height: 22px !important;
+}
+.ag-grid-compact .ag-header-row {
+    height: 28px !important;
+}
+.ag-grid-compact .ag-cell {
+    padding: 0 4px !important;
+    line-height: 22px !important;
+}
+
+/* Monospace for numeric columns */
+.font-mono-numbers {
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Compact cards */
+.card-compact {
+    padding: 8px !important;
+}
+.card-compact .q-card__section {
+    padding: 4px 8px !important;
+}
+
+/* Compact form elements */
+.input-compact .q-field__control {
+    height: 28px !important;
+    min-height: 28px !important;
+}
+.input-compact .q-field__native {
+    padding: 0 8px !important;
+}
+
+/* Reduced margins */
+.trading-layout {
+    gap: 4px !important;
+}
+.trading-layout > * {
+    margin: 0 !important;
+}
+
+/* Dense header */
+.header-compact {
+    height: 40px !important;
+    padding: 0 8px !important;
+}
+
+/* Information density grid */
+.grid-dense {
+    display: grid;
+    gap: 4px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
