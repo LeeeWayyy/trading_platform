@@ -151,7 +151,7 @@ infrastructure directly without modification.
 
 **Usage for C4:**
 ```python
-from libs.alerts.channels import EmailChannel
+from libs.platform.alerts.channels import EmailChannel
 
 # EmailChannel uses explicit SMTP args, not smtp_config dict
 email = EmailChannel(

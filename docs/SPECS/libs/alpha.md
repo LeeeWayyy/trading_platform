@@ -40,7 +40,7 @@ alpha definition -> snapshot data -> backtest engine -> metrics result
 ## Usage Examples
 ### Example 1: Backtest a canonical alpha
 ```python
-from libs.alpha import PITBacktester, MomentumAlpha, AlphaMetricsAdapter
+from libs.trading.alpha import PITBacktester, MomentumAlpha, AlphaMetricsAdapter
 
 backtester = PITBacktester(...)
 alpha = MomentumAlpha(lookback_days=252, skip_days=21)
@@ -49,7 +49,7 @@ result = backtester.run_backtest(alpha=alpha, start_date=..., end_date=...)
 
 ### Example 2: Combine alphas
 ```python
-from libs.alpha import AlphaCombiner
+from libs.trading.alpha import AlphaCombiner
 
 combiner = AlphaCombiner(...)
 combined = combiner.combine(signals)
@@ -78,7 +78,7 @@ combined = combiner.combine(signals)
 - N/A (research library).
 
 ## Testing
-- **Test Files:** `tests/libs/alpha/`
+- **Test Files:** `tests/libs/trading/alpha/`
 - **Run Tests:** `pytest tests/libs/alpha -v`
 - **Coverage:** N/A
 
@@ -93,5 +93,5 @@ combined = combiner.combine(signals)
 
 ## Metadata
 - **Last Updated:** 2026-01-11
-- **Source Files:** `libs/alpha/__init__.py`, `libs/alpha/research_platform.py`, `libs/alpha/alpha_library.py`, `libs/alpha/simple_backtester.py`
+- **Source Files:** `libs/trading/alpha/__init__.py`, `libs/trading/alpha/research_platform.py`, `libs/trading/alpha/alpha_library.py`, `libs/trading/alpha/simple_backtester.py`
 - **ADRs:** N/A

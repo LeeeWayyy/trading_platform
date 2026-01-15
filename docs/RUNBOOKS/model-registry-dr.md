@@ -35,7 +35,7 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
    ```bash
    # Check registry integrity
    python -c "
-   from libs.models import ModelRegistry
+   from libs.models.models import ModelRegistry
    from pathlib import Path
    registry = ModelRegistry(Path('data/models'))
    print(registry.list_models('risk_model'))
@@ -64,7 +64,7 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
    ```bash
    # Verify manifest
    python -c "
-   from libs.models import RegistryManifestManager
+   from libs.models.models import RegistryManifestManager
    from pathlib import Path
    mgr = RegistryManifestManager(Path('data/models'))
    manifest = mgr.load_manifest()
@@ -120,7 +120,7 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
    ```bash
    # Update status via Python
    python -c "
-   from libs.models import ModelRegistry
+   from libs.models.models import ModelRegistry
    from pathlib import Path
    registry = ModelRegistry(Path('data/models'))
    # Mark as failed (prevents future promotion)
@@ -160,7 +160,7 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
 2. **Check model metrics**
    ```bash
    python -c "
-   from libs.models import ModelRegistry
+   from libs.models.models import ModelRegistry
    from pathlib import Path
    registry = ModelRegistry(Path('data/models'))
    metadata = registry.get_current_production('risk_model')
@@ -206,8 +206,8 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
 1. **Identify version drift**
    ```bash
    python -c "
-   from libs.models import ModelRegistry, VersionCompatibilityChecker
-   from libs.data_quality.versioning import DatasetVersionManager
+   from libs.models.models import ModelRegistry, VersionCompatibilityChecker
+   from libs.data.data_quality.versioning import DatasetVersionManager
    from pathlib import Path
 
    registry = ModelRegistry(Path('data/models'))
@@ -274,7 +274,7 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
 2. **Regenerate manifest from registry**
    ```bash
    python -c "
-   from libs.models import ModelRegistry, RegistryManifestManager
+   from libs.models.models import ModelRegistry, RegistryManifestManager
    from pathlib import Path
 
    registry = ModelRegistry(Path('data/models'))
@@ -289,7 +289,7 @@ This runbook covers disaster recovery (DR) procedures for the Model Registry, in
 3. **Verify regenerated manifest**
    ```bash
    python -c "
-   from libs.models import RegistryManifestManager
+   from libs.models.models import RegistryManifestManager
    from pathlib import Path
 
    mgr = RegistryManifestManager(Path('data/models'))
@@ -319,7 +319,7 @@ python scripts/model_cli.py backup create --output /path/to/backup
 ```bash
 # Verify latest backup
 python -c "
-from libs.models import RegistryBackupManager
+from libs.models.models import RegistryBackupManager
 from pathlib import Path
 import json
 

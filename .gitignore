@@ -90,6 +90,13 @@ mlruns.db
 .ipynb_checkpoints/
 *.ipynb
 
+# Research artifacts (experimental code)
+research/artifacts/
+research/tmp/
+research/data/
+research/**/*.pyc
+research/**/__pycache__/
+
 # OS
 Thumbs.db
 

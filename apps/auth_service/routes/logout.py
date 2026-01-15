@@ -7,7 +7,7 @@ from fastapi import APIRouter, Cookie, Request
 from fastapi.responses import RedirectResponse
 
 from apps.auth_service.dependencies import get_config, get_oauth2_handler
-from libs.common.network_utils import (
+from libs.core.common.network_utils import (
     extract_client_ip_from_fastapi,
     extract_user_agent_from_fastapi,
 )

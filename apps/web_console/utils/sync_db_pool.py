@@ -21,7 +21,7 @@ import redis
 from psycopg_pool import ConnectionPool
 
 if TYPE_CHECKING:
-    from libs.backtest.job_queue import BacktestJobQueue
+    from libs.trading.backtest.job_queue import BacktestJobQueue
 
 
 def _get_redis_url() -> str:
@@ -96,7 +96,7 @@ def get_job_queue() -> Generator[BacktestJobQueue, None, None]:
         Does not close the cached pool - reuses singleton.
     """
     # Import here to avoid circular imports
-    from libs.backtest.job_queue import BacktestJobQueue
+    from libs.trading.backtest.job_queue import BacktestJobQueue
 
     redis_client = get_sync_redis_client()
     pool = get_sync_db_pool()

@@ -17,14 +17,14 @@
       {"id": "support", "label": "Support", "members": ["apps/model_registry", "apps/alert_worker", "apps/backtest_worker"]}
     ],
     "domain": [
-      {"id": "data", "label": "Data", "members": ["libs/data_pipeline", "libs/data_providers", "libs/data_quality", "libs/market_data", "libs/duckdb_catalog"]},
-      {"id": "ml", "label": "ML & Analytics", "members": ["libs/alpha", "libs/factors", "libs/models", "libs/analytics", "libs/backtest"]},
-      {"id": "risk", "label": "Risk & Allocation", "members": ["libs/risk", "libs/risk_management", "libs/allocation", "libs/tax"]},
-      {"id": "strategies", "label": "Strategies", "members": ["strategies/alpha_baseline", "strategies/backtest", "strategies/ensemble", "strategies/mean_reversion", "strategies/momentum"]}
+      {"id": "data", "label": "Data", "members": ["libs/data", "libs/data/data_pipeline", "libs/data/data_providers", "libs/data/data_quality", "libs/data/market_data", "libs/duckdb_catalog"]},
+      {"id": "ml", "label": "ML & Analytics", "members": ["libs/trading/alpha", "libs/models/factors", "libs/models", "libs/platform/analytics", "libs/trading/backtest"]},
+      {"id": "risk", "label": "Risk & Allocation", "members": ["libs/trading/risk", "libs/trading/risk_management", "libs/trading/allocation", "libs/platform/tax"]},
+      {"id": "strategies", "label": "Strategies", "members": ["strategies/alpha_baseline", "strategies/backtest", "strategies/ensemble", "research/strategies/mean_reversion", "research/strategies/momentum"]}
     ],
     "infra": [
-      {"id": "auth", "label": "Auth", "members": ["libs/admin", "libs/web_console_auth"]},
-      {"id": "core_libs", "label": "Core Libs", "members": ["libs/common", "libs/secrets", "libs/health", "libs/redis_client", "libs/alerts"]},
+      {"id": "auth", "label": "Auth", "members": ["libs/platform/admin", "libs/platform/web_console_auth"]},
+      {"id": "core_libs", "label": "Core Libs", "members": ["libs/core", "libs/core/common", "libs/platform/secrets", "libs/core/health", "libs/core/redis_client", "libs/platform/alerts"]},
       {"id": "external", "label": "External Systems", "members": ["ext_alpaca", "ext_redis", "ext_postgres", "ext_prometheus", "ext_grafana"]}
     ]
   },
@@ -51,35 +51,41 @@
     "apps/alert_worker": {"layer": "core", "spec": "../SPECS/services/alert_worker.md"},
     "apps/backtest_worker": {"layer": "core", "spec": "../SPECS/services/backtest_worker.md"},
 
-    "libs/allocation": {"layer": "domain", "spec": "../SPECS/libs/allocation.md"},
-    "libs/alpha": {"layer": "domain", "spec": "../SPECS/libs/alpha.md"},
-    "libs/analytics": {"layer": "domain", "spec": "../SPECS/libs/analytics.md"},
-    "libs/backtest": {"layer": "domain", "spec": "../SPECS/libs/backtest.md"},
-    "libs/factors": {"layer": "domain", "spec": "../SPECS/libs/factors.md"},
-    "libs/models": {"layer": "domain", "spec": "../SPECS/libs/models.md"},
-    "libs/risk": {"layer": "domain", "spec": "../SPECS/libs/risk.md"},
-    "libs/risk_management": {"layer": "domain", "spec": "../SPECS/libs/risk_management.md"},
-    "libs/tax": {"layer": "domain", "spec": "../SPECS/libs/tax.md"},
+    "libs/trading": {"layer": "domain", "spec": "../SPECS/libs/trading.md"},
+    "libs/trading/allocation": {"layer": "domain", "spec": "../SPECS/libs/allocation.md"},
+    "libs/trading/alpha": {"layer": "domain", "spec": "../SPECS/libs/alpha.md"},
+    "libs/trading/backtest": {"layer": "domain", "spec": "../SPECS/libs/backtest.md"},
+    "libs/trading/risk": {"layer": "domain", "spec": "../SPECS/libs/risk.md"},
+    "libs/trading/risk_management": {"layer": "domain", "spec": "../SPECS/libs/risk_management.md"},
 
-    "libs/data_pipeline": {"layer": "domain", "spec": "../SPECS/libs/data_pipeline.md"},
-    "libs/data_providers": {"layer": "domain", "spec": "../SPECS/libs/data_providers.md"},
-    "libs/data_quality": {"layer": "domain", "spec": "../SPECS/libs/data_quality.md"},
-    "libs/market_data": {"layer": "domain", "spec": "../SPECS/libs/market_data.md"},
+    "libs/models": {"layer": "domain", "spec": "../SPECS/libs/models.md"},
+    "libs/models/factors": {"layer": "domain", "spec": "../SPECS/libs/factors.md"},
+
+    "libs/data": {"layer": "domain", "spec": "../SPECS/libs/data.md"},
+    "libs/data/data_pipeline": {"layer": "domain", "spec": "../SPECS/libs/data_pipeline.md"},
+    "libs/data/data_providers": {"layer": "domain", "spec": "../SPECS/libs/data_providers.md"},
+    "libs/data/data_quality": {"layer": "domain", "spec": "../SPECS/libs/data_quality.md"},
+    "libs/data/market_data": {"layer": "domain", "spec": "../SPECS/libs/market_data.md"},
     "libs/duckdb_catalog": {"layer": "domain", "spec": "../SPECS/libs/duckdb_catalog.md"},
 
-    "libs/common": {"layer": "infra", "spec": "../SPECS/libs/common.md"},
-    "libs/redis_client": {"layer": "infra", "spec": "../SPECS/libs/redis_client.md"},
-    "libs/secrets": {"layer": "infra", "spec": "../SPECS/libs/secrets.md"},
-    "libs/health": {"layer": "infra", "spec": "../SPECS/libs/health.md"},
-    "libs/alerts": {"layer": "infra", "spec": "../SPECS/libs/alerts.md"},
-    "libs/admin": {"layer": "infra", "spec": "../SPECS/libs/admin.md"},
-    "libs/web_console_auth": {"layer": "infra", "spec": "../SPECS/libs/web_console_auth.md"},
+    "libs/platform": {"layer": "infra", "spec": "../SPECS/libs/platform.md"},
+    "libs/platform/analytics": {"layer": "domain", "spec": "../SPECS/libs/analytics.md"},
+    "libs/platform/tax": {"layer": "domain", "spec": "../SPECS/libs/tax.md"},
+    "libs/platform/alerts": {"layer": "infra", "spec": "../SPECS/libs/alerts.md"},
+    "libs/platform/admin": {"layer": "infra", "spec": "../SPECS/libs/admin.md"},
+    "libs/platform/web_console_auth": {"layer": "infra", "spec": "../SPECS/libs/web_console_auth.md"},
+    "libs/platform/secrets": {"layer": "infra", "spec": "../SPECS/libs/secrets.md"},
+
+    "libs/core": {"layer": "infra", "spec": "../SPECS/libs/core.md"},
+    "libs/core/common": {"layer": "infra", "spec": "../SPECS/libs/common.md"},
+    "libs/core/redis_client": {"layer": "infra", "spec": "../SPECS/libs/redis_client.md"},
+    "libs/core/health": {"layer": "infra", "spec": "../SPECS/libs/health.md"},
 
     "strategies/alpha_baseline": {"layer": "domain", "spec": "../SPECS/strategies/alpha_baseline.md"},
     "strategies/backtest": {"layer": "domain", "spec": "../SPECS/strategies/backtest.md"},
     "strategies/ensemble": {"layer": "domain", "spec": "../SPECS/strategies/ensemble.md"},
-    "strategies/mean_reversion": {"layer": "domain", "spec": "../SPECS/strategies/mean_reversion.md"},
-    "strategies/momentum": {"layer": "domain", "spec": "../SPECS/strategies/momentum.md"}
+    "research/strategies/mean_reversion": {"layer": "domain", "spec": "../SPECS/strategies/mean_reversion.md"},
+    "research/strategies/momentum": {"layer": "domain", "spec": "../SPECS/strategies/momentum.md"}
   },
 
   "virtual_edges": [
@@ -95,18 +101,18 @@
     {"from": "apps/web_console_ng", "to": "ext_redis", "type": "data_flow", "label": "realtime updates"},
     {"from": "ext_redis", "to": "apps/web_console_ng", "type": "event", "label": "positions/orders"},
     {"from": "apps/alert_worker", "to": "ext_redis", "type": "data_flow", "label": "alert events"},
-    {"from": "libs/risk_management", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
+    {"from": "libs/trading/risk_management", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
   ],
 
   "filtering": {
     "hide_to_common_libs": true,
-    "common_libs": ["libs/common", "libs/secrets", "libs/health"],
+    "common_libs": ["libs/core/common", "libs/platform/secrets", "libs/core/health"],
     "allowlist": [
       "apps/execution_gateway",
       "apps/signal_service",
       "apps/orchestrator",
-      "libs/risk_management",
-      "libs/redis_client"
+      "libs/trading/risk_management",
+      "libs/core/redis_client"
     ]
   },
 

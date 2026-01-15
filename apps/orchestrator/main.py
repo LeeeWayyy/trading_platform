@@ -56,8 +56,8 @@ from apps.orchestrator.schemas import (
     OrchestrationResult,
     OrchestrationRunsResponse,
 )
-from libs.redis_client import RedisClient
-from libs.risk_management import KillSwitch
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management import KillSwitch
 
 # ============================================================================
 # Configuration

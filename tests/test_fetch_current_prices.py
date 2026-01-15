@@ -34,7 +34,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from apps.execution_gateway.alpaca_client import AlpacaConnectionError  # noqa: E402
-from scripts.paper_run import fetch_current_prices  # noqa: E402
+from scripts.ops.paper_run import fetch_current_prices  # noqa: E402
 
 
 class TestFetchCurrentPrices:
@@ -59,7 +59,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -83,7 +83,7 @@ class TestFetchCurrentPrices:
             "GOOGL": {"last_price": Decimal("140.25"), "ask_price": None, "bid_price": None},
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL", "MSFT", "GOOGL"], config)
 
@@ -116,7 +116,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -140,7 +140,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -164,7 +164,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -188,7 +188,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -223,7 +223,7 @@ class TestFetchCurrentPrices:
             },
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL", "MSFT", "GOOGL"], config)
 
@@ -248,7 +248,7 @@ class TestFetchCurrentPrices:
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.side_effect = AlpacaConnectionError("API unavailable")
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -272,7 +272,7 @@ class TestFetchCurrentPrices:
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.side_effect = Exception("Unexpected error")
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -315,7 +315,7 @@ class TestFetchCurrentPrices:
         os.environ["ALPACA_SECRET_KEY"] = "test_secret_key"
         os.environ["ALPACA_BASE_URL"] = "https://test.alpaca.markets"
 
-        with patch("scripts.paper_run.AlpacaExecutor") as mock_alpaca_class:
+        with patch("scripts.ops.paper_run.AlpacaExecutor") as mock_alpaca_class:
             mock_alpaca_class.return_value = mock_executor
             config: dict[str, Any] = {}
             await fetch_current_prices(["AAPL"], config)
@@ -352,7 +352,7 @@ class TestFetchCurrentPrices:
             "alpaca_base_url": "https://config.alpaca.markets",
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor") as mock_alpaca_class:
+        with patch("scripts.ops.paper_run.AlpacaExecutor") as mock_alpaca_class:
             mock_alpaca_class.return_value = mock_executor
             await fetch_current_prices(["AAPL"], config)
 
@@ -381,7 +381,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
@@ -411,7 +411,7 @@ class TestFetchCurrentPrices:
             }
         }
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 

@@ -87,7 +87,7 @@ The `FamaFrenchLocalProvider` automatically converts from percent to decimal dur
 
 ```python
 from datetime import date
-from libs.data_providers import FamaFrenchLocalProvider
+from libs.data.data_providers import FamaFrenchLocalProvider
 from pathlib import Path
 
 # Initialize provider

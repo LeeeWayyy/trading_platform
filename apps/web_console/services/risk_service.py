@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
-from libs.risk.factor_covariance import CANONICAL_FACTOR_ORDER
+from libs.trading.risk.factor_covariance import CANONICAL_FACTOR_ORDER
 
 # Ensure asset_growth is present for UI parity/testing expectations
 DEFAULT_FACTOR_ORDER = [
@@ -302,7 +302,7 @@ class RiskService:
 
         try:
             # Import stress testing
-            from libs.risk.stress_testing import StressTester
+            from libs.trading.risk.stress_testing import StressTester
 
             # Load risk model for stress testing
             risk_model = await self._load_risk_model()

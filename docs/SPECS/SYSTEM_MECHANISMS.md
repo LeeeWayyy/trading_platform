@@ -116,11 +116,11 @@ sequenceDiagram
 3. **Feature parity compute**: Features are computed via research-shared code (`strategies/alpha_baseline/features.py`).
    - Code: `apps/signal_service/signal_generator.py` (`get_alpha158_features`).
 4. **Feature cache**: Redis-backed `FeatureCache` is checked and updated per symbol/date.
-   - Code: `libs/redis_client/feature_cache.py` (get/set/mget), `apps/signal_service/signal_generator.py`.
+   - Code: `libs/core/redis_client/feature_cache.py` (get/set/mget), `apps/signal_service/signal_generator.py`.
 5. **Predictions + weights**: The model predicts returns, then target weights are computed (top-N / bottom-N).
    - Code: `apps/signal_service/signal_generator.py` (`generate_signals`).
 6. **Publish event**: Signal Service emits `SignalEvent` to Redis pub/sub channel `signals.generated`.
-   - Code: `libs/redis_client/event_publisher.py`, `apps/signal_service/main.py` (`_publish_signal_event_with_fallback`).
+   - Code: `libs/core/redis_client/event_publisher.py`, `apps/signal_service/main.py` (`_publish_signal_event_with_fallback`).
 
 ### Related Specs / ADRs
 
@@ -162,11 +162,11 @@ sequenceDiagram
 2. **Subscription management**: `PositionBasedSubscription` periodically pulls positions from Execution Gateway to auto-subscribe symbols.
    - Code: `apps/market_data_service/position_sync.py` (`_sync_subscriptions`).
 3. **WebSocket stream**: Alpaca `StockDataStream` delivers quote updates to `_handle_quote()`.
-   - Code: `libs/market_data/alpaca_stream.py` (`_handle_quote`).
+   - Code: `libs/data/market_data/alpaca_stream.py` (`_handle_quote`).
 4. **Redis cache**: Quote mid-price is stored as `price:<symbol>` with TTL.
-   - Code: `libs/market_data/alpaca_stream.py` (uses `RedisKeys.price`).
+   - Code: `libs/data/market_data/alpaca_stream.py` (uses `RedisKeys.price`).
 5. **Pub/Sub event**: Price updates are published to `price.updated.<symbol>`.
-   - Code: `libs/market_data/alpaca_stream.py` (`EventPublisher.publish`).
+   - Code: `libs/data/market_data/alpaca_stream.py` (`EventPublisher.publish`).
 6. **Consumers**: Downstream services subscribe to Redis channels as needed (no concrete consumer implementations in `apps/` today).
 
 ### Related Specs / ADRs
@@ -221,11 +221,11 @@ sequenceDiagram
 4. **Reconciliation gating**: Order blocked if reconciliation gate not open or symbol quarantined.
    - Code: `apps/execution_gateway/main.py` (`_require_reconciliation_ready_or_reduce_only`, `_check_quarantine`).
 5. **Position reservation**: Atomic reserve in Redis to prevent race conditions on position limits.
-   - Code: `libs/risk_management/position_reservation.py`, invoked in `apps/execution_gateway/main.py`.
+   - Code: `libs/trading/risk_management/position_reservation.py`, invoked in `apps/execution_gateway/main.py`.
 6. **Fat-finger checks**: Size thresholds enforce warning/reject paths before broker submission.
    - Code: `apps/execution_gateway/main.py` (`fat_finger_validator`).
 
-> Note: `libs/risk_management/checker.py` implements a general `RiskChecker` (breaker, **blacklist**, position limits, **notional exposure**) but is **not currently wired into Execution Gateway's order submission flow**. As a result, blacklist and notional-limit checks are **not enforced** in the live pre-trade path today.
+> Note: `libs/trading/risk_management/checker.py` implements a general `RiskChecker` (breaker, **blacklist**, position limits, **notional exposure**) but is **not currently wired into Execution Gateway's order submission flow**. As a result, blacklist and notional-limit checks are **not enforced** in the live pre-trade path today.
 
 ### Related Specs / ADRs
 
@@ -267,11 +267,11 @@ sequenceDiagram
 1. **Trip conditions**: ADR defines post-trade triggers (drawdown, daily loss, data staleness, broker errors).
    - Reference: `docs/ADRs/0011-risk-management-system.md`.
 2. **Breaker state machine**: `CircuitBreaker` persists state in Redis (`circuit_breaker:state`) and writes trip history.
-   - Code: `libs/risk_management/breaker.py`.
+   - Code: `libs/trading/risk_management/breaker.py`.
 3. **Service enforcement**: Execution Gateway checks breaker on every order submit (fail-closed when unavailable).
    - Code: `apps/execution_gateway/main.py` (`submit_order`).
 4. **Reset flow**: Web console and service layer invoke `CircuitBreaker.reset()`; state moves to QUIET_PERIOD, then OPEN.
-   - Code: `apps/web_console/services/cb_service.py`, `libs/risk_management/breaker.py`.
+   - Code: `apps/web_console/services/cb_service.py`, `libs/trading/risk_management/breaker.py`.
 
 > **PostTradeMonitor status**: A dedicated monitor service is described in ADRs but not present as a runnable app in `apps/`. The breaker can still be tripped manually via web console or other callers to `CircuitBreaker.trip()`.
 
@@ -351,8 +351,8 @@ sequenceDiagram
 - `apps/execution_gateway/database.py`
 - `apps/market_data_service/main.py`
 - `apps/market_data_service/position_sync.py`
-- `libs/market_data/alpaca_stream.py`
-- `libs/redis_client/event_publisher.py`
-- `libs/redis_client/feature_cache.py`
-- `libs/risk_management/breaker.py`
-- `libs/risk_management/position_reservation.py`
+- `libs/data/market_data/alpaca_stream.py`
+- `libs/core/redis_client/event_publisher.py`
+- `libs/core/redis_client/feature_cache.py`
+- `libs/trading/risk_management/breaker.py`
+- `libs/trading/risk_management/position_reservation.py`

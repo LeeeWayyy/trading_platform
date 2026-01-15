@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from apps.market_data_service.position_sync import PositionBasedSubscription
-from libs.market_data import AlpacaMarketDataStream
+from libs.data.market_data import AlpacaMarketDataStream
 
 
 @pytest.fixture()

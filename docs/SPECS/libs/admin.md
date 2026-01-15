@@ -96,7 +96,7 @@ prefix -> Redis cache -> DB lookup
 ## Usage Examples
 ### Example 1: Generate and store API key
 ```python
-from libs.admin import generate_api_key, hash_api_key
+from libs.platform.admin import generate_api_key, hash_api_key
 
 full_key, prefix, salt = generate_api_key()
 key_hash = hash_api_key(full_key, salt)
@@ -105,7 +105,7 @@ key_hash = hash_api_key(full_key, salt)
 
 ### Example 2: Validate API key
 ```python
-from libs.admin import validate_api_key
+from libs.platform.admin import validate_api_key
 
 is_valid = validate_api_key(provided_key, stored_hash, stored_salt)
 ```
@@ -145,7 +145,7 @@ is_valid = validate_api_key(provided_key, stored_hash, stored_salt)
 - Key salts are required for hashing; raw keys are not stored.
 
 ## Testing
-- **Test Files:** `tests/libs/admin/`
+- **Test Files:** `tests/libs/platform/admin/`
 - **Run Tests:** `pytest tests/libs/admin -v`
 - **Coverage:** N/A
 
@@ -159,5 +159,5 @@ is_valid = validate_api_key(provided_key, stored_hash, stored_salt)
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `libs/admin/__init__.py`, `libs/admin/api_keys.py`
+- **Source Files:** `libs/platform/admin/__init__.py`, `libs/platform/admin/api_keys.py`
 - **ADRs:** N/A

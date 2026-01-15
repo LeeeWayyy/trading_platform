@@ -382,7 +382,7 @@ from typing import Any
 from collections import deque
 import uuid
 
-from libs.common.db import get_async_pool  # Existing async DB pool
+from libs.core.common.db import get_async_pool  # Existing async DB pool
 
 logger = logging.getLogger("audit.auth")
 

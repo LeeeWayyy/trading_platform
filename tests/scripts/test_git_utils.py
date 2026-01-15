@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test suite for scripts/git_utils.py.
+Test suite for scripts/admin/git_utils.py.
 
 Tests all shared git utility functions used by workflow automation components.
 
@@ -12,7 +12,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 # Import functions under test
-from scripts.git_utils import (
+from scripts.admin.git_utils import (
     CORE_PACKAGES,
     detect_changed_modules,
     get_staged_files,
@@ -24,7 +24,7 @@ from scripts.git_utils import (
 class TestGetStagedFiles:
     """Test get_staged_files() function."""
 
-    @patch("scripts.git_utils.subprocess.run")
+    @patch("scripts.admin.git_utils.subprocess.run")
     def test_get_staged_files_success(self, mock_run: MagicMock) -> None:
         """Test successful retrieval of staged files."""
         # Mock git diff output
@@ -43,7 +43,7 @@ class TestGetStagedFiles:
         ]
         mock_run.assert_called_once()
 
-    @patch("scripts.git_utils.subprocess.run")
+    @patch("scripts.admin.git_utils.subprocess.run")
     def test_get_staged_files_empty(self, mock_run: MagicMock) -> None:
         """Test when no files are staged."""
         mock_run.return_value = MagicMock(stdout="")
@@ -52,7 +52,7 @@ class TestGetStagedFiles:
 
         assert result == []
 
-    @patch("scripts.git_utils.subprocess.run")
+    @patch("scripts.admin.git_utils.subprocess.run")
     def test_get_staged_files_git_error(self, mock_run: MagicMock) -> None:
         """Test when git command fails (returns None to trigger fail-safe full CI)."""
         mock_run.side_effect = subprocess.CalledProcessError(128, "git")
@@ -62,7 +62,7 @@ class TestGetStagedFiles:
         # Should return None on git error to trigger fail-safe full CI
         assert result is None
 
-    @patch("scripts.git_utils.subprocess.run")
+    @patch("scripts.admin.git_utils.subprocess.run")
     def test_get_staged_files_filters_empty_lines(self, mock_run: MagicMock) -> None:
         """Test that empty lines are filtered out."""
         mock_run.return_value = MagicMock(stdout="libs/common/types.py\n\n\napps/cli/main.py\n")

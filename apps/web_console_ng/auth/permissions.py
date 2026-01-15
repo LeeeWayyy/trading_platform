@@ -8,7 +8,7 @@ IMPORTANT: Always use these imports rather than defining local roles.
 The shared library defines: VIEWER, RESEARCHER, OPERATOR, ADMIN.
 """
 
-from libs.web_console_auth.permissions import (
+from libs.platform.web_console_auth.permissions import (
     ROLE_DATASET_PERMISSIONS,
     ROLE_PERMISSIONS,
     DatasetPermission,

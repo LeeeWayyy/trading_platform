@@ -106,7 +106,7 @@ async def protected_action(request: Request) -> None:
 ## Permission Checks (RBAC)
 
 ```python
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 async def admin_page() -> None:
     user = get_current_user()

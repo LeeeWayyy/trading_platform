@@ -18,7 +18,11 @@ from apps.web_console.schemas.data_management import (
     ValidationResultDTO,
 )
 from apps.web_console.utils.auth_helpers import get_user_id
-from libs.web_console_auth.permissions import Permission, has_dataset_permission, has_permission
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    has_dataset_permission,
+    has_permission,
+)
 
 logger = logging.getLogger(__name__)
 

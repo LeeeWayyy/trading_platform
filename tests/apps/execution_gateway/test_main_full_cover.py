@@ -151,8 +151,8 @@ redis_client_stub.RedisKeys = _DummyRedisKeys
 redis_client_stub.ConnectionPool = _DummyConnectionPool
 redis_client_stub.redis = _DummyRedisModule()  # For libs.redis_client.client.redis access
 sys.modules.setdefault("libs.redis_client", redis_client_stub)
-sys.modules.setdefault("libs.redis_client.client", redis_client_stub)
-sys.modules.setdefault("libs.redis_client.keys", redis_client_stub)
+sys.modules.setdefault("libs.core.redis_client.client", redis_client_stub)
+sys.modules.setdefault("libs.core.redis_client.keys", redis_client_stub)
 
 from fastapi import Request
 
@@ -359,7 +359,7 @@ def app_client(monkeypatch):
     main.app.dependency_overrides.clear()
 
     # Re-apply auth overrides after clearing (C6 integration)
-    from libs.common.api_auth_dependency import AuthContext
+    from libs.core.common.api_auth_dependency import AuthContext
 
     def _mock_auth_context() -> AuthContext:
         """Return a mock AuthContext that bypasses authentication for tests."""

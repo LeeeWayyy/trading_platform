@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from libs.common.file_utils import hash_file_sha256
+from libs.core.common.file_utils import hash_file_sha256
 from tests.regression.conftest import (
     METRIC_TOLERANCE,
     load_golden_config,

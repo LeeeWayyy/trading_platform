@@ -213,7 +213,7 @@ The `is_key_revoked` and `update_last_used` functions are called from API authen
 **File:** `libs/web_console_auth/gateway_auth.py` (or new `api_key_auth.py`)
 
 ```python
-from libs.admin.api_keys import (
+from libs.platform.admin.api_keys import (
     validate_api_key,
     is_key_revoked,
     update_last_used,
@@ -273,7 +273,7 @@ async def authenticate_api_key(
 **Usage in FastAPI:**
 ```python
 # In apps/execution_gateway/main.py or similar
-from libs.web_console_auth.api_key_auth import authenticate_api_key
+from libs.platform.web_console_auth.api_key_auth import authenticate_api_key
 
 async def get_current_api_user(
     authorization: str = Header(None),
@@ -412,7 +412,7 @@ The `SanitizingFormatter` must be wired at ALL logging sinks to prevent PII leak
 ```python
 # In libs/common/logging/config.py
 import logging
-from libs.common.log_sanitizer import SanitizingFormatter
+from libs.core.common.log_sanitizer import SanitizingFormatter
 
 def configure_logging(service_name: str) -> None:
     """Configure logging with PII sanitization for ALL handlers."""
@@ -463,7 +463,7 @@ async def _write(self, ..., details: dict | None = None, ...):
 **3. Web Console Entry Point:**
 ```python
 # In apps/web_console/app.py (called once at startup)
-from libs.common.logging.config import configure_logging
+from libs.core.common.logging.config import configure_logging
 
 # Call early in app initialization
 configure_logging(service_name="web_console")
@@ -472,7 +472,7 @@ configure_logging(service_name="web_console")
 **4. FastAPI Services:**
 ```python
 # In apps/execution_gateway/main.py, apps/signal_service/main.py, etc.
-from libs.common.logging.config import configure_logging
+from libs.core.common.logging.config import configure_logging
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

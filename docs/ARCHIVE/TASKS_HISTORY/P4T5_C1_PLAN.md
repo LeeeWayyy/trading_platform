@@ -150,15 +150,15 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from libs.risk_management.breaker import CircuitBreaker
-from libs.risk_management.exceptions import CircuitBreakerError
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.trading.risk_management.breaker import CircuitBreaker
+from libs.trading.risk_management.exceptions import CircuitBreakerError
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 from .cb_metrics import CB_RESET_TOTAL, CB_STATUS_CHECKS, CB_TRIP_TOTAL
 from .cb_rate_limiter import CBRateLimiter
 
 if TYPE_CHECKING:
-    from libs.redis_client import RedisClient
+    from libs.core.redis_client import RedisClient
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
@@ -433,7 +433,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from libs.redis_client import RedisClient
+    from libs.core.redis_client import RedisClient
 
 
 class CBRateLimiter:
@@ -487,8 +487,8 @@ from apps.web_console.services.cb_service import (
     RBACViolation,
     ValidationError,
 )
-from libs.risk_management.breaker import CircuitBreakerState
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.trading.risk_management.breaker import CircuitBreakerState
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 
 @operations_requires_auth
@@ -624,7 +624,7 @@ def _get_cb_service() -> CircuitBreakerService:
     """Get or create CB service instance."""
     if "cb_service" not in st.session_state:
         from apps.web_console.utils.db import get_async_engine
-        from libs.redis_client import RedisClient
+        from libs.core.redis_client import RedisClient
 
         redis = RedisClient.from_env()
         db = get_async_engine()

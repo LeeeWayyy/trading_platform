@@ -514,8 +514,8 @@ curl http://localhost:8004/health
 ### 4. Using the Library Directly (Python)
 
 ```python
-from libs.market_data import AlpacaMarketDataStream
-from libs.redis_client import RedisClient, EventPublisher
+from libs.data.market_data import AlpacaMarketDataStream
+from libs.core.redis_client import RedisClient, EventPublisher
 
 # Initialize dependencies
 redis = RedisClient(host="localhost", port=6379)

@@ -55,7 +55,7 @@ The application checks the cache before generating features. On cache miss, it g
 ### Implementation
 
 ```python
-from libs.redis_client import FeatureCache
+from libs.core.redis_client import FeatureCache
 
 class SignalGenerator:
     def __init__(self, model_registry, data_dir, feature_cache=None):
@@ -217,8 +217,8 @@ Examples:
 
 ```python
 from datetime import datetime, timezone
-from libs.redis_client import EventPublisher
-from libs.redis_client.events import SignalEvent
+from libs.core.redis_client import EventPublisher
+from libs.core.redis_client.events import SignalEvent
 
 # Initialize publisher
 publisher = EventPublisher(redis_client)

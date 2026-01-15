@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from libs.market_data import SubscriptionError
+from libs.data.market_data import SubscriptionError
 
 
 @pytest.fixture()

@@ -32,8 +32,8 @@ make circuit-trip
 
 # Direct command
 PYTHONPATH=. python -c "
-from libs.redis_client import RedisClient
-from libs.risk_management.breaker import CircuitBreaker
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.breaker import CircuitBreaker
 
 redis = RedisClient(host='localhost', port=6379)
 cb = CircuitBreaker(redis)
@@ -50,8 +50,8 @@ redis-cli GET circuit_breaker:state | python -m json.tool
 
 # Python
 PYTHONPATH=. python -c "
-from libs.redis_client import RedisClient
-from libs.risk_management.breaker import CircuitBreaker
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.breaker import CircuitBreaker
 
 redis = RedisClient(host='localhost', port=6379)
 cb = CircuitBreaker(redis)
@@ -66,8 +66,8 @@ print(f'Reason: {status.get(\"trip_reason\", \"N/A\")}')
 
 ```bash
 PYTHONPATH=. python -c "
-from libs.redis_client import RedisClient
-from libs.risk_management.breaker import CircuitBreaker
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.breaker import CircuitBreaker
 
 redis = RedisClient(host='localhost', port=6379)
 cb = CircuitBreaker(redis)

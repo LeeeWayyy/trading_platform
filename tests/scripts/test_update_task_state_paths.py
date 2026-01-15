@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tests for path normalization in update_task_state.py (PR #61 fix).
+Tests for path normalization in admin/update_task_state.py (PR #61 fix).
 
 Author: Claude Code
 Date: 2025-11-17
@@ -9,7 +9,7 @@ Component: PR #61 - Address Gemini HIGH priority feedback
 
 from pathlib import Path
 
-from scripts.update_task_state import normalize_task_file_path
+from scripts.admin.update_task_state import normalize_task_file_path
 
 
 def test_normalize_absolute_path_inside_repo():

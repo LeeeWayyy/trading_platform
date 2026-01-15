@@ -15,7 +15,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:8501")
 
 from apps.model_registry.main import lifespan
-from libs.models import ManifestIntegrityError
+from libs.models.models import ManifestIntegrityError
 
 
 @pytest.mark.asyncio()

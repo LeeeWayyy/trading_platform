@@ -72,7 +72,7 @@ def restore_main_globals():
     try:
         from typing import Any
 
-        from libs.common.api_auth_dependency import AuthContext
+        from libs.core.common.api_auth_dependency import AuthContext
 
         def _mock_auth_context() -> AuthContext:
             """Return a mock AuthContext that bypasses authentication for tests."""

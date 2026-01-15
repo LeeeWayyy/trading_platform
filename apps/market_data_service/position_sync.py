@@ -11,8 +11,8 @@ from typing import Any
 
 import httpx
 
-from libs.market_data import AlpacaMarketDataStream
-from libs.market_data.exceptions import SubscriptionError
+from libs.data.market_data import AlpacaMarketDataStream
+from libs.data.market_data.exceptions import SubscriptionError
 
 logger = logging.getLogger(__name__)
 

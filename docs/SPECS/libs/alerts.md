@@ -90,14 +90,14 @@ Alert rule -> AlertEvent -> AlertDelivery -> RQ job -> Channel handler
 ## Usage Examples
 ### Example 1: Trigger an alert
 ```python
-from libs.alerts.alert_manager import AlertManager
+from libs.platform.alerts.alert_manager import AlertManager
 
 event = await alert_manager.trigger_alert(rule_id, trigger_value, triggered_at)
 ```
 
 ### Example 2: Mask recipient before logging
 ```python
-from libs.alerts.pii import mask_recipient
+from libs.platform.alerts.pii import mask_recipient
 
 safe_recipient = mask_recipient(recipient, channel_type)
 ```
@@ -142,7 +142,7 @@ safe_recipient = mask_recipient(recipient, channel_type)
 - Secrets retrieved from secrets manager, not env.
 
 ## Testing
-- **Test Files:** `tests/libs/alerts/`
+- **Test Files:** `tests/libs/platform/alerts/`
 - **Run Tests:** `pytest tests/libs/alerts -v`
 - **Coverage:** N/A
 
@@ -158,5 +158,5 @@ safe_recipient = mask_recipient(recipient, channel_type)
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/alerts/__init__.py`, `libs/alerts/alert_manager.py`, `libs/alerts/delivery_service.py`, `libs/alerts/models.py`, `libs/alerts/poison_queue.py`, `libs/alerts/pii.py`, `libs/alerts/dedup.py`
+- **Source Files:** `libs/platform/alerts/__init__.py`, `libs/platform/alerts/alert_manager.py`, `libs/platform/alerts/delivery_service.py`, `libs/platform/alerts/models.py`, `libs/platform/alerts/poison_queue.py`, `libs/platform/alerts/pii.py`, `libs/platform/alerts/dedup.py`
 - **ADRs:** N/A

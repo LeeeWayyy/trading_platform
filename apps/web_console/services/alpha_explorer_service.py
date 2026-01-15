@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from libs.models.registry import ModelRegistry
-from libs.models.types import ModelMetadata, ModelStatus, ModelType
+from libs.models.models.registry import ModelRegistry
+from libs.models.models.types import ModelMetadata, ModelStatus, ModelType
 
 if TYPE_CHECKING:
-    from libs.alpha.metrics import AlphaMetricsAdapter
-    from libs.alpha.research_platform import BacktestResult
+    from libs.trading.alpha.metrics import AlphaMetricsAdapter
+    from libs.trading.alpha.research_platform import BacktestResult
 
 
 @dataclass
@@ -290,7 +290,7 @@ class AlphaExplorerService:
             return None
 
         from apps.web_console.utils.sync_db_pool import get_sync_db_pool
-        from libs.backtest.result_storage import BacktestResultStorage
+        from libs.trading.backtest.result_storage import BacktestResultStorage
 
         try:
             pool = get_sync_db_pool()

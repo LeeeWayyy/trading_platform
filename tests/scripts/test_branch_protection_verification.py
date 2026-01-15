@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import the function we're testing (Gemini LOW fix: remove unnecessary sys.path)
-from scripts.verify_branch_protection import check_branch_protection
+from scripts.testing.verify_branch_protection import check_branch_protection
 
 
 class TestBranchProtectionVerification:
@@ -171,7 +171,7 @@ class TestBranchProtectionScript:
         # This is a smoke test - it will actually call GitHub API
         # It should not crash, though it may return 0, 1, or 2 depending on actual state
         result = subprocess.run(
-            [sys.executable, "scripts/verify_branch_protection.py"],
+            [sys.executable, "scripts/testing/verify_branch_protection.py"],
             capture_output=True,
             text=True,
         )
@@ -184,7 +184,7 @@ class TestBranchProtectionScript:
 
     def test_script_has_executable_permissions(self):
         """Test that the script has executable permissions."""
-        script_path = Path("scripts/verify_branch_protection.py")
+        script_path = Path("scripts/testing/verify_branch_protection.py")
         assert script_path.exists()
 
         # Check if executable bit is set

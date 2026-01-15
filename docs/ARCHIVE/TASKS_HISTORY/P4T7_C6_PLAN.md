@@ -101,10 +101,10 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 # Import Protocol from C5 to avoid layering violation (libs importing from apps)
-from libs.tax.cost_basis import AsyncConnectionPool
+from libs.platform.tax.cost_basis import AsyncConnectionPool
 
 if TYPE_CHECKING:
-    from libs.tax.cost_basis import TaxLot
+    from libs.platform.tax.cost_basis import TaxLot
 
 logger = logging.getLogger(__name__)
 
@@ -413,11 +413,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 # Import Protocol for type hint (not TYPE_CHECKING since used at runtime)
-from libs.tax.cost_basis import AsyncConnectionPool
+from libs.platform.tax.cost_basis import AsyncConnectionPool
 
 if TYPE_CHECKING:
-    from libs.tax.cost_basis import TaxLot
-    from libs.tax.wash_sale_detector import WashSaleDetector
+    from libs.platform.tax.cost_basis import TaxLot
+    from libs.platform.tax.wash_sale_detector import WashSaleDetector
 
 logger = logging.getLogger(__name__)
 
@@ -663,7 +663,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from libs.tax.export import TaxReportRow
+from libs.platform.tax.export import TaxReportRow
 
 
 @dataclass
@@ -810,7 +810,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from libs.tax.wash_sale_detector import WashSaleDetector
+from libs.platform.tax.wash_sale_detector import WashSaleDetector
 
 
 class TestWashSaleDetection:

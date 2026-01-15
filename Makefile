@@ -44,7 +44,7 @@ up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 
 up-dev: ## Start all dev services (infrastructure + APIs + web console + workers)
 	@PYTHON=$$( [ -x .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3 ); \
-	$$PYTHON scripts/ensure_web_console_jwt_keys.py
+	$$PYTHON scripts/ops/ensure_web_console_jwt_keys.py
 	docker compose --profile dev --profile workers up -d
 	@echo "Waiting for services to be healthy..."
 	@sleep 10
@@ -86,13 +86,13 @@ lint: ## Run linters (black, ruff, mypy --strict)
 	poetry run mypy libs/ apps/ strategies/ --strict
 
 validate-docs: ## Validate that all markdown files are indexed in docs/INDEX.md
-	@./scripts/validate_doc_index.sh
+	@./scripts/dev/validate_doc_index.sh
 
 check-doc-freshness: ## Validate documentation freshness and coverage
-	@poetry run python scripts/check_doc_freshness.py
+	@poetry run python scripts/dev/check_doc_freshness.py
 
 check-architecture: ## Verify architecture map outputs are up to date
-	@poetry run python scripts/generate_architecture.py --check
+	@poetry run python scripts/dev/generate_architecture.py --check
 
 test: ## Run tests
 	PYTHONPATH=. poetry run pytest
@@ -108,9 +108,9 @@ test-watch: ## Run tests in watch mode
 
 install-hooks: ## Install git hooks (workflow gate enforcement)
 	@echo "Installing workflow gate hooks..."
-	@chmod +x scripts/workflow_gate.py
-	@chmod +x scripts/pre-commit-hook.sh
-	@ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit
+	@chmod +x scripts/admin/workflow_gate.py
+	@chmod +x scripts/hooks/pre-commit-hook.sh
+	@ln -sf ../../scripts/hooks/pre-commit-hook.sh .git/hooks/pre-commit
 	@echo "✓ Pre-commit hook installed successfully!"
 	@echo ""
 	@echo "The hook enforces the workflow pattern:"
@@ -159,16 +159,16 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	echo "$(SEPARATOR)"; \
 	echo "Step 0/8: Validating local environment matches pyproject.toml"; \
 	echo "$(SEPARATOR)"
-	@poetry run python scripts/validate_env.py || { $(call ci_error,Environment validation failed!,Your local environment is missing packages. Run: poetry install); }
+	@poetry run python scripts/testing/validate_env.py || { $(call ci_error,Environment validation failed!,Your local environment is missing packages. Run: poetry install); }
 	$(call ci_step_header,Step 1/8,Validating documentation index)
-	@./scripts/validate_doc_index.sh || { $(call ci_error,Documentation index validation failed!,All markdown files must be indexed in docs/INDEX.md. See error output above for missing files.); }
+	@./scripts/dev/validate_doc_index.sh || { $(call ci_error,Documentation index validation failed!,All markdown files must be indexed in docs/INDEX.md. See error output above for missing files.); }
 	$(call ci_step_header,Step 2/8,Checking documentation freshness)
-	@poetry run python scripts/check_doc_freshness.py || { $(call ci_error,Documentation freshness check failed!,Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories.); }
+	@poetry run python scripts/dev/check_doc_freshness.py || { $(call ci_error,Documentation freshness check failed!,Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories.); }
 	$(call ci_step_header,Step 3/8,Checking architecture map is up to date)
-	@poetry run python scripts/generate_architecture.py --check || { $(call ci_error,Architecture map is out of date!,Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate.); }
+	@poetry run python scripts/dev/generate_architecture.py --check || { $(call ci_error,Architecture map is out of date!,Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate.); }
 	$(call ci_step_header,Step 4/8,Checking markdown links (timeout: 1min))
 	@command -v markdown-link-check >/dev/null 2>&1 || { echo "❌ markdown-link-check not found. Installing..."; npm install -g markdown-link-check; }
-	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
+	@HANG_TIMEOUT=60 ./scripts/hooks/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; echo "$(SEPARATOR)"; echo "❌ Markdown link check TIMED OUT!"; echo "$(SEPARATOR)"; \
@@ -185,7 +185,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	poetry run ruff check .
 	$(call ci_step_header,Step 7/8,Running tests (integration and e2e tests skipped; timeout: 2 min per stall))
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
-	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=50 || { \
+	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/hooks/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=50 || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; echo "$(SEPARATOR)"; echo "❌ Tests TIMED OUT (no progress for 2 minutes)!"; echo "$(SEPARATOR)"; echo ""; \
@@ -194,7 +194,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		exit $$EXIT_CODE; \
 	}
 	$(call ci_step_header,Step 8/8,Verifying workflow gate compliance (review approval markers))
-	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { $(call ci_error,Workflow gate compliance failed!,Commits need zen-mcp-review: approved marker and continuation-id trailers. Request a zen-mcp review before committing.); }
+	@CI=true PYTHONPATH=. poetry run python scripts/testing/verify_gate_compliance.py || { $(call ci_error,Workflow gate compliance failed!,Commits need zen-mcp-review: approved marker and continuation-id trailers. Request a zen-mcp review before committing.); }
 	@echo ""
 	@echo "$(SEPARATOR)"
 	@echo "✓ All CI checks passed!"
@@ -214,7 +214,7 @@ clean: ## Clean up generated files
 	find . -type f -name "*.pyc" -delete
 
 status: ## Show current positions, orders, P&L and service health
-	@./scripts/operational_status.sh
+	@./scripts/ops/operational_status.sh
 
 circuit-trip: ## Manually trip circuit breaker (placeholder for P1)
 	@echo "Circuit breaker command not yet implemented (P1)"

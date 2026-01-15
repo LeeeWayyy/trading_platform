@@ -614,9 +614,9 @@ class NotebookService:
             "cell_type": "code",
             "source": [
                 "import polars as pl\n",
-                "from libs.alpha.research_platform import PITBacktester\n",
-                "from libs.alpha.alpha_definition import AlphaDefinition\n",
-                "from libs.alpha.metrics import AlphaMetricsAdapter"
+                "from libs.trading.alpha.research_platform import PITBacktester\n",
+                "from libs.trading.alpha.alpha_definition import AlphaDefinition\n",
+                "from libs.trading.alpha.metrics import AlphaMetricsAdapter"
             ]
         },
         {

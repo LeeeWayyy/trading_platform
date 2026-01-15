@@ -13,7 +13,7 @@ Key Features:
 
 Usage:
     from apps.web_console.services.cb_service import CircuitBreakerService
-    from libs.redis_client import RedisClient
+    from libs.core.redis_client import RedisClient
 
     redis = RedisClient(host="localhost", port=6379)
     service = CircuitBreakerService(redis_client=redis, db_pool=db_pool)
@@ -40,16 +40,19 @@ import psycopg
 import redis
 
 from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
-from libs.risk_management.breaker import CircuitBreaker
-from libs.risk_management.exceptions import CircuitBreakerError
-from libs.web_console_auth.audit_logger import admin_action_total, audit_write_latency_seconds
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.audit_logger import (
+    admin_action_total,
+    audit_write_latency_seconds,
+)
+from libs.platform.web_console_auth.permissions import Permission, has_permission
+from libs.trading.risk_management.breaker import CircuitBreaker
+from libs.trading.risk_management.exceptions import CircuitBreakerError
 
 from .cb_metrics import CB_RESET_TOTAL, CB_STATUS_CHECKS, CB_TRIP_TOTAL
 from .cb_rate_limiter import CBRateLimiter
 
 if TYPE_CHECKING:
-    from libs.redis_client import RedisClient
+    from libs.core.redis_client import RedisClient
 
 logger = logging.getLogger(__name__)
 

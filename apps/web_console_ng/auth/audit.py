@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from apps.web_console_ng import config
-from libs.web_console_auth.db import acquire_connection
+from libs.platform.web_console_auth.db import acquire_connection
 
 logger = logging.getLogger("audit.auth")
 

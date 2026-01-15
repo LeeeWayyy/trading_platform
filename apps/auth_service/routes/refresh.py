@@ -9,7 +9,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from apps.auth_service.dependencies import get_oauth2_handler, get_rate_limiters
-from libs.common.network_utils import extract_client_ip_from_fastapi
+from libs.core.common.network_utils import extract_client_ip_from_fastapi
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 from nicegui import ui
 
 from apps.web_console.utils.validators import validate_exposures
-from libs.risk.factor_covariance import CANONICAL_FACTOR_ORDER
+from libs.trading.risk.factor_covariance import CANONICAL_FACTOR_ORDER
 
 # Ensure asset_growth is included for full factor coverage (P2 fix)
 # RiskService returns 6 factors, so chart must display all 6

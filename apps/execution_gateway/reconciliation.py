@@ -17,8 +17,8 @@ from prometheus_client import Counter, Gauge
 
 from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaExecutor
 from apps.execution_gateway.database import TERMINAL_STATUSES, DatabaseClient, status_rank_for
-from libs.redis_client import RedisClient
-from libs.redis_client.keys import RedisKeys
+from libs.core.redis_client import RedisClient
+from libs.core.redis_client.keys import RedisKeys
 
 logger = logging.getLogger(__name__)
 

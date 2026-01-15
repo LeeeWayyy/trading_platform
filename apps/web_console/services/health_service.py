@@ -14,9 +14,9 @@ from typing import Any
 import redis
 from pydantic import BaseModel, ConfigDict
 
-from libs.health.health_client import HealthClient, ServiceHealthResponse
-from libs.health.prometheus_client import LatencyMetrics, PrometheusClient
-from libs.redis_client import RedisClient
+from libs.core.health.health_client import HealthClient, ServiceHealthResponse
+from libs.core.health.prometheus_client import LatencyMetrics, PrometheusClient
+from libs.core.redis_client import RedisClient
 
 logger = logging.getLogger(__name__)
 

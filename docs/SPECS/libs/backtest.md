@@ -37,14 +37,14 @@ BacktestJob -> worker/runner -> result storage
 ## Usage Examples
 ### Example 1: Grid search
 ```python
-from libs.backtest import grid_search
+from libs.trading.backtest import grid_search
 
 result = grid_search(param_grid={"lookback": [20, 60]}, evaluator=...)
 ```
 
 ### Example 2: Monte Carlo simulation
 ```python
-from libs.backtest import MonteCarloSimulator, MonteCarloConfig
+from libs.trading.backtest import MonteCarloSimulator, MonteCarloConfig
 
 sim = MonteCarloSimulator(MonteCarloConfig(...))
 report = sim.run(...)
@@ -73,7 +73,7 @@ report = sim.run(...)
 - N/A (analysis library).
 
 ## Testing
-- **Test Files:** `tests/libs/backtest/`
+- **Test Files:** `tests/libs/trading/backtest/`
 - **Run Tests:** `pytest tests/libs/backtest -v`
 - **Coverage:** N/A
 
@@ -87,5 +87,5 @@ report = sim.run(...)
 
 ## Metadata
 - **Last Updated:** 2026-01-11
-- **Source Files:** `libs/backtest/__init__.py`, `libs/backtest/job_queue.py`, `libs/backtest/worker.py`
+- **Source Files:** `libs/trading/backtest/__init__.py`, `libs/trading/backtest/job_queue.py`, `libs/trading/backtest/worker.py`
 - **ADRs:** N/A

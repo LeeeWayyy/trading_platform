@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from apps.web_console_ng import config
-from apps.web_console_ng.core.redis_ha import HARedisStore, SimpleRedisStore, get_redis_store
+from apps.web_console_ng.core.redis_ha import HARedisStore, get_redis_store
 
 
 @pytest.fixture()
 def mock_redis_async():
-    with patch("redis.asyncio.Redis") as mock:
+    with patch("apps.web_console_ng.core.redis_ha.Redis") as mock:
         yield mock
 
 
@@ -23,6 +23,11 @@ def mock_sentinel():
 async def test_simple_redis_store(mock_redis_async):
     """Test SimpleRedisStore initialization and ping."""
     with patch("apps.web_console_ng.config.REDIS_USE_SENTINEL", False):
+        # Reset singleton before test
+        from apps.web_console_ng.core.redis_ha import SimpleRedisStore
+
+        SimpleRedisStore._instance = None
+
         store = get_redis_store()
         assert isinstance(store, SimpleRedisStore)
 

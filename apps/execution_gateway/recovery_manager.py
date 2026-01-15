@@ -30,8 +30,8 @@ from redis.exceptions import RedisError
 if TYPE_CHECKING:
     from apps.execution_gateway.database import DatabaseClient
     from apps.execution_gateway.slice_scheduler import SliceScheduler
-    from libs.redis_client import RedisClient
-    from libs.risk_management import CircuitBreaker, KillSwitch, PositionReservation
+    from libs.core.redis_client import RedisClient
+    from libs.trading.risk_management import CircuitBreaker, KillSwitch, PositionReservation
 
 logger = logging.getLogger(__name__)
 

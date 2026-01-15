@@ -33,7 +33,7 @@ def query(sql):
 ### Sync-Aware Readers
 
 ```python
-from libs.data_quality.manifest import ManifestManager
+from libs.data.data_quality.manifest import ManifestManager
 
 mm = ManifestManager()
 

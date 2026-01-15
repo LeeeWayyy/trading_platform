@@ -39,7 +39,7 @@ secret key -> secret manager -> value
 ## Usage Examples
 ### Example 1: Rate limit dependency
 ```python
-from libs.common import rate_limit, RateLimitConfig
+from libs.core.common import rate_limit, RateLimitConfig
 
 config = RateLimitConfig(per_minute=30)
 app.get("/path", dependencies=[Depends(rate_limit(config))])
@@ -47,7 +47,7 @@ app.get("/path", dependencies=[Depends(rate_limit(config))])
 
 ### Example 2: Fetch secret
 ```python
-from libs.common import get_required_secret
+from libs.core.common import get_required_secret
 
 api_key = get_required_secret("alpaca/api_key_id")
 ```
@@ -75,7 +75,7 @@ api_key = get_required_secret("alpaca/api_key_id")
 - Secrets are fetched via centralized manager; values not logged.
 
 ## Testing
-- **Test Files:** `tests/libs/common/`
+- **Test Files:** `tests/libs/core/common/`
 - **Run Tests:** `pytest tests/libs/common -v`
 - **Coverage:** N/A
 
@@ -90,5 +90,5 @@ api_key = get_required_secret("alpaca/api_key_id")
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/common/__init__.py`, `libs/common/rate_limit_dependency.py`, `libs/common/secrets.py`
+- **Source Files:** `libs/core/common/__init__.py`, `libs/core/common/rate_limit_dependency.py`, `libs/core/common/secrets.py`
 - **ADRs:** N/A

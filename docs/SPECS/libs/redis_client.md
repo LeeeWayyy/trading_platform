@@ -40,7 +40,7 @@ producer -> EventPublisher -> Redis channel -> subscribers
 ## Usage Examples
 ### Example 1: Feature cache
 ```python
-from libs.redis_client import RedisClient, FeatureCache
+from libs.core.redis_client import RedisClient, FeatureCache
 
 client = RedisClient(host="localhost", port=6379)
 cache = FeatureCache(client)
@@ -49,7 +49,7 @@ cache.set("AAPL", "2025-01-02", {"feature": 1.0})
 
 ### Example 2: Publish event
 ```python
-from libs.redis_client import EventPublisher, SignalEvent
+from libs.core.redis_client import EventPublisher, SignalEvent
 
 publisher = EventPublisher(client)
 publisher.publish(SignalEvent(...))
@@ -78,7 +78,7 @@ publisher.publish(SignalEvent(...))
 - Redis credentials handled via secrets manager where used.
 
 ## Testing
-- **Test Files:** `tests/libs/redis_client/`
+- **Test Files:** `tests/libs/core/redis_client/`
 - **Run Tests:** `pytest tests/libs/redis_client -v`
 - **Coverage:** N/A
 
@@ -93,5 +93,5 @@ publisher.publish(SignalEvent(...))
 
 ## Metadata
 - **Last Updated:** 2026-01-10
-- **Source Files:** `libs/redis_client/client.py`, `libs/redis_client/feature_cache.py`, `libs/redis_client/event_publisher.py`, `libs/redis_client/keys.py`
+- **Source Files:** `libs/core/redis_client/client.py`, `libs/core/redis_client/feature_cache.py`, `libs/core/redis_client/event_publisher.py`, `libs/core/redis_client/keys.py`
 - **ADRs:** `docs/ADRs/0009-redis-integration.md`

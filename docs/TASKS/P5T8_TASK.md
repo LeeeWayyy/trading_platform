@@ -99,7 +99,7 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.config import FEATURE_ALPHA_EXPLORER
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console.services.alpha_explorer_service import AlphaExplorerService
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
@@ -171,7 +171,7 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.config import FEATURE_STRATEGY_COMPARISON
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console.services.comparison_service import ComparisonService
-from libs.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
+from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
 
 DEFAULT_LOOKBACK_DAYS = 30
 MAX_STRATEGIES = 4
@@ -239,7 +239,7 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.config import FEATURE_TRADE_JOURNAL
 from apps.web_console_ng.core.audit import log_audit_event
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
+from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
@@ -304,7 +304,7 @@ from apps.web_console.services.notebook_launcher_service import (
     NotebookLauncherService,
     SessionStatus,
 )
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 
 @ui.page("/notebooks")
@@ -361,7 +361,7 @@ from apps.web_console_ng.components.drawdown_chart import render_drawdown_chart
 from apps.web_console_ng.components.equity_curve_chart import render_equity_curve
 from apps.web_console_ng.config import FEATURE_PERFORMANCE_DASHBOARD
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
+from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
@@ -420,7 +420,7 @@ from apps.web_console.services.scheduled_reports_service import (
     ReportSchedule,
     ScheduledReportsService,
 )
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 
 @ui.page("/reports")

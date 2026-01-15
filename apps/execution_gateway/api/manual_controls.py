@@ -50,14 +50,14 @@ from apps.execution_gateway.schemas_manual_controls import (
     RecentFillEvent,
     RecentFillsResponse,
 )
-from libs.web_console_auth.audit_logger import AuditLogger
-from libs.web_console_auth.gateway_auth import AuthenticatedUser
-from libs.web_console_auth.permissions import (
+from libs.platform.web_console_auth.audit_logger import AuditLogger
+from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
+from libs.platform.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
     has_permission,
 )
-from libs.web_console_auth.rate_limiter import RateLimiter
+from libs.platform.web_console_auth.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 

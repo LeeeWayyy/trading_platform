@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
+from libs.data.market_data.types import PriceData, PriceUpdateEvent, QuoteData
 
 
 class TestQuoteData:

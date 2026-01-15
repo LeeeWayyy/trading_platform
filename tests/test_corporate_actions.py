@@ -14,7 +14,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from libs.data_pipeline.corporate_actions import (
+from libs.data.data_pipeline.corporate_actions import (
     adjust_for_dividends,
     adjust_for_splits,
     adjust_prices,

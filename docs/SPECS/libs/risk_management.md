@@ -37,7 +37,7 @@ order request -> risk checks -> allow/deny
 ## Usage Examples
 ### Example 1: Pre-trade check
 ```python
-from libs.risk_management import RiskChecker, RiskConfig
+from libs.trading.risk_management import RiskChecker, RiskConfig
 
 checker = RiskChecker(config=RiskConfig(), breaker=...)
 valid, reason = checker.validate_order(symbol="AAPL", side="buy", qty=10, current_position=0)
@@ -45,7 +45,7 @@ valid, reason = checker.validate_order(symbol="AAPL", side="buy", qty=10, curren
 
 ### Example 2: Trip breaker
 ```python
-from libs.risk_management import CircuitBreaker
+from libs.trading.risk_management import CircuitBreaker
 
 breaker = CircuitBreaker(redis_client=...)
 breaker.trip("manual")
@@ -74,7 +74,7 @@ breaker.trip("manual")
 - Centralized control for trading safety mechanisms.
 
 ## Testing
-- **Test Files:** `tests/libs/risk_management/`
+- **Test Files:** `tests/libs/trading/risk_management/`
 - **Run Tests:** `pytest tests/libs/risk_management -v`
 - **Coverage:** N/A
 
@@ -88,5 +88,5 @@ breaker.trip("manual")
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `libs/risk_management/breaker.py`, `libs/risk_management/checker.py`, `libs/risk_management/kill_switch.py`
+- **Source Files:** `libs/trading/risk_management/breaker.py`, `libs/trading/risk_management/checker.py`, `libs/trading/risk_management/kill_switch.py`
 - **ADRs:** `docs/ADRs/0011-risk-management-system.md`

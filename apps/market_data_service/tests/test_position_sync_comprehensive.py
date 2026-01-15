@@ -23,7 +23,7 @@ import httpx
 import pytest
 
 from apps.market_data_service.position_sync import PositionBasedSubscription
-from libs.market_data.exceptions import SubscriptionError
+from libs.data.market_data.exceptions import SubscriptionError
 
 
 @pytest.fixture()

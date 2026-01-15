@@ -29,8 +29,8 @@ from apps.orchestrator.schemas import (
     SignalOrderMapping,
     SignalServiceResponse,
 )
-from libs.allocation import MultiAlphaAllocator
-from libs.allocation.multi_alpha import AllocMethod
+from libs.trading.allocation import MultiAlphaAllocator
+from libs.trading.allocation.multi_alpha import AllocMethod
 
 logger = logging.getLogger(__name__)
 

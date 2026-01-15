@@ -86,14 +86,14 @@ providers -> factor inputs -> factor exposures -> analytics
 ## Usage Examples
 ### Example 1: Compute factor exposures
 ```python
-from libs.factors import FactorBuilder
+from libs.models.factors import FactorBuilder
 
 result = builder.compute_factor("momentum_12_1", as_of_date)
 ```
 
 ### Example 2: Analyze factor IC
 ```python
-from libs.factors import FactorAnalytics
+from libs.models.factors import FactorAnalytics
 
 ic = FactorAnalytics().compute_ic(exposures, forward_returns)
 ```
@@ -132,7 +132,7 @@ ic = FactorAnalytics().compute_ic(exposures, forward_returns)
 - No secrets; depends on provider credentials upstream.
 
 ## Testing
-- **Test Files:** `tests/libs/factors/`
+- **Test Files:** `tests/libs/models/factors/`
 - **Run Tests:** `pytest tests/libs/factors -v`
 - **Coverage:** N/A
 
@@ -147,5 +147,5 @@ ic = FactorAnalytics().compute_ic(exposures, forward_returns)
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/factors/__init__.py`, `libs/factors/factor_builder.py`, `libs/factors/factor_definitions.py`, `libs/factors/factor_analytics.py`, `libs/factors/cache.py`
+- **Source Files:** `libs/models/factors/__init__.py`, `libs/models/factors/factor_builder.py`, `libs/models/factors/factor_definitions.py`, `libs/models/factors/factor_analytics.py`, `libs/models/factors/cache.py`
 - **ADRs:** N/A

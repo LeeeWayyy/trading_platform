@@ -20,10 +20,10 @@ from psycopg_pool import AsyncConnectionPool
 
 from apps.execution_gateway.alpaca_client import AlpacaExecutor
 from apps.execution_gateway.database import DatabaseClient
-from libs.common.secrets import get_required_secret
-from libs.web_console_auth.audit_logger import AuditLogger
-from libs.web_console_auth.config import AuthConfig
-from libs.web_console_auth.exceptions import (
+from libs.core.common.secrets import get_required_secret
+from libs.platform.web_console_auth.audit_logger import AuditLogger
+from libs.platform.web_console_auth.config import AuthConfig
+from libs.platform.web_console_auth.exceptions import (
     AuthError,
     ImmatureSignatureError,
     InvalidAudienceError,
@@ -36,12 +36,12 @@ from libs.web_console_auth.exceptions import (
     TokenReplayedError,
     TokenRevokedError,
 )
-from libs.web_console_auth.gateway_auth import AuthenticatedUser, GatewayAuthenticator
-from libs.web_console_auth.jwks_validator import JWKSValidator
-from libs.web_console_auth.jwt_manager import JWTManager
-from libs.web_console_auth.permissions import Permission, Role, has_permission
-from libs.web_console_auth.rate_limiter import RateLimiter
-from libs.web_console_auth.redis_client import (
+from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser, GatewayAuthenticator
+from libs.platform.web_console_auth.jwks_validator import JWKSValidator
+from libs.platform.web_console_auth.jwt_manager import JWTManager
+from libs.platform.web_console_auth.permissions import Permission, Role, has_permission
+from libs.platform.web_console_auth.rate_limiter import RateLimiter
+from libs.platform.web_console_auth.redis_client import (
     create_async_redis,
     create_sync_redis,
     load_redis_config,

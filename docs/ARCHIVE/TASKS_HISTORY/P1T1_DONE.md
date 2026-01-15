@@ -164,7 +164,7 @@ python3 -c "import redis; print(f'Redis version: {redis.__version__}')"
 ### Basic Usage
 
 ```python
-from libs.redis_client import RedisClient, FeatureCache
+from libs.core.redis_client import RedisClient, FeatureCache
 
 # Initialize client
 client = RedisClient(host="localhost", port=6379)
@@ -235,7 +235,7 @@ class Settings(BaseSettings):
 
 ```python
 import logging
-from libs.redis_client import RedisClient, FeatureCache
+from libs.core.redis_client import RedisClient, FeatureCache
 
 logger = logging.getLogger(__name__)
 
@@ -428,7 +428,7 @@ async def health_check():
 
 import pytest
 from unittest.mock import Mock
-from libs.redis_client import FeatureCache
+from libs.core.redis_client import FeatureCache
 from apps.signal_service.signal_generator import SignalGenerator
 
 @pytest.mark.integration
@@ -487,8 +487,8 @@ Publish events when signals are generated and orders are executed.
 
 ```python
 from datetime import timezone
-from libs.redis_client import EventPublisher
-from libs.redis_client.events import SignalEvent
+from libs.core.redis_client import EventPublisher
+from libs.core.redis_client.events import SignalEvent
 
 # Global state
 event_publisher: Optional[EventPublisher] = None
@@ -528,8 +528,8 @@ async def generate_signals(request: SignalRequest):
 **File**: `apps/execution_gateway/main.py`
 
 ```python
-from libs.redis_client import EventPublisher
-from libs.redis_client.events import OrderEvent, PositionEvent
+from libs.core.redis_client import EventPublisher
+from libs.core.redis_client.events import OrderEvent, PositionEvent
 
 # TODO: Add event publishing to T4
 # - Publish OrderEvent after order execution
@@ -581,7 +581,7 @@ REDIS_DB=1  # Use different DB for tests
 import pytest
 import time
 from datetime import datetime
-from libs.redis_client import RedisClient, FeatureCache
+from libs.core.redis_client import RedisClient, FeatureCache
 
 @pytest.mark.integration
 def test_cache_performance():
@@ -613,8 +613,8 @@ def test_cache_performance():
 @pytest.mark.integration
 def test_pubsub_delivery():
     """Test event publishing and subscription."""
-    from libs.redis_client import EventPublisher
-    from libs.redis_client.events import SignalEvent
+    from libs.core.redis_client import EventPublisher
+    from libs.core.redis_client.events import SignalEvent
 
     client = RedisClient()
     publisher = EventPublisher(client)
@@ -709,7 +709,7 @@ REDIS_ENABLED=true uvicorn apps.signal_service.main:app --port 8001
 ### Example 1: Feature Caching
 
 ```python
-from libs.redis_client import RedisClient, FeatureCache
+from libs.core.redis_client import RedisClient, FeatureCache
 
 # Initialize
 client = RedisClient(host="localhost", port=6379)
@@ -740,8 +740,8 @@ client.close()
 
 ```python
 from datetime import datetime, timezone
-from libs.redis_client import RedisClient, EventPublisher
-from libs.redis_client.events import SignalEvent
+from libs.core.redis_client import RedisClient, EventPublisher
+from libs.core.redis_client.events import SignalEvent
 
 # Initialize
 client = RedisClient()

@@ -63,7 +63,7 @@ Validates that market data is recent enough for trading decisions.
 
 **Example Usage**:
 ```python
-from libs.data_pipeline.freshness import check_freshness
+from libs.data.data_pipeline.freshness import check_freshness
 
 # Will raise StalenessError if data > 30 minutes old
 check_freshness(raw_data, max_age_minutes=30)
@@ -103,7 +103,7 @@ Adjusts historical prices for stock splits and dividends using backwards adjustm
 
 **Example Usage**:
 ```python
-from libs.data_pipeline.corporate_actions import adjust_prices
+from libs.data.data_pipeline.corporate_actions import adjust_prices
 
 # Apply both splits and dividends
 adjusted = adjust_prices(
@@ -136,7 +136,7 @@ Detects outliers and separates clean data from suspicious data.
 
 **Example Usage**:
 ```python
-from libs.data_pipeline.quality_gate import detect_outliers
+from libs.data.data_pipeline.quality_gate import detect_outliers
 
 # Split data into good and bad
 good_data, quarantine_data = detect_outliers(
@@ -173,7 +173,7 @@ data/
 
 **Example Usage**:
 ```python
-from libs.data_pipeline.etl import run_etl_pipeline
+from libs.data.data_pipeline.etl import run_etl_pipeline
 
 result = run_etl_pipeline(
     raw_data=raw_data,
@@ -318,7 +318,7 @@ poetry run pytest --cov=libs --cov-report=term-missing
 from datetime import datetime, timezone, date
 from pathlib import Path
 import polars as pl
-from libs.data_pipeline.etl import run_etl_pipeline
+from libs.data.data_pipeline.etl import run_etl_pipeline
 
 # Load raw data (from your data source)
 raw_data = pl.read_parquet("raw/2024-10-16/AAPL.parquet")
@@ -350,7 +350,7 @@ if len(result['quarantined']) > 0:
 **Loading Processed Data**:
 ```python
 from datetime import date
-from libs.data_pipeline.etl import load_adjusted_data
+from libs.data.data_pipeline.etl import load_adjusted_data
 
 # Load specific symbols and date range
 df = load_adjusted_data(

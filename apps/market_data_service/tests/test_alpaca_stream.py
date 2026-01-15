@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from redis.exceptions import RedisError
 
-from libs.market_data.alpaca_stream import AlpacaMarketDataStream
+from libs.data.market_data.alpaca_stream import AlpacaMarketDataStream
 
 
 @pytest.fixture()
@@ -48,7 +48,7 @@ def mock_alpaca_quote():
 @pytest.fixture()
 def stream(mock_redis, mock_publisher):
     """Create AlpacaMarketDataStream with mocked dependencies."""
-    with patch("libs.market_data.alpaca_stream.StockDataStream") as mock_stream_class:
+    with patch("libs.data.market_data.alpaca_stream.StockDataStream") as mock_stream_class:
         mock_stream_instance = MagicMock()
         mock_stream_class.return_value = mock_stream_instance
 
@@ -137,7 +137,7 @@ class TestAlpacaMarketDataStream:
         pub_call_args = mock_publisher.publish.call_args
         assert pub_call_args[0][0] == "price.updated.AAPL"  # Channel
         # Second argument should be a Pydantic model, not a dict
-        from libs.market_data.types import PriceUpdateEvent
+        from libs.data.market_data.types import PriceUpdateEvent
 
         assert isinstance(pub_call_args[0][1], PriceUpdateEvent)
 

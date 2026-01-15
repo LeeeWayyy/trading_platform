@@ -18,7 +18,7 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.grid_performance import get_all_monitors
 from apps.web_console_ng.ui.dark_theme import enable_dark_mode
 from apps.web_console_ng.utils.session import get_or_create_client_id
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 

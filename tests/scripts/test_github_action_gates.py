@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from scripts.verify_gate_compliance import has_review_markers
+from scripts.testing.verify_gate_compliance import has_review_markers
 
 
 class TestReviewHashTrailer:
@@ -39,7 +39,7 @@ Review-Hash: 530744c33ff1687e6de14733414a7dd23afd1c28ca4cc3e37f7136f994599943
 Co-Authored-By: Claude <noreply@anthropic.com>
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             assert has_review_markers(commit_hash) is True
 
@@ -59,7 +59,7 @@ continuation-id: 12345678-1234-1234-1234-123456789abc
 Co-Authored-By: Claude <noreply@anthropic.com>
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             # Should pass - approval + shared continuation-id is valid
             assert has_review_markers(commit_hash) is True
@@ -77,7 +77,7 @@ Review-Hash: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             assert has_review_markers(commit_hash) is True
 
@@ -99,7 +99,7 @@ codex-continuation-id: dddd-eeee-ffff
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             # Should pass - approval + dual continuation IDs is sufficient
             assert has_review_markers(commit_hash) is True
@@ -118,7 +118,7 @@ Review-Hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             # Should pass - we don't validate hash correctness
             assert has_review_markers(commit_hash) is True
@@ -136,7 +136,7 @@ REVIEW-HASH: 530744c33ff1687e6de14733414a7dd23afd1c28ca4cc3e37f7136f994599943
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             assert has_review_markers(commit_hash) is True
 
@@ -153,7 +153,7 @@ Review-Hash: 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             assert has_review_markers(commit_hash) is True
 
@@ -165,7 +165,7 @@ Review-Hash: 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
 Just a regular commit message.
 """
         with patch(
-            "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
+            "scripts.testing.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
             assert has_review_markers(commit_hash) is False
 

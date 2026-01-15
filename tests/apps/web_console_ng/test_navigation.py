@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from apps.web_console_ng.ui import layout as layout_module
-from libs.web_console_auth.permissions import Permission
+from libs.platform.web_console_auth.permissions import Permission
 
 
 class _FakeContext:

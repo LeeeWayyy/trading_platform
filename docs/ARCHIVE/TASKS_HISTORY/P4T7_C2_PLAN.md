@@ -102,7 +102,7 @@ import polars as pl
 if TYPE_CHECKING:
     from typing import Any
     from apps.web_console.utils.db_pool import AsyncConnectionAdapter
-    from libs.factors.factor_builder import FactorBuilder
+    from libs.models.factors.factor_builder import FactorBuilder
     # NOTE: get_current_user() returns dict, not a typed User class
     # Use dict[str, Any] for user type until auth types are formalized
 
@@ -155,7 +155,7 @@ class FactorExposureService:
         Uses CANONICAL_FACTORS from libs/factors/factor_definitions.py
         NOTE: category is an instance property, so we must instantiate the class.
         """
-        from libs.factors import CANONICAL_FACTORS
+        from libs.models.factors import CANONICAL_FACTORS
 
         return [
             FactorDefinition(
@@ -346,9 +346,9 @@ class FactorExposureService:
         Handles both long and short positions using absolute market values for weighting.
         """
         from pathlib import Path
-        from libs.data_providers.crsp_local_provider import CRSPLocalProvider
-        from libs.data_quality.exceptions import DataNotFoundError
-        from libs.data_quality.manifest import ManifestManager
+        from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
+        from libs.data.data_quality.exceptions import DataNotFoundError
+        from libs.data.data_quality.manifest import ManifestManager
 
         # NOTE: positions table is GLOBAL (no strategy_id column) so we can't use
         # StrategyScopedDataAccess.get_positions() which filters by strategy_id.
@@ -434,7 +434,7 @@ class FactorExposureService:
                     })
                 except DataNotFoundError:
                     # Symbol not found in CRSP - skip with warning
-                    # DataNotFoundError from libs.data_quality.exceptions
+                    # DataNotFoundError from libs.data.data_quality.exceptions
                     import logging
                     logging.getLogger(__name__).warning(
                         f"No PERMNO mapping for {row_data['symbol']} as of {as_of_date}"
@@ -688,10 +688,10 @@ def main() -> None:
 
     # Initialize service with required dependencies
     from pathlib import Path
-    from libs.factors.factor_builder import FactorBuilder
-    from libs.data_providers.crsp_local_provider import CRSPLocalProvider
-    from libs.data_providers.compustat_local_provider import CompustatLocalProvider
-    from libs.data_quality.manifest import ManifestManager
+    from libs.models.factors.factor_builder import FactorBuilder
+    from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
+    from libs.data.data_providers.compustat_local_provider import CompustatLocalProvider
+    from libs.data.data_quality.manifest import ManifestManager
     from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 
     # FactorBuilder requires data providers and manifest manager

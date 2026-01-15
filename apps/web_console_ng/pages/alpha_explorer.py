@@ -33,7 +33,7 @@ from apps.web_console_ng.components.decay_curve import render_decay_curve
 from apps.web_console_ng.components.ic_chart import render_ic_chart
 from apps.web_console_ng.config import FEATURE_ALPHA_EXPLORER
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from apps.web_console.services.alpha_explorer_service import (
@@ -56,8 +56,8 @@ def _get_alpha_service() -> AlphaExplorerService | None:
     """
     try:
         from apps.web_console.services.alpha_explorer_service import AlphaExplorerService
-        from libs.alpha.metrics import AlphaMetricsAdapter
-        from libs.models.registry import ModelRegistry
+        from libs.models.models.registry import ModelRegistry
+        from libs.trading.alpha.metrics import AlphaMetricsAdapter
 
         registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
         registry = ModelRegistry(registry_dir=registry_dir)
@@ -137,7 +137,7 @@ async def alpha_explorer_page() -> None:
 
 async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, Any]) -> None:
     """Render the full alpha explorer with real service data."""
-    from libs.models.types import ModelStatus
+    from libs.models.models.types import ModelStatus
 
     # State for filters and pagination (explicit Any typing for mypy)
     state: dict[str, Any] = {

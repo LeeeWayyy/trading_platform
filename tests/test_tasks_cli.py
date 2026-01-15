@@ -13,7 +13,7 @@ import pytest
 def test_create_phase_command_exists():
     """Test that create-phase command is available."""
     result = subprocess.run(
-        ["python", "scripts/tasks.py", "--help"],
+        ["python", "scripts/admin/tasks.py", "--help"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,
@@ -25,7 +25,7 @@ def test_create_phase_command_exists():
 def test_generate_tasks_from_phase_command_exists():
     """Test that generate-tasks-from-phase command is available."""
     result = subprocess.run(
-        ["python", "scripts/tasks.py", "--help"],
+        ["python", "scripts/admin/tasks.py", "--help"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,
@@ -37,7 +37,7 @@ def test_generate_tasks_from_phase_command_exists():
 def test_create_phase_requires_valid_phase():
     """Test that create-phase validates phase ID."""
     result = subprocess.run(
-        ["python", "scripts/tasks.py", "create-phase", "P3"],
+        ["python", "scripts/admin/tasks.py", "create-phase", "P3"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,
@@ -60,7 +60,7 @@ def test_generate_tasks_dry_run():
         pytest.skip("No planning file exists for P0, P1, or P2 (all archived)")
 
     result = subprocess.run(
-        ["python", "scripts/tasks.py", "generate-tasks-from-phase", existing_phase, "--dry-run"],
+        ["python", "scripts/admin/tasks.py", "generate-tasks-from-phase", existing_phase, "--dry-run"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,
@@ -98,7 +98,7 @@ def test_task_template_exists():
 def test_cli_help():
     """Test that CLI help shows all commands."""
     result = subprocess.run(
-        ["python", "scripts/tasks.py", "--help"],
+        ["python", "scripts/admin/tasks.py", "--help"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,

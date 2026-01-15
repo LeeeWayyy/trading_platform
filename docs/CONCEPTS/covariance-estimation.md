@@ -148,7 +148,7 @@ specific_vol = sqrt(specific_variance * 252)
 
 ```python
 from libs.risk import FactorCovarianceEstimator, CovarianceConfig
-from libs.factors import FactorBuilder
+from libs.models.factors import FactorBuilder
 
 # Initialize
 config = CovarianceConfig(halflife_days=60)

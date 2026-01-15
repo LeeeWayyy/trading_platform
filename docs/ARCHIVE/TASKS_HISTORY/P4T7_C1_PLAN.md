@@ -106,7 +106,7 @@ from libs.models.registry import ModelRegistry
 from libs.models.types import ModelMetadata, ModelStatus, ModelType
 
 if TYPE_CHECKING:
-    from libs.alpha.metrics import AlphaMetricsAdapter
+    from libs.trading.alpha.metrics import AlphaMetricsAdapter
 
 
 @dataclass
@@ -378,7 +378,7 @@ class AlphaExplorerService:
 
         # BacktestResultStorage uses SYNC psycopg pool - same as backtest.py page
         from apps.web_console.utils.sync_db_pool import get_sync_db_pool
-        from libs.backtest.result_storage import BacktestResultStorage
+        from libs.trading.backtest.result_storage import BacktestResultStorage
 
         try:
             pool = get_sync_db_pool()  # Sync pool, not async
@@ -575,7 +575,7 @@ def main() -> None:
 
     # Initialize service - ModelRegistry requires registry_dir
     from pathlib import Path
-    from libs.alpha.metrics import AlphaMetricsAdapter
+    from libs.trading.alpha.metrics import AlphaMetricsAdapter
 
     registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
     registry = ModelRegistry(registry_dir=registry_dir)

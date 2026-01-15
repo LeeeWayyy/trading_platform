@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test suite for scripts/check_doc_freshness.py.
+Test suite for scripts/dev/check_doc_freshness.py.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import scripts.check_doc_freshness as freshness
+import scripts.dev.check_doc_freshness as freshness
 
 
 @pytest.fixture()
@@ -67,7 +67,7 @@ def test_check_freshness_missing_orphaned_deprecated(
     def fake_run(args: list[str], capture_output: bool, text: bool, cwd: Path) -> MagicMock:
         return MagicMock(stdout="2026-01-02T00:00:00Z")
 
-    with patch("scripts.check_doc_freshness.subprocess.run", side_effect=fake_run):
+    with patch("scripts.dev.check_doc_freshness.subprocess.run", side_effect=fake_run):
         report = freshness.check_freshness("docs/GETTING_STARTED/REPO_MAP.md", ["apps/*/"])
 
     assert report["missing"] == ["apps/bar/"]

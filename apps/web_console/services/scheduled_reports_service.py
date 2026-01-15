@@ -15,7 +15,7 @@ from uuid import uuid4
 from psycopg.rows import dict_row
 
 from apps.web_console.utils.db import acquire_connection
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 

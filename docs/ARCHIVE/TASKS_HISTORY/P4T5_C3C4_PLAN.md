@@ -267,7 +267,7 @@ def get_recipient_hash(recipient: str, channel_type: str, hash_secret: str) -> s
 # - "secret stored in secrets manager, rotated quarterly"
 # - "hash = first 16 chars of hex digest"
 
-from libs.secrets.manager import SecretsManager
+from libs.platform.secrets.manager import SecretsManager
 
 def get_recipient_hash_secret() -> str:
     """Get recipient hash secret from secrets manager.
@@ -349,7 +349,7 @@ This separation keeps handlers testable and avoids Redis coupling in channel cod
 
 **PII Logging Policy (MANDATORY):**
 All channel handlers MUST:
-1. Import `from libs.alerts.pii import mask_recipient`
+1. Import `from libs.platform.alerts.pii import mask_recipient`
 2. Use `mask_recipient(recipient, channel_type)` in ALL log statements
 3. NEVER log raw recipient, webhook URL, or phone number
 4. Log structure: `logger.info("send_attempt", extra={"recipient": mask_recipient(...)})`
@@ -357,7 +357,7 @@ All channel handlers MUST:
 **Secrets Handling (via existing secrets manager):**
 ```python
 # Channel handlers MUST source credentials from secrets manager
-from libs.secrets import create_secret_manager
+from libs.platform.secrets import create_secret_manager
 
 secrets = create_secret_manager()
 
@@ -384,7 +384,7 @@ TWILIO_FROM_NUMBER = secrets.get_secret("TWILIO_FROM_NUMBER")
 # libs/alerts/channels/base.py
 from abc import ABC, abstractmethod
 from typing import Any
-from libs.alerts.models import DeliveryResult
+from libs.platform.alerts.models import DeliveryResult
 
 class BaseChannel(ABC):
     """Abstract base for delivery channels.
@@ -416,9 +416,9 @@ import asyncio
 import logging
 import aiosmtplib
 import httpx
-from libs.alerts.models import DeliveryResult
-from libs.alerts.pii import mask_recipient
-from libs.alerts.channels.base import BaseChannel
+from libs.platform.alerts.models import DeliveryResult
+from libs.platform.alerts.pii import mask_recipient
+from libs.platform.alerts.channels.base import BaseChannel
 
 logger = logging.getLogger(__name__)
 
@@ -492,9 +492,9 @@ class EmailChannel(BaseChannel):
 # libs/alerts/channels/slack.py
 import logging
 import httpx
-from libs.alerts.models import DeliveryResult
-from libs.alerts.pii import mask_recipient
-from libs.alerts.channels.base import BaseChannel
+from libs.platform.alerts.models import DeliveryResult
+from libs.platform.alerts.pii import mask_recipient
+from libs.platform.alerts.channels.base import BaseChannel
 
 logger = logging.getLogger(__name__)
 
@@ -569,9 +569,9 @@ import logging
 from functools import partial
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
-from libs.alerts.models import DeliveryResult
-from libs.alerts.pii import mask_recipient
-from libs.alerts.channels.base import BaseChannel
+from libs.platform.alerts.models import DeliveryResult
+from libs.platform.alerts.pii import mask_recipient
+from libs.platform.alerts.channels.base import BaseChannel
 
 logger = logging.getLogger(__name__)
 

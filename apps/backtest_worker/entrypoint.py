@@ -15,7 +15,7 @@ import structlog  # type: ignore[import-not-found]
 from redis import Redis
 from rq import Worker
 
-from libs.backtest.worker import record_retry
+from libs.trading.backtest.worker import record_retry
 
 logger = structlog.get_logger(__name__)
 

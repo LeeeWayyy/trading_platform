@@ -30,8 +30,8 @@ from apps.execution_gateway.alpaca_client import (
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.schemas import SliceDetail
 from apps.execution_gateway.slice_scheduler import MarketClockSnapshot, SliceScheduler
-from libs.risk_management.breaker import CircuitBreaker
-from libs.risk_management.kill_switch import KillSwitch
+from libs.trading.risk_management.breaker import CircuitBreaker
+from libs.trading.risk_management.kill_switch import KillSwitch
 
 
 class TestSliceSchedulerInitialization:

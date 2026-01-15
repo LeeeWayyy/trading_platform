@@ -1,7 +1,12 @@
-# Mean Reversion Strategy
+# Mean Reversion Strategy (Experimental)
+
+**Status:** 🧪 Experimental - Located in research/strategies/mean_reversion/
+
+**Note:** This strategy has been moved to the research directory for experimental development. It is not production-ready and does not pass strict CI checks. See [research/README.md](../../../research/README.md) for research code guidelines.
 
 ## Identity
-- **Type:** Strategy
+- **Type:** Strategy (Experimental)
+- **Location:** `research/strategies/mean_reversion/`
 - **Port:** N/A
 - **Container:** N/A
 
@@ -58,7 +63,7 @@ OHLCV --> Validate --> Indicator Computation --> Feature Table --> Model/Signals
 ## Usage Examples
 ### Example 1: Feature generation
 ```python
-from strategies.mean_reversion.features import load_and_compute_features
+from research.strategies.mean_reversion.features import load_and_compute_features
 
 features = load_and_compute_features("data/adjusted/2024-01-01/AAPL.parquet")
 print(features.tail(1))
@@ -66,7 +71,7 @@ print(features.tail(1))
 
 ### Example 2: Config customization
 ```python
-from strategies.mean_reversion.config import MeanReversionConfig
+from research.strategies.mean_reversion.config import MeanReversionConfig
 
 config = MeanReversionConfig()
 config.features.rsi_period = 10
@@ -111,21 +116,23 @@ config.features.rsi_period = 10
 - **RBAC Roles:** N/A
 
 ## Testing
-- **Test Files:** `tests/strategies/mean_reversion/`
-- **Run Tests:** `pytest tests/strategies/mean_reversion -v`
-- **Coverage:** N/A
+- **Test Files:** `tests/research/strategies/mean_reversion/` (if exists)
+- **Run Tests:** `pytest tests/research/strategies/mean_reversion -v` (if tests exist)
+- **Coverage:** N/A (experimental code, lenient testing standards)
+- **Note:** Research code does not require comprehensive test coverage
 
 ## Related Specs
-- `momentum.md`
+- `momentum.md` (experimental)
 - `ensemble.md`
 - `backtest.md`
 
 ## Known Issues & TODO
 | Issue | Severity | Description | Tracking |
 |-------|----------|-------------|----------|
-| None | - | No known issues | - |
+| Experimental | Info | Strategy needs validation and production migration | See research/README.md for graduation criteria |
 
 ## Metadata
-- **Last Updated:** 2026-01-09
-- **Source Files:** `strategies/mean_reversion/*.py`, `strategies/mean_reversion/README.md`
+- **Last Updated:** 2026-01-14
+- **Source Files:** `research/strategies/mean_reversion/*.py`, `research/strategies/mean_reversion/README.md`
+- **Status:** Experimental (research directory)
 - **ADRs:** N/A

@@ -59,7 +59,7 @@ def mock_circuit_breaker():
 @pytest.fixture()
 def mock_position_reservation():
     """Create a mock PositionReservation (always succeeds)."""
-    from libs.risk_management.position_reservation import ReleaseResult, ReservationResult
+    from libs.trading.risk_management.position_reservation import ReleaseResult, ReservationResult
 
     mock_pr = Mock()
     # Return successful reservation result

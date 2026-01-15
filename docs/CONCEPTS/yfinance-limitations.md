@@ -126,7 +126,7 @@ For production backtests, use CRSP data via `CRSPLocalProvider`:
 ## Usage Example
 
 ```python
-from libs.data_providers import YFinanceProvider
+from libs.data.data_providers import YFinanceProvider
 
 # Development use
 provider = YFinanceProvider(

@@ -34,7 +34,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from libs.models import ManifestIntegrityError, ModelRegistry, RegistryManifestManager
+from libs.models.models import ManifestIntegrityError, ModelRegistry, RegistryManifestManager
 
 from .routes import router, set_registry
 

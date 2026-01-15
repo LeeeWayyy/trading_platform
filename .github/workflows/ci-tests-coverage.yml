@@ -86,19 +86,19 @@ jobs:
       - name: Check documentation freshness
         run: |
           echo "::group::Checking documentation freshness"
-          python scripts/check_doc_freshness.py
+          python scripts/dev/check_doc_freshness.py
           echo "::endgroup::"
 
       - name: Check architecture map drift
         run: |
           echo "::group::Checking architecture map drift"
-          python scripts/generate_architecture.py --check
+          python scripts/dev/generate_architecture.py --check
           echo "::endgroup::"
 
       - name: Verify workflow gate compliance
         run: |
           echo "::group::Verifying commits followed workflow gates"
-          PYTHONPATH=. python3 scripts/verify_gate_compliance.py
+          PYTHONPATH=. python3 scripts/testing/verify_gate_compliance.py
           echo "::endgroup::"
         continue-on-error: true  # Non-blocking: warns about missing review markers but doesn't fail build
 
@@ -107,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "::group::Checking branch protection status"
-          python3 scripts/verify_branch_protection.py
+          python3 scripts/testing/verify_branch_protection.py
           echo "::endgroup::"
         continue-on-error: true  # Non-blocking: warns but doesn't fail build
 

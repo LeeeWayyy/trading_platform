@@ -385,7 +385,7 @@ This document catalogs application data models discovered in source code and SQL
   - `filled_avg_price`: `Decimal | None` — No description in code. (default: `None`)
   - `skip_reason`: `str | None` — No description in code. (default: `None`)
 
-- `OrderEvent` (pydantic) — `libs/redis_client/events.py`
+- `OrderEvent` (pydantic) — `libs/core/redis_client/events.py`
   - `event_type`: `str` — Event type identifier (default: `Field(default='orders.executed', description='Event type identifier')`)
   - `timestamp`: `datetime` — Event timestamp (UTC) (default: `Field(..., description='Event timestamp (UTC)')`)
   - `run_id`: `str` — Orchestration run ID (UUID) (default: `Field(..., description='Orchestration run ID (UUID)')`)
@@ -460,7 +460,7 @@ This document catalogs application data models discovered in source code and SQL
   - `max_notional_total`: `Decimal` — No description in code. (default: `Field(default=Decimal('100000'), ge=Decimal('1000'), le=Decimal('10000000'))`)
   - `max_open_orders`: `int` — No description in code. (default: `Field(default=10, ge=1, le=1000)`)
 
-- `ReturnDecompositionResult` (dataclass) — `libs/analytics/attribution.py`
+- `ReturnDecompositionResult` (dataclass) — `libs/platform/analytics/attribution.py`
   - `schema_version`: `str` — No description in code. (default: `'1.0.0'`)
   - `portfolio_id`: `str` — No description in code. (default: `''`)
   - `decomposition`: `pl.DataFrame | None` — No description in code. (default: `None`)
@@ -468,7 +468,7 @@ This document catalogs application data models discovered in source code and SQL
   - `dataset_version_id`: `str` — No description in code. (default: `''`)
   - `computation_timestamp`: `datetime` — No description in code. (default: `field(default_factory=lambda : datetime.now(UTC))`)
 
-- `PositionEvent` (pydantic) — `libs/redis_client/events.py`
+- `PositionEvent` (pydantic) — `libs/core/redis_client/events.py`
   - `event_type`: `str` — Event type identifier (default: `Field(default='positions.updated', description='Event type identifier')`)
   - `timestamp`: `datetime` — Event timestamp (UTC) (default: `Field(..., description='Event timestamp (UTC)')`)
   - `symbol`: `str` — Stock symbol (default: `Field(..., description='Stock symbol')`)
@@ -478,7 +478,7 @@ This document catalogs application data models discovered in source code and SQL
   - `price`: `str` — Execution price (Decimal as string) (default: `Field(..., description='Execution price (Decimal as string)')`)
   - `strategy_id`: `str` — Strategy that owns the position (default: `Field(..., description='Strategy that owns the position')`)
 
-- `PositionLimits` (pydantic) — `libs/risk_management/config.py`
+- `PositionLimits` (pydantic) — `libs/trading/risk_management/config.py`
   - `max_position_size`: `int` — Maximum shares per symbol (absolute value) (default: `Field(default=1000, description='Maximum shares per symbol (absolute value)', ge=1)`)
   - `max_position_pct`: `Decimal` — Maximum position as % of portfolio (0.20 = 20%) (default: `Field(default=Decimal('0.20'), description='Maximum position as % of portfolio (0.20 = 20%)', ge=Decimal('0.01'), le=Decimal('1.00'))`)
 
@@ -700,7 +700,7 @@ This document catalogs application data models discovered in source code and SQL
   - `created_at`: `date` — No description in code.
   - `backtest_job_id`: `str | None` — No description in code.
 
-- `SignalEvent` (pydantic) — `libs/redis_client/events.py`
+- `SignalEvent` (pydantic) — `libs/core/redis_client/events.py`
   - `event_type`: `str` — Event type identifier (default: `Field(default='signals.generated', description='Event type identifier')`)
   - `timestamp`: `datetime` — Event timestamp (UTC) (default: `Field(..., description='Event timestamp (UTC)')`)
   - `strategy_id`: `str` — Strategy that generated signals (default: `Field(..., description='Strategy that generated signals')`)
@@ -762,7 +762,7 @@ This document catalogs application data models discovered in source code and SQL
   - `message`: `str` — No description in code.
   - `remaining_subscriptions`: `int` — No description in code.
 
-- `PriceData` (pydantic) — `libs/market_data/types.py`
+- `PriceData` (pydantic) — `libs/data/market_data/types.py`
   - `symbol`: `str` — Stock symbol (default: `Field(..., description='Stock symbol')`)
   - `bid`: `Decimal` — Bid price (default: `Field(..., description='Bid price', ge=0)`)
   - `ask`: `Decimal` — Ask price (default: `Field(..., description='Ask price', ge=0)`)
@@ -772,13 +772,13 @@ This document catalogs application data models discovered in source code and SQL
   - `timestamp`: `str` — ISO format timestamp (default: `Field(..., description='ISO format timestamp')`)
   - `exchange`: `str | None` — Exchange code (default: `Field(None, description='Exchange code')`)
 
-- `PriceUpdateEvent` (pydantic) — `libs/market_data/types.py`
+- `PriceUpdateEvent` (pydantic) — `libs/data/market_data/types.py`
   - `event_type`: `Literal['price.updated']` — No description in code. (default: `'price.updated'`)
   - `symbol`: `str` — Stock symbol (default: `Field(..., description='Stock symbol')`)
   - `price`: `Decimal` — Mid price (default: `Field(..., description='Mid price', ge=0)`)
   - `timestamp`: `str` — ISO format timestamp (default: `Field(..., description='ISO format timestamp')`)
 
-- `QuoteData` (pydantic) — `libs/market_data/types.py`
+- `QuoteData` (pydantic) — `libs/data/market_data/types.py`
   - `symbol`: `str` — Stock symbol (e.g., 'AAPL') (default: `Field(..., description="Stock symbol (e.g., 'AAPL')")`)
   - `bid_price`: `Decimal` — Best bid price (default: `Field(..., description='Best bid price', ge=0)`)
   - `ask_price`: `Decimal` — Best ask price (default: `Field(..., description='Best ask price', ge=0)`)
@@ -799,7 +799,7 @@ This document catalogs application data models discovered in source code and SQL
   - `is_placeholder`: `bool` — No description in code. (default: `False`)
   - `placeholder_reason`: `str` — No description in code. (default: `''`)
 
-- `BarraRiskModel` (dataclass) — `libs/risk/barra_model.py`
+- `BarraRiskModel` (dataclass) — `libs/trading/risk/barra_model.py`
   - `factor_covariance`: `NDArray[np.floating[Any]]` — No description in code.
   - `factor_names`: `list[str]` — No description in code.
   - `factor_loadings`: `pl.DataFrame` — No description in code.
@@ -809,13 +809,13 @@ This document catalogs application data models discovered in source code and SQL
   - `config`: `BarraRiskModelConfig` — No description in code. (default: `field(default_factory=BarraRiskModelConfig)`)
   - `model_version`: `str` — No description in code. (default: `'barra_v1.0'`)
 
-- `BarraRiskModelConfig` (dataclass) — `libs/risk/barra_model.py`
+- `BarraRiskModelConfig` (dataclass) — `libs/trading/risk/barra_model.py`
   - `annualization_factor`: `int` — No description in code. (default: `252`)
   - `min_coverage`: `float` — No description in code. (default: `0.8`)
   - `var_confidence_95`: `float` — No description in code. (default: `0.95`)
   - `var_confidence_99`: `float` — No description in code. (default: `0.99`)
 
-- `CovarianceConfig` (dataclass) — `libs/risk/factor_covariance.py`
+- `CovarianceConfig` (dataclass) — `libs/trading/risk/factor_covariance.py`
   - `halflife_days`: `int` — No description in code. (default: `60`)
   - `min_observations`: `int` — No description in code. (default: `126`)
   - `newey_west_lags`: `int` — No description in code. (default: `5`)
@@ -823,7 +823,7 @@ This document catalogs application data models discovered in source code and SQL
   - `min_stocks_per_day`: `int` — No description in code. (default: `100`)
   - `lookback_days`: `int` — No description in code. (default: `252`)
 
-- `CovarianceResult` (dataclass) — `libs/risk/factor_covariance.py`
+- `CovarianceResult` (dataclass) — `libs/trading/risk/factor_covariance.py`
   - `factor_covariance`: `NDArray[np.floating[Any]]` — No description in code.
   - `factor_names`: `list[str]` — No description in code.
   - `factor_returns`: `pl.DataFrame` — No description in code.
@@ -836,23 +836,23 @@ This document catalogs application data models discovered in source code and SQL
   - `skipped_days`: `list[date]` — No description in code. (default: `field(default_factory=list)`)
   - `halflife_days`: `int` — No description in code. (default: `60`)
 
-- `BoxConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `BoxConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `min_weight`: `float` — No description in code. (default: `0.0`)
   - `max_weight`: `float` — No description in code. (default: `0.1`)
 
-- `BudgetConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `BudgetConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `target`: `float` — No description in code. (default: `1.0`)
   - `tolerance`: `float` — No description in code. (default: `0.0`)
 
-- `FactorExposureConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `FactorExposureConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `factor_name`: `str` — No description in code.
   - `target_exposure`: `float` — No description in code. (default: `0.0`)
   - `tolerance`: `float` — No description in code. (default: `0.5`)
 
-- `GrossLeverageConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `GrossLeverageConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `max_leverage`: `float` — No description in code. (default: `1.0`)
 
-- `OptimizationResult` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `OptimizationResult` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `solution_id`: `str` — No description in code.
   - `as_of_date`: `date` — No description in code.
   - `objective`: `str` — No description in code.
@@ -868,7 +868,7 @@ This document catalogs application data models discovered in source code and SQL
   - `model_version`: `str` — No description in code.
   - `dataset_version_ids`: `dict[str, str]` — No description in code.
 
-- `OptimizerConfig` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `OptimizerConfig` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `solver`: `str` — No description in code. (default: `'CLARABEL'`)
   - `solver_timeout`: `float` — No description in code. (default: `30.0`)
   - `verbose`: `bool` — No description in code. (default: `False`)
@@ -885,7 +885,7 @@ This document catalogs application data models discovered in source code and SQL
   - `min_coverage`: `float` — No description in code. (default: `0.8`)
   - `enable_constraint_relaxation`: `bool` — No description in code. (default: `False`)
 
-- `RelaxableConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `RelaxableConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `constraint`: `Any` — No description in code.
   - `priority`: `ConstraintPriority` — No description in code.
   - `relaxation_factor`: `float` — No description in code. (default: `1.5`)
@@ -894,27 +894,27 @@ This document catalogs application data models discovered in source code and SQL
   - `initial_constraint`: `Any` — No description in code. (default: `None`)
   - `current_relaxations`: `int` — No description in code. (default: `field(default=0, init=False)`)
 
-- `ReturnTargetConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `ReturnTargetConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `expected_returns`: `dict[int, float]` — No description in code.
   - `min_return`: `float` — No description in code.
 
-- `SectorConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `SectorConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `sector_map`: `dict[int, str]` — No description in code.
   - `max_sector_weight`: `float` — No description in code. (default: `0.3`)
   - `min_sector_weight`: `float` — No description in code. (default: `0.0`)
 
-- `TurnoverConstraint` (dataclass) — `libs/risk/portfolio_optimizer.py`
+- `TurnoverConstraint` (dataclass) — `libs/trading/risk/portfolio_optimizer.py`
   - `current_weights`: `dict[int, float]` — No description in code.
   - `max_turnover`: `float` — No description in code. (default: `0.5`)
 
-- `FactorContribution` (dataclass) — `libs/risk/risk_decomposition.py`
+- `FactorContribution` (dataclass) — `libs/trading/risk/risk_decomposition.py`
   - `analysis_id`: `str` — No description in code.
   - `factor_name`: `str` — No description in code.
   - `marginal_contribution`: `float` — No description in code.
   - `component_contribution`: `float` — No description in code.
   - `percent_contribution`: `float` — No description in code.
 
-- `PortfolioRiskResult` (dataclass) — `libs/risk/risk_decomposition.py`
+- `PortfolioRiskResult` (dataclass) — `libs/trading/risk/risk_decomposition.py`
   - `analysis_id`: `str` — No description in code.
   - `portfolio_id`: `str` — No description in code.
   - `as_of_date`: `date` — No description in code.
@@ -930,7 +930,7 @@ This document catalogs application data models discovered in source code and SQL
   - `factor_contributions`: `pl.DataFrame | None` — No description in code. (default: `None`)
   - `coverage_ratio`: `float` — No description in code. (default: `1.0`)
 
-- `SpecificRiskResult` (dataclass) — `libs/risk/specific_risk.py`
+- `SpecificRiskResult` (dataclass) — `libs/trading/risk/specific_risk.py`
   - `specific_risks`: `pl.DataFrame` — No description in code.
   - `as_of_date`: `date` — No description in code.
   - `dataset_version_ids`: `dict[str, str]` — No description in code.
@@ -939,7 +939,7 @@ This document catalogs application data models discovered in source code and SQL
   - `reproducibility_hash`: `str` — No description in code. (default: `''`)
   - `floored_count`: `int` — No description in code. (default: `0`)
 
-- `StressScenario` (dataclass) — `libs/risk/stress_testing.py`
+- `StressScenario` (dataclass) — `libs/trading/risk/stress_testing.py`
   - `name`: `str` — No description in code.
   - `scenario_type`: `str` — No description in code.
   - `description`: `str` — No description in code.
@@ -947,7 +947,7 @@ This document catalogs application data models discovered in source code and SQL
   - `start_date`: `date | None` — No description in code. (default: `None`)
   - `end_date`: `date | None` — No description in code. (default: `None`)
 
-- `StressTestResult` (dataclass) — `libs/risk/stress_testing.py`
+- `StressTestResult` (dataclass) — `libs/trading/risk/stress_testing.py`
   - `test_id`: `str` — No description in code.
   - `portfolio_id`: `str` — No description in code.
   - `scenario_name`: `str` — No description in code.
@@ -964,28 +964,28 @@ This document catalogs application data models discovered in source code and SQL
   - `dataset_version_ids`: `dict[str, str]` — No description in code.
   - `computation_timestamp`: `datetime` — No description in code. (default: `field(default_factory=lambda : datetime.now(UTC))`)
 
-- `LossLimits` (pydantic) — `libs/risk_management/config.py`
+- `LossLimits` (pydantic) — `libs/trading/risk_management/config.py`
   - `daily_loss_limit`: `Decimal` — Maximum daily loss before circuit breaker trips ($) (default: `Field(default=Decimal('5000.00'), description='Maximum daily loss before circuit breaker trips ($)', ge=Decimal('0.00'))`)
   - `max_drawdown_pct`: `Decimal` — Maximum drawdown from peak equity (0.10 = 10%) (default: `Field(default=Decimal('0.10'), description='Maximum drawdown from peak equity (0.10 = 10%)', ge=Decimal('0.01'), le=Decimal('0.50'))`)
 
-- `PortfolioLimits` (pydantic) — `libs/risk_management/config.py`
+- `PortfolioLimits` (pydantic) — `libs/trading/risk_management/config.py`
   - `max_total_notional`: `Decimal` — Maximum total notional exposure ($) (default: `Field(default=Decimal('100000.00'), description='Maximum total notional exposure ($)', ge=Decimal('1000.00'))`)
   - `max_long_exposure`: `Decimal` — Maximum long exposure ($) (default: `Field(default=Decimal('80000.00'), description='Maximum long exposure ($)', ge=Decimal('0.00'))`)
   - `max_short_exposure`: `Decimal` — Maximum short exposure ($) (default: `Field(default=Decimal('20000.00'), description='Maximum short exposure ($)', ge=Decimal('0.00'))`)
 
-- `RiskConfig` (pydantic) — `libs/risk_management/config.py`
+- `RiskConfig` (pydantic) — `libs/trading/risk_management/config.py`
   - `position_limits`: `PositionLimits` — No description in code. (default: `Field(default_factory=PositionLimits)`)
   - `portfolio_limits`: `PortfolioLimits` — No description in code. (default: `Field(default_factory=PortfolioLimits)`)
   - `loss_limits`: `LossLimits` — No description in code. (default: `Field(default_factory=LossLimits)`)
   - `blacklist`: `list[str]` — Symbols forbidden from trading (e.g., ['GME', 'AMC']) (default: `Field(default_factory=list, description="Symbols forbidden from trading (e.g., ['GME', 'AMC'])")`)
 
-- `ReleaseResult` (dataclass) — `libs/risk_management/position_reservation.py`
+- `ReleaseResult` (dataclass) — `libs/trading/risk_management/position_reservation.py`
   - `success`: `bool` — No description in code.
   - `reason`: `str` — No description in code.
   - `previous_position`: `int | None` — No description in code. (default: `None`)
   - `new_position`: `int | None` — No description in code. (default: `None`)
 
-- `ReservationResult` (dataclass) — `libs/risk_management/position_reservation.py`
+- `ReservationResult` (dataclass) — `libs/trading/risk_management/position_reservation.py`
   - `success`: `bool` — No description in code.
   - `token`: `str | None` — No description in code.
   - `reason`: `str` — No description in code.
@@ -1055,18 +1055,18 @@ This document catalogs application data models discovered in source code and SQL
   - `load_successful`: `bool` — Model loaded successfully (default: `Field(..., description='Model loaded successfully')`)
   - `errors`: `list[str]` — Validation errors (default: `Field(default_factory=list, description='Validation errors')`)
 
-- `CompatibilityResult` (dataclass) — `libs/models/compatibility.py`
+- `CompatibilityResult` (dataclass) — `libs/models/models/compatibility.py`
   - `compatible`: `bool` — No description in code.
   - `level`: `str` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `ArtifactInfo` (dataclass) — `libs/models/types.py`
+- `ArtifactInfo` (dataclass) — `libs/models/models/types.py`
   - `path`: `str` — No description in code.
   - `checksum`: `str` — No description in code.
   - `size_bytes`: `int` — No description in code.
   - `serialized_at`: `datetime` — No description in code.
 
-- `BackupManifest` (dataclass) — `libs/models/types.py`
+- `BackupManifest` (dataclass) — `libs/models/models/types.py`
   - `backup_id`: `str` — No description in code.
   - `created_at`: `datetime` — No description in code.
   - `source_path`: `str` — No description in code.
@@ -1074,7 +1074,7 @@ This document catalogs application data models discovered in source code and SQL
   - `checksum`: `str` — No description in code.
   - `size_bytes`: `int` — No description in code.
 
-- `EnvironmentMetadata` (pydantic) — `libs/models/types.py`
+- `EnvironmentMetadata` (pydantic) — `libs/models/models/types.py`
   - `python_version`: `str` — e.g., '3.11.5' (default: `Field(..., description="e.g., '3.11.5'")`)
   - `dependencies_hash`: `str` — SHA-256 of sorted requirements.txt (default: `Field(..., description='SHA-256 of sorted requirements.txt')`)
   - `platform`: `str` — e.g., 'linux-x86_64' (default: `Field(..., description="e.g., 'linux-x86_64'")`)
@@ -1084,14 +1084,14 @@ This document catalogs application data models discovered in source code and SQL
   - `sklearn_version`: `str | None` — scikit-learn version if used (default: `Field(None, description='scikit-learn version if used')`)
   - `cvxpy_version`: `str | None` — CVXPY version if used (default: `Field(None, description='CVXPY version if used')`)
 
-- `GCReport` (dataclass) — `libs/models/types.py`
+- `GCReport` (dataclass) — `libs/models/models/types.py`
   - `dry_run`: `bool` — No description in code.
   - `expired_staged`: `list[str]` — No description in code.
   - `expired_archived`: `list[str]` — No description in code.
   - `bytes_freed`: `int` — No description in code.
   - `run_at`: `datetime` — No description in code.
 
-- `ModelMetadata` (pydantic) — `libs/models/types.py`
+- `ModelMetadata` (pydantic) — `libs/models/models/types.py`
   - `model_id`: `str` — Unique model identifier (default: `Field(..., description='Unique model identifier')`)
   - `model_type`: `ModelType` — Type of model artifact (default: `Field(..., description='Type of model artifact')`)
   - `version`: `str` — Semantic version (immutable) (default: `Field(..., pattern='^v\\d+\\.\\d+\\.\\d+$', description='Semantic version (immutable)')`)
@@ -1111,12 +1111,12 @@ This document catalogs application data models discovered in source code and SQL
   - `dataset_uri`: `str | None` — Reference to dataset location (default: `Field(None, description='Reference to dataset location')`)
   - `qlib_version`: `str | None` — Qlib version if used (default: `Field(None, description='Qlib version if used')`)
 
-- `PromotionGates` (dataclass) — `libs/models/types.py`
+- `PromotionGates` (dataclass) — `libs/models/models/types.py`
   - `min_ic`: `float` — No description in code. (default: `0.02`)
   - `min_sharpe`: `float` — No description in code. (default: `0.5`)
   - `min_paper_trade_hours`: `int` — No description in code. (default: `24`)
 
-- `PromotionResult` (dataclass) — `libs/models/types.py`
+- `PromotionResult` (dataclass) — `libs/models/models/types.py`
   - `success`: `bool` — No description in code.
   - `model_id`: `str` — No description in code.
   - `from_version`: `str | None` — No description in code.
@@ -1124,7 +1124,7 @@ This document catalogs application data models discovered in source code and SQL
   - `promoted_at`: `datetime` — No description in code.
   - `message`: `str` — No description in code. (default: `''`)
 
-- `RegistryManifest` (pydantic) — `libs/models/types.py`
+- `RegistryManifest` (pydantic) — `libs/models/models/types.py`
   - `registry_version`: `str` — Schema version (default: `Field('1.0.0', description='Schema version')`)
   - `created_at`: `datetime` — When registry was created (default: `Field(..., description='When registry was created')`)
   - `last_updated`: `datetime` — Last update timestamp (default: `Field(..., description='Last update timestamp')`)
@@ -1135,14 +1135,14 @@ This document catalogs application data models discovered in source code and SQL
   - `last_backup_at`: `datetime | None` — Last backup timestamp (default: `Field(None, description='Last backup timestamp')`)
   - `backup_location`: `str | None` — S3/GCS path if configured (default: `Field(None, description='S3/GCS path if configured')`)
 
-- `RestoreResult` (dataclass) — `libs/models/types.py`
+- `RestoreResult` (dataclass) — `libs/models/models/types.py`
   - `success`: `bool` — No description in code.
   - `backup_date`: `datetime` — No description in code.
   - `restored_at`: `datetime` — No description in code.
   - `models_restored`: `int` — No description in code.
   - `message`: `str` — No description in code. (default: `''`)
 
-- `RollbackResult` (dataclass) — `libs/models/types.py`
+- `RollbackResult` (dataclass) — `libs/models/models/types.py`
   - `success`: `bool` — No description in code.
   - `model_type`: `ModelType` — No description in code.
   - `from_version`: `str` — No description in code.
@@ -1150,14 +1150,14 @@ This document catalogs application data models discovered in source code and SQL
   - `rolled_back_at`: `datetime` — No description in code.
   - `message`: `str` — No description in code. (default: `''`)
 
-- `SyncResult` (dataclass) — `libs/models/types.py`
+- `SyncResult` (dataclass) — `libs/models/models/types.py`
   - `success`: `bool` — No description in code.
   - `remote_path`: `str` — No description in code.
   - `synced_at`: `datetime` — No description in code.
   - `bytes_transferred`: `int` — No description in code.
   - `message`: `str` — No description in code. (default: `''`)
 
-- `ValidationResult` (dataclass) — `libs/models/types.py`
+- `ValidationResult` (dataclass) — `libs/models/models/types.py`
   - `valid`: `bool` — No description in code.
   - `model_id`: `str` — No description in code.
   - `checksum_verified`: `bool` — No description in code.
@@ -1188,7 +1188,7 @@ This document catalogs application data models discovered in source code and SQL
 
 #### Application Models
 
-- `ETLProgressManifest` (pydantic) — `libs/data_pipeline/historical_etl.py`
+- `ETLProgressManifest` (pydantic) — `libs/data/data_pipeline/historical_etl.py`
   - `dataset`: `str` — No description in code.
   - `last_updated`: `datetime` — No description in code.
   - `symbol_last_dates`: `dict[str, str]` — No description in code.
@@ -1196,7 +1196,7 @@ This document catalogs application data models discovered in source code and SQL
   - `years_remaining`: `list[int]` — No description in code.
   - `status`: `Literal['running', 'paused', 'completed', 'failed']` — No description in code.
 
-- `ETLResult` (dataclass) — `libs/data_pipeline/historical_etl.py`
+- `ETLResult` (dataclass) — `libs/data/data_pipeline/historical_etl.py`
   - `total_rows`: `int` — No description in code.
   - `partitions_written`: `list[str]` — No description in code.
   - `symbols_processed`: `list[str]` — No description in code.
@@ -1205,7 +1205,7 @@ This document catalogs application data models discovered in source code and SQL
   - `duration_seconds`: `float` — No description in code.
   - `manifest_checksum`: `str` — No description in code.
 
-- `SyncProgress` (pydantic) — `libs/data_providers/sync_manager.py`
+- `SyncProgress` (pydantic) — `libs/data/data_providers/sync_manager.py`
   - `dataset`: `str` — No description in code.
   - `started_at`: `datetime.datetime` — No description in code.
   - `last_checkpoint`: `datetime.datetime` — No description in code.
@@ -1214,7 +1214,7 @@ This document catalogs application data models discovered in source code and SQL
   - `total_rows_synced`: `int` — No description in code.
   - `status`: `Literal['running', 'paused', 'completed', 'failed']` — No description in code.
 
-- `TAQSyncProgress` (pydantic) — `libs/data_providers/taq_storage.py`
+- `TAQSyncProgress` (pydantic) — `libs/data/data_providers/taq_storage.py`
   - `dataset`: `str` — No description in code.
   - `tier`: `Literal['aggregates', 'samples']` — No description in code.
   - `started_at`: `datetime.datetime` — No description in code.
@@ -1224,7 +1224,7 @@ This document catalogs application data models discovered in source code and SQL
   - `total_rows_synced`: `int` — No description in code.
   - `status`: `Literal['running', 'paused', 'completed', 'failed']` — No description in code.
 
-- `FetcherConfig` (dataclass) — `libs/data_providers/unified_fetcher.py`
+- `FetcherConfig` (dataclass) — `libs/data/data_providers/unified_fetcher.py`
   - `provider`: `ProviderType` — No description in code. (default: `ProviderType.AUTO`)
   - `environment`: `str` — No description in code. (default: `'development'`)
   - `yfinance_storage_path`: `Path | None` — No description in code. (default: `None`)
@@ -1232,7 +1232,7 @@ This document catalogs application data models discovered in source code and SQL
   - `manifest_path`: `Path | None` — No description in code. (default: `None`)
   - `fallback_enabled`: `bool` — No description in code. (default: `True`)
 
-- `SyncManifest` (pydantic) — `libs/data_quality/manifest.py`
+- `SyncManifest` (pydantic) — `libs/data/data_quality/manifest.py`
   - `dataset`: `str` — No description in code.
   - `sync_timestamp`: `datetime` — No description in code.
   - `start_date`: `date` — No description in code.
@@ -1248,26 +1248,26 @@ This document catalogs application data models discovered in source code and SQL
   - `manifest_version`: `int` — No description in code. (default: `1`)
   - `previous_checksum`: `str | None` — No description in code. (default: `None`)
 
-- `DatasetSchema` (dataclass) — `libs/data_quality/schema.py`
+- `DatasetSchema` (dataclass) — `libs/data/data_quality/schema.py`
   - `dataset`: `str` — No description in code.
   - `version`: `str` — No description in code.
   - `columns`: `dict[str, str]` — No description in code.
   - `created_at`: `datetime` — No description in code.
   - `description`: `str` — No description in code. (default: `''`)
 
-- `SchemaDrift` (dataclass) — `libs/data_quality/schema.py`
+- `SchemaDrift` (dataclass) — `libs/data/data_quality/schema.py`
   - `added_columns`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
   - `removed_columns`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
   - `changed_columns`: `list[tuple[str, str, str]]` — No description in code. (default: `field(default_factory=list)`)
 
-- `DiskSpaceStatus` (dataclass) — `libs/data_quality/types.py`
+- `DiskSpaceStatus` (dataclass) — `libs/data/data_quality/types.py`
   - `level`: `Literal['ok', 'warning', 'critical']` — No description in code.
   - `free_bytes`: `int` — No description in code.
   - `total_bytes`: `int` — No description in code.
   - `used_pct`: `float` — No description in code.
   - `message`: `str` — No description in code.
 
-- `LockToken` (dataclass) — `libs/data_quality/types.py`
+- `LockToken` (dataclass) — `libs/data/data_quality/types.py`
   - `pid`: `int` — No description in code.
   - `hostname`: `str` — No description in code.
   - `writer_id`: `str` — No description in code.
@@ -1275,20 +1275,20 @@ This document catalogs application data models discovered in source code and SQL
   - `expires_at`: `datetime.datetime` — No description in code.
   - `lock_path`: `Path` — No description in code.
 
-- `AnomalyAlert` (dataclass) — `libs/data_quality/validation.py`
+- `AnomalyAlert` (dataclass) — `libs/data/data_quality/validation.py`
   - `metric`: `str` — No description in code.
   - `current_value`: `float` — No description in code.
   - `expected_value`: `float` — No description in code.
   - `deviation_pct`: `float` — No description in code.
   - `message`: `str` — No description in code.
 
-- `ValidationError` (dataclass) — `libs/data_quality/validation.py`
+- `ValidationError` (dataclass) — `libs/data/data_quality/validation.py`
   - `field`: `str` — No description in code.
   - `message`: `str` — No description in code.
   - `severity`: `Literal['error', 'warning']` — No description in code.
   - `value`: `Any` — No description in code. (default: `None`)
 
-- `BacktestLinkage` (pydantic) — `libs/data_quality/versioning.py`
+- `BacktestLinkage` (pydantic) — `libs/data/data_quality/versioning.py`
   - `backtest_id`: `str` — No description in code.
   - `created_at`: `datetime` — No description in code.
   - `snapshot_version`: `str` — No description in code.
@@ -1296,7 +1296,7 @@ This document catalogs application data models discovered in source code and SQL
   - `checksum`: `str` — No description in code.
   - `orphaned_at`: `datetime | None` — No description in code. (default: `None`)
 
-- `CASEntry` (pydantic) — `libs/data_quality/versioning.py`
+- `CASEntry` (pydantic) — `libs/data/data_quality/versioning.py`
   - `hash`: `str` — No description in code.
   - `size_bytes`: `int` — No description in code.
   - `original_path`: `str` — No description in code.
@@ -1304,12 +1304,12 @@ This document catalogs application data models discovered in source code and SQL
   - `ref_count`: `int` — No description in code.
   - `referencing_snapshots`: `list[str]` — No description in code.
 
-- `CASIndex` (pydantic) — `libs/data_quality/versioning.py`
+- `CASIndex` (pydantic) — `libs/data/data_quality/versioning.py`
   - `files`: `dict[str, CASEntry]` — No description in code. (default: `Field(default_factory=dict)`)
   - `total_size_bytes`: `int` — No description in code. (default: `0`)
   - `last_gc_at`: `datetime | None` — No description in code. (default: `None`)
 
-- `DatasetSnapshot` (pydantic) — `libs/data_quality/versioning.py`
+- `DatasetSnapshot` (pydantic) — `libs/data/data_quality/versioning.py`
   - `dataset`: `str` — No description in code.
   - `sync_manifest_version`: `int` — No description in code.
   - `files`: `list[FileStorageInfo]` — No description in code.
@@ -1317,7 +1317,7 @@ This document catalogs application data models discovered in source code and SQL
   - `date_range_start`: `date` — No description in code.
   - `date_range_end`: `date` — No description in code.
 
-- `DiffFileEntry` (pydantic) — `libs/data_quality/versioning.py`
+- `DiffFileEntry` (pydantic) — `libs/data/data_quality/versioning.py`
   - `path`: `str` — No description in code.
   - `old_hash`: `str | None` — No description in code.
   - `new_hash`: `str` — No description in code.
@@ -1325,7 +1325,7 @@ This document catalogs application data models discovered in source code and SQL
   - `inline_data`: `Base64Bytes` — No description in code. (default: `None`)
   - `cas_hash`: `str | None` — No description in code. (default: `None`)
 
-- `FileStorageInfo` (pydantic) — `libs/data_quality/versioning.py`
+- `FileStorageInfo` (pydantic) — `libs/data/data_quality/versioning.py`
   - `path`: `str` — No description in code.
   - `original_path`: `str` — No description in code.
   - `storage_mode`: `Literal['hardlink', 'copy', 'cas']` — No description in code.
@@ -1333,7 +1333,7 @@ This document catalogs application data models discovered in source code and SQL
   - `size_bytes`: `int` — No description in code.
   - `checksum`: `str` — No description in code.
 
-- `SnapshotDiff` (pydantic) — `libs/data_quality/versioning.py`
+- `SnapshotDiff` (pydantic) — `libs/data/data_quality/versioning.py`
   - `from_version`: `str` — No description in code.
   - `to_version`: `str` — No description in code.
   - `created_at`: `datetime` — No description in code.
@@ -1343,7 +1343,7 @@ This document catalogs application data models discovered in source code and SQL
   - `checksum`: `str` — No description in code.
   - `orphaned_at`: `datetime | None` — No description in code. (default: `None`)
 
-- `SnapshotManifest` (pydantic) — `libs/data_quality/versioning.py`
+- `SnapshotManifest` (pydantic) — `libs/data/data_quality/versioning.py`
   - `version_tag`: `str` — No description in code.
   - `created_at`: `datetime` — No description in code.
   - `datasets`: `dict[str, DatasetSnapshot]` — No description in code.
@@ -1441,11 +1441,11 @@ This document catalogs application data models discovered in source code and SQL
   - `channels`: `list[ChannelConfig] | None` — No description in code. (default: `None`)
   - `enabled`: `bool | None` — No description in code. (default: `None`)
 
-- `_RuleChannels` (dataclass) — `libs/alerts/alert_manager.py`
+- `_RuleChannels` (dataclass) — `libs/platform/alerts/alert_manager.py`
   - `name`: `str` — No description in code.
   - `channels`: `list[ChannelConfig]` — No description in code.
 
-- `AlertDelivery` (pydantic) — `libs/alerts/models.py`
+- `AlertDelivery` (pydantic) — `libs/platform/alerts/models.py`
   - `id`: `UUID` — No description in code.
   - `alert_id`: `UUID` — No description in code.
   - `channel`: `ChannelType` — No description in code.
@@ -1459,7 +1459,7 @@ This document catalogs application data models discovered in source code and SQL
   - `error_message`: `str | None` — No description in code. (default: `None`)
   - `created_at`: `datetime` — No description in code.
 
-- `AlertEvent` (pydantic) — `libs/alerts/models.py`
+- `AlertEvent` (pydantic) — `libs/platform/alerts/models.py`
   - `id`: `UUID` — No description in code.
   - `rule_id`: `UUID` — No description in code.
   - `rule_name`: `str | None` — No description in code. (default: `None`)
@@ -1471,7 +1471,7 @@ This document catalogs application data models discovered in source code and SQL
   - `routed_channels`: `list[str]` — No description in code. (default: `Field(default_factory=list)`)
   - `created_at`: `datetime` — No description in code.
 
-- `AlertRule` (pydantic) — `libs/alerts/models.py`
+- `AlertRule` (pydantic) — `libs/platform/alerts/models.py`
   - `id`: `UUID` — No description in code.
   - `name`: `str` — No description in code.
   - `condition_type`: `str` — No description in code.
@@ -1483,12 +1483,12 @@ This document catalogs application data models discovered in source code and SQL
   - `created_at`: `datetime` — No description in code.
   - `updated_at`: `datetime` — No description in code.
 
-- `ChannelConfig` (pydantic) — `libs/alerts/models.py`
+- `ChannelConfig` (pydantic) — `libs/platform/alerts/models.py`
   - `type`: `ChannelType` — No description in code.
   - `recipient`: `str` — No description in code.
   - `enabled`: `bool` — No description in code. (default: `True`)
 
-- `DeliveryResult` (pydantic) — `libs/alerts/models.py`
+- `DeliveryResult` (pydantic) — `libs/platform/alerts/models.py`
   - `success`: `bool` — No description in code.
   - `message_id`: `str | None` — No description in code. (default: `None`)
   - `error`: `str | None` — No description in code. (default: `None`)
@@ -1665,25 +1665,25 @@ This document catalogs application data models discovered in source code and SQL
   - `path`: `str` — No description in code.
   - `domain`: `str | None` — No description in code.
 
-- `APIAuthConfig` (dataclass) — `libs/common/api_auth_dependency.py`
+- `APIAuthConfig` (dataclass) — `libs/core/common/api_auth_dependency.py`
   - `action`: `str` — No description in code.
   - `require_role`: `Role | None` — No description in code. (default: `None`)
   - `require_permission`: `Permission | None` — No description in code. (default: `None`)
 
-- `AuthContext` (dataclass) — `libs/common/api_auth_dependency.py`
+- `AuthContext` (dataclass) — `libs/core/common/api_auth_dependency.py`
   - `user`: `AuthenticatedUser | None` — No description in code.
   - `internal_claims`: `InternalTokenClaims | None` — No description in code.
   - `auth_type`: `str` — No description in code.
   - `is_authenticated`: `bool` — No description in code.
 
-- `InternalTokenClaims` (dataclass) — `libs/common/api_auth_dependency.py`
+- `InternalTokenClaims` (dataclass) — `libs/core/common/api_auth_dependency.py`
   - `service_id`: `str` — No description in code.
   - `user_id`: `str | None` — No description in code.
   - `strategy_id`: `str | None` — No description in code.
   - `nonce`: `str` — No description in code.
   - `timestamp`: `int` — No description in code.
 
-- `AuthConfig` (dataclass) — `libs/web_console_auth/config.py`
+- `AuthConfig` (dataclass) — `libs/platform/web_console_auth/config.py`
   - `jwt_private_key_path`: `Path` — No description in code. (default: `Path('apps/web_console/certs/jwt_private.key')`)
   - `jwt_public_key_path`: `Path` — No description in code. (default: `Path('apps/web_console/certs/jwt_public.pem')`)
   - `jwt_algorithm`: `str` — No description in code. (default: `'RS256'`)
@@ -1708,14 +1708,14 @@ This document catalogs application data models discovered in source code and SQL
   - `redis_session_index_prefix`: `str` — No description in code. (default: `'web_console:user_sessions:'`)
   - `redis_rate_limit_prefix`: `str` — No description in code. (default: `'web_console:rate_limit:'`)
 
-- `AuthenticatedUser` (dataclass) — `libs/web_console_auth/gateway_auth.py`
+- `AuthenticatedUser` (dataclass) — `libs/platform/web_console_auth/gateway_auth.py`
   - `user_id`: `str` — No description in code.
   - `role`: `Role | None` — No description in code.
   - `strategies`: `list[str]` — No description in code.
   - `session_version`: `int` — No description in code.
   - `request_id`: `str` — No description in code.
 
-- `RedisConfig` (dataclass) — `libs/web_console_auth/redis_client.py`
+- `RedisConfig` (dataclass) — `libs/platform/web_console_auth/redis_client.py`
   - `host`: `str` — No description in code.
   - `port`: `int` — No description in code.
   - `db`: `int` — No description in code.
@@ -1780,7 +1780,7 @@ This document catalogs application data models discovered in source code and SQL
   - `pre_market_enabled`: `bool` — No description in code. (default: `False`)
   - `after_hours_enabled`: `bool` — No description in code. (default: `False`)
 
-- `CombinerConfig` (dataclass) — `libs/alpha/alpha_combiner.py`
+- `CombinerConfig` (dataclass) — `libs/trading/alpha/alpha_combiner.py`
   - `weighting`: `WeightingMethod` — No description in code. (default: `WeightingMethod.IC`)
   - `lookback_days`: `int` — No description in code. (default: `252`)
   - `min_lookback_days`: `int` — No description in code. (default: `60`)
@@ -1788,7 +1788,7 @@ This document catalogs application data models discovered in source code and SQL
   - `correlation_threshold`: `float` — No description in code. (default: `0.7`)
   - `winsorize_pct`: `float` — No description in code. (default: `0.01`)
 
-- `FactorAttributionConfig` (dataclass) — `libs/analytics/attribution.py`
+- `FactorAttributionConfig` (dataclass) — `libs/platform/analytics/attribution.py`
   - `model`: `Literal['ff3', 'ff5', 'ff6']` — No description in code. (default: `'ff5'`)
   - `window_trading_days`: `int` — No description in code. (default: `252`)
   - `rebalance_freq`: `Literal['daily', 'weekly', 'monthly']` — No description in code. (default: `'monthly'`)
@@ -1803,7 +1803,7 @@ This document catalogs application data models discovered in source code and SQL
   - `aggregation_method`: `Literal['equal_weight', 'value_weight']` — No description in code. (default: `'equal_weight'`)
   - `rebalance_on_filter`: `bool` — No description in code. (default: `True`)
 
-- `EventStudyConfig` (dataclass) — `libs/analytics/event_study.py`
+- `EventStudyConfig` (dataclass) — `libs/platform/analytics/event_study.py`
   - `estimation_window`: `int` — No description in code. (default: `120`)
   - `gap_days`: `int` — No description in code. (default: `5`)
   - `pre_window`: `int` — No description in code. (default: `5`)
@@ -1819,27 +1819,27 @@ This document catalogs application data models discovered in source code and SQL
   - `cap_beta`: `float` — No description in code. (default: `5.0`)
   - `roll_nontrading_direction`: `Literal['forward', 'backward']` — No description in code. (default: `'forward'`)
 
-- `BacktestJobConfig` (dataclass) — `libs/backtest/job_queue.py`
+- `BacktestJobConfig` (dataclass) — `libs/trading/backtest/job_queue.py`
   - `alpha_name`: `str` — No description in code.
   - `start_date`: `date` — No description in code.
   - `end_date`: `date` — No description in code.
   - `weight_method`: `WeightMethod` — No description in code. (default: `WeightMethod.ZSCORE`)
   - `extra_params`: `dict[str, Any]` — No description in code. (default: `field(default_factory=dict)`)
 
-- `MonteCarloConfig` (dataclass) — `libs/backtest/monte_carlo.py`
+- `MonteCarloConfig` (dataclass) — `libs/trading/backtest/monte_carlo.py`
   - `n_simulations`: `int` — No description in code. (default: `1000`)
   - `method`: `Literal['bootstrap', 'shuffle']` — No description in code. (default: `'bootstrap'`)
   - `random_seed`: `int | None` — No description in code. (default: `None`)
   - `confidence_levels`: `tuple[float, ...]` — No description in code. (default: `(0.05, 0.5, 0.95)`)
 
-- `WalkForwardConfig` (dataclass) — `libs/backtest/walk_forward.py`
+- `WalkForwardConfig` (dataclass) — `libs/trading/backtest/walk_forward.py`
   - `train_months`: `int` — No description in code. (default: `12`)
   - `test_months`: `int` — No description in code. (default: `3`)
   - `step_months`: `int` — No description in code. (default: `3`)
   - `min_train_samples`: `int` — No description in code. (default: `252`)
   - `overfitting_threshold`: `float` — No description in code. (default: `2.0`)
 
-- `RateLimitConfig` (dataclass) — `libs/common/rate_limit_dependency.py`
+- `RateLimitConfig` (dataclass) — `libs/core/common/rate_limit_dependency.py`
   - `action`: `str` — No description in code.
   - `max_requests`: `int` — No description in code.
   - `window_seconds`: `int` — No description in code. (default: `60`)
@@ -1848,7 +1848,7 @@ This document catalogs application data models discovered in source code and SQL
   - `global_limit`: `int | None` — No description in code. (default: `None`)
   - `anonymous_factor`: `float` — No description in code. (default: `0.1`)
 
-- `FactorConfig` (dataclass) — `libs/factors/factor_definitions.py`
+- `FactorConfig` (dataclass) — `libs/models/factors/factor_definitions.py`
   - `winsorize_pct`: `float` — No description in code. (default: `0.01`)
   - `neutralize_sector`: `bool` — No description in code. (default: `True`)
   - `min_stocks_per_sector`: `int` — No description in code. (default: `5`)
@@ -2045,7 +2045,7 @@ This document catalogs application data models discovered in source code and SQL
   - `strategy_id`: `str | None` — No description in code.
   - `status`: `str` — No description in code.
 
-- `TaxReportRow` (dataclass) — `libs/tax/export.py`
+- `TaxReportRow` (dataclass) — `libs/platform/tax/export.py`
   - `symbol`: `str` — No description in code.
   - `quantity`: `Decimal` — No description in code.
   - `acquired_date`: `date` — No description in code.
@@ -2058,7 +2058,7 @@ This document catalogs application data models discovered in source code and SQL
   - `lot_id`: `str | None` — No description in code. (default: `None`)
   - `disposition_id`: `str | None` — No description in code. (default: `None`)
 
-- `Form8949Row` (dataclass) — `libs/tax/form_8949.py`
+- `Form8949Row` (dataclass) — `libs/platform/tax/form_8949.py`
   - `description`: `str` — No description in code.
   - `date_acquired`: `date` — No description in code.
   - `date_sold`: `date` — No description in code.
@@ -2068,7 +2068,7 @@ This document catalogs application data models discovered in source code and SQL
   - `adjustment_amount`: `Decimal | None` — No description in code.
   - `gain_or_loss`: `Decimal` — No description in code.
 
-- `HarvestingOpportunity` (dataclass) — `libs/tax/tax_loss_harvesting.py`
+- `HarvestingOpportunity` (dataclass) — `libs/platform/tax/tax_loss_harvesting.py`
   - `lot_id`: `UUID` — No description in code.
   - `symbol`: `str` — No description in code.
   - `shares`: `Decimal` — No description in code.
@@ -2080,19 +2080,19 @@ This document catalogs application data models discovered in source code and SQL
   - `wash_sale_clear_date`: `date | None` — No description in code.
   - `repurchase_restricted_until`: `date | None` — No description in code. (default: `None`)
 
-- `HarvestingRecommendation` (dataclass) — `libs/tax/tax_loss_harvesting.py`
+- `HarvestingRecommendation` (dataclass) — `libs/platform/tax/tax_loss_harvesting.py`
   - `opportunities`: `list[HarvestingOpportunity]` — No description in code.
   - `total_harvestable_loss`: `Decimal` — No description in code.
   - `estimated_tax_savings`: `Decimal` — No description in code.
   - `warnings`: `list[str]` — No description in code.
 
-- `WashSaleAdjustment` (dataclass) — `libs/tax/wash_sale_detector.py`
+- `WashSaleAdjustment` (dataclass) — `libs/platform/tax/wash_sale_detector.py`
   - `lot_id`: `UUID` — No description in code.
   - `disallowed_loss`: `Decimal` — No description in code.
   - `basis_adjustment`: `Decimal` — No description in code.
   - `holding_period_adjustment_days`: `int` — No description in code.
 
-- `WashSaleMatch` (dataclass) — `libs/tax/wash_sale_detector.py`
+- `WashSaleMatch` (dataclass) — `libs/platform/tax/wash_sale_detector.py`
   - `loss_disposition_id`: `UUID` — No description in code.
   - `replacement_lot_id`: `UUID` — No description in code.
   - `symbol`: `str` — No description in code.
@@ -2183,7 +2183,7 @@ This document catalogs application data models discovered in source code and SQL
   - `is_stale`: `bool` — No description in code. (default: `False`)
   - `stale_age_seconds`: `float | None` — No description in code. (default: `None`)
 
-- `ServiceHealthResponse` (pydantic) — `libs/health/health_client.py`
+- `ServiceHealthResponse` (pydantic) — `libs/core/health/health_client.py`
   - `status`: `str` — No description in code.
   - `service`: `str` — No description in code.
   - `timestamp`: `datetime` — No description in code.
@@ -2194,7 +2194,7 @@ This document catalogs application data models discovered in source code and SQL
   - `stale_age_seconds`: `float | None` — No description in code. (default: `None`)
   - `last_operation_timestamp`: `datetime | None` — No description in code. (default: `None`)
 
-- `LatencyMetrics` (pydantic) — `libs/health/prometheus_client.py`
+- `LatencyMetrics` (pydantic) — `libs/core/health/prometheus_client.py`
   - `service`: `str` — No description in code.
   - `operation`: `str` — No description in code.
   - `p50_ms`: `float | None` — No description in code.
@@ -2209,7 +2209,7 @@ This document catalogs application data models discovered in source code and SQL
 
 #### Application Models
 
-- `CombineResult` (dataclass) — `libs/alpha/alpha_combiner.py`
+- `CombineResult` (dataclass) — `libs/trading/alpha/alpha_combiner.py`
   - `composite_signal`: `pl.DataFrame` — No description in code.
   - `signal_weights`: `dict[str, float]` — No description in code.
   - `weight_history`: `pl.DataFrame | None` — No description in code.
@@ -2223,13 +2223,13 @@ This document catalogs application data models discovered in source code and SQL
   - `n_signals_combined`: `int` — No description in code.
   - `date_range`: `tuple[date, date]` — No description in code.
 
-- `CorrelationAnalysisResult` (dataclass) — `libs/alpha/alpha_combiner.py`
+- `CorrelationAnalysisResult` (dataclass) — `libs/trading/alpha/alpha_combiner.py`
   - `correlation_matrix`: `pl.DataFrame` — No description in code.
   - `highly_correlated_pairs`: `list[tuple[str, str, float]]` — No description in code.
   - `condition_number`: `float` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `AlphaResult` (dataclass) — `libs/alpha/alpha_definition.py`
+- `AlphaResult` (dataclass) — `libs/trading/alpha/alpha_definition.py`
   - `alpha_name`: `str` — No description in code.
   - `as_of_date`: `date` — No description in code.
   - `signals`: `pl.DataFrame` — No description in code.
@@ -2238,28 +2238,28 @@ This document catalogs application data models discovered in source code and SQL
   - `n_stocks`: `int` — No description in code. (default: `0`)
   - `coverage`: `float` — No description in code. (default: `0.0`)
 
-- `DecayCurveResult` (dataclass) — `libs/alpha/metrics.py`
+- `DecayCurveResult` (dataclass) — `libs/trading/alpha/metrics.py`
   - `decay_curve`: `pl.DataFrame` — No description in code.
   - `half_life`: `float | None` — No description in code.
 
-- `ICIRResult` (dataclass) — `libs/alpha/metrics.py`
+- `ICIRResult` (dataclass) — `libs/trading/alpha/metrics.py`
   - `icir`: `float` — No description in code.
   - `mean_ic`: `float` — No description in code.
   - `std_ic`: `float` — No description in code.
   - `n_periods`: `int` — No description in code.
 
-- `ICResult` (dataclass) — `libs/alpha/metrics.py`
+- `ICResult` (dataclass) — `libs/trading/alpha/metrics.py`
   - `pearson_ic`: `float` — No description in code.
   - `rank_ic`: `float` — No description in code.
   - `n_observations`: `int` — No description in code.
   - `coverage`: `float` — No description in code.
 
-- `TurnoverResult` (dataclass) — `libs/alpha/portfolio.py`
+- `TurnoverResult` (dataclass) — `libs/trading/alpha/portfolio.py`
   - `daily_turnover`: `pl.DataFrame` — No description in code.
   - `average_turnover`: `float` — No description in code.
   - `annualized_turnover`: `float` — No description in code.
 
-- `BacktestResult` (dataclass) — `libs/alpha/research_platform.py`
+- `BacktestResult` (dataclass) — `libs/trading/alpha/research_platform.py`
   - `alpha_name`: `str` — No description in code.
   - `backtest_id`: `str` — No description in code.
   - `start_date`: `date` — No description in code.
@@ -2284,7 +2284,7 @@ This document catalogs application data models discovered in source code and SQL
   - `n_days`: `int` — No description in code. (default: `0`)
   - `n_symbols_avg`: `float` — No description in code. (default: `0.0`)
 
-- `BacktestJob` (dataclass) — `libs/backtest/models.py`
+- `BacktestJob` (dataclass) — `libs/trading/backtest/models.py`
   - `id`: `UUID` — No description in code.
   - `job_id`: `str` — No description in code.
   - `status`: `JobStatus` — No description in code.
@@ -2313,12 +2313,12 @@ This document catalogs application data models discovered in source code and SQL
   - `error_message`: `str | None` — No description in code. (default: `None`)
   - `retry_count`: `int` — No description in code. (default: `0`)
 
-- `ConfidenceInterval` (dataclass) — `libs/backtest/monte_carlo.py`
+- `ConfidenceInterval` (dataclass) — `libs/trading/backtest/monte_carlo.py`
   - `metric_name`: `str` — No description in code.
   - `observed`: `float` — No description in code.
   - `quantiles`: `dict[float, float]` — No description in code.
 
-- `MonteCarloResult` (dataclass) — `libs/backtest/monte_carlo.py`
+- `MonteCarloResult` (dataclass) — `libs/trading/backtest/monte_carlo.py`
   - `config`: `MonteCarloConfig` — No description in code.
   - `n_simulations`: `int` — No description in code.
   - `sharpe_ci`: `ConfidenceInterval` — No description in code.
@@ -2331,19 +2331,19 @@ This document catalogs application data models discovered in source code and SQL
   - `hit_rate_distribution`: `NDArray[np.floating[Any]]` — No description in code.
   - `p_value_sharpe`: `float` — No description in code.
 
-- `SearchResult` (dataclass) — `libs/backtest/param_search.py`
+- `SearchResult` (dataclass) — `libs/trading/backtest/param_search.py`
   - `best_params`: `dict[str, Any]` — No description in code.
   - `best_score`: `float` — No description in code.
   - `all_results`: `list[dict[str, Any]]` — No description in code.
 
-- `WalkForwardResult` (dataclass) — `libs/backtest/walk_forward.py`
+- `WalkForwardResult` (dataclass) — `libs/trading/backtest/walk_forward.py`
   - `windows`: `list[WindowResult]` — No description in code.
   - `aggregated_test_ic`: `float` — No description in code.
   - `aggregated_test_icir`: `float` — No description in code.
   - `overfitting_ratio`: `float` — No description in code.
   - `overfitting_threshold`: `float` — No description in code. (default: `2.0`)
 
-- `WindowResult` (dataclass) — `libs/backtest/walk_forward.py`
+- `WindowResult` (dataclass) — `libs/trading/backtest/walk_forward.py`
   - `window_id`: `int` — No description in code.
   - `train_start`: `date` — No description in code.
   - `train_end`: `date` — No description in code.
@@ -2358,19 +2358,19 @@ This document catalogs application data models discovered in source code and SQL
 
 #### Application Models
 
-- `DecayAnalysisResult` (dataclass) — `libs/alpha/analytics.py`
+- `DecayAnalysisResult` (dataclass) — `libs/trading/alpha/analytics.py`
   - `decay_curve`: `pl.DataFrame` — No description in code.
   - `half_life`: `float | None` — No description in code.
   - `decay_rate`: `float | None` — No description in code.
   - `is_persistent`: `bool` — No description in code.
 
-- `GroupedICResult` (dataclass) — `libs/alpha/analytics.py`
+- `GroupedICResult` (dataclass) — `libs/trading/alpha/analytics.py`
   - `by_group`: `pl.DataFrame` — No description in code.
   - `overall_ic`: `float` — No description in code.
   - `high_ic_groups`: `list[str]` — No description in code.
   - `low_ic_groups`: `list[str]` — No description in code.
 
-- `AttributionResult` (dataclass) — `libs/analytics/attribution.py`
+- `AttributionResult` (dataclass) — `libs/platform/analytics/attribution.py`
   - `schema_version`: `str` — No description in code. (default: `'1.0.0'`)
   - `portfolio_id`: `str` — No description in code. (default: `''`)
   - `as_of_date`: `date | None` — No description in code. (default: `None`)
@@ -2393,7 +2393,7 @@ This document catalogs application data models discovered in source code and SQL
   - `filter_stats`: `dict[str, Any]` — No description in code. (default: `field(default_factory=dict)`)
   - `computation_timestamp`: `datetime` — No description in code. (default: `field(default_factory=lambda : datetime.now(UTC))`)
 
-- `RollingExposureResult` (dataclass) — `libs/analytics/attribution.py`
+- `RollingExposureResult` (dataclass) — `libs/platform/analytics/attribution.py`
   - `schema_version`: `str` — No description in code. (default: `'1.0.0'`)
   - `portfolio_id`: `str` — No description in code. (default: `''`)
   - `exposures`: `pl.DataFrame | None` — No description in code. (default: `None`)
@@ -2404,7 +2404,7 @@ This document catalogs application data models discovered in source code and SQL
   - `snapshot_id`: `str | None` — No description in code. (default: `None`)
   - `computation_timestamp`: `datetime` — No description in code. (default: `field(default_factory=lambda : datetime.now(UTC))`)
 
-- `EventStudyAnalysis` (dataclass) — `libs/analytics/event_study.py`
+- `EventStudyAnalysis` (dataclass) — `libs/platform/analytics/event_study.py`
   - `event_id`: `str` — No description in code.
   - `symbol`: `str` — No description in code.
   - `permno`: `int` — No description in code.
@@ -2433,13 +2433,13 @@ This document catalogs application data models discovered in source code and SQL
   - `delisting_return`: `float | None` — No description in code. (default: `None`)
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `EventStudyResult` (dataclass) — `libs/analytics/event_study.py`
+- `EventStudyResult` (dataclass) — `libs/platform/analytics/event_study.py`
   - `dataset_version_id`: `str` — No description in code.
   - `dataset_versions`: `dict[str, str] | None` — No description in code.
   - `computation_timestamp`: `datetime` — No description in code.
   - `as_of_date`: `date | None` — No description in code.
 
-- `IndexRebalanceResult` (dataclass) — `libs/analytics/event_study.py`
+- `IndexRebalanceResult` (dataclass) — `libs/platform/analytics/event_study.py`
   - `index_name`: `str` — No description in code.
   - `config`: `EventStudyConfig` — No description in code.
   - `n_additions`: `int` — No description in code.
@@ -2462,7 +2462,7 @@ This document catalogs application data models discovered in source code and SQL
   - `clustering_info`: `dict[str, int | bool] | None` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `MarketModelResult` (dataclass) — `libs/analytics/event_study.py`
+- `MarketModelResult` (dataclass) — `libs/platform/analytics/event_study.py`
   - `symbol`: `str` — No description in code.
   - `permno`: `int` — No description in code.
   - `estimation_start`: `date` — No description in code.
@@ -2480,7 +2480,7 @@ This document catalogs application data models discovered in source code and SQL
   - `market_sxx`: `float` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `PEADAnalysisResult` (dataclass) — `libs/analytics/event_study.py`
+- `PEADAnalysisResult` (dataclass) — `libs/platform/analytics/event_study.py`
   - `holding_period_days`: `int` — No description in code.
   - `n_events`: `int` — No description in code.
   - `n_events_excluded`: `int` — No description in code.
@@ -2496,7 +2496,7 @@ This document catalogs application data models discovered in source code and SQL
   - `clustering_info`: `dict[str, int | bool] | None` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `ExecutionAnalysisResult` (dataclass) — `libs/analytics/execution_quality.py`
+- `ExecutionAnalysisResult` (dataclass) — `libs/platform/analytics/execution_quality.py`
   - `dataset_version_id`: `str` — No description in code.
   - `dataset_versions`: `dict[str, str] | None` — No description in code.
   - `computation_timestamp`: `datetime` — No description in code.
@@ -2534,7 +2534,7 @@ This document catalogs application data models discovered in source code and SQL
   - `non_usd_fee_warning`: `bool` — No description in code. (default: `False`)
   - `vwap_coverage_pct`: `float` — No description in code. (default: `0.0`)
 
-- `ExecutionWindowRecommendation` (dataclass) — `libs/analytics/execution_quality.py`
+- `ExecutionWindowRecommendation` (dataclass) — `libs/platform/analytics/execution_quality.py`
   - `symbol`: `str` — No description in code.
   - `target_date`: `date` — No description in code.
   - `order_size_shares`: `int` — No description in code.
@@ -2545,7 +2545,7 @@ This document catalogs application data models discovered in source code and SQL
   - `liquidity_score`: `float` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `Fill` (pydantic) — `libs/analytics/execution_quality.py`
+- `Fill` (pydantic) — `libs/platform/analytics/execution_quality.py`
   - `fill_id`: `str` — Broker-assigned unique fill ID (default: `Field(..., description='Broker-assigned unique fill ID')`)
   - `order_id`: `str` — Parent order ID (default: `Field(..., description='Parent order ID')`)
   - `client_order_id`: `str` — Idempotent client order ID (default: `Field(..., description='Idempotent client order ID')`)
@@ -2559,7 +2559,7 @@ This document catalogs application data models discovered in source code and SQL
   - `fee_amount`: `float` — Total fee (positive) or rebate (negative) (default: `Field(default=0.0, description='Total fee (positive) or rebate (negative)')`)
   - `fee_currency`: `str` — Currency of fee (default: `Field(default='USD', description='Currency of fee')`)
 
-- `FillBatch` (pydantic) — `libs/analytics/execution_quality.py`
+- `FillBatch` (pydantic) — `libs/platform/analytics/execution_quality.py`
   - `symbol`: `str` — Primary symbol (default: `Field(..., description='Primary symbol')`)
   - `side`: `Literal['buy', 'sell']` — Primary side (default: `Field(..., description='Primary side')`)
   - `fills`: `list[Fill]` — List of fills (default: `Field(..., description='List of fills')`)
@@ -2567,24 +2567,24 @@ This document catalogs application data models discovered in source code and SQL
   - `submission_time`: `datetime` — When order was submitted to broker (default: `Field(..., description='When order was submitted to broker')`)
   - `total_target_qty`: `int` — Total quantity intended to fill (default: `Field(..., gt=0, description='Total quantity intended to fill')`)
 
-- `CompositeVersionInfo` (dataclass) — `libs/analytics/microstructure.py`
+- `CompositeVersionInfo` (dataclass) — `libs/platform/analytics/microstructure.py`
   - `versions`: `dict[str, str]` — No description in code.
   - `snapshot_id`: `str | None` — No description in code.
   - `is_pit`: `bool` — No description in code.
 
-- `IntradayPatternResult` (dataclass) — `libs/analytics/microstructure.py`
+- `IntradayPatternResult` (dataclass) — `libs/platform/analytics/microstructure.py`
   - `symbol`: `str` — No description in code.
   - `start_date`: `date` — No description in code.
   - `end_date`: `date` — No description in code.
   - `data`: `pl.DataFrame` — No description in code.
 
-- `MicrostructureResult` (dataclass) — `libs/analytics/microstructure.py`
+- `MicrostructureResult` (dataclass) — `libs/platform/analytics/microstructure.py`
   - `dataset_version_id`: `str` — No description in code.
   - `dataset_versions`: `dict[str, str] | None` — No description in code.
   - `computation_timestamp`: `datetime` — No description in code.
   - `as_of_date`: `date | None` — No description in code.
 
-- `RealizedVolatilityResult` (dataclass) — `libs/analytics/microstructure.py`
+- `RealizedVolatilityResult` (dataclass) — `libs/platform/analytics/microstructure.py`
   - `symbol`: `str` — No description in code.
   - `date`: `date` — No description in code.
   - `rv_daily`: `float` — No description in code.
@@ -2592,7 +2592,7 @@ This document catalogs application data models discovered in source code and SQL
   - `sampling_freq_minutes`: `int` — No description in code.
   - `num_observations`: `int` — No description in code.
 
-- `SpreadDepthResult` (dataclass) — `libs/analytics/microstructure.py`
+- `SpreadDepthResult` (dataclass) — `libs/platform/analytics/microstructure.py`
   - `symbol`: `str` — No description in code.
   - `date`: `date` — No description in code.
   - `qwap_spread`: `float` — No description in code.
@@ -2610,7 +2610,7 @@ This document catalogs application data models discovered in source code and SQL
   - `stale_quote_pct`: `float` — No description in code.
   - `depth_is_estimated`: `bool` — No description in code.
 
-- `VPINResult` (dataclass) — `libs/analytics/microstructure.py`
+- `VPINResult` (dataclass) — `libs/platform/analytics/microstructure.py`
   - `symbol`: `str` — No description in code.
   - `date`: `date` — No description in code.
   - `data`: `pl.DataFrame` — No description in code.
@@ -2619,14 +2619,14 @@ This document catalogs application data models discovered in source code and SQL
   - `avg_vpin`: `float` — No description in code.
   - `warnings`: `list[str]` — No description in code. (default: `field(default_factory=list)`)
 
-- `HARForecastResult` (dataclass) — `libs/analytics/volatility.py`
+- `HARForecastResult` (dataclass) — `libs/platform/analytics/volatility.py`
   - `forecast_date`: `date` — No description in code.
   - `rv_forecast`: `float` — No description in code.
   - `rv_forecast_annualized`: `float` — No description in code.
   - `model_r_squared`: `float` — No description in code.
   - `dataset_version_id`: `str` — No description in code.
 
-- `HARModelResult` (dataclass) — `libs/analytics/volatility.py`
+- `HARModelResult` (dataclass) — `libs/platform/analytics/volatility.py`
   - `intercept`: `float` — No description in code.
   - `coef_daily`: `float` — No description in code.
   - `coef_weekly`: `float` — No description in code.
@@ -2637,13 +2637,13 @@ This document catalogs application data models discovered in source code and SQL
   - `fit_timestamp`: `datetime` — No description in code.
   - `forecast_horizon`: `int` — No description in code.
 
-- `PortfolioExposureResult` (dataclass) — `libs/factors/analysis.py`
+- `PortfolioExposureResult` (dataclass) — `libs/models/factors/analysis.py`
   - `date`: `date` — No description in code.
   - `exposures`: `pl.DataFrame` — No description in code.
   - `stock_exposures`: `pl.DataFrame` — No description in code.
   - `coverage`: `pl.DataFrame` — No description in code.
 
-- `ICAnalysis` (dataclass) — `libs/factors/factor_analytics.py`
+- `ICAnalysis` (dataclass) — `libs/models/factors/factor_analytics.py`
   - `factor_name`: `str` — No description in code.
   - `ic_mean`: `float` — No description in code.
   - `ic_std`: `float` — No description in code.
@@ -2652,13 +2652,13 @@ This document catalogs application data models discovered in source code and SQL
   - `hit_rate`: `float` — No description in code.
   - `n_periods`: `int` — No description in code.
 
-- `_SnapshotContext` (dataclass) — `libs/factors/factor_builder.py`
+- `_SnapshotContext` (dataclass) — `libs/models/factors/factor_builder.py`
   - `manifest_adapter`: `SnapshotManifestAdapter` — No description in code.
   - `snapshot_id`: `str` — No description in code.
   - `crsp_manifest`: `SyncManifest` — No description in code.
   - `compustat_manifest`: `SyncManifest | None` — No description in code.
 
-- `FactorResult` (dataclass) — `libs/factors/factor_definitions.py`
+- `FactorResult` (dataclass) — `libs/models/factors/factor_definitions.py`
   - `exposures`: `pl.DataFrame` — No description in code.
   - `as_of_date`: `date` — No description in code.
   - `dataset_version_ids`: `dict[str, str]` — No description in code.
@@ -2669,12 +2669,12 @@ This document catalogs application data models discovered in source code and SQL
 
 #### Application Models
 
-- `BufferOutcome` (dataclass) — `libs/redis_client/fallback_buffer.py`
+- `BufferOutcome` (dataclass) — `libs/core/redis_client/fallback_buffer.py`
   - `buffered`: `int` — No description in code.
   - `dropped`: `int` — No description in code.
   - `size`: `int` — No description in code.
 
-- `BufferedMessage` (dataclass) — `libs/redis_client/fallback_buffer.py`
+- `BufferedMessage` (dataclass) — `libs/core/redis_client/fallback_buffer.py`
   - `channel`: `str` — No description in code.
   - `payload`: `str` — No description in code.
   - `created_at`: `str` — No description in code.
@@ -2839,7 +2839,7 @@ This document catalogs application data models discovered in source code and SQL
   - `name`: `str` — No description in code.
   - `description`: `str | None` — No description in code.
 
-- `ApiKeyScopes` (pydantic) — `libs/admin/api_keys.py`
+- `ApiKeyScopes` (pydantic) — `libs/platform/admin/api_keys.py`
   - `read_positions`: `bool` — No description in code. (default: `False`)
   - `read_orders`: `bool` — No description in code. (default: `False`)
   - `write_orders`: `bool` — No description in code. (default: `False`)

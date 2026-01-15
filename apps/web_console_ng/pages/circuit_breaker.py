@@ -27,9 +27,9 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.ui.layout import main_layout
-from libs.redis_client import RedisClient
-from libs.risk_management.breaker import CircuitBreakerState
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.core.redis_client import RedisClient
+from libs.platform.web_console_auth.permissions import Permission, has_permission
+from libs.trading.risk_management.breaker import CircuitBreakerState
 
 if TYPE_CHECKING:
     from apps.web_console.services.cb_service import CircuitBreakerService

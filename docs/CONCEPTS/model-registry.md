@@ -133,7 +133,7 @@ Before a model can be promoted to production, it must pass these gates:
 
 ```python
 # Promotion gates are enforced automatically
-from libs.models import ModelRegistry
+from libs.models.models import ModelRegistry
 
 registry = ModelRegistry(Path("data/models"))
 
@@ -154,7 +154,7 @@ Models are trained on specific dataset versions. When loading a model, the regis
 - Missing dataset → BLOCK always
 
 ```python
-from libs.models import VersionCompatibilityChecker
+from libs.models.models import VersionCompatibilityChecker
 
 checker = VersionCompatibilityChecker(strict_mode=True)
 result = checker.check_compatibility(
@@ -182,7 +182,7 @@ This ensures:
 - **Config safety** - Invalidates on config changes
 
 ```python
-from libs.factors.cache import DiskExpressionCache
+from libs.models.factors.cache import DiskExpressionCache
 
 cache = DiskExpressionCache(Path("data/cache"), ttl_days=7)
 
@@ -204,7 +204,7 @@ df, was_cached = cache.get_or_compute(
 
 **Solution:**
 ```python
-from libs.models import (
+from libs.models.models import (
     ModelRegistry,
     ModelMetadata,
     ModelType,

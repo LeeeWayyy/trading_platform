@@ -1056,7 +1056,7 @@ def scan_imports(file_path: Path) -> list[Import]:
     Use Python `ast` module to extract imports from a Python file.
 
     Handles:
-        - Absolute imports: `from libs.common import x` -> "libs.common"
+        - Absolute imports: `from libs.core.common import x` -> "libs.common"
         - Relative imports: `from . import x` or `from ..pkg import y`
           - Normalize to package root using file_path context
           - Example: in `apps/signal_service/handlers.py`, `from . import utils`

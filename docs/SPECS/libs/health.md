@@ -116,7 +116,7 @@ latencies, is_stale, _ = await prom.get_service_latencies()
 - No auth; depends on service endpoints being protected upstream.
 
 ## Testing
-- **Test Files:** `tests/libs/health/`
+- **Test Files:** `tests/libs/core/health/`
 - **Run Tests:** `pytest tests/libs/health -v`
 - **Coverage:** N/A
 
@@ -131,5 +131,5 @@ latencies, is_stale, _ = await prom.get_service_latencies()
 
 ## Metadata
 - **Last Updated:** 2026-01-09 (P5T10: removed unused variable in health_client.py)
-- **Source Files:** `libs/health/__init__.py`, `libs/health/health_client.py`, `libs/health/prometheus_client.py`
+- **Source Files:** `libs/core/health/__init__.py`, `libs/core/health/health_client.py`, `libs/core/health/prometheus_client.py`
 - **ADRs:** N/A

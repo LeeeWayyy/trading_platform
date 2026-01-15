@@ -123,36 +123,36 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from config.settings import get_settings
-from libs.common.api_auth_dependency import (
+from libs.core.common.api_auth_dependency import (
     APIAuthConfig,
     AuthContext,
     api_auth,
 )
-from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
-from libs.common.secrets import (
+from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
+from libs.core.common.secrets import (
     close_secret_manager,
     get_optional_secret,
     get_optional_secret_or_none,
     get_required_secret,
     validate_required_secrets,
 )
-from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
-from libs.risk_management import (
-    CircuitBreaker,
-    KillSwitch,
-    PositionReservation,
-    RiskConfig,
-)
+from libs.core.redis_client import RedisClient, RedisConnectionError, RedisKeys
 
 # DESIGN DECISION: Shared auth library in libs/ instead of importing from apps.web_console.
 # This prevents backend→frontend dependency while sharing RBAC logic across services.
 # Alternative: Import from apps.web_console with runtime guards, rejected due to circular
 # dependency risk and tight coupling between frontend/backend deployment cycles.
-from libs.web_console_auth.permissions import (
+from libs.platform.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
     has_permission,
     require_permission,
+)
+from libs.trading.risk_management import (
+    CircuitBreaker,
+    KillSwitch,
+    PositionReservation,
+    RiskConfig,
 )
 
 # ============================================================================

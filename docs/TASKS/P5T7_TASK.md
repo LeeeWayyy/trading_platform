@@ -107,7 +107,7 @@ from apps.web_console.services.cb_service import (
     RBACViolation,
     ValidationError,
 )
-from libs.risk_management.breaker import CircuitBreakerState
+from libs.trading.risk_management.breaker import CircuitBreakerState
 
 # Status color mapping
 STATUS_COLORS = {
@@ -722,8 +722,8 @@ from apps.web_console_ng.components.backtest_form import render_backtest_form_ng
 from apps.web_console_ng.components.backtest_results import render_backtest_result_ng, render_comparison_table_ng
 # ⚠️ Rev 7: Use NiceGUI dependency provider, NOT Streamlit utils
 from apps.web_console_ng.core.dependencies import get_sync_db_pool
-from libs.backtest.job_queue import BacktestJobConfig, JobPriority
-from libs.backtest.result_storage import BacktestResultStorage
+from libs.trading.backtest.job_queue import BacktestJobConfig, JobPriority
+from libs.trading.backtest.result_storage import BacktestResultStorage
 
 # Polling intervals (progressive backoff)
 POLL_INTERVALS = {
@@ -1082,7 +1082,7 @@ from apps.web_console.auth.audit_log import AuditLogger
 # ⚠️ Rev 12: Admin components are ASYNC - use async pool (see Note #39)
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store  # ⚠️ Rev 14: Async Redis
-from libs.common.log_sanitizer import sanitize_dict
+from libs.core.common.log_sanitizer import sanitize_dict
 
 ADMIN_PERMISSIONS = {
     Permission.MANAGE_API_KEYS,
@@ -1362,8 +1362,8 @@ from apps.web_console_ng.config import FEATURE_ALERTS
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.services.alert_service import AlertConfigService, AlertRuleCreate, AlertRuleUpdate
-from libs.alerts.models import ChannelConfig, ChannelType  # ⚠️ Rev 18: For channel config
-from libs.alerts.pii import mask_recipient
+from libs.platform.alerts.models import ChannelConfig, ChannelType  # ⚠️ Rev 18: For channel config
+from libs.platform.alerts.pii import mask_recipient
 
 
 # ⚠️ Rev 16: Service factory (Note #34) - AlertConfigService is ASYNC

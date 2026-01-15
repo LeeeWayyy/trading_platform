@@ -28,7 +28,7 @@ echo "WRDS_PASSWORD=mypassword" >> .env
 ```bash
 # Test connection
 python -c "
-from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
+from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 client = WRDSClient(WRDSConfig())
 client.connect()
 print('Connection successful')
@@ -78,7 +78,7 @@ client.close()
 ### Check Expiry
 
 ```python
-from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
+from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 
 client = WRDSClient(WRDSConfig())
 is_expiring, days = client.check_credential_expiry()

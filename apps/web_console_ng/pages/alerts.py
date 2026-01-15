@@ -26,15 +26,15 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
-from libs.alerts.models import ChannelConfig, ChannelType
-from libs.alerts.pii import mask_recipient
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.alerts.models import ChannelConfig, ChannelType
+from libs.platform.alerts.pii import mask_recipient
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
     from apps.web_console.services.alert_service import AlertConfigService
-    from libs.alerts.models import AlertEvent, AlertRule
+    from libs.platform.alerts.models import AlertEvent, AlertRule
 
 logger = logging.getLogger(__name__)
 

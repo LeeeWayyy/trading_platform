@@ -178,12 +178,12 @@ jobs:
           fi
       - name: Verify DatasetVersionManager loads
         run: |
-          python -c "from libs.data_quality.versioning import DatasetVersionManager; print('OK')"
+          python -c "from libs.data.data_quality.versioning import DatasetVersionManager; print('OK')"
       - name: Check snapshot availability
         run: |
           python -c "
-          from libs.data_quality.versioning import DatasetVersionManager
-          from libs.data_quality.manifest import ManifestManager
+          from libs.data.data_quality.versioning import DatasetVersionManager
+          from libs.data.data_quality.manifest import ManifestManager
           mm = ManifestManager()
           vm = DatasetVersionManager(mm)
           snaps = vm.list_snapshots()
@@ -241,7 +241,7 @@ class PITGuard:
 - name: Check PIT availability
   id: pit-check
   run: |
-    RESULT=$(python -c "from libs.data_quality.pit_guard import PITGuard; print(PITGuard.check_manifests_exist())")
+    RESULT=$(python -c "from libs.data.data_quality.pit_guard import PITGuard; print(PITGuard.check_manifests_exist())")
     if echo "$RESULT" | grep -q "False"; then
       echo "pit_available=false" >> $GITHUB_OUTPUT
       echo "::warning::P4T1 manifests incomplete - PIT-dependent tests will skip"
