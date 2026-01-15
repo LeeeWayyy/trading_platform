@@ -1,4 +1,4 @@
-.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness check-architecture test test-cov test-watch clean install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -204,7 +204,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 
 pre-push: ci-local ## Run CI checks before pushing (alias for ci-local)
 
-clean: ## Clean up generated files
+clean: ## Clean up generated files (cache, coverage, bytecode)
 	rm -rf .pytest_cache
 	rm -rf .mypy_cache
 	rm -rf .ruff_cache
@@ -212,6 +212,14 @@ clean: ## Clean up generated files
 	rm -rf .coverage*
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
+
+clean-cache: clean ## Alias for 'make clean'
+
+clean-all: clean ## Clean everything (cache + repomix outputs + logs)
+	rm -f repomix*.xml
+	rm -f *.log
+	rm -rf .ci-local.lock
+	@echo "Cleaned: cache, coverage, bytecode, repomix outputs, logs"
 
 status: ## Show current positions, orders, P&L and service health
 	@./scripts/ops/operational_status.sh

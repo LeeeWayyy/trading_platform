@@ -97,18 +97,18 @@ class TestDetectChangedModules:
         }
 
     def test_detect_modules_strategies(self) -> None:
-        """Test module detection for strategies/ files."""
+        """Test module detection for strategies/ files (production strategies only)."""
         files = [
             "strategies/alpha_baseline/strategy.py",
             "strategies/alpha_baseline/features.py",
-            "strategies/momentum/strategy.py",
+            "strategies/ensemble/strategy.py",
         ]
 
         result = detect_changed_modules(files)
 
         assert result == {
             "strategies/alpha_baseline",
-            "strategies/momentum",
+            "strategies/ensemble",
         }
 
     def test_detect_modules_ignores_non_code_paths(self) -> None:
@@ -196,9 +196,9 @@ class TestIsCorePackage:
         assert is_core_package("apps/cli/main.py") is False
 
     def test_strategies_not_core(self) -> None:
-        """Test that strategies/ files are NOT core packages."""
+        """Test that strategies/ files (production strategies) are NOT core packages."""
         assert is_core_package("strategies/alpha_baseline/strategy.py") is False
-        assert is_core_package("strategies/momentum/features.py") is False
+        assert is_core_package("strategies/ensemble/features.py") is False
 
     def test_tests_not_core(self) -> None:
         """Test that tests/ (non-fixtures) are NOT core packages."""

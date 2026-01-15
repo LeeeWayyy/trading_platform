@@ -1912,14 +1912,14 @@ This document catalogs application data models discovered in source code and SQL
   - `require_agreement`: `bool` — No description in code. (default: `False`)
   - `version`: `str` — No description in code. (default: `'0.1.0'`)
 
-- `MeanReversionConfig` (dataclass) — `strategies/mean_reversion/config.py`
+- `MeanReversionConfig` (dataclass) — `research/strategies/mean_reversion/config.py`
   - `features`: `MeanReversionFeatureConfig` — No description in code. (default: `field(default_factory=MeanReversionFeatureConfig)`)
   - `model`: `MeanReversionModelConfig` — No description in code. (default: `field(default_factory=MeanReversionModelConfig)`)
   - `trading`: `MeanReversionTradingConfig` — No description in code. (default: `field(default_factory=MeanReversionTradingConfig)`)
   - `strategy_name`: `str` — No description in code. (default: `'mean_reversion'`)
   - `version`: `str` — No description in code. (default: `'0.1.0'`)
 
-- `MeanReversionFeatureConfig` (dataclass) — `strategies/mean_reversion/config.py`
+- `MeanReversionFeatureConfig` (dataclass) — `research/strategies/mean_reversion/config.py`
   - `rsi_period`: `int` — No description in code. (default: `14`)
   - `bb_period`: `int` — No description in code. (default: `20`)
   - `bb_std`: `float` — No description in code. (default: `2.0`)
@@ -1927,7 +1927,7 @@ This document catalogs application data models discovered in source code and SQL
   - `stoch_d_period`: `int` — No description in code. (default: `3`)
   - `zscore_period`: `int` — No description in code. (default: `20`)
 
-- `MeanReversionModelConfig` (dataclass) — `strategies/mean_reversion/config.py`
+- `MeanReversionModelConfig` (dataclass) — `research/strategies/mean_reversion/config.py`
   - `objective`: `str` — No description in code. (default: `'regression'`)
   - `metric`: `str` — No description in code. (default: `'rmse'`)
   - `num_leaves`: `int` — No description in code. (default: `31`)
@@ -1942,7 +1942,7 @@ This document catalogs application data models discovered in source code and SQL
   - `num_boost_round`: `int` — No description in code. (default: `100`)
   - `early_stopping_rounds`: `int` — No description in code. (default: `20`)
 
-- `MeanReversionTradingConfig` (dataclass) — `strategies/mean_reversion/config.py`
+- `MeanReversionTradingConfig` (dataclass) — `research/strategies/mean_reversion/config.py`
   - `rsi_oversold`: `float` — No description in code. (default: `30.0`)
   - `rsi_overbought`: `float` — No description in code. (default: `70.0`)
   - `bb_entry_threshold`: `float` — No description in code. (default: `0.0`)
@@ -1953,14 +1953,14 @@ This document catalogs application data models discovered in source code and SQL
   - `stop_loss_pct`: `float` — No description in code. (default: `0.05`)
   - `take_profit_pct`: `float` — No description in code. (default: `0.1`)
 
-- `MomentumConfig` (dataclass) — `strategies/momentum/config.py`
+- `MomentumConfig` (dataclass) — `research/strategies/momentum/config.py`
   - `features`: `MomentumFeatureConfig` — No description in code. (default: `field(default_factory=MomentumFeatureConfig)`)
   - `model`: `MomentumModelConfig` — No description in code. (default: `field(default_factory=MomentumModelConfig)`)
   - `trading`: `MomentumTradingConfig` — No description in code. (default: `field(default_factory=MomentumTradingConfig)`)
   - `strategy_name`: `str` — No description in code. (default: `'momentum'`)
   - `version`: `str` — No description in code. (default: `'0.1.0'`)
 
-- `MomentumFeatureConfig` (dataclass) — `strategies/momentum/config.py`
+- `MomentumFeatureConfig` (dataclass) — `research/strategies/momentum/config.py`
   - `ma_fast_period`: `int` — No description in code. (default: `10`)
   - `ma_slow_period`: `int` — No description in code. (default: `50`)
   - `macd_fast`: `int` — No description in code. (default: `12`)
@@ -1969,7 +1969,7 @@ This document catalogs application data models discovered in source code and SQL
   - `roc_period`: `int` — No description in code. (default: `14`)
   - `adx_period`: `int` — No description in code. (default: `14`)
 
-- `MomentumModelConfig` (dataclass) — `strategies/momentum/config.py`
+- `MomentumModelConfig` (dataclass) — `research/strategies/momentum/config.py`
   - `objective`: `str` — No description in code. (default: `'regression'`)
   - `metric`: `str` — No description in code. (default: `'rmse'`)
   - `num_leaves`: `int` — No description in code. (default: `31`)
@@ -1984,7 +1984,7 @@ This document catalogs application data models discovered in source code and SQL
   - `num_boost_round`: `int` — No description in code. (default: `100`)
   - `early_stopping_rounds`: `int` — No description in code. (default: `20`)
 
-- `MomentumTradingConfig` (dataclass) — `strategies/momentum/config.py`
+- `MomentumTradingConfig` (dataclass) — `research/strategies/momentum/config.py`
   - `adx_threshold`: `float` — No description in code. (default: `25.0`)
   - `roc_entry`: `float` — No description in code. (default: `5.0`)
   - `macd_entry`: `bool` — No description in code. (default: `True`)

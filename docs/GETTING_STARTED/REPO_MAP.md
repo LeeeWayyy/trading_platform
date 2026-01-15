@@ -15,8 +15,7 @@ trading_platform/
 ├── research/          # Experimental code (lenient CI checks, no deployment)
 ├── libs/              # Shared libraries and utilities
 ├── infra/             # Infrastructure configuration (Docker, Prometheus, Grafana)
-├── db/                # Database schema and migrations (Alembic)
-├── migrations/        # Legacy SQL migrations (pre-Alembic)
+├── db/                # Database schema and migrations (Alembic + legacy)
 ├── scripts/           # Utility scripts and automation tools
 ├── tests/             # Test suite (mirrors src structure)
 ├── docs/              # Comprehensive documentation
@@ -441,15 +440,19 @@ Alembic-managed database schema migrations.
 
 ---
 
-## migrations/ - Legacy SQL Migrations
+## db/ - Database Migrations
 
-Direct SQL migration scripts (pre-Alembic).
+**Location:** `db/`
 
-**Files:**
-- `001_create_model_registry.sql` - Model registry table
-- `002_create_execution_tables.sql` - Orders and positions
-- `003_create_risk_tables.sql` - Risk management tables
-- `004_add_audit_log.sql` - Audit logging table
+**Current System:** Alembic migrations in `db/migrations/`
+**Legacy System:** Archived in `db/legacy/migrations_pre_alembic/`
+
+See `db/README.md` for migration workflow and history.
+
+**Key Files:**
+- `db/migrations/` - Active Alembic migrations (0001, 0004, 0005, ...)
+- `db/legacy/migrations_pre_alembic/` - Pre-Alembic SQL scripts (001, 002, 003)
+- `db/README.md` - Migration guide and troubleshooting
 
 ---
 
@@ -716,7 +719,7 @@ make kill-switch # Emergency stop
 - FastAPI: `apps/*/main.py`
 - Pydantic: `apps/*/schemas.py`
 - Redis: `libs/core/redis_client/`
-- PostgreSQL: `db/`, `migrations/`
+- PostgreSQL: `db/migrations/` (Alembic), `db/legacy/` (archived)
 - DuckDB: `libs/duckdb_catalog.py`
 - Docker: `infra/docker-compose.yml`
 - Prometheus: `infra/prometheus/`
