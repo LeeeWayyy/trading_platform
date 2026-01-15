@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from psycopg.rows import dict_row
+
+from libs.core.common.db import acquire_connection
+from libs.platform.web_console_auth.permissions import Permission, has_permission
+
 
 class TradingClientProtocol(Protocol):
     """Protocol for trading client dependency injection."""
@@ -34,10 +39,6 @@ class TradingClientProtocol(Protocol):
         limit: int = 100,
     ) -> dict[str, Any]: ...
 
-from psycopg.rows import dict_row
-
-from libs.core.common.db import acquire_connection
-from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 

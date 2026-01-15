@@ -34,13 +34,11 @@ flowchart TB
 
   lib_core -.-> lib_platform
   lib_core -.-> lib_trading
-  lib_core -.-> svc_execution_gateway
   lib_data -.-> lib_core
   lib_data -.-> lib_platform
   lib_models -.-> lib_data
   lib_platform -.-> lib_core
   lib_platform -.-> lib_data
-  lib_platform -.-> svc_alert_worker
   lib_trading -.-> lib_core
   lib_trading -.-> lib_data
   lib_trading -.-> lib_models
@@ -51,7 +49,6 @@ flowchart TB
   lib_web_console_services -.-> lib_platform
   lib_web_console_services -.-> lib_trading
   lib_web_console_services -.-> lib_web_console_data
-  lib_web_console_services -.-> svc_web_console_ng
   svc_alert_worker -.-> lib_core
   svc_alert_worker -.-> lib_platform
   svc_auth_service -.-> lib_core

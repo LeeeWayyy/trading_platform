@@ -1,5 +1,7 @@
 # Execution Gateway
 
+<!-- Last reviewed: 2026-01-15 - Added noqa comment for intentional late import -->
+
 ## Identity
 - **Type:** Service
 - **Port:** 8002

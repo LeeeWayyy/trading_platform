@@ -720,7 +720,7 @@ reconciliation_fills_backfill_rl = rate_limit(
 # Set API_AUTH_MODE=log_only for staged rollout.
 
 # Import authenticator builder for JWT validation (injected to avoid layering violation)
-from apps.execution_gateway.api.dependencies import build_gateway_authenticator
+from apps.execution_gateway.api.dependencies import build_gateway_authenticator  # noqa: E402
 
 order_submit_auth = api_auth(
     APIAuthConfig(

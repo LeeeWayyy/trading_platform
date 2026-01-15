@@ -116,7 +116,7 @@ class TestJWKSValidatorInit:
 class TestAlgorithmPinning:
     """Test algorithm pinning security feature."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_rs256_allowed(self) -> None:
         """Test RS256 algorithm is allowed."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -144,7 +144,7 @@ class TestAlgorithmPinning:
 
             assert result["sub"] == "user123"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_es256_allowed(self) -> None:
         """Test ES256 algorithm is allowed."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -172,7 +172,7 @@ class TestAlgorithmPinning:
 
             assert result["sub"] == "user456"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_hs256_rejected(self) -> None:
         """Test HS256 algorithm is rejected (security critical)."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -201,7 +201,7 @@ class TestAlgorithmPinning:
             assert "HS256" in str(exc_info.value)
             assert "not allowed" in str(exc_info.value)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_none_algorithm_rejected(self) -> None:
         """Test 'none' algorithm is rejected (critical security vulnerability)."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -236,7 +236,7 @@ class TestAlgorithmPinning:
 class TestJWKSCaching:
     """Test JWKS caching behavior."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cache_hit(self) -> None:
         """Test JWKS cache hit returns cached data."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -249,7 +249,7 @@ class TestJWKSCaching:
 
         assert result == {"keys": [{"kid": "cached-key"}]}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cache_miss_fetches_jwks(self) -> None:
         """Test cache miss triggers JWKS fetch."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -265,7 +265,7 @@ class TestJWKSCaching:
             assert result == mock_response
             assert validator._jwks_cache == mock_response
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cache_expiry_triggers_refresh(self) -> None:
         """Test expired cache triggers refresh."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -284,7 +284,7 @@ class TestJWKSCaching:
             mock_fetch.assert_called_once()
             assert result == mock_response
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_force_refresh_bypasses_cache(self) -> None:
         """Test force_refresh=True bypasses valid cache."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -307,7 +307,7 @@ class TestJWKSCaching:
 class TestKeyRotation:
     """Test key rotation handling."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kid_mismatch_triggers_refresh(self) -> None:
         """Test key ID mismatch triggers JWKS cache refresh."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -345,7 +345,7 @@ class TestKeyRotation:
             # Should have called get_jwks twice (initial + refresh)
             assert call_count == 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_key_not_found_after_refresh_raises(self) -> None:
         """Test InvalidKeyError when key not found even after refresh."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -378,7 +378,7 @@ class TestKeyRotation:
 class TestNonceValidation:
     """Test nonce validation for replay protection."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_nonce_match_succeeds(self) -> None:
         """Test matching nonce passes validation."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -406,7 +406,7 @@ class TestNonceValidation:
 
             assert result["nonce"] == "expected-nonce-value"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_nonce_mismatch_raises(self) -> None:
         """Test nonce mismatch raises InvalidTokenError."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -435,7 +435,7 @@ class TestNonceValidation:
 
             assert "Nonce mismatch" in str(exc_info.value)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_nonce_none_skips_validation(self) -> None:
         """Test expected_nonce=None skips nonce validation (for refresh flows)."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -468,7 +468,7 @@ class TestNonceValidation:
 class TestIssuerAudienceValidation:
     """Test issuer and audience claim validation."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_issuer_mismatch_raises(self) -> None:
         """Test issuer mismatch raises InvalidIssuerError."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -494,7 +494,7 @@ class TestIssuerAudienceValidation:
                     expected_issuer="https://test.us.auth0.com/",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_audience_mismatch_raises(self) -> None:
         """Test audience mismatch raises InvalidAudienceError."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -524,7 +524,7 @@ class TestIssuerAudienceValidation:
 class TestTokenExpiry:
     """Test token expiry validation."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_expired_token_raises(self) -> None:
         """Test expired token raises ExpiredSignatureError."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -577,10 +577,8 @@ class TestLoadSigningKey:
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
         _, jwk = _generate_rsa_keypair()
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Unsupported algorithm"):
             validator._load_signing_key(jwk, "PS256")
-
-        assert "Unsupported algorithm" in str(exc_info.value)
 
     def test_malformed_jwk_raises(self) -> None:
         """Test malformed JWK raises error during key loading."""
@@ -600,7 +598,7 @@ class TestLoadSigningKey:
 class TestEdgeCases:
     """Test edge cases for robustness."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_kid_header_raises(self) -> None:
         """Test token with missing kid header raises error."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -633,7 +631,7 @@ class TestEdgeCases:
                     expected_issuer="https://test.us.auth0.com/",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_empty_jwks_keys_raises(self) -> None:
         """Test empty JWKS keys list raises InvalidKeyError."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")
@@ -660,7 +658,7 @@ class TestEdgeCases:
                     expected_issuer="https://test.us.auth0.com/",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_malformed_token_raises(self) -> None:
         """Test malformed token raises DecodeError."""
         validator = JWKSValidator(auth0_domain="test.us.auth0.com")

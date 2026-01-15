@@ -1,5 +1,7 @@
 # web_console_services
 
+<!-- Last reviewed: 2026-01-15 - Import reorganization, no functional changes -->
+
 ## Identity
 - **Type:** Library
 - **Port:** N/A

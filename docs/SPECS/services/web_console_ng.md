@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-13 - P6T1 Core Infrastructure: throttling, dark mode, density, workspace persistence -->
+<!-- Last reviewed: 2026-01-15 - Type annotation fix in scheduled_reports.py -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
