@@ -19,9 +19,6 @@ from typing import Any
 
 from nicegui import Client, ui
 
-from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
-from apps.web_console.services.risk_service import RiskService
-from apps.web_console.utils.validators import validate_overview_metrics
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.factor_exposure_chart import render_factor_exposure
 from apps.web_console_ng.components.stress_test_results import render_stress_tests
@@ -36,11 +33,14 @@ from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.utils.formatters import safe_float
+from libs.core.common.validators import validate_overview_metrics
 from libs.platform.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
     has_permission,
 )
+from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
+from libs.web_console_services.risk_service import RiskService
 
 logger = logging.getLogger(__name__)
 

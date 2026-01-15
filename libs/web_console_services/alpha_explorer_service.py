@@ -279,7 +279,7 @@ class AlphaExplorerService:
         Note: BacktestResultStorage.get_result() takes a str job_id, not UUID.
 
         CRITICAL: BacktestResultStorage uses SYNC database pool (not async).
-        Must use get_sync_db_pool() from apps.web_console.utils.sync_db_pool,
+        Must use get_sync_db_pool() from libs.core.common.sync_db_pool,
         NOT the async pool from db_pool.py.
         """
         if metadata is None:
@@ -289,7 +289,7 @@ class AlphaExplorerService:
         if not job_id:
             return None
 
-        from apps.web_console.utils.sync_db_pool import get_sync_db_pool
+        from libs.core.common.sync_db_pool import get_sync_db_pool
         from libs.trading.backtest.result_storage import BacktestResultStorage
 
         try:

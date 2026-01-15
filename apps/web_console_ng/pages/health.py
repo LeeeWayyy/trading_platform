@@ -30,7 +30,7 @@ from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
-    from apps.web_console.services.health_service import HealthMonitorService
+    from libs.web_console_services.health_service import HealthMonitorService
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +43,11 @@ def _get_health_service() -> HealthMonitorService:
     See P5T7_TASK.md Note #31.
     """
     if not hasattr(app.storage, "_health_service"):
-        from apps.web_console.services.health_service import HealthMonitorService
         from apps.web_console_ng.config import PROMETHEUS_URL, REDIS_URL, SERVICE_URLS
         from libs.core.health.health_client import HealthClient
         from libs.core.health.prometheus_client import PrometheusClient
         from libs.core.redis_client import RedisClient
+        from libs.web_console_services.health_service import HealthMonitorService
 
         # Get async DB pool for async health checks
         async_db_pool = get_db_pool()

@@ -49,7 +49,7 @@ Each component follows 6-step pattern:
 
 **Files to Create:**
 - `scripts/generate_certs.py` - Automated certificate generation script
-- `apps/web_console/certs/README.md` - Certificate usage and rotation documentation
+- `apps/web_console_ng/certs/README.md` - Certificate usage and rotation documentation
 - `.gitignore` update - Exclude `certs/*.key` and `certs/*.pem`
 - `docs/RUNBOOKS/web-console-cert-rotation.md` - Certificate rotation runbook
 
@@ -71,7 +71,7 @@ Each component follows 6-step pattern:
    - Future: Add CRL/OCSP support (Phase 3 if needed)
 
 **Dependencies:**
-- Add `cryptography>=41.0.0` to `apps/web_console/requirements.txt`
+- Add `cryptography>=41.0.0` to `apps/web_console_ng/requirements.txt`
 
 **Tests:**
 - `test_generate_certs.py`:
@@ -114,11 +114,11 @@ Each component follows 6-step pattern:
 - **BLOCKS:** Requires Component 1 complete (jwt_private.key, jwt_public.pem)
 
 **Files to Create:**
-- `apps/web_console/auth_jwt.py` - JWT token generation and validation
+- `apps/web_console_ng/auth_jwt.py` - JWT token generation and validation
 
 **Files to Modify:**
-- `apps/web_console/auth.py` - Add `_mtls_jwt_auth()` function
-- `apps/web_console/config.py` - Add JWT configuration
+- `apps/web_console_ng/auth.py` - Add `_mtls_jwt_auth()` function
+- `apps/web_console_ng/config.py` - Add JWT configuration
   - **Add AUTH_TYPE option:** `mtls_jwt` (alongside existing `dev`, `basic`, `oauth2`)
   - **Default to `dev`** for backward compatibility
   - **Config Migration:** Add validation that prevents `mtls_jwt` if certs missing
@@ -206,7 +206,7 @@ Each component follows 6-step pattern:
    - Config validation prevents `mtls_jwt` if certs directory missing
 
 **Dependencies:**
-- Add `PyJWT[crypto]>=2.8.0` to `apps/web_console/requirements.txt`
+- Add `PyJWT[crypto]>=2.8.0` to `apps/web_console_ng/requirements.txt`
 - **Requires Redis** for JTI revocation list (already available from Phase 1)
 
 **Tests:**
@@ -243,7 +243,7 @@ Each component follows 6-step pattern:
 - [ ] AUTH_TYPE=mtls_jwt config added with dev as default
 
 **Outputs for Component 3:**
-- `apps/web_console/auth_jwt.py` module for nginx integration
+- `apps/web_console_ng/auth_jwt.py` module for nginx integration
 - JWT validation logic for backend
 - Redis-based JTI revocation list
 
@@ -262,8 +262,8 @@ Each component follows 6-step pattern:
 - **BLOCKS:** Requires Component 2 complete (JWT validation logic)
 
 **Files to Create:**
-- `apps/web_console/nginx/nginx.conf` - Nginx configuration
-- `apps/web_console/nginx/Dockerfile` - Nginx container image
+- `apps/web_console_ng/nginx/nginx.conf` - Nginx configuration
+- `apps/web_console_ng/nginx/Dockerfile` - Nginx container image
 - `docs/RUNBOOKS/web-console-mtls-setup.md` - Deployment and troubleshooting documentation
 
 **Files to Modify:**
@@ -337,8 +337,8 @@ Each component follows 6-step pattern:
      ```yaml
      nginx:
        volumes:
-         - ./apps/web_console/certs:/etc/nginx/certs:ro  # Read-only cert access
-         - ./apps/web_console/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+         - ./apps/web_console_ng/certs:/etc/nginx/certs:ro  # Read-only cert access
+         - ./apps/web_console_ng/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
      ```
 
 4. **Environment-based Mode Switching:**

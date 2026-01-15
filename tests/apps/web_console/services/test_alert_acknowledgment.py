@@ -8,9 +8,9 @@ from uuid import uuid4
 
 import pytest
 
-from apps.web_console.schemas.data_management import AlertAcknowledgmentDTO
-from apps.web_console.services.data_quality_service import DataQualityService
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services.data_quality_service import DataQualityService
+from libs.web_console_services.schemas.data_management import AlertAcknowledgmentDTO
 
 
 @dataclass(frozen=True)

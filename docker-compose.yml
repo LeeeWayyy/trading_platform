@@ -210,7 +210,7 @@ services:
       # rate limiting will apply globally (all users share one IP bucket).
       - TRUSTED_PROXY_HOSTS=${TRUSTED_PROXY_HOSTS:-127.0.0.1}
     volumes:
-      - ./apps/web_console_ng/certs:/app/apps/web_console/certs:ro  # JWT keys for auth
+      - ./apps/web_console_ng/certs:/app/apps/web_console_ng/certs:ro  # JWT keys for auth
     depends_on:
       postgres:
         condition: service_healthy
@@ -592,7 +592,7 @@ services:
       - "443:443"  # HTTPS with mTLS
       - "80:80"    # HTTP redirect to HTTPS
     volumes:
-      # Mount certificates from apps/web_console/certs
+      # Mount certificates from apps/web_console_ng/certs
       # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-mtls-setup.md)
       - ./apps/web_console_ng/certs:/etc/nginx/certs:ro
     depends_on:
@@ -622,7 +622,7 @@ services:
       - "443:443"  # HTTPS with OAuth2
       - "80:80"    # HTTP redirect to HTTPS
     volumes:
-      # Mount certificates from apps/web_console/certs
+      # Mount certificates from apps/web_console_ng/certs
       # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-oauth2-setup.md)
       - ./apps/web_console_ng/certs:/etc/nginx/certs:ro
       # Component 5: Mount template and entrypoint for CSP configuration

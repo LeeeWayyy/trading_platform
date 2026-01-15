@@ -48,11 +48,16 @@ def _get_service(db_pool: Any, user: dict[str, Any]) -> Any:
     Returns:
         ScheduledReportsService instance or None if db_pool is None.
     """
-    from apps.web_console.services.scheduled_reports_service import ScheduledReportsService
+    from apps.web_console_ng.core.client import AsyncTradingClient
+    from libs.web_console_services.scheduled_reports_service import ScheduledReportsService
 
     if db_pool is None:
         return None
-    return ScheduledReportsService(db_pool=db_pool, user=dict(user))
+    return ScheduledReportsService(
+        db_pool=db_pool,
+        user=dict(user),
+        trading_client_factory=AsyncTradingClient.get,
+    )
 
 
 @ui.page("/reports")

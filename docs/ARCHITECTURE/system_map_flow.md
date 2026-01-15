@@ -4,7 +4,6 @@
 flowchart TB
   subgraph presentation["Presentation Layer"]
     svc_auth_service["Auth Service"]
-    svc_web_console["Web Console"]
     svc_web_console_ng["Web Console Ng"]
   end
   subgraph orchestration["Orchestration"]
@@ -29,6 +28,8 @@ flowchart TB
   subgraph infra["Infrastructure"]
     lib_core["Core"]
     lib_platform["Platform"]
+    lib_web_console_data["Web Console Data"]
+    lib_web_console_services["Web Console Services"]
     ext_alpaca[("Alpaca API")]
     ext_grafana[("Grafana")]
     ext_postgres[("PostgreSQL")]
@@ -43,7 +44,6 @@ flowchart TB
   ext_alpaca -->|order updates| svc_execution_gateway
   svc_market_data_service -->|publish quotes| ext_redis
   ext_redis -->|subscribe quotes| svc_signal_service
-  svc_web_console -->|manual control| svc_orchestrator
   svc_web_console_ng -->|manual trading| svc_execution_gateway
   svc_web_console_ng -->|realtime updates| ext_redis
   ext_redis -->|positions/orders| svc_web_console_ng
@@ -59,13 +59,14 @@ flowchart TB
   click svc_model_registry "../SPECS/services/model_registry.md"
   click svc_orchestrator "../SPECS/services/orchestrator.md"
   click svc_signal_service "../SPECS/services/signal_service.md"
-  click svc_web_console "../SPECS/services/web_console.md"
   click svc_web_console_ng "../SPECS/services/web_console_ng.md"
   click lib_core "../SPECS/libs/core.md"
   click lib_data "../SPECS/libs/data.md"
   click lib_models "../SPECS/libs/models.md"
   click lib_platform "../SPECS/libs/platform.md"
   click lib_trading "../SPECS/libs/trading.md"
+  click lib_web_console_data "../SPECS/libs/web_console_data.md"
+  click lib_web_console_services "../SPECS/libs/web_console_services.md"
   click strat_alpha_baseline "../SPECS/strategies/alpha_baseline.md"
   click strat_backtest "../SPECS/strategies/backtest.md"
   click strat_ensemble "../SPECS/strategies/ensemble.md"

@@ -15,7 +15,7 @@ from typing import Any, cast
 
 import pandas as pd
 
-from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
+from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 
 class ComparisonService:

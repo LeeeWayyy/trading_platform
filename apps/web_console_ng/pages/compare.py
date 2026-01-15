@@ -247,8 +247,8 @@ async def _fetch_comparison_data(
     db_pool: AsyncConnectionPool,
 ) -> dict[str, Any]:
     """Fetch comparison data using ComparisonService."""
-    from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
-    from apps.web_console.services.comparison_service import ComparisonService
+    from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
+    from libs.web_console_services.comparison_service import ComparisonService
 
     # Create scoped access
     scoped_access = StrategyScopedDataAccess(
@@ -407,7 +407,7 @@ async def _render_portfolio_simulator(
     pnl_frame: pd.DataFrame,
 ) -> None:
     """Render portfolio simulator with weight sliders."""
-    from apps.web_console.services.comparison_service import ComparisonService
+    from libs.web_console_services.comparison_service import ComparisonService
 
     with ui.card().classes("w-full mb-4 p-4"):
         ui.label("Portfolio Simulator").classes("text-lg font-bold mb-2")

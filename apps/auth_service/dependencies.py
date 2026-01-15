@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING
 
 import redis.asyncio
 
-from apps.web_console.auth.jwks_validator import JWKSValidator
-from apps.web_console.auth.oauth2_flow import OAuth2Config, OAuth2FlowHandler
-from apps.web_console.auth.oauth2_state import OAuth2StateStore
-from apps.web_console.auth.rate_limiter import RedisRateLimiter
-from apps.web_console.auth.session_store import RedisSessionStore
+from libs.platform.web_console_auth.jwks_validator import JWKSValidator
+from libs.platform.web_console_auth.oauth2_flow import OAuth2Config, OAuth2FlowHandler
+from libs.platform.web_console_auth.oauth2_state import OAuth2StateStore
+from libs.platform.web_console_auth.rate_limiter import RedisRateLimiter
+from libs.platform.web_console_auth.session_store import RedisSessionStore
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool

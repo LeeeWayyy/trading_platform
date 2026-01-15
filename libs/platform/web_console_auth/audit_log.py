@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from apps.web_console.utils.db import acquire_connection
+from libs.core.common.db import acquire_connection
 
 # Import shared Prometheus metrics from libs to avoid duplicate registration
 from libs.platform.web_console_auth.audit_logger import (

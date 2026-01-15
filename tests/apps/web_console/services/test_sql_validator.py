@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 sql_validator_module = pytest.importorskip(
-    "apps.web_console.services.sql_validator",
+    "libs.web_console_services.sql_validator",
     reason="SQL validator module not available yet",
 )
 

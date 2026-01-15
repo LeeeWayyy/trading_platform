@@ -12,8 +12,8 @@ from typing import Any
 import plotly.graph_objects as go
 from nicegui import ui
 
-from apps.web_console.utils.validators import validate_var_history, validate_var_metrics
 from apps.web_console_ng.utils.formatters import parse_date_for_sort, safe_float
+from libs.core.common.validators import validate_var_history, validate_var_metrics
 
 # Default risk budget values (parity with Streamlit: apps/web_console/config.py:87-89)
 DEFAULT_VAR_LIMIT = 0.05  # 5% daily VaR limit

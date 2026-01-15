@@ -33,7 +33,7 @@ DEFAULT_FACTOR_ORDER = [
 _canonical_factors = list(dict.fromkeys((CANONICAL_FACTOR_ORDER or []) + DEFAULT_FACTOR_ORDER))
 
 if TYPE_CHECKING:
-    from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
+    from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 logger = logging.getLogger(__name__)
 
@@ -471,19 +471,17 @@ class RiskService:
             risk_result: PortfolioRiskResult dict or None
 
         Returns:
-            Formatted metrics dict with required keys
+            Formatted metrics dict with required keys. Empty dict when risk_result
+            is None - callers must check RiskDashboardData.is_placeholder to know
+            if data is unavailable. NEVER returns zeroed values to avoid misleading
+            callers into thinking risk is actually zero.
         """
         if not risk_result:
-            # Return placeholder metrics when risk model unavailable
-            # Real implementation would return empty dict and let UI handle
-            return {
-                "total_risk": 0.0,
-                "factor_risk": 0.0,
-                "specific_risk": 0.0,
-                "var_95": 0.0,
-                "var_99": 0.0,
-                "cvar_95": 0.0,
-            }
+            # Return empty dict when risk model unavailable.
+            # SAFETY: Do NOT return zeroed metrics - this could mislead callers
+            # into thinking risk is zero. The caller should check is_placeholder
+            # flag on RiskDashboardData to know if data is unavailable.
+            return {}
 
         return {
             "total_risk": float(risk_result.get("total_risk", 0)),

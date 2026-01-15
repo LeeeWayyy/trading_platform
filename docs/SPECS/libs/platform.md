@@ -5,7 +5,7 @@
 - **Location:** `libs/platform/`
 
 ## Overview
-Platform service libraries for administration, alerts, analytics, secrets management, tax lot tracking, and web console authentication:
+Platform service libraries for administration, alerts, analytics, secrets management, tax lot tracking, and web console services:
 
 - **admin/** - Admin utilities for API key management
 - **alerts/** - Alert rules, delivery models, and notification workflows
@@ -13,6 +13,8 @@ Platform service libraries for administration, alerts, analytics, secrets manage
 - **secrets/** - Secrets management with pluggable backends
 - **tax/** - Tax lot tracking and wash sale detection
 - **web_console_auth/** - JWT/mTLS auth library for web console
+- **web_console_data/** - Data access layer for web console with strategy-scoped queries
+- **web_console_services/** - Backend services for web console application
 
 ## Libraries
 
@@ -79,12 +81,42 @@ See [libs/web_console_auth.md](./web_console_auth.md) for detailed specification
 **Purpose:** JWT/mTLS auth library for web console sessions, roles, permissions, and rate limiting.
 
 **Key Features:**
-- JWT manager
-- Session management
-- Role-based permissions
-- Rate limiter
-- Audit logger
-- JWKS validation
+- OAuth2 flow with PKCE
+- JWT validation and JWKS integration
+- Role-based permissions (RBAC)
+- Session management and invalidation
+- Rate limiting
+- Audit logging
+- API client authentication
+
+### libs/web_console_data
+See [libs/web_console_data.md](./web_console_data.md) for detailed specification.
+
+**Purpose:** Data access layer for web console with strategy-scoped queries and user authorization.
+
+**Key Features:**
+- Strategy-scoped data access with encryption
+- User authorization and data isolation
+- Query result caching
+- Database connection management
+
+### libs/web_console_services
+See [libs/web_console_services.md](./web_console_services.md) for detailed specification.
+
+**Purpose:** Backend services for web console application providing alerts, analytics, and system control.
+
+**Key Services:**
+- Alert configuration and management
+- Alpha signal exploration
+- Circuit breaker control and monitoring
+- Strategy comparison analytics
+- Dataset exploration with SQL validation
+- Data quality monitoring
+- Data synchronization scheduling
+- System health monitoring
+- Jupyter notebook launcher
+- Risk analytics
+- Scheduled reports
 
 ## Dependencies
 - **Internal:** libs/core/common, libs/core/redis_client
@@ -93,8 +125,7 @@ See [libs/web_console_auth.md](./web_console_auth.md) for detailed specification
 ## Related Specs
 - Individual library specs listed above
 - [../services/auth_service.md](../services/auth_service.md) - Authentication service
-- [../services/web_console.md](../services/web_console.md) - Web console
-- [../services/web_console_ng.md](../services/web_console_ng.md) - Next-gen web console
+- [../services/web_console_ng.md](../services/web_console_ng.md) - Web console UI
 
 ## Metadata
 - **Last Updated:** 2026-01-14

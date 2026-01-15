@@ -33,8 +33,8 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
-    from apps.web_console.services.alert_service import AlertConfigService
     from libs.platform.alerts.models import AlertEvent, AlertRule
+    from libs.web_console_services.alert_service import AlertConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +56,8 @@ MIN_ACK_NOTE_LENGTH = 15
 def _get_alert_service(db_pool: AsyncConnectionPool) -> AlertConfigService:
     """Get AlertConfigService with async pool (global cache)."""
     if not hasattr(app.storage, "_alert_service"):
-        from apps.web_console.auth.audit_log import AuditLogger
-        from apps.web_console.services.alert_service import AlertConfigService
+        from libs.platform.web_console_auth.audit_log import AuditLogger
+        from libs.web_console_services.alert_service import AlertConfigService
 
         audit_logger = AuditLogger(db_pool)
         setattr(app.storage, "_alert_service", AlertConfigService(db_pool, audit_logger))  # noqa: B010
@@ -251,7 +251,7 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
                 ).classes("w-64")
 
             async def create_rule() -> None:
-                from apps.web_console.services.alert_service import AlertRuleCreate
+                from libs.web_console_services.alert_service import AlertRuleCreate
 
                 name = name_input.value
                 if not name or len(name.strip()) < 3:

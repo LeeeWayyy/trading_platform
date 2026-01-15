@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from apps.web_console.services.data_quality_service import DataQualityService
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services.data_quality_service import DataQualityService
 
 
 @dataclass(frozen=True)

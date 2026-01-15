@@ -5,9 +5,9 @@
 **Audience:** Operations team, DevOps engineers
 
 **Related Documents:**
-- Certificate README: `apps/web_console/certs/README.md`
+- Certificate README: `apps/web_console_ng/certs/README.md`
 - Planning Document: `docs/AI/Implementation/P2T3_PHASE2_PLAN.md`
-- nginx Configuration: `apps/web_console/nginx/nginx.conf`
+- nginx Configuration: `apps/web_console_ng/nginx/nginx.conf`
 
 ---
 
@@ -28,7 +28,7 @@
 **Duration:** ~5 minutes
 
 ### Prerequisites
-- [ ] CA certificate exists (`apps/web_console/certs/ca.crt` and `ca.key`)
+- [ ] CA certificate exists (`apps/web_console_ng/certs/ca.crt` and `ca.key`)
 - [ ] Backup access to server in case rollback needed
 - [ ] nginx container running
 
@@ -37,7 +37,7 @@
 #### 1. Verify Current Certificate Expiration
 ```bash
 # Check current expiration date
-openssl x509 -in apps/web_console/certs/server.crt -noout -dates
+openssl x509 -in apps/web_console_ng/certs/server.crt -noout -dates
 
 # Example output:
 # notBefore=Nov 21 10:00:00 2025 GMT
@@ -47,28 +47,28 @@ openssl x509 -in apps/web_console/certs/server.crt -noout -dates
 #### 2. Backup Current Certificate
 ```bash
 # Create backup directory
-mkdir -p apps/web_console/certs/backups
+mkdir -p apps/web_console_ng/certs/backups
 
 # Backup current certificate and key
-cp apps/web_console/certs/server.crt \
-   apps/web_console/certs/backups/server.crt.$(date +%Y%m%d)
-cp apps/web_console/certs/server.key \
-   apps/web_console/certs/backups/server.key.$(date +%Y%m%d)
+cp apps/web_console_ng/certs/server.crt \
+   apps/web_console_ng/certs/backups/server.crt.$(date +%Y%m%d)
+cp apps/web_console_ng/certs/server.key \
+   apps/web_console_ng/certs/backups/server.key.$(date +%Y%m%d)
 
 # Verify backup
-ls -lh apps/web_console/certs/backups/
+ls -lh apps/web_console_ng/certs/backups/
 ```
 
 #### 3. Generate New Server Certificate
 ```bash
 # Generate new server certificate (signed by existing CA)
-./scripts/generate_certs.py --server-only
+./scripts/dev/generate_certs.py --server-only
 
 # Expected output:
 # 🔐 Generating server certificate (1-year validity, 4096-bit RSA)...
 # ✅ Server certificate generated:
-#    Private key: apps/web_console/certs/server.key (permissions: 0600)
-#    Certificate: apps/web_console/certs/server.crt
+#    Private key: apps/web_console_ng/certs/server.key (permissions: 0600)
+#    Certificate: apps/web_console_ng/certs/server.crt
 #    Valid until: 2027-11-21 10:00:00 UTC
 #    SANs: web-console.trading-platform.local, localhost, 127.0.0.1
 ```
@@ -76,13 +76,13 @@ ls -lh apps/web_console/certs/backups/
 #### 4. Verify New Certificate
 ```bash
 # Verify certificate chain
-openssl verify -CAfile apps/web_console/certs/ca.crt \
-                        apps/web_console/certs/server.crt
+openssl verify -CAfile apps/web_console_ng/certs/ca.crt \
+                        apps/web_console_ng/certs/server.crt
 
-# Expected: apps/web_console/certs/server.crt: OK
+# Expected: apps/web_console_ng/certs/server.crt: OK
 
 # Verify SANs
-openssl x509 -in apps/web_console/certs/server.crt -text -noout | \
+openssl x509 -in apps/web_console_ng/certs/server.crt -text -noout | \
   grep -A1 "Subject Alternative Name"
 
 # Expected:
@@ -90,9 +90,9 @@ openssl x509 -in apps/web_console/certs/server.crt -text -noout | \
 #     DNS:web-console.trading-platform.local, DNS:localhost, IP Address:127.0.0.1
 
 # Verify key permissions
-stat -f "%A %N" apps/web_console/certs/server.key
+stat -f "%A %N" apps/web_console_ng/certs/server.key
 
-# Expected: 600 apps/web_console/certs/server.key
+# Expected: 600 apps/web_console_ng/certs/server.key
 ```
 
 #### 5. Reload nginx (Zero-Downtime)
@@ -113,7 +113,7 @@ docker exec trading_platform_nginx_mtls nginx -s reload
 #### 6. Verify New Certificate in Production
 ```bash
 # Test SSL handshake
-openssl s_client -connect localhost:443 -CAfile apps/web_console/certs/ca.crt \
+openssl s_client -connect localhost:443 -CAfile apps/web_console_ng/certs/ca.crt \
   </dev/null 2>/dev/null | openssl x509 -noout -dates
 
 # Should show new expiration date
@@ -140,16 +140,16 @@ docker logs trading_platform_nginx_mtls --tail 100 | grep -i "handshake"
 
 ```bash
 # Restore backup certificate
-cp apps/web_console/certs/backups/server.crt.YYYYMMDD \
-   apps/web_console/certs/server.crt
-cp apps/web_console/certs/backups/server.key.YYYYMMDD \
-   apps/web_console/certs/server.key
+cp apps/web_console_ng/certs/backups/server.crt.YYYYMMDD \
+   apps/web_console_ng/certs/server.crt
+cp apps/web_console_ng/certs/backups/server.key.YYYYMMDD \
+   apps/web_console_ng/certs/server.key
 
 # Reload nginx
 docker exec trading_platform_nginx_mtls nginx -s reload
 
 # Verify rollback successful
-openssl s_client -connect localhost:443 -CAfile apps/web_console/certs/ca.crt \
+openssl s_client -connect localhost:443 -CAfile apps/web_console_ng/certs/ca.crt \
   </dev/null 2>/dev/null | openssl x509 -noout -dates
 ```
 
@@ -171,7 +171,7 @@ openssl s_client -connect localhost:443 -CAfile apps/web_console/certs/ca.crt \
 #### 1. Check User's Current Certificate Expiration
 ```bash
 # Verify user's current certificate
-openssl x509 -in apps/web_console/certs/client-alice.crt -noout -dates
+openssl x509 -in apps/web_console_ng/certs/client-alice.crt -noout -dates
 
 # Example output:
 # notBefore=Nov 21 10:00:00 2025 GMT
@@ -181,13 +181,13 @@ openssl x509 -in apps/web_console/certs/client-alice.crt -noout -dates
 #### 2. Generate New Client Certificate
 ```bash
 # Generate new client certificate for user
-./scripts/generate_certs.py --client alice
+./scripts/dev/generate_certs.py --client alice
 
 # Expected output:
 # 🔐 Generating client certificate for 'alice' (90-day validity, 4096-bit RSA)...
 # ✅ Client certificate generated:
-#    Private key: apps/web_console/certs/client-alice.key (permissions: 0600)
-#    Certificate: apps/web_console/certs/client-alice.crt
+#    Private key: apps/web_console_ng/certs/client-alice.key (permissions: 0600)
+#    Certificate: apps/web_console_ng/certs/client-alice.crt
 #    Valid until: 2026-02-19 10:00:00 UTC
 #    SAN: client-alice.trading-platform.local
 ```
@@ -199,25 +199,25 @@ openssl x509 -in apps/web_console/certs/client-alice.crt -noout -dates
 **Recommended: GPG encryption (AES-256)**
 ```bash
 # Create encrypted archive with GPG (AES-256)
-tar -czf - apps/web_console/certs/client-alice.crt \
-           apps/web_console/certs/client-alice.key | \
+tar -czf - apps/web_console_ng/certs/client-alice.crt \
+           apps/web_console_ng/certs/client-alice.key | \
   gpg --symmetric --cipher-algo AES256 \
-      --output apps/web_console/certs/client-alice-$(date +%Y%m%d).tar.gz.gpg
+      --output apps/web_console_ng/certs/client-alice-$(date +%Y%m%d).tar.gz.gpg
 
 # You will be prompted for passphrase - use strong passphrase (20+ chars, random)
 # Share passphrase via separate channel (e.g., phone call, Signal, password manager)
 
 # Verify encryption
-gpg --list-packets apps/web_console/certs/client-alice-*.tar.gz.gpg | grep cipher
+gpg --list-packets apps/web_console_ng/certs/client-alice-*.tar.gz.gpg | grep cipher
 # Should show: cipher algo 9 (AES256)
 ```
 
 **Alternative: age encryption (modern, simpler)**
 ```bash
 # Install age: brew install age  (macOS)
-tar -czf - apps/web_console/certs/client-alice.crt \
-           apps/web_console/certs/client-alice.key | \
-  age --passphrase > apps/web_console/certs/client-alice-$(date +%Y%m%d).tar.gz.age
+tar -czf - apps/web_console_ng/certs/client-alice.crt \
+           apps/web_console_ng/certs/client-alice.key | \
+  age --passphrase > apps/web_console_ng/certs/client-alice-$(date +%Y%m%d).tar.gz.age
 
 # User decrypts with: age --decrypt < file.tar.gz.age | tar -xzf -
 ```
@@ -240,11 +240,11 @@ tar -czf - apps/web_console/certs/client-alice.crt \
 ```bash
 # Transfer via SCP (requires user's SSH access)
 # GPG-encrypted archive
-scp apps/web_console/certs/client-alice-$(date +%Y%m%d).tar.gz.gpg \
+scp apps/web_console_ng/certs/client-alice-$(date +%Y%m%d).tar.gz.gpg \
   alice@user-machine:/tmp/
 
 # OR age-encrypted archive
-scp apps/web_console/certs/client-alice-$(date +%Y%m%d).tar.gz.age \
+scp apps/web_console_ng/certs/client-alice-$(date +%Y%m%d).tar.gz.age \
   alice@user-machine:/tmp/
 
 # Share passphrase via separate channel (NOT via email/chat)
@@ -319,7 +319,7 @@ For immediate revocation:
 #### 1. Verify Current CA Expiration
 ```bash
 # Check current CA expiration
-openssl x509 -in apps/web_console/certs/ca.crt -noout -dates
+openssl x509 -in apps/web_console_ng/certs/ca.crt -noout -dates
 
 # Example output:
 # notBefore=Nov 21 10:00:00 2025 GMT
@@ -329,39 +329,39 @@ openssl x509 -in apps/web_console/certs/ca.crt -noout -dates
 #### 2. Backup All Existing Certificates
 ```bash
 # Create backup directory
-mkdir -p apps/web_console/certs/backups/ca-rotation-$(date +%Y%m%d)
+mkdir -p apps/web_console_ng/certs/backups/ca-rotation-$(date +%Y%m%d)
 
 # Backup all certificates
-cp apps/web_console/certs/*.crt \
-   apps/web_console/certs/backups/ca-rotation-$(date +%Y%m%d)/
-cp apps/web_console/certs/*.key \
-   apps/web_console/certs/backups/ca-rotation-$(date +%Y%m%d)/
+cp apps/web_console_ng/certs/*.crt \
+   apps/web_console_ng/certs/backups/ca-rotation-$(date +%Y%m%d)/
+cp apps/web_console_ng/certs/*.key \
+   apps/web_console_ng/certs/backups/ca-rotation-$(date +%Y%m%d)/
 
 # Verify backup
-ls -lh apps/web_console/certs/backups/ca-rotation-$(date +%Y%m%d)/
+ls -lh apps/web_console_ng/certs/backups/ca-rotation-$(date +%Y%m%d)/
 ```
 
 #### 3. Generate New CA
 ```bash
 # Generate new CA certificate
-./scripts/generate_certs.py --ca-only
+./scripts/dev/generate_certs.py --ca-only
 
 # Expected output:
 # 🔐 Generating CA certificate (10-year validity, 4096-bit RSA)...
 # ✅ CA certificate generated:
-#    Private key: apps/web_console/certs/ca.key (permissions: 0600)
-#    Certificate: apps/web_console/certs/ca.crt
+#    Private key: apps/web_console_ng/certs/ca.key (permissions: 0600)
+#    Certificate: apps/web_console_ng/certs/ca.crt
 #    Valid until: 2035-11-21 10:00:00 UTC
 ```
 
 #### 4. Regenerate Server Certificate
 ```bash
 # Generate new server certificate (signed by new CA)
-./scripts/generate_certs.py --server-only
+./scripts/dev/generate_certs.py --server-only
 
 # Verify certificate chain
-openssl verify -CAfile apps/web_console/certs/ca.crt \
-                        apps/web_console/certs/server.crt
+openssl verify -CAfile apps/web_console_ng/certs/ca.crt \
+                        apps/web_console_ng/certs/server.crt
 ```
 
 #### 5. Regenerate All Client Certificates
@@ -372,16 +372,16 @@ USERS=("alice" "bob" "charlie" "admin")
 # Generate client certificates for all users
 for user in "${USERS[@]}"; do
   echo "Generating certificate for $user..."
-  ./scripts/generate_certs.py --client "$user"
+  ./scripts/dev/generate_certs.py --client "$user"
 done
 
 # Package all certificates for distribution
 # Use GPG for secure encryption (NOT zip -e which uses weak encryption)
 for user in "${USERS[@]}"; do
-  tar -czf - apps/web_console/certs/client-$user.crt \
-             apps/web_console/certs/client-$user.key | \
+  tar -czf - apps/web_console_ng/certs/client-$user.crt \
+             apps/web_console_ng/certs/client-$user.key | \
     gpg --symmetric --cipher-algo AES256 \
-        --output apps/web_console/certs/client-$user-$(date +%Y%m%d).tar.gz.gpg
+        --output apps/web_console_ng/certs/client-$user-$(date +%Y%m%d).tar.gz.gpg
 done
 ```
 
@@ -427,7 +427,7 @@ docker exec -it trading_platform_postgres psql -U trader -d trader -c \
 #### 1. Identify Certificate to Revoke
 ```bash
 # Verify certificate subject
-openssl x509 -in apps/web_console/certs/client-alice.crt -noout -subject
+openssl x509 -in apps/web_console_ng/certs/client-alice.crt -noout -subject
 
 # Example output:
 # subject=C=US, ST=California, L=San Francisco, O=Trading Platform, OU=Users, CN=client-alice
@@ -444,8 +444,8 @@ openssl x509 -in apps/web_console/certs/client-alice.crt -noout -subject
 # 3. Reload nginx
 
 # For MVP: Simply delete client certificate files
-rm apps/web_console/certs/client-alice.crt
-rm apps/web_console/certs/client-alice.key
+rm apps/web_console_ng/certs/client-alice.crt
+rm apps/web_console_ng/certs/client-alice.key
 
 # nginx will reject connections from this client (no valid cert)
 ```
@@ -460,9 +460,9 @@ docker exec trading_platform_nginx_mtls nginx -s reload
 ```bash
 # Test that revoked certificate is rejected
 openssl s_client -connect localhost:443 \
-  -cert apps/web_console/certs/backups/client-alice.crt \
-  -key apps/web_console/certs/backups/client-alice.key \
-  -CAfile apps/web_console/certs/ca.crt
+  -cert apps/web_console_ng/certs/backups/client-alice.crt \
+  -key apps/web_console_ng/certs/backups/client-alice.key \
+  -CAfile apps/web_console_ng/certs/ca.crt
 
 # Expected: SSL handshake failure or certificate verification failed
 ```
@@ -515,13 +515,13 @@ docker exec -it trading_platform_postgres psql -U trader -d trader -c \
 
 **Diagnosis:**
 ```bash
-openssl verify -CAfile apps/web_console/certs/ca.crt \
-                        apps/web_console/certs/server.crt
+openssl verify -CAfile apps/web_console_ng/certs/ca.crt \
+                        apps/web_console_ng/certs/server.crt
 ```
 
 **Resolution:**
 - Ensure server certificate was signed by current CA
-- Regenerate server certificate: `./scripts/generate_certs.py --server-only`
+- Regenerate server certificate: `./scripts/dev/generate_certs.py --server-only`
 - Reload nginx: `docker exec trading_platform_nginx_mtls nginx -s reload`
 
 ### Client Cannot Authenticate After Rotation
@@ -598,7 +598,7 @@ docker logs trading_platform_nginx_mtls --tail 50
 
 **Certificate Issues:**
 - Check runbook first: `docs/RUNBOOKS/web-console-cert-rotation.md`
-- Certificate README: `apps/web_console/certs/README.md`
+- Certificate README: `apps/web_console_ng/certs/README.md`
 - Planning document: `docs/AI/Implementation/P2T3_PHASE2_PLAN.md`
 
 ---

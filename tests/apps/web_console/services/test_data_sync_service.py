@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from apps.web_console.schemas.data_management import SyncScheduleUpdateDTO
-from apps.web_console.services.data_sync_service import DataSyncService
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services.data_sync_service import DataSyncService
+from libs.web_console_services.schemas.data_management import SyncScheduleUpdateDTO
 
 
 @dataclass(frozen=True)

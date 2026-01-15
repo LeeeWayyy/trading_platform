@@ -12,7 +12,7 @@ from typing import Any
 import plotly.graph_objects as go
 from nicegui import ui
 
-from apps.web_console.utils.validators import validate_exposures
+from libs.core.common.validators import validate_exposures
 from libs.trading.risk.factor_covariance import CANONICAL_FACTOR_ORDER
 
 # Ensure asset_growth is included for full factor coverage (P2 fix)

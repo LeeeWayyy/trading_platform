@@ -15,8 +15,8 @@ from typing import Any, cast
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.rows import dict_row
 
-from apps.web_console.auth.permissions import get_authorized_strategies
-from apps.web_console.utils.db import acquire_connection
+from libs.core.common.db import acquire_connection
+from libs.platform.web_console_auth.permissions import get_authorized_strategies
 
 logger = logging.getLogger(__name__)
 

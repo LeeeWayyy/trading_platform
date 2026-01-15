@@ -12,7 +12,7 @@ Key Features:
     - History fallback to audit log when Redis unavailable
 
 Usage:
-    from apps.web_console.services.cb_service import CircuitBreakerService
+    from .cb_service import CircuitBreakerService
     from libs.core.redis_client import RedisClient
 
     redis = RedisClient(host="localhost", port=6379)
@@ -39,7 +39,6 @@ from typing import TYPE_CHECKING, Any
 import psycopg
 import redis
 
-from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
 from libs.platform.web_console_auth.audit_logger import (
     admin_action_total,
     audit_write_latency_seconds,
@@ -50,6 +49,7 @@ from libs.trading.risk_management.exceptions import CircuitBreakerError
 
 from .cb_metrics import CB_RESET_TOTAL, CB_STATUS_CHECKS, CB_TRIP_TOTAL
 from .cb_rate_limiter import CBRateLimiter
+from .config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
 
 if TYPE_CHECKING:
     from libs.core.redis_client import RedisClient

@@ -676,8 +676,9 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-11-15, Research] [research/automated-coding-research.md](../docs/AI/Research/automated-coding-research.md) - Automated coding workflow research
 - [CURRENT, 2025-11-15, Research] [research/automated-planning-research.md](../docs/AI/Research/automated-planning-research.md) - Automated planning system research
 
-**apps/ (Application-Level Documentation):**
-- [CURRENT, 2026-01-04, Guide] [../apps/web_console/README.md](../apps/web_console/README.md) - Legacy web console backend services (shared with NiceGUI)
+**libs/ (Library-Level Documentation for Web Console):**
+- [CURRENT, 2026-01-15, Spec] [SPECS/libs/web_console_services.md](SPECS/libs/web_console_services.md) - Web console backend services (migrated from apps/web_console)
+- [CURRENT, 2026-01-15, Spec] [SPECS/libs/web_console_data.md](SPECS/libs/web_console_data.md) - Web console data access layer
 
 **infra/ (Infrastructure Configuration):**
 - [CURRENT, 2025-11-27, Dashboard] [../infra/grafana/dashboards/oauth2-sessions-spec.md](../infra/grafana/dashboards/oauth2-sessions-spec.md) - OAuth2 session monitoring Grafana dashboard specification

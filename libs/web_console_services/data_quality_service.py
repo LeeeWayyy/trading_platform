@@ -10,18 +10,19 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from apps.web_console.schemas.data_management import (
+from libs.platform.web_console_auth.helpers import get_user_id
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    has_dataset_permission,
+    has_permission,
+)
+
+from .schemas.data_management import (
     AlertAcknowledgmentDTO,
     AnomalyAlertDTO,
     QualityTrendDTO,
     QuarantineEntryDTO,
     ValidationResultDTO,
-)
-from apps.web_console.utils.auth_helpers import get_user_id
-from libs.platform.web_console_auth.permissions import (
-    Permission,
-    has_dataset_permission,
-    has_permission,
 )
 
 logger = logging.getLogger(__name__)

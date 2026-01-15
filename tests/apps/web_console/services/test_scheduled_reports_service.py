@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from apps.web_console.services.scheduled_reports_service import ScheduledReportsService
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services.scheduled_reports_service import ScheduledReportsService
 
 
 def make_user(user_id: str, role: Role | str) -> dict:

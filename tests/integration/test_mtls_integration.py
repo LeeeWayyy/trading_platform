@@ -15,7 +15,7 @@ Test Coverage:
 
 Requirements:
 - Docker & Docker Compose
-- Valid certificates in apps/web_console/certs/
+- Valid certificates in apps/web_console_ng/certs/
 - nginx + web_console services running in mTLS mode
 
 Usage:
@@ -42,8 +42,11 @@ from cryptography.x509.oid import NameOID
 
 @pytest.fixture(scope="module")
 def certs_dir() -> Path:
-    """Path to certificates directory."""
-    return Path("apps/web_console/certs")
+    """Path to certificates directory.
+
+    NOTE: Certs moved to web_console_ng as part of web_console migration (2026-01).
+    """
+    return Path("apps/web_console_ng/certs")
 
 
 @pytest.fixture(scope="module")
@@ -612,7 +615,7 @@ MANUAL TESTS (not automated):
      --san DNS:web-console.trading-platform.local,DNS:localhost,DNS:web_console_nginx
 
 4. Verify DH Parameters Generation:
-   openssl dhparam -out apps/web_console/certs/dhparam.pem 4096
+   openssl dhparam -out apps/web_console_ng/certs/dhparam.pem 4096
    # Verify file size: 800-1000 bytes
 
 5. Certificate Rotation with Zero Downtime:

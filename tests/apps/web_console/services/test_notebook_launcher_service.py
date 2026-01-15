@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apps.web_console.services.notebook_launcher_service import (
+from libs.web_console_services.notebook_launcher_service import (
     NotebookLauncherService,
     SessionStatus,
 )
@@ -31,7 +31,7 @@ def test_create_notebook_with_mocked_subprocess(monkeypatch: pytest.MonkeyPatch)
     mock_process.pid = 4242
 
     with patch(
-        "apps.web_console.services.notebook_launcher_service.subprocess.Popen",
+        "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
         return_value=mock_process,
     ) as mock_popen:
         session = service.create_notebook(template_id, parameters={"alpha": "momentum"})
@@ -59,7 +59,7 @@ def test_terminate_session_updates_status(monkeypatch: pytest.MonkeyPatch) -> No
     mock_process.pid = 4242
 
     with patch(
-        "apps.web_console.services.notebook_launcher_service.subprocess.Popen",
+        "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
         return_value=mock_process,
     ):
         session = service.create_notebook(template_id, parameters={})
@@ -94,7 +94,7 @@ def test_get_session_status_detects_dead_process(monkeypatch: pytest.MonkeyPatch
     mock_process.pid = 9999
 
     with patch(
-        "apps.web_console.services.notebook_launcher_service.subprocess.Popen",
+        "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
         return_value=mock_process,
     ):
         session = service.create_notebook(template_id, parameters={})

@@ -28,9 +28,9 @@ from typing import Any
 
 import psycopg
 
-from apps.web_console.auth.audit_log import AuditLogger
-from apps.web_console.auth.permissions import Role
-from apps.web_console.utils.db import acquire_connection
+from libs.core.common.db import acquire_connection
+from libs.platform.web_console_auth.audit_log import AuditLogger
+from libs.platform.web_console_auth.permissions import Role
 
 logger = logging.getLogger(__name__)
 

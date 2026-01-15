@@ -9,19 +9,20 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from apps.web_console.auth.rate_limiter import RateLimiter, get_rate_limiter
-from apps.web_console.schemas.data_management import (
+from libs.platform.web_console_auth.helpers import get_user_id
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    has_dataset_permission,
+    has_permission,
+)
+from libs.platform.web_console_auth.rate_limiter import RateLimiter, get_rate_limiter
+
+from .schemas.data_management import (
     SyncJobDTO,
     SyncLogEntry,
     SyncScheduleDTO,
     SyncScheduleUpdateDTO,
     SyncStatusDTO,
-)
-from apps.web_console.utils.auth_helpers import get_user_id
-from libs.platform.web_console_auth.permissions import (
-    Permission,
-    has_dataset_permission,
-    has_permission,
 )
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french")

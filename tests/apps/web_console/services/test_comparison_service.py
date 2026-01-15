@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pandas as pd
 import pytest
 
-from apps.web_console.services.comparison_service import ComparisonService
+from libs.web_console_services.comparison_service import ComparisonService
 
 
 @pytest.fixture()

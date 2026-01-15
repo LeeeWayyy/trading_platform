@@ -24,6 +24,8 @@ See [libs/common.md](./common.md) for detailed specification.
 - Rate limiting dependency
 - Secrets management interface
 - Custom exception classes
+- Database connection pooling (async and sync)
+- Input validation utilities (symbols, dates, emails)
 
 ### libs/core/health
 See [libs/health.md](./health.md) for detailed specification.
@@ -55,6 +57,6 @@ See [libs/redis_client.md](./redis_client.md) for detailed specification.
 - [../infrastructure/redis.md](../infrastructure/redis.md) - Redis infrastructure
 
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated:** 2026-01-14 (Web Console Migration: Added db.py, db_pool.py, sync_db_pool.py, validators.py to libs/core/common/)
 - **Source Files:** `libs/core/` (group index)
 - **ADRs:** N/A

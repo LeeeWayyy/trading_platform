@@ -36,7 +36,7 @@ from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
-    from apps.web_console.services.alpha_explorer_service import (
+    from libs.web_console_services.alpha_explorer_service import (
         AlphaExplorerService,
         SignalSummary,
     )
@@ -55,9 +55,9 @@ def _get_alpha_service() -> AlphaExplorerService | None:
     Returns None if service initialization fails.
     """
     try:
-        from apps.web_console.services.alpha_explorer_service import AlphaExplorerService
         from libs.models.models.registry import ModelRegistry
         from libs.trading.alpha.metrics import AlphaMetricsAdapter
+        from libs.web_console_services.alpha_explorer_service import AlphaExplorerService
 
         registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
         registry = ModelRegistry(registry_dir=registry_dir)

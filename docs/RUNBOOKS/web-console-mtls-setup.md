@@ -2,7 +2,7 @@
 
 **Component:** P2T3 Phase 2 - Component 3: Nginx Reverse Proxy with HTTPS/TLS
 **Purpose:** Secure web console access with mutual TLS (mTLS) and JWT-DN binding
-**Last Updated:** 2025-11-22
+**Last Updated:** 2026-01-15
 
 ---
 
@@ -60,7 +60,9 @@ User → https://localhost:443 → Nginx (mTLS + HTTPS) → http://web_console_n
 - Python 3.11+ (for certificate generation scripts)
 
 ### Required Files
-All certificates must exist in `apps/web_console/certs/`:
+All certificates must exist in `apps/web_console_ng/certs/`:
+> **Note:** As of Web Console Migration (2026-01), certs moved from `apps/web_console/certs/` to `apps/web_console_ng/certs/`.
+
 - `ca.crt` - Certificate Authority (for client cert validation)
 - `ca.key` - CA private key (for signing certificates)
 - `server.crt` - Server certificate (with proper SANs)
@@ -78,18 +80,18 @@ All certificates must exist in `apps/web_console/certs/`:
 **Generate CA (once):**
 ```bash
 source .venv/bin/activate
-PYTHONPATH=. python3 scripts/generate_certs.py --ca-only
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --ca-only
 ```
 
 **Generate server certificate with SANs:**
 ```bash
-PYTHONPATH=. python3 scripts/generate_certs.py --server-only \
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --server-only \
   --san DNS:web-console.trading-platform.local,DNS:localhost,DNS:web_console_nginx
 ```
 
 **Verify server certificate SANs:**
 ```bash
-openssl x509 -in apps/web_console/certs/server.crt -noout -text | grep -A 5 "Subject Alternative Name"
+openssl x509 -in apps/web_console_ng/certs/server.crt -noout -text | grep -A 5 "Subject Alternative Name"
 # Expected output:
 #   X509v3 Subject Alternative Name:
 #     DNS:web-console.trading-platform.local, DNS:localhost, DNS:web_console_nginx
@@ -97,7 +99,7 @@ openssl x509 -in apps/web_console/certs/server.crt -noout -text | grep -A 5 "Sub
 
 **Generate client certificate:**
 ```bash
-PYTHONPATH=. python3 scripts/generate_certs.py --client <username>
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --client <username>
 ```
 
 ### Step 2: Generate DH Parameters
@@ -108,14 +110,14 @@ PYTHONPATH=. python3 scripts/generate_certs.py --client <username>
 
 ```bash
 # Generate 4096-bit DH parameters (takes 5-15 minutes)
-openssl dhparam -out apps/web_console/certs/dhparam.pem 4096
+openssl dhparam -out apps/web_console_ng/certs/dhparam.pem 4096
 
 # Verify file was created
-ls -lh apps/web_console/certs/dhparam.pem
+ls -lh apps/web_console_ng/certs/dhparam.pem
 # Expected: -rw------- ... 800-1000 bytes
 
 # Secure permissions
-chmod 600 apps/web_console/certs/dhparam.pem
+chmod 600 apps/web_console_ng/certs/dhparam.pem
 ```
 
 **Performance Note:** This is a one-time operation. The same dhparam.pem can be reused across deployments for several months. Regenerate annually or when security policies require.
@@ -124,12 +126,12 @@ chmod 600 apps/web_console/certs/dhparam.pem
 
 **Set proper permissions (CRITICAL):**
 ```bash
-chmod 600 apps/web_console/certs/*.key apps/web_console/certs/dhparam.pem
+chmod 600 apps/web_console_ng/certs/*.key apps/web_console_ng/certs/dhparam.pem
 ```
 
 **Verify permissions:**
 ```bash
-ls -l apps/web_console/certs/*.key apps/web_console/certs/dhparam.pem
+ls -l apps/web_console_ng/certs/*.key apps/web_console_ng/certs/dhparam.pem
 # Output: -rw------- (owner read/write only)
 ```
 
@@ -215,22 +217,22 @@ curl -k https://localhost/health
 **Procedure:**
 ```bash
 # 1. Backup current certificates
-cp apps/web_console/certs/ca.crt apps/web_console/certs/ca.crt.backup
-cp apps/web_console/certs/server.crt apps/web_console/certs/server.crt.backup
-cp apps/web_console/certs/server.key apps/web_console/certs/server.key.backup
+cp apps/web_console_ng/certs/ca.crt apps/web_console_ng/certs/ca.crt.backup
+cp apps/web_console_ng/certs/server.crt apps/web_console_ng/certs/server.crt.backup
+cp apps/web_console_ng/certs/server.key apps/web_console_ng/certs/server.key.backup
 
 # 2. Generate new certificates (same as Initial Setup)
-PYTHONPATH=. python3 scripts/generate_certs.py --ca-only --force
-PYTHONPATH=. python3 scripts/generate_certs.py --server-only \
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --ca-only --force
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --server-only \
   --san DNS:web-console.trading-platform.local,DNS:localhost,DNS:web_console_nginx --force
 
 # 3. Test configuration BEFORE reload (CRITICAL)
 docker exec trading_platform_nginx_mtls nginx -t
 if [ $? -ne 0 ]; then
   echo "ERROR: nginx config test failed, rolling back"
-  mv apps/web_console/certs/ca.crt.backup apps/web_console/certs/ca.crt
-  mv apps/web_console/certs/server.crt.backup apps/web_console/certs/server.crt
-  mv apps/web_console/certs/server.key.backup apps/web_console/certs/server.key
+  mv apps/web_console_ng/certs/ca.crt.backup apps/web_console_ng/certs/ca.crt
+  mv apps/web_console_ng/certs/server.crt.backup apps/web_console_ng/certs/server.crt
+  mv apps/web_console_ng/certs/server.key.backup apps/web_console_ng/certs/server.key
   exit 1
 fi
 
@@ -257,11 +259,11 @@ docker logs trading_platform_nginx_mtls --tail 10
 
 ```bash
 # Generate client certificate
-PYTHONPATH=. python3 scripts/generate_certs.py --client new_user
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --client new_user
 
 # Client receives:
-# - apps/web_console/certs/client_new_user.crt
-# - apps/web_console/certs/client_new_user.key
+# - apps/web_console_ng/certs/client_new_user.crt
+# - apps/web_console_ng/certs/client_new_user.key
 
 # Import to browser (example: Chrome/Firefox)
 # 1. Settings → Privacy and Security → Certificates → Import
@@ -277,7 +279,7 @@ PYTHONPATH=. python3 scripts/generate_certs.py --client new_user
 **Option 1: CA Rotation (Revokes All Clients)**
 ```bash
 # Generate new CA
-PYTHONPATH=. python3 scripts/generate_certs.py --ca-only --force
+PYTHONPATH=. python3 scripts/dev/generate_certs.py --ca-only --force
 
 # Update nginx configuration
 docker exec trading_platform_nginx_mtls nginx -s reload
@@ -387,7 +389,7 @@ openssl s_client -connect localhost:443 -status < /dev/null 2>&1 | grep "OCSP"
 
 **Fix (Option 1: Use Public DNS):**
 ```nginx
-# In apps/web_console/nginx/nginx.conf
+# In apps/web_console_ng/nginx/nginx.conf
 resolver 8.8.8.8 8.8.4.4 valid=300s;
 resolver_timeout 5s;
 ```
@@ -408,7 +410,7 @@ resolver_timeout 5s;
 
 **Fix (Option 4: Disable OCSP for Air-Gapped Networks):**
 ```nginx
-# Comment out in apps/web_console/nginx/nginx.conf
+# Comment out in apps/web_console_ng/nginx/nginx.conf
 # ssl_stapling on;
 # ssl_stapling_verify on;
 ```
@@ -433,7 +435,7 @@ docker logs trading_platform_nginx_mtls 2>&1 | grep "limiting requests"
 
 **Adjustment:**
 ```nginx
-# In apps/web_console/nginx/nginx.conf
+# In apps/web_console_ng/nginx/nginx.conf
 # Increase rate or burst limits
 
 # Layer 2: Pre-auth (IP-based)
@@ -466,8 +468,8 @@ curl -k https://localhost:443
 
 **Test 2: Request with valid client certificate succeeds**
 ```bash
-curl -k --cert apps/web_console/certs/client_<username>.crt \
-     --key apps/web_console/certs/client_<username>.key \
+curl -k --cert apps/web_console_ng/certs/client_<username>.crt \
+     --key apps/web_console_ng/certs/client_<username>.key \
      https://localhost:443/health
 # Expected: HTTP/1.1 200 OK
 ```
@@ -487,8 +489,8 @@ curl -k --cert /tmp/invalid.crt --key /tmp/invalid.key https://localhost:443
 
 **Test 1: HSTS header present**
 ```bash
-curl -k --cert apps/web_console/certs/client_<username>.crt \
-     --key apps/web_console/certs/client_<username>.key \
+curl -k --cert apps/web_console_ng/certs/client_<username>.crt \
+     --key apps/web_console_ng/certs/client_<username>.key \
      -I https://localhost:443 | grep Strict-Transport-Security
 # Expected: Strict-Transport-Security: max-age=63072000; includeSubDomains
 ```
@@ -503,8 +505,8 @@ curl -I http://localhost:80
 **Test 3: TLS version and cipher**
 ```bash
 openssl s_client -connect localhost:443 \
-  -cert apps/web_console/certs/client_<username>.crt \
-  -key apps/web_console/certs/client_<username>.key \
+  -cert apps/web_console_ng/certs/client_<username>.crt \
+  -key apps/web_console_ng/certs/client_<username>.key \
   < /dev/null 2>&1 | grep -E "Protocol|Cipher"
 # Expected: Protocol : TLSv1.3 (or TLSv1.2)
 #           Cipher    : TLS_AES_256_GCM_SHA384 (or similar strong cipher)
@@ -516,8 +518,8 @@ openssl s_client -connect localhost:443 \
 ```bash
 # Open 60 concurrent connections
 for i in {1..60}; do
-  curl -k --cert apps/web_console/certs/client_<username>.crt \
-       --key apps/web_console/certs/client_<username>.key \
+  curl -k --cert apps/web_console_ng/certs/client_<username>.crt \
+       --key apps/web_console_ng/certs/client_<username>.key \
        https://localhost:443/health &
 done
 wait
@@ -531,8 +533,8 @@ docker logs trading_platform_nginx_mtls 2>&1 | grep "limiting connections"
 ```bash
 # Send 100 rapid requests
 for i in {1..100}; do
-  curl -k --cert apps/web_console/certs/client_<username>.crt \
-       --key apps/web_console/certs/client_<username>.key \
+  curl -k --cert apps/web_console_ng/certs/client_<username>.crt \
+       --key apps/web_console_ng/certs/client_<username>.key \
        -s -o /dev/null -w "%{http_code}\n" \
        https://localhost:443/health
 done | sort | uniq -c
@@ -543,8 +545,8 @@ done | sort | uniq -c
 
 ```bash
 openssl s_client -connect localhost:443 -status \
-  -cert apps/web_console/certs/client_<username>.crt \
-  -key apps/web_console/certs/client_<username>.key \
+  -cert apps/web_console_ng/certs/client_<username>.crt \
+  -key apps/web_console_ng/certs/client_<username>.key \
   < /dev/null 2>&1 | grep -A 10 "OCSP Response Status"
 # Expected: OCSP Response Status: successful
 #           Cert Status: good
@@ -565,8 +567,8 @@ docker ps | grep nginx
 docker logs trading_platform_nginx_mtls --since 1h | grep -i error
 
 # Verify HTTPS endpoint
-curl -k --cert apps/web_console/certs/client_<username>.crt \
-     --key apps/web_console/certs/client_<username>.key \
+curl -k --cert apps/web_console_ng/certs/client_<username>.crt \
+     --key apps/web_console_ng/certs/client_<username>.key \
      https://localhost:443/health
 ```
 
@@ -584,14 +586,14 @@ docker logs trading_platform_nginx_mtls --since 1h | grep "limiting" | awk '{pri
 **Check certificate expiration:**
 ```bash
 # Server certificate
-openssl x509 -in apps/web_console/certs/server.crt -noout -enddate
+openssl x509 -in apps/web_console_ng/certs/server.crt -noout -enddate
 # Expected: notAfter=<date>
 
 # CA certificate
-openssl x509 -in apps/web_console/certs/ca.crt -noout -enddate
+openssl x509 -in apps/web_console_ng/certs/ca.crt -noout -enddate
 
 # Client certificate
-openssl x509 -in apps/web_console/certs/client_<username>.crt -noout -enddate
+openssl x509 -in apps/web_console_ng/certs/client_<username>.crt -noout -enddate
 
 # Alert if < 30 days remaining
 ```
@@ -601,7 +603,7 @@ openssl x509 -in apps/web_console/certs/client_<username>.crt -noout -enddate
 #!/bin/bash
 # /etc/cron.daily/check-cert-expiry
 
-CERT_PATH="apps/web_console/certs/server.crt"
+CERT_PATH="apps/web_console_ng/certs/server.crt"
 DAYS_WARN=30
 
 EXPIRY_DATE=$(openssl x509 -in $CERT_PATH -noout -enddate | cut -d= -f2)
@@ -638,8 +640,8 @@ fi
 ## References
 
 - **Implementation Plan:** `docs/ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md`
-- **Certificate Generation:** `scripts/generate_certs.py`
-- **nginx Configuration:** `apps/web_console/nginx/nginx.conf`
+- **Certificate Generation:** `scripts/dev/generate_certs.py`
+- **nginx Configuration:** `apps/web_console_ng/nginx/nginx.conf`
 - **Docker Compose:** `docker-compose.yml`
 - **Integration Tests:** `tests/integration/test_mtls_integration.py`
 

@@ -21,6 +21,17 @@
 | `InvalidTokenError` | message | exception | JWT invalid. |
 | `TokenExpiredError` | message | exception | JWT expired. |
 | `TokenRevokedError` | message | exception | JWT revoked. |
+| `OAuth2FlowHandler` | config, redis, db | handler | OAuth2 PKCE flow handler. |
+| `JWKSValidator` | jwks_url | validator | JWKS fetching and JWT validation. |
+| `AuditLogger` | db_pool | logger | Security event audit logging. |
+| `RedisSessionStore` | redis | store | Session storage in Redis. |
+| `RateLimiter` | redis, config | limiter | Rate limiting for API endpoints. |
+| `call_api_with_auth` | url, token | response | Authenticated API client. |
+| `get_user_id` | request | str | Extract user_id from request state. |
+| `generate_pkce_challenge` | - | code_challenge | Generate PKCE challenge. |
+| `generate_nonce` | - | str | Generate nonce for OAuth2. |
+| `validate_session_version` | user_id, version | bool | Check session version validity. |
+| `IdPHealthChecker` | - | checker | Identity provider health monitoring. |
 
 ## Behavioral Contracts
 ### JWTManager.generate_access_token(...)
@@ -105,8 +116,8 @@ claims = manager.validate_token(token, expected_type="access")
 ## Configuration
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `JWT_PRIVATE_KEY_PATH` | No | `apps/web_console/certs/jwt_private.key` | Private key path. |
-| `JWT_PUBLIC_KEY_PATH` | No | `apps/web_console/certs/jwt_public.pem` | Public key path. |
+| `JWT_PRIVATE_KEY_PATH` | No | `apps/web_console_ng/certs/jwt_private.key` | Private key path. |
+| `JWT_PUBLIC_KEY_PATH` | No | `apps/web_console_ng/certs/jwt_public.pem` | Public key path. |
 | `ACCESS_TOKEN_TTL` | No | 900 | Access token TTL (seconds). |
 | `REFRESH_TOKEN_TTL` | No | 14400 | Refresh token TTL (seconds). |
 | `MAX_SESSIONS_PER_USER` | No | 3 | Session cap per user. |
@@ -144,6 +155,6 @@ claims = manager.validate_token(token, expected_type="access")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-09
-- **Source Files:** `libs/platform/web_console_auth/__init__.py`, `libs/platform/web_console_auth/config.py`, `libs/platform/web_console_auth/jwt_manager.py`, `libs/platform/web_console_auth/session.py`, `libs/platform/web_console_auth/permissions.py`, `libs/platform/web_console_auth/rate_limiter.py`, `libs/platform/web_console_auth/jwks_validator.py`
+- **Last Updated:** 2026-01-14
+- **Source Files:** `libs/platform/web_console_auth/__init__.py`, `libs/platform/web_console_auth/api_client.py`, `libs/platform/web_console_auth/audit_log.py`, `libs/platform/web_console_auth/audit_logger.py`, `libs/platform/web_console_auth/config.py`, `libs/platform/web_console_auth/db.py`, `libs/platform/web_console_auth/exceptions.py`, `libs/platform/web_console_auth/gateway_auth.py`, `libs/platform/web_console_auth/helpers.py`, `libs/platform/web_console_auth/idp_health.py`, `libs/platform/web_console_auth/jwks_validator.py`, `libs/platform/web_console_auth/jwt_manager.py`, `libs/platform/web_console_auth/mfa_verification.py`, `libs/platform/web_console_auth/mtls_fallback.py`, `libs/platform/web_console_auth/oauth2_flow.py`, `libs/platform/web_console_auth/oauth2_state.py`, `libs/platform/web_console_auth/permissions.py`, `libs/platform/web_console_auth/pkce.py`, `libs/platform/web_console_auth/rate_limiter.py`, `libs/platform/web_console_auth/redis_client.py`, `libs/platform/web_console_auth/session.py`, `libs/platform/web_console_auth/session_invalidation.py`, `libs/platform/web_console_auth/session_store.py`, `libs/platform/web_console_auth/session_validation.py`, `libs/platform/web_console_auth/step_up_callback.py`
 - **ADRs:** N/A
