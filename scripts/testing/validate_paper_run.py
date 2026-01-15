@@ -34,7 +34,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.paper_run import (  # noqa: E402
+from scripts.ops.paper_run import (  # noqa: E402
     calculate_enhanced_pnl,
     calculate_simple_pnl,
     check_dependencies,
@@ -594,7 +594,7 @@ class TestFetchCurrentPrices:
             }
         )
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             with patch.dict(
                 os.environ,
                 {
@@ -625,7 +625,7 @@ class TestFetchCurrentPrices:
         mock_executor = Mock()
         mock_executor.get_latest_quotes = Mock(side_effect=AlpacaConnectionError("API down"))
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             with patch.dict(
                 os.environ, {"ALPACA_API_KEY": "test_key", "ALPACA_SECRET_KEY": "test_secret"}
             ):
@@ -653,7 +653,7 @@ class TestFetchCurrentPrices:
             }
         )
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             with patch.dict(
                 os.environ, {"ALPACA_API_KEY": "test_key", "ALPACA_SECRET_KEY": "test_secret"}
             ):

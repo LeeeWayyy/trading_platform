@@ -18,7 +18,7 @@
 
 # Run workflow gate check
 # Set PYTHONPATH to allow imports from libs/
-PYTHONPATH=. ./scripts/workflow_gate.py check-commit
+PYTHONPATH=. ./scripts/admin/workflow_gate.py check-commit
 if [ $? -ne 0 ]; then
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -29,8 +29,8 @@ if [ $? -ne 0 ]; then
     echo "  1. Request zen review: Follow .claude/workflows/03-reviews.md"
     echo "  2. Run CI locally: make ci-local"
     echo "  3. Record results:"
-    echo "       ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
-    echo "       ./scripts/workflow_gate.py record-ci true"
+    echo "       ./scripts/admin/workflow_gate.py record-review <continuation_id> APPROVED"
+    echo "       ./scripts/admin/workflow_gate.py record-ci true"
     echo ""
     echo "WARNING: DO NOT use 'git commit --no-verify' to bypass this gate."
     echo "         Bypassing gates defeats the entire quality system and will"

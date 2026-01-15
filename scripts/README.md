@@ -261,6 +261,6 @@ bash scripts/testing/validate_health_check.sh
 ---
 
 **See Also:**
-- [Development Guide](../docs/GETTING_STARTED/DEVELOPMENT.md)
+- [Runbooks](../docs/RUNBOOKS/ops.md)
 - [Operations Runbook](../docs/RUNBOOKS/ops.md)
 - [AI Workflow Guide](../docs/AI/Workflows/README.md)

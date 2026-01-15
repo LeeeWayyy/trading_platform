@@ -172,9 +172,8 @@ alembic current
 
 ## Related Documents
 
-- [docs/STANDARDS/DATABASE_STANDARDS.md](../docs/STANDARDS/DATABASE_STANDARDS.md) - Database design patterns
-- [docs/RUNBOOKS/database-operations.md](../docs/RUNBOOKS/database-operations.md) - Production database operations
 - [Alembic Documentation](https://alembic.sqlalchemy.org/) - Official Alembic docs
+- [docs/RUNBOOKS/ops.md](../docs/RUNBOOKS/ops.md) - Operations runbook
 
 ---
 

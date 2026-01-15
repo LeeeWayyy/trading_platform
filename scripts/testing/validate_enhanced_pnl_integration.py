@@ -20,7 +20,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.paper_run import calculate_enhanced_pnl  # noqa: E402
+from scripts.ops.paper_run import calculate_enhanced_pnl  # noqa: E402
 
 
 async def test_scenario_1_all_profitable():

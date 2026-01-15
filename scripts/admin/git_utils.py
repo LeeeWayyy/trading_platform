@@ -118,7 +118,7 @@ def is_core_package(file: str) -> bool:
         True
         >>> is_core_package("apps/execution_gateway/order_placer.py")
         False
-        >>> is_core_package("scripts/workflow_gate.py")
+        >>> is_core_package("scripts/admin/workflow_gate.py")
         True
     """
     # Normalize to POSIX path for consistent prefix matching

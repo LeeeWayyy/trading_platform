@@ -250,9 +250,9 @@ RUN pip install -r requirements.txt  # Only service-specific deps
 
 ## Related Documents
 
-- [Python Dependencies](../docs/STANDARDS/PYTHON_DEPENDENCIES.md) - Current dependency management
-- [CI/CD Guide](../docs/GETTING_STARTED/CI_CD_GUIDE.md) - Current CI architecture
-- [Repository Map](../docs/GETTING_STARTED/REPO_MAP.md) - Project structure
+- [Python Dependencies](../STANDARDS/PYTHON_DEPENDENCIES.md) - Current dependency management
+- [CI/CD Guide](../GETTING_STARTED/CI_CD_GUIDE.md) - Current CI architecture
+- [Repository Map](../GETTING_STARTED/REPO_MAP.md) - Project structure
 
 ---
 

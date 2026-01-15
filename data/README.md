@@ -424,8 +424,7 @@ python scripts/data/reexport_with_schema.py --date 2026-01-14
 
 ## Related Documentation
 
-- [Data Quality Standards](../docs/STANDARDS/DATA_QUALITY.md) - Validation rules and thresholds
-- [DuckDB Catalog](../libs/data/duckdb_catalog/README.md) - Query interface
+- [DuckDB Basics](../docs/CONCEPTS/duckdb-basics.md) - DuckDB concepts and query patterns
 - [Market Data Service Spec](../docs/SPECS/services/market_data_service.md) - API for data access
 - [Backtest Service Spec](../docs/SPECS/libs/backtest.md) - Backtest result schema
 

@@ -568,7 +568,7 @@ def cmd_record_commit(args):
 
         if not current:
             print("Error: No current component set", file=sys.stderr)
-            print("   Use: ./scripts/workflow_gate.py set-component '<name>'", file=sys.stderr)
+            print("   Use: ./scripts/admin/workflow_gate.py set-component '<name>'", file=sys.stderr)
             print(
                 "   See @docs/AI/Workflows/12-component-cycle.md for component workflow",
                 file=sys.stderr,
@@ -735,7 +735,7 @@ def cmd_subtask_create(args):
         if not pr_number:
             print("Error: No PR number set", file=sys.stderr)
             print(
-                "   Use: ./scripts/workflow_gate.py start-pr-phase --pr-url <url>", file=sys.stderr
+                "   Use: ./scripts/admin/workflow_gate.py start-pr-phase --pr-url <url>", file=sys.stderr
             )
             print("   See @docs/AI/Workflows/01-git.md for PR workflow", file=sys.stderr)
             return 1
@@ -882,7 +882,7 @@ def cmd_subtask_start(args):
         else:
             print(f"✗ Task {args.task_id} not found in queue", file=sys.stderr)
             print(
-                "   Use: ./scripts/workflow_gate.py subtask-status to see available tasks",
+                "   Use: ./scripts/admin/workflow_gate.py subtask-status to see available tasks",
                 file=sys.stderr,
             )
             return 1
@@ -949,7 +949,7 @@ def cmd_reset_task(args):
 
         if handler.reset_for_new_task():
             print("✓ Workflow reset for new task")
-            print("   Use: ./scripts/workflow_gate.py start-task <id> <branch> to begin")
+            print("   Use: ./scripts/admin/workflow_gate.py start-task <id> <branch> to begin")
             return 0
         else:
             print("✗ Can only reset from 'merged' state", file=sys.stderr)
