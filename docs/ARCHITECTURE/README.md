@@ -43,10 +43,10 @@ The map is generated from:
 
 ```bash
 # Generate / overwrite the outputs
-python3 scripts/generate_architecture.py --generate
+python3 scripts/dev/generate_architecture.py --generate
 
 # CI drift check (fails if outputs are stale or components unmapped)
-python3 scripts/generate_architecture.py --check
+python3 scripts/dev/generate_architecture.py --check
 ```
 
 ## Adding New Components
@@ -65,7 +65,7 @@ When adding a new service, library, or strategy:
 
 2. **Create spec file** — Add `docs/SPECS/services/new_service.md` using the template.
 
-3. **Regenerate** — Run `python3 scripts/generate_architecture.py --generate`
+3. **Regenerate** — Run `python3 scripts/dev/generate_architecture.py --generate`
 
 4. **CI enforces** — The `--check` mode will fail if:
    - A component exists but is not in the config

@@ -403,7 +403,7 @@ Output: Complete pytest test suite"
 
 #### Step 1: Draft Task Document
 
-Create task following template (`/docs/TASKS/00-TEMPLATE_TASK.md`):
+Create task following template (`/docs/TEMPLATES/00-TEMPLATE_TASK.md`):
 ```markdown
 # P1T11 - Example Task
 

@@ -288,7 +288,7 @@ async def reload_model():
 **Usage:**
 ```bash
 # Deploy new model
-./scripts/register_model.sh alpha_baseline v1.1.0 artifacts/models/alpha_v1.1.0.txt
+./scripts/ops/register_model.sh alpha_baseline v1.1.0 artifacts/models/alpha_v1.1.0.txt
 
 # Trigger immediate reload (don't wait for background poll)
 curl -X POST http://localhost:8001/api/v1/model/reload
