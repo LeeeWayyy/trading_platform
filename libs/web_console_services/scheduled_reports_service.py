@@ -394,17 +394,9 @@ class ScheduledReportsService:
             )
         except (OSError, ConnectionError, KeyError, ValueError, TypeError) as exc:
             data_errors.append(f"Failed to fetch trading data: {exc}")
-        finally:
-            # Ensure client resources are released if it has a shutdown method
-            if client is not None and hasattr(client, "shutdown"):
-                try:
-                    await client.shutdown()
-                except Exception as shutdown_exc:
-                    # Log cleanup failure but don't raise - best-effort cleanup
-                    logging.getLogger(__name__).warning(
-                        "trading_client_shutdown_failed",
-                        extra={"error": str(shutdown_exc)},
-                    )
+        # NOTE: Do NOT shutdown the client here - it's a shared singleton managed
+        # at the application level (NiceGUI lifespan). Shutting it down would break
+        # other concurrent requests (dashboard, orders, etc.).
 
         return positions_payload, fills_payload, data_errors
 

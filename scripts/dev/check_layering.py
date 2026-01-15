@@ -17,7 +17,6 @@ import ast
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -75,7 +74,7 @@ def main() -> int:
         description="Check for layer violations (libs importing from apps)"
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
-    args = parser.parse_args()
+    _args = parser.parse_args()  # noqa: F841 - parsed for future verbose mode
 
     print("Checking for layer violations (libs → apps imports)...")
 

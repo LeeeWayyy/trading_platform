@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-01-15 - Import reorganization, no functional changes -->
+<!-- Last reviewed: 2026-01-15 - Fixed singleton client lifecycle (don't shutdown shared client) -->
 
 ## Identity
 - **Type:** Library
