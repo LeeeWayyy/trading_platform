@@ -304,7 +304,7 @@ class JSONFormatter(logging.Formatter):
 Every service configures logging at startup:
 
 ```python
-from libs.common.logging import configure_logging
+from libs.core.common.logging import configure_logging
 
 # Configure JSON logging for this service
 logger = configure_logging(
@@ -325,7 +325,7 @@ logger = configure_logging(
 
 **Simple logging:**
 ```python
-from libs.common.logging import get_logger
+from libs.core.common.logging import get_logger
 
 logger = get_logger(__name__)
 logger.info("Service started")
@@ -345,7 +345,7 @@ logger.info("Service started")
 
 **Logging with context:**
 ```python
-from libs.common.logging import log_with_context
+from libs.core.common.logging import log_with_context
 
 log_with_context(
     logger,

@@ -500,7 +500,7 @@ if os.getenv("REDIS_ENABLED", "false").lower() == "true":
 # tests/test_redis_client.py
 import pytest
 from unittest.mock import Mock, patch
-from libs.redis_client import RedisClient, FeatureCache
+from libs.core.redis_client import RedisClient, FeatureCache
 
 @pytest.fixture
 def mock_redis():

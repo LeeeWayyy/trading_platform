@@ -136,5 +136,5 @@ await stream.unsubscribe_symbols(["AAPL"], source="manual")
 
 ## Metadata
 - **Last Updated:** 2026-01-09 (housekeeping refresh)
-- **Source Files:** `libs/market_data/__init__.py`, `libs/market_data/alpaca_stream.py`, `libs/market_data/types.py`, `libs/market_data/exceptions.py`
+- **Source Files:** `libs/data/market_data/__init__.py`, `libs/data/market_data/alpaca_stream.py`, `libs/data/market_data/types.py`, `libs/data/market_data/exceptions.py`
 - **ADRs:** N/A

@@ -95,7 +95,7 @@ as_of_date >= datadate + filing_lag_days
 
 ```python
 from datetime import date
-from libs.data_providers import CompustatLocalProvider
+from libs.data.data_providers import CompustatLocalProvider
 
 # Create provider
 provider = CompustatLocalProvider(

@@ -19,8 +19,8 @@ from pydantic import BaseModel
 
 from apps.market_data_service.config import settings
 from apps.market_data_service.position_sync import PositionBasedSubscription
-from libs.market_data import AlpacaMarketDataStream, SubscriptionError
-from libs.redis_client import EventPublisher, RedisClient
+from libs.core.redis_client import EventPublisher, RedisClient
+from libs.data.market_data import AlpacaMarketDataStream, SubscriptionError
 
 # Configure logging
 logging.basicConfig(

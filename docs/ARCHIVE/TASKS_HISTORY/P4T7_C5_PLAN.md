@@ -832,7 +832,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from libs.tax.cost_basis import Disposition, GainsSummary
+    from libs.platform.tax.cost_basis import Disposition, GainsSummary
 
 
 @dataclass
@@ -1031,7 +1031,7 @@ from apps.web_console.auth import get_current_user
 from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.utils.db_pool import get_db_pool
-from libs.tax.cost_basis import CostBasisCalculator, CostBasisMethod
+from libs.platform.tax.cost_basis import CostBasisCalculator, CostBasisMethod
 
 FEATURE_TAX_LOTS = os.getenv("FEATURE_TAX_LOTS", "false").lower() in {
     "1", "true", "yes", "on",
@@ -1197,7 +1197,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from libs.tax.cost_basis import CostBasisCalculator, CostBasisMethod, TaxLot
+from libs.platform.tax.cost_basis import CostBasisCalculator, CostBasisMethod, TaxLot
 
 
 @pytest.fixture
@@ -1313,7 +1313,7 @@ from uuid import UUID
 
 # Scripts can import from apps (unlike libs which use Protocol interfaces)
 from apps.web_console.utils.db_pool import get_db_pool
-from libs.tax.cost_basis import CostBasisCalculator, AsyncConnectionPool
+from libs.platform.tax.cost_basis import CostBasisCalculator, AsyncConnectionPool
 
 logger = logging.getLogger(__name__)
 

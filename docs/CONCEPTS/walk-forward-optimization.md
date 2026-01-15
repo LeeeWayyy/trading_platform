@@ -46,8 +46,8 @@ Defined in `WalkForwardConfig` (`libs/backtest/walk_forward.py`):
 
 ## 7. Usage Example
 ```python
-from libs.backtest.walk_forward import WalkForwardConfig, WalkForwardOptimizer
-from libs.alpha.research_platform import PITBacktester
+from libs.trading.backtest.walk_forward import WalkForwardConfig, WalkForwardOptimizer
+from libs.trading.alpha.research_platform import PITBacktester
 
 config = WalkForwardConfig(
     train_months=12,
@@ -74,4 +74,4 @@ print(f"Is Overfit: {result.is_overfit}")
 
 ## 9. Related Documents
 - [P4T4_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T4_DONE.md)
-- [PITBacktester (libs/alpha/research_platform.py)](../../libs/alpha/research_platform.py)
+- [PITBacktester (libs/trading/alpha/research_platform.py)](../../libs/trading/alpha/research_platform.py)

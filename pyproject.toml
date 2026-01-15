@@ -99,10 +99,18 @@ python-jose = {version = "^3.3.0", extras = ["cryptography"]}  # OAuth2 JWT vali
 line-length = 100
 target-version = ['py311']
 include = '\.pyi?$'
+exclude = '''
+/(
+    research
+)/
+'''
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [
+    "research/",  # Experimental code excluded from strict checks
+]
 
 [tool.ruff.lint]
 select = [
@@ -151,6 +159,9 @@ parametrize-values-row-type = "tuple"
 python_version = "3.11"
 strict = true
 warn_unused_ignores = true
+exclude = [
+    "research/",  # Experimental code excluded from strict checks
+]
 
 [[tool.mypy.overrides]]
 module = "polars.*"

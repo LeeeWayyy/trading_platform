@@ -100,7 +100,7 @@ Request -> Auth -> ModelRegistry (manifest + DB) -> Response
 - **RBAC Roles:** Scope-based (read/write/admin)
 
 ## Testing
-- **Test Files:** `tests/libs/models/` (registry behavior)
+- **Test Files:** `tests/libs/models/models/` (registry behavior)
 - **Run Tests:** `pytest tests/libs/models -v`
 - **Coverage:** N/A
 
@@ -132,6 +132,6 @@ curl -s http://localhost:8003/api/v1/models/risk_model/current   -H 'Authorizati
 - `../libs/models.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-09 (housekeeping refresh)
+- **Last Updated:** 2026-01-14
 - **Source Files:** `apps/model_registry/main.py`, `apps/model_registry/routes.py`, `apps/model_registry/auth.py`, `apps/model_registry/schemas.py`, `libs/models`
 - **ADRs:** N/A

@@ -722,9 +722,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from libs.health.health_client import HealthClient, ServiceHealthResponse
-from libs.health.prometheus_client import LatencyMetrics, PrometheusClient
-from libs.redis_client import RedisClient
+from libs.core.health.health_client import HealthClient, ServiceHealthResponse
+from libs.core.health.prometheus_client import LatencyMetrics, PrometheusClient
+from libs.core.redis_client import RedisClient
 # NOTE: Redis Streams import deferred to C2.1
 # from libs.redis_streams.stream_client import QueueDepthMetrics, RedisStreamClient
 
@@ -940,12 +940,12 @@ from apps.web_console.services.health_service import (
     ConnectivityStatus,
     HealthMonitorService,
 )
-from libs.health.health_client import HealthClient, ServiceHealthResponse
-from libs.health.prometheus_client import LatencyMetrics, PrometheusClient
-from libs.redis_client import RedisClient
+from libs.core.health.health_client import HealthClient, ServiceHealthResponse
+from libs.core.health.prometheus_client import LatencyMetrics, PrometheusClient
+from libs.core.redis_client import RedisClient
 # NOTE: Redis Streams import deferred to C2.1
 # from libs.redis_streams.stream_client import QueueDepthMetrics, RedisStreamClient
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 

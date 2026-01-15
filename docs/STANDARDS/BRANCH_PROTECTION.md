@@ -37,7 +37,7 @@ The following settings **MUST** be enabled for the `master` branch:
 - **Required Checks:**
   - ✅ **`Run tests and check coverage`** (CRITICAL)
     - This is the job name from `.github/workflows/ci-tests-coverage.yml`
-    - Runs `scripts/verify_gate_compliance.py` which validates Review-Hash
+    - Runs `scripts/testing/verify_gate_compliance.py` which validates Review-Hash
     - **This is the enforcement mechanism for the entire workflow system**
 
 ### 3. Require Branches to be Up to Date Before Merging
@@ -114,7 +114,7 @@ The following settings **MUST** be enabled for the `master` branch:
 3. **Use the Verification Script:**
    ```bash
    # Run locally or check CI output
-   python scripts/verify_branch_protection.py
+   python scripts/testing/verify_branch_protection.py
    ```
    - Expected output: `✅ Branch protection correctly configured`
 
@@ -156,7 +156,7 @@ When correctly configured, a PR will show:
 **Solution:**
 1. Update the branch protection rule to reference the new job name
 2. Update this documentation
-3. Update `scripts/verify_branch_protection.py` to check for the new name
+3. Update `scripts/testing/verify_branch_protection.py` to check for the new name
 
 **Prevention:** The `verify_branch_protection.py` script (run in CI) will alert if the job name changes.
 
@@ -198,7 +198,7 @@ The CI workflow includes a verification step that checks branch protection statu
 ```yaml
 # .github/workflows/ci-tests-coverage.yml
 - name: Verify Branch Protection Status
-  run: python scripts/verify_branch_protection.py
+  run: python scripts/testing/verify_branch_protection.py
   continue-on-error: true  # Non-blocking, informational only
 ```
 
@@ -232,9 +232,9 @@ This branch protection rule is one layer of a multi-layered security approach:
 ## References
 
 - **GitHub Documentation:** [About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/about-protected-branches)
-- **Review-Hash Validation:** `scripts/verify_gate_compliance.py`
+- **Review-Hash Validation:** `scripts/testing/verify_gate_compliance.py`
 - **CI Workflow:** `.github/workflows/ci-tests-coverage.yml`
-- **Verification Script:** `scripts/verify_branch_protection.py`
+- **Verification Script:** `scripts/testing/verify_branch_protection.py`
 - **Workflow Documentation:** `.claude/workflows/01-git.md`
 
 ---

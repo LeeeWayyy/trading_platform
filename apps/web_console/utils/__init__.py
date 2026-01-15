@@ -14,7 +14,7 @@ from apps.web_console.utils.db_pool import (  # noqa: F401
 )
 
 # Re-export network utilities for backward compatibility
-from libs.common.network_utils import (  # noqa: F401
+from libs.core.common.network_utils import (  # noqa: F401
     extract_client_ip_from_fastapi,
     extract_user_agent_from_fastapi,
     validate_trusted_proxy,

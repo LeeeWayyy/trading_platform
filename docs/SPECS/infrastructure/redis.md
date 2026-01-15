@@ -74,7 +74,7 @@ ls -la /var/lib/docker/volumes/redisdata/_data
 | AOF corruption | Bad file | Redis may refuse start or repair. |
 
 ## Dependencies
-- **Internal:** `libs/redis_client/`
+- **Internal:** `libs/core/redis_client/`
 - **External:** None
 
 ## Configuration
@@ -104,7 +104,7 @@ ls -la /var/lib/docker/volumes/redisdata/_data
 - **RBAC Roles:** N/A
 
 ## Testing
-- **Test Files:** `tests/libs/redis_client/`
+- **Test Files:** `tests/libs/core/redis_client/`
 - **Run Tests:** `pytest tests/libs/redis_client -v`
 - **Coverage:** N/A
 

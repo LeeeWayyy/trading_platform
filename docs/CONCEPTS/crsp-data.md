@@ -45,7 +45,7 @@ backtest(stocks=current_sp500, start='2010-01-01')
 **CRSP solution:**
 ```python
 # ✅ CORRECT - Include delisted stocks
-from libs.data_providers import CRSPLocalProvider
+from libs.data.data_providers import CRSPLocalProvider
 
 provider = CRSPLocalProvider(...)
 
@@ -193,8 +193,8 @@ except ManifestVersionChangedError:
 
 ```python
 from datetime import date
-from libs.data_providers import CRSPLocalProvider
-from libs.data_quality.manifest import ManifestManager
+from libs.data.data_providers import CRSPLocalProvider
+from libs.data.data_quality.manifest import ManifestManager
 
 # Initialize provider
 manifest_mgr = ManifestManager(Path("data/manifests"))
@@ -408,7 +408,7 @@ provider.invalidate_cache()  # Call after sync_manager.full_sync()
 ### 4. Handle Manifest Changes Gracefully
 
 ```python
-from libs.data_providers import ManifestVersionChangedError
+from libs.data.data_providers import ManifestVersionChangedError
 
 max_retries = 3
 for attempt in range(max_retries):

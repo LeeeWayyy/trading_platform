@@ -107,7 +107,7 @@ config.fallback_enabled  # Always False in production
 
 ```python
 from datetime import date
-from libs.data_providers import (
+from libs.data.data_providers import (
     FetcherConfig,
     UnifiedDataFetcher,
     YFinanceProvider,
@@ -139,7 +139,7 @@ print(f"Using: {fetcher.get_active_provider()}")
 ### With CRSP for Production
 
 ```python
-from libs.data_providers import CRSPLocalProvider
+from libs.data.data_providers import CRSPLocalProvider
 
 crsp_provider = CRSPLocalProvider(data_dir=Path("data/crsp"))
 
@@ -225,7 +225,7 @@ python scripts/fetch_data.py status
 ### Example Error Handling
 
 ```python
-from libs.data_providers import (
+from libs.data.data_providers import (
     ProductionProviderRequiredError,
     ProviderNotSupportedError,
     ProviderUnavailableError,

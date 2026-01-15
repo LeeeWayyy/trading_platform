@@ -44,7 +44,7 @@ class TestFailClosedBehaviorExecutionGateway:
     @pytest.fixture(autouse=True)
     def _setup_auth_overrides(self):
         """Set up auth overrides for all tests in this class (C6 integration)."""
-        from libs.common.api_auth_dependency import AuthContext
+        from libs.core.common.api_auth_dependency import AuthContext
 
         def _mock_auth_context() -> AuthContext:
             """Return a mock AuthContext that bypasses authentication for tests."""
@@ -279,7 +279,7 @@ class TestKillSwitchJSONBodyHandling:
     @pytest.fixture(autouse=True)
     def _setup_auth_overrides(self):
         """Set up auth overrides for all tests in this class (C6 integration)."""
-        from libs.common.api_auth_dependency import AuthContext
+        from libs.core.common.api_auth_dependency import AuthContext
 
         def _mock_auth_context() -> AuthContext:
             """Return a mock AuthContext that bypasses authentication for tests."""
@@ -539,7 +539,7 @@ class TestKillSwitchEndToEnd:
     @pytest.fixture(autouse=True)
     def _setup_auth_overrides(self):
         """Set up auth overrides for all tests in this class (C6 integration)."""
-        from libs.common.api_auth_dependency import AuthContext
+        from libs.core.common.api_auth_dependency import AuthContext
 
         def _mock_auth_context() -> AuthContext:
             """Return a mock AuthContext that bypasses authentication for tests."""

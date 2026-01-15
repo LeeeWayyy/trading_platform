@@ -74,8 +74,8 @@ from apps.execution_gateway.alpaca_client import (
 from apps.execution_gateway.database import DatabaseClient, status_rank_for
 from apps.execution_gateway.reconciliation import SOURCE_PRIORITY_MANUAL
 from apps.execution_gateway.schemas import OrderDetail, OrderRequest, SliceDetail
-from libs.risk_management.breaker import CircuitBreaker
-from libs.risk_management.kill_switch import KillSwitch
+from libs.trading.risk_management.breaker import CircuitBreaker
+from libs.trading.risk_management.kill_switch import KillSwitch
 
 logger = logging.getLogger(__name__)
 

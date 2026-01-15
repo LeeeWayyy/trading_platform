@@ -127,7 +127,7 @@ result = registry.promote_model("risk_model", "v1.0.0")
 - Model artifacts are stored with checksums; access control enforced by callers.
 
 ## Testing
-- **Test Files:** `tests/libs/models/`
+- **Test Files:** `tests/libs/models/models/`
 - **Run Tests:** `pytest tests/libs/models -v`
 - **Coverage:** N/A
 
@@ -142,5 +142,5 @@ result = registry.promote_model("risk_model", "v1.0.0")
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/models/__init__.py`, `libs/models/registry.py`, `libs/models/serialization.py`, `libs/models/loader.py`, `libs/models/manifest.py`, `libs/models/types.py`, `libs/models/backup.py`, `libs/models/compatibility.py`
+- **Source Files:** `libs/models/models/__init__.py`, `libs/models/models/registry.py`, `libs/models/models/serialization.py`, `libs/models/models/loader.py`, `libs/models/models/manifest.py`, `libs/models/models/types.py`, `libs/models/models/backup.py`, `libs/models/models/compatibility.py`
 - **ADRs:** N/A

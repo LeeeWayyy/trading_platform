@@ -535,7 +535,7 @@ class WorkflowGate:
                 print("      - Do NOT continue from previous review (no reusing continuation IDs)")
                 print("      - Approval only counts when reviewer finds ZERO issues")
                 print("      - 'Fix required' response = NOT approved, must iterate")
-                print("   3. REQUIRED APPROVALS: Check ./scripts/workflow_gate.py config-show")
+                print("   3. REQUIRED APPROVALS: Check ./scripts/admin/workflow_gate.py config-show")
                 print(
                     "      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config"
                 )
@@ -554,7 +554,7 @@ class WorkflowGate:
                 print("      - Do NOT continue from previous review (no reusing continuation IDs)")
                 print("      - Approval only counts when reviewer finds ZERO issues")
                 print("      - 'Fix required' response = NOT approved, must iterate")
-                print("   3. REQUIRED APPROVALS: Check ./scripts/workflow_gate.py config-show")
+                print("   3. REQUIRED APPROVALS: Check ./scripts/admin/workflow_gate.py config-show")
                 print(
                     "      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config"
                 )

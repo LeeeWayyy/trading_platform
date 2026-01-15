@@ -1,13 +1,13 @@
 {
   "version": "v1.0.0",
-  "created_at": "2025-12-15T19:40:01.402661Z",
+  "created_at": "2026-01-15T03:02:02.524999Z",
   "dataset_snapshot_id": "golden_v1.0.0",
   "regeneration_triggers": [
     "Major alpha logic change",
     "Dataset schema change",
     "Quarterly refresh (optional)"
   ],
-  "last_regenerated": "2025-12-15T19:40:01.402819Z",
+  "last_regenerated": "2026-01-15T03:02:02.525541Z",
   "regenerated_by": "scripts/generate_golden_results.py",
   "storage_size_mb": 0.0,
   "storage_size_note": "Decimal MB (1MB = 1,000,000 bytes), includes manifest",

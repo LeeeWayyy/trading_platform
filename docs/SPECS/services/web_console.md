@@ -79,7 +79,7 @@ These modules will eventually be migrated to `libs/` for cleaner separation:
 - `services/` → `libs/web_console_services/`
 - `utils/` → `libs/web_console_utils/`
 - `data/` → `libs/web_console_data/`
-- `auth/` → `libs/web_console_auth/`
+- `auth/` → `libs/platform/web_console_auth/`
 
 Until then, they remain in `apps/web_console/` for backward compatibility with existing imports.
 
@@ -92,6 +92,6 @@ Until then, they remain in `apps/web_console/` for backward compatibility with e
 - `docs/ADRs/ADR-0031-nicegui-migration.md` - Migration rationale
 
 ## Metadata
-- **Last Updated:** 2026-01-10
+- **Last Updated:** 2026-01-14
 - **Source Files:** `apps/web_console/__init__.py`, `apps/web_console/services/`, `apps/web_console/utils/`, `apps/web_console/data/`, `apps/web_console/auth/`, `apps/web_console/config.py`
 - **ADRs:** ADR-0031-nicegui-migration

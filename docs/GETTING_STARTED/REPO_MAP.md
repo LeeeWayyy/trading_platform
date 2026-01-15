@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2026-01-11
+**Last Updated:** 2026-01-14
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 
@@ -11,11 +11,11 @@ This document provides a comprehensive map of the trading platform repository st
 ```
 trading_platform/
 ├── apps/              # Microservices (FastAPI applications)
-├── strategies/        # Trading strategy implementations
+├── strategies/        # Production trading strategy implementations
+├── research/          # Experimental code (lenient CI checks, no deployment)
 ├── libs/              # Shared libraries and utilities
 ├── infra/             # Infrastructure configuration (Docker, Prometheus, Grafana)
-├── db/                # Database schema and migrations (Alembic)
-├── migrations/        # Legacy SQL migrations (pre-Alembic)
+├── db/                # Database schema and migrations (Alembic + legacy)
 ├── scripts/           # Utility scripts and automation tools
 ├── tests/             # Test suite (mirrors src structure)
 ├── docs/              # Comprehensive documentation
@@ -150,7 +150,7 @@ See `apps/web_console/README.md` for migration roadmap.
 
 ## strategies/ - Trading Strategies
 
-Trading strategy implementations following the Qlib framework.
+Production trading strategy implementations following the Qlib framework. All strategies here pass strict CI checks and are deployment-ready.
 
 ### strategies/alpha_baseline/
 **Purpose:** Baseline alpha strategy using Alpha158 features + LightGBM
@@ -174,58 +174,95 @@ Trading strategy implementations following the Qlib framework.
 **Key Files:**
 - `__init__.py` - Ensemble combiner, configuration, and weighting helpers
 
-### strategies/mean_reversion/
-**Purpose:** Mean reversion strategy using oversold/overbought indicators for entry and exit signals.
+---
 
-**Key Files:**
-- `README.md` - Strategy overview and indicator definitions
+## research/ - Experimental Code
 
-### strategies/momentum/
-**Purpose:** Momentum strategy that trades persistent trends using MA/MACD/ADX/ROC signals.
+**Purpose:** Separate experimental code from production with lenient quality standards. See [research/README.md](../../research/README.md) for detailed guidelines.
 
-**Key Files:**
-- `README.md` - Strategy overview and indicator definitions
+**Key Characteristics:**
+- ✅ Lenient CI checks (no strict mypy/ruff/test coverage)
+- ❌ Never deployed to production
+- 🎯 Focus on rapid iteration and learning
+- 📈 Successful research graduates to production with full standards
+
+### research/strategies/
+
+Experimental strategy implementations being developed and tested.
+
+**Current Strategies:**
+- `momentum/` - Momentum strategy using MA/MACD/ADX/ROC signals (experimental)
+- `mean_reversion/` - Mean reversion strategy using oversold/overbought indicators (experimental)
+
+**Graduation Criteria:**
+- Sharpe ratio >1.5 in backtests
+- Risk management checks pass
+- Full test coverage (>80%)
+- Code review approved
+- Comprehensive documentation
+
+### research/notebooks/
+
+Jupyter notebooks for exploratory data analysis and experimentation.
+
+**Guidelines:**
+- Name with date prefix: `YYYY-MM-DD_description.ipynb`
+- Document analysis goals and findings
+- Export key visualizations to `artifacts/visualizations/`
+
+### research/experiments/
+
+One-off scripts and proof-of-concept implementations.
+
+**Purpose:** Quick prototypes to answer specific questions
+
+### research/data_exploration/
+
+Data quality analysis, schema exploration, and feature engineering.
+
+**Purpose:** Validate data quality and test feature ideas before production
 
 ---
 
 ## libs/ - Shared Libraries
 
-Reusable libraries shared across services.
+Reusable libraries shared across services, organized into logical subdirectories:
 
-### libs/admin/
-**Purpose:** Admin utilities for API key generation, hashing, validation, and revocation tracking.
+```
+libs/
+├── core/          # Core infrastructure (common, health, redis_client)
+├── data/          # Data pipeline and providers
+├── trading/       # Trading logic (allocation, alpha, backtest, risk)
+├── models/        # Model registry and factors
+└── platform/      # Platform services (admin, alerts, analytics, secrets, tax, web_console_auth)
+```
 
-### libs/alerts/
-**Purpose:** Alert rules, delivery models, and PII masking helpers for notification workflows.
+### libs/core/ - Core Infrastructure
 
-### libs/allocation/
-**Purpose:** Portfolio allocation and rebalancing
-**Key Features:**
-- Multi-strategy capital allocation
-- Portfolio optimization
-- Rebalancing logic
-
-**Key Files:**
-- `allocator.py` - Capital allocation logic
-- `optimizer.py` - Portfolio optimization
-
-### libs/alpha/
-**Purpose:** Alpha research framework with PIT-correct backtesting, canonical alphas, and metrics adapters.
-
-### libs/analytics/
-**Purpose:** Analytics tools for microstructure, event studies, volatility modeling, and factor attribution.
-
-### libs/backtest/
-**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, and RQ queue/worker utilities.
-
-### libs/common/
+#### libs/core/common/
 **Purpose:** Common utilities, exceptions, and helpers
 **Key Modules:**
 - `logging/` - Centralized structured logging (JSON, Loki integration)
 - `exceptions.py` - Custom exception classes
 - `utils.py` - General utilities
 
-### libs/data_pipeline/
+#### libs/core/health/
+**Purpose:** Health check and Prometheus latency clients with cached, staleness-aware responses.
+
+#### libs/core/redis_client/
+**Purpose:** Redis connection pool and utilities
+**Key Features:**
+- Feature caching
+- Event pub/sub
+- Circuit breaker state storage
+
+**Key Files:**
+- `client.py` - Redis client with connection pooling
+- `cache.py` - Caching utilities
+
+### libs/data/ - Data Pipeline and Providers
+
+#### libs/data/data_pipeline/
 **Purpose:** Data ETL, corporate actions, quality gates
 **Key Features:**
 - Alpaca data fetching
@@ -239,19 +276,13 @@ Reusable libraries shared across services.
 - `quality_gate.py` - Data quality validation
 - `freshness.py` - Staleness detection
 
-### libs/data_providers/
+#### libs/data/data_providers/
 **Purpose:** WRDS/CRSP/Compustat/Fama-French/yfinance providers with unified fetcher and sync tooling.
 
-### libs/data_quality/
+#### libs/data/data_quality/
 **Purpose:** Data quality framework for sync manifests, validation, schema drift, and dataset versioning.
 
-### libs/factors/
-**Purpose:** Factor construction and analytics framework with PIT correctness and canonical factor definitions.
-
-### libs/health/
-**Purpose:** Health check and Prometheus latency clients with cached, staleness-aware responses.
-
-### libs/market_data/
+#### libs/data/market_data/
 **Purpose:** Market data fetching and caching
 **Key Features:**
 - Historical data retrieval
@@ -262,24 +293,29 @@ Reusable libraries shared across services.
 - `provider.py` - Market data provider interface
 - `cache.py` - Data caching layer
 
-### libs/models/
-**Purpose:** Model registry for versioned artifacts with metadata, manifests, and promotion gates.
+### libs/trading/ - Trading Logic
 
-### libs/redis_client/
-**Purpose:** Redis connection pool and utilities
+#### libs/trading/allocation/
+**Purpose:** Portfolio allocation and rebalancing
 **Key Features:**
-- Feature caching
-- Event pub/sub
-- Circuit breaker state storage
+- Multi-strategy capital allocation
+- Portfolio optimization
+- Rebalancing logic
 
 **Key Files:**
-- `client.py` - Redis client with connection pooling
-- `cache.py` - Caching utilities
+- `allocator.py` - Capital allocation logic
+- `optimizer.py` - Portfolio optimization
 
-### libs/risk/
+#### libs/trading/alpha/
+**Purpose:** Alpha research framework with PIT-correct backtesting, canonical alphas, and metrics adapters.
+
+#### libs/trading/backtest/
+**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, and RQ queue/worker utilities.
+
+#### libs/trading/risk/
 **Purpose:** Risk analytics for factor covariance, specific risk, portfolio optimization, and stress testing.
 
-### libs/risk_management/
+#### libs/trading/risk_management/
 **Purpose:** Pre-trade and post-trade risk checks
 **Key Features:**
 - Circuit breaker logic
@@ -292,7 +328,26 @@ Reusable libraries shared across services.
 - `risk_checker.py` - Pre-trade risk validation
 - `monitor.py` - Post-trade monitoring
 
-### libs/secrets/
+### libs/models/ - Model Registry and Factors
+
+#### libs/models/factors/
+**Purpose:** Factor construction and analytics framework with PIT correctness and canonical factor definitions.
+
+#### libs/models/models/
+**Purpose:** Model registry for versioned artifacts with metadata, manifests, and promotion gates.
+
+### libs/platform/ - Platform Services
+
+#### libs/platform/admin/
+**Purpose:** Admin utilities for API key generation, hashing, validation, and revocation tracking.
+
+#### libs/platform/alerts/
+**Purpose:** Alert rules, delivery models, and PII masking helpers for notification workflows.
+
+#### libs/platform/analytics/
+**Purpose:** Analytics tools for microstructure, event studies, volatility modeling, and factor attribution.
+
+#### libs/platform/secrets/
 **Purpose:** Secrets management with pluggable backends
 **Key Features:**
 - Vault backend integration
@@ -306,10 +361,10 @@ Reusable libraries shared across services.
 - `aws_backend.py` - AWS Secrets Manager integration
 - `env_backend.py` - Environment variable backend
 
-### libs/tax/
+#### libs/platform/tax/
 **Purpose:** Tax lot tracking, wash sale detection, and Form 8949 export utilities.
 
-### libs/web_console_auth/
+#### libs/platform/web_console_auth/
 **Purpose:** JWT/mTLS auth library for web console sessions, roles, and rate limiting.
 
 ---
@@ -385,15 +440,19 @@ Alembic-managed database schema migrations.
 
 ---
 
-## migrations/ - Legacy SQL Migrations
+## db/ - Database Migrations
 
-Direct SQL migration scripts (pre-Alembic).
+**Location:** `db/`
 
-**Files:**
-- `001_create_model_registry.sql` - Model registry table
-- `002_create_execution_tables.sql` - Orders and positions
-- `003_create_risk_tables.sql` - Risk management tables
-- `004_add_audit_log.sql` - Audit logging table
+**Current System:** Alembic migrations in `db/migrations/`
+**Legacy System:** Archived in `db/legacy/migrations_pre_alembic/`
+
+See `db/README.md` for migration workflow and history.
+
+**Key Files:**
+- `db/migrations/` - Active Alembic migrations (0001, 0004, 0005, ...)
+- `db/legacy/migrations_pre_alembic/` - Pre-Alembic SQL scripts (001, 002, 003)
+- `db/README.md` - Migration guide and troubleshooting
 
 ---
 
@@ -431,11 +490,32 @@ tests/
 │   ├── execution_gateway/
 │   ├── market_data_service/
 │   └── web_console/
-├── libs/                  # Library tests
-│   ├── common/
-│   ├── data_pipeline/
-│   ├── risk_management/
-│   └── secrets/
+├── libs/                  # Library tests (grouped by domain)
+│   ├── core/              # Core infrastructure tests
+│   │   ├── common/
+│   │   ├── health/
+│   │   └── redis_client/
+│   ├── data/              # Data layer tests
+│   │   ├── data_pipeline/
+│   │   ├── data_providers/
+│   │   ├── data_quality/
+│   │   └── market_data/
+│   ├── models/            # Model management tests
+│   │   ├── factors/
+│   │   └── models/
+│   ├── platform/          # Platform services tests
+│   │   ├── admin/
+│   │   ├── alerts/
+│   │   ├── analytics/
+│   │   ├── secrets/
+│   │   ├── tax/
+│   │   └── web_console_auth/
+│   └── trading/           # Trading logic tests
+│       ├── allocation/
+│       ├── alpha/
+│       ├── backtest/
+│       ├── risk/
+│       └── risk_management/
 ├── strategies/            # Strategy tests
 │   └── alpha_baseline/
 ├── scripts/               # Script tests
@@ -630,16 +710,16 @@ make kill-switch # Emergency stop
 **By Feature:**
 - Signal generation: `apps/signal_service/`
 - Order execution: `apps/execution_gateway/`
-- Risk checks: `libs/risk_management/`
-- Market data: `apps/market_data_service/`, `libs/market_data/`
-- Secrets: `libs/secrets/`
-- Logging: `libs/common/logging/`
+- Risk checks: `libs/trading/risk_management/`
+- Market data: `apps/market_data_service/`, `libs/data/market_data/`
+- Secrets: `libs/platform/secrets/`
+- Logging: `libs/core/common/logging/`
 
 **By Technology:**
 - FastAPI: `apps/*/main.py`
 - Pydantic: `apps/*/schemas.py`
-- Redis: `libs/redis_client/`
-- PostgreSQL: `db/`, `migrations/`
+- Redis: `libs/core/redis_client/`
+- PostgreSQL: `db/migrations/` (Alembic), `db/legacy/` (archived)
 - DuckDB: `libs/duckdb_catalog.py`
 - Docker: `infra/docker-compose.yml`
 - Prometheus: `infra/prometheus/`

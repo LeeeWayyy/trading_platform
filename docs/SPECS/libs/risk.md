@@ -122,7 +122,7 @@ result = decomp.decompose(weights)
 - No secrets; inputs provided by callers.
 
 ## Testing
-- **Test Files:** `tests/libs/risk/`
+- **Test Files:** `tests/libs/trading/risk/`
 - **Run Tests:** `pytest tests/libs/risk -v`
 - **Coverage:** N/A
 
@@ -137,5 +137,5 @@ result = decomp.decompose(weights)
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/risk/__init__.py`, `libs/risk/barra_model.py`, `libs/risk/factor_covariance.py`, `libs/risk/specific_risk.py`, `libs/risk/risk_decomposition.py`, `libs/risk/portfolio_optimizer.py`, `libs/risk/stress_testing.py`
+- **Source Files:** `libs/trading/risk/__init__.py`, `libs/trading/risk/barra_model.py`, `libs/trading/risk/factor_covariance.py`, `libs/trading/risk/specific_risk.py`, `libs/trading/risk/risk_decomposition.py`, `libs/trading/risk/portfolio_optimizer.py`, `libs/trading/risk/stress_testing.py`
 - **ADRs:** N/A

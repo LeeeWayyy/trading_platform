@@ -1,0 +1,40 @@
+"""
+Market Data Library
+
+Provides real-time market data streaming from Alpaca via WebSocket.
+
+Components:
+- AlpacaMarketDataStream: WebSocket client for live quotes
+- PriceData: Type-safe price data model
+- MarketDataError: Exception hierarchy
+
+Usage:
+    from libs.data.market_data import AlpacaMarketDataStream
+
+    stream = AlpacaMarketDataStream(
+        api_key="your_key",
+        secret_key="your_secret",
+        redis_client=redis_client,
+        event_publisher=publisher
+    )
+
+    await stream.subscribe_symbols(["AAPL", "MSFT"])
+    await stream.start()
+"""
+
+from libs.data.market_data.alpaca_stream import AlpacaMarketDataStream
+from libs.data.market_data.exceptions import (
+    ConnectionError,
+    MarketDataError,
+    SubscriptionError,
+)
+from libs.data.market_data.types import PriceData, QuoteData
+
+__all__ = [
+    "AlpacaMarketDataStream",
+    "PriceData",
+    "QuoteData",
+    "MarketDataError",
+    "ConnectionError",
+    "SubscriptionError",
+]

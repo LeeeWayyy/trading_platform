@@ -595,7 +595,7 @@ curl http://localhost:8003/health  # Orchestrator
 
 # 3. Verify data freshness (should be < 30 minutes old)
 PYTHONPATH=. python3 -c "
-from libs.data_pipeline.freshness import check_data_freshness
+from libs.data.data_pipeline.freshness import check_data_freshness
 result = check_data_freshness()
 print(f'Data age: {result.age_minutes} minutes')
 print(f'Fresh: {result.is_fresh}')
@@ -757,8 +757,8 @@ docker exec trading_platform_redis redis-cli GET kill_switch:state
 
 # ENGAGE Kill Switch (EMERGENCY - stops ALL trading)
 PYTHONPATH=. python3 -c "
-from libs.redis_client import RedisClient
-from libs.risk_management.kill_switch import KillSwitch
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.kill_switch import KillSwitch
 redis = RedisClient()
 ks = KillSwitch(redis)
 ks.engage(reason='Manual engagement - <describe reason>', operator='<your_name>')
@@ -767,8 +767,8 @@ print('🔴 KILL SWITCH ENGAGED')
 
 # DISENGAGE Kill Switch (resume trading)
 PYTHONPATH=. python3 -c "
-from libs.redis_client import RedisClient
-from libs.risk_management.kill_switch import KillSwitch
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.kill_switch import KillSwitch
 redis = RedisClient()
 ks = KillSwitch(redis)
 ks.disengage(operator='<your_name>', notes='Conditions normalized')
@@ -829,8 +829,8 @@ curl -X POST http://localhost:8001/api/v1/models/reload \
 ```bash
 # Step 1: ENGAGE KILL SWITCH (immediate effect)
 PYTHONPATH=. python3 -c "
-from libs.redis_client import RedisClient
-from libs.risk_management.kill_switch import KillSwitch
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.kill_switch import KillSwitch
 redis = RedisClient()
 ks = KillSwitch(redis)
 ks.engage(reason='EMERGENCY: <describe situation>', operator='<your_name>')

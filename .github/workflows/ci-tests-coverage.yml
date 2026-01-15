@@ -86,19 +86,19 @@ jobs:
       - name: Check documentation freshness
         run: |
           echo "::group::Checking documentation freshness"
-          python scripts/check_doc_freshness.py
+          python scripts/dev/check_doc_freshness.py
           echo "::endgroup::"
 
       - name: Check architecture map drift
         run: |
           echo "::group::Checking architecture map drift"
-          python scripts/generate_architecture.py --check
+          python scripts/dev/generate_architecture.py --check
           echo "::endgroup::"
 
       - name: Verify workflow gate compliance
         run: |
           echo "::group::Verifying commits followed workflow gates"
-          PYTHONPATH=. python3 scripts/verify_gate_compliance.py
+          PYTHONPATH=. python3 scripts/testing/verify_gate_compliance.py
           echo "::endgroup::"
         continue-on-error: true  # Non-blocking: warns about missing review markers but doesn't fail build
 
@@ -107,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "::group::Checking branch protection status"
-          python3 scripts/verify_branch_protection.py
+          python3 scripts/testing/verify_branch_protection.py
           echo "::endgroup::"
         continue-on-error: true  # Non-blocking: warns but doesn't fail build
 
@@ -131,12 +131,14 @@ jobs:
           # Install psql client for running migrations
           sudo apt-get update && sudo apt-get install -y postgresql-client
 
-          # Run foundational migrations first (migrations/), then additional migrations (db/migrations/)
-          for migration in migrations/*.sql; do
-            echo "Running migration: $migration"
+          # Run foundational migrations first (001-003), then newer migrations (0001+)
+          # Legacy migrations create base tables: model_registry, orders, positions, orchestration_runs
+          for migration in db/legacy/migrations_pre_alembic/*.sql; do
+            echo "Running legacy migration: $migration"
             PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
           done
 
+          # Newer migrations extend the schema with additional columns and tables
           for migration in db/migrations/*.sql; do
             echo "Running migration: $migration"
             PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
@@ -287,12 +289,14 @@ jobs:
       - name: Run database migrations
         run: |
           echo "::group::Running database migrations"
-          # Run foundational migrations first (migrations/), then additional migrations (db/migrations/)
-          for migration in migrations/*.sql; do
-            echo "Running migration: $migration"
+          # Run foundational migrations first (001-003), then newer migrations (0001+)
+          # Legacy migrations create base tables: model_registry, orders, positions, orchestration_runs
+          for migration in db/legacy/migrations_pre_alembic/*.sql; do
+            echo "Running legacy migration: $migration"
             cat "$migration" | docker compose -f docker-compose.ci.yml exec -T postgres psql -U trader -d trader_test
           done
 
+          # Newer migrations extend the schema with additional columns and tables
           for migration in db/migrations/*.sql; do
             echo "Running migration: $migration"
             cat "$migration" | docker compose -f docker-compose.ci.yml exec -T postgres psql -U trader -d trader_test

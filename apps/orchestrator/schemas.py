@@ -14,7 +14,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from libs.common import TimestampSerializerMixin
+from libs.core.common import TimestampSerializerMixin
 
 # ==============================================================================
 # Signal Service Models (from T3)

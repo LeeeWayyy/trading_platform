@@ -502,7 +502,7 @@ async def _write(self, *, user_id, action, event_type, ...):
 ```python
 # Update apps/web_console/auth/audit_log.py
 import time
-from libs.web_console_auth.audit_logger import (
+from libs.platform.web_console_auth.audit_logger import (
     _audit_cleanup_duration_seconds,
     _audit_events_total,
     _audit_write_failures_total,
@@ -534,7 +534,7 @@ async def _write(self, *, user_id, action, event_type, ...):
 ```python
 # Update apps/web_console/services/cb_service.py:_log_audit()
 import time
-from libs.web_console_auth.audit_logger import (
+from libs.platform.web_console_auth.audit_logger import (
     admin_action_total,
     audit_write_latency_seconds,
 )
@@ -649,7 +649,7 @@ def update_cb_staleness_metric(redis_client) -> None:
 ```python
 # Update apps/web_console/metrics_server.py
 from apps.web_console.services.cb_metrics import update_cb_staleness_metric
-from libs.redis_client import RedisClient
+from libs.core.redis_client import RedisClient
 import logging
 import os
 import redis.exceptions
@@ -722,7 +722,7 @@ def get_status(self) -> dict[str, Any]:
 def test_audit_write_latency_metric_exported():
     """Verify audit_write_latency_seconds histogram is exposed."""
     from prometheus_client import REGISTRY
-    import libs.web_console_auth.audit_logger  # noqa: F401
+    import libs.platform.web_console_auth.audit_logger  # noqa: F401
     assert "audit_write_latency_seconds" in [m.name for m in REGISTRY.collect()]
 
 def test_cb_staleness_metric_exported():
@@ -734,7 +734,7 @@ def test_cb_staleness_metric_exported():
 def test_admin_action_total_metric_exported():
     """Verify admin_action_total counter is exposed."""
     from prometheus_client import REGISTRY
-    import libs.web_console_auth.audit_logger  # noqa: F401
+    import libs.platform.web_console_auth.audit_logger  # noqa: F401
     assert "admin_action_total" in [m.name for m in REGISTRY.collect()]
 ```
 
@@ -815,7 +815,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient
 
-from libs.web_console_auth.audit_logger import (
+from libs.platform.web_console_auth.audit_logger import (
     admin_action_total,
     audit_write_latency_seconds,
 )

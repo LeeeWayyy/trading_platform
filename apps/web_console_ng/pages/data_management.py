@@ -32,7 +32,7 @@ from nicegui import ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool

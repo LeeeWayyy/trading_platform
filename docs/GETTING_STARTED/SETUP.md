@@ -590,6 +590,11 @@ make fmt           # Format code
 make up            # Start Docker services
 make down          # Stop Docker services
 
+# Cleanup commands
+make clean         # Clean cache, coverage, bytecode
+make clean-cache   # Alias for 'make clean'
+make clean-all     # Clean everything (cache + repomix + logs)
+
 # Manual commands
 pytest tests/ -v                           # Run tests
 black libs/ tests/                         # Format

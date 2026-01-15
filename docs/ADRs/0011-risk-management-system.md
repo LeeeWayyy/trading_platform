@@ -285,8 +285,8 @@ TRIP_REASONS = {
 
 ```python
 # libs/risk_management/checker.py
-from libs.risk_management.config import RiskConfig
-from libs.risk_management.breaker import CircuitBreaker
+from libs.trading.risk_management.config import RiskConfig
+from libs.trading.risk_management.breaker import CircuitBreaker
 
 class RiskChecker:
     """Pre-trade risk validation."""

@@ -6,13 +6,13 @@ This document inventories Redis pub/sub channels and stream usage found in the c
 
 - **Pub/Sub channels:** 4 (3 global channels + 1 pattern for price updates)
 - **Streams:** None found (no `XADD`, `XREAD`, `XGROUP`, or related stream operations in code)
-- **Primary schemas:** `libs/redis_client/events.py`, `libs/market_data/types.py`
+- **Primary schemas:** `libs/core/redis_client/events.py`, `libs/data/market_data/types.py`
 
 ## Pub/Sub Channels
 
 ### `signals.generated`
 
-- **Schema:** `SignalEvent` (`libs/redis_client/events.py`)
+- **Schema:** `SignalEvent` (`libs/core/redis_client/events.py`)
   - `event_type`: `"signals.generated"`
   - `timestamp`: `datetime` (UTC, tz-aware)
   - `strategy_id`: `str`
@@ -23,13 +23,13 @@ This document inventories Redis pub/sub channels and stream usage found in the c
   - Code path: `apps/signal_service/main.py` publishes after signal generation via `EventPublisher.publish_signal_event()` with fallback buffering on failure.
 - **Consumers:** **None found in code** (no `pubsub.subscribe()` or channel listeners in `apps/`/`libs/`).
 - **Delivery semantics:** Redis pub/sub (best-effort, no persistence). Publish returns subscriber count; if Redis publish fails in Signal Service, payload is buffered and replayed when Redis recovers.
-  - Retry + publish wrapper: `libs/redis_client/client.py`
-  - EventPublisher: `libs/redis_client/event_publisher.py`
-  - Fallback buffer and replay: `libs/redis_client/fallback_buffer.py`, `apps/signal_service/main.py`
+  - Retry + publish wrapper: `libs/core/redis_client/client.py`
+  - EventPublisher: `libs/core/redis_client/event_publisher.py`
+  - Fallback buffer and replay: `libs/core/redis_client/fallback_buffer.py`, `apps/signal_service/main.py`
 
 ### `orders.executed`
 
-- **Schema:** `OrderEvent` (`libs/redis_client/events.py`)
+- **Schema:** `OrderEvent` (`libs/core/redis_client/events.py`)
   - `event_type`: `"orders.executed"`
   - `timestamp`: `datetime` (UTC, tz-aware)
   - `run_id`: `str` (UUID)
@@ -43,7 +43,7 @@ This document inventories Redis pub/sub channels and stream usage found in the c
 
 ### `positions.updated`
 
-- **Schema:** `PositionEvent` (`libs/redis_client/events.py`)
+- **Schema:** `PositionEvent` (`libs/core/redis_client/events.py`)
   - `event_type`: `"positions.updated"`
   - `timestamp`: `datetime` (UTC, tz-aware)
   - `symbol`: `str`
@@ -58,13 +58,13 @@ This document inventories Redis pub/sub channels and stream usage found in the c
 
 ### `price.updated.{symbol}`
 
-- **Schema:** `PriceUpdateEvent` (`libs/market_data/types.py`)
+- **Schema:** `PriceUpdateEvent` (`libs/data/market_data/types.py`)
   - `event_type`: `"price.updated"`
   - `symbol`: `str`
   - `price`: `Decimal` (mid price)
   - `timestamp`: `str` (ISO timestamp)
 - **Producer:** Market Data Service
-  - Code path: `libs/market_data/alpaca_stream.py` publishes via `EventPublisher` when quotes arrive; channel is formatted as `price.updated.{symbol}`.
+  - Code path: `libs/data/market_data/alpaca_stream.py` publishes via `EventPublisher` when quotes arrive; channel is formatted as `price.updated.{symbol}`.
   - Service wiring: `apps/market_data_service/main.py` creates `EventPublisher` and `AlpacaMarketDataStream`.
 - **Consumers:** **None found in code**.
 - **Delivery semantics:** Redis pub/sub best-effort (no persistence). No fallback buffer on publish failure in market data path.

@@ -193,6 +193,6 @@ curl -s -X POST http://localhost:8001/api/v1/signals/generate   -H 'Content-Type
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-10
+- **Last Updated:** 2026-01-14
 - **Source Files:** `apps/signal_service/main.py`, `apps/signal_service/config.py`, `apps/signal_service/signal_generator.py`, `apps/signal_service/model_registry.py`
 - **ADRs:** `docs/ADRs/0004-signal-service-architecture.md`

@@ -507,7 +507,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from libs.alerts.channels import EmailChannel
+from libs.platform.alerts.channels import EmailChannel
 from libs.reporting.report_generator import GeneratedReport, ReportConfig, ReportGenerator
 
 logger = logging.getLogger(__name__)
@@ -552,7 +552,7 @@ class ReportService:
         Args:
             db_pool: AsyncConnectionAdapter from apps.web_console.utils.db_pool
             report_generator: ReportGenerator instance for generating reports
-            email_channel: EmailChannel from libs.alerts.channels for sending emails
+            email_channel: EmailChannel from libs.platform.alerts.channels for sending emails
         """
         self._db = db_pool
         self._generator = report_generator

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from apps.web_console.services.alpha_explorer_service import AlphaExplorerService
-from libs.models.types import EnvironmentMetadata, ModelMetadata, ModelType
+from libs.models.models.types import EnvironmentMetadata, ModelMetadata, ModelType
 
 
 @pytest.fixture()

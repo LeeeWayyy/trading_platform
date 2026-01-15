@@ -22,7 +22,7 @@ from apps.auth_service.dependencies import get_config, get_oauth2_handler
 from apps.auth_service.middleware.csp_middleware import CSPMiddleware
 from apps.auth_service.routes import callback, csp_report, example_page, logout, refresh
 from apps.auth_service.utils.csp_policy import build_csp_policy
-from libs.common.network_utils import get_trusted_proxy_ips
+from libs.core.common.network_utils import get_trusted_proxy_ips
 
 # Configure logging
 logging.basicConfig(

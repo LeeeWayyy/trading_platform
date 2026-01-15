@@ -25,7 +25,11 @@ from nicegui import ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.config import AUTO_REFRESH_INTERVAL, FEATURE_PERFORMANCE_DASHBOARD
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    has_permission,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -14,8 +14,8 @@ from datetime import UTC, datetime, timedelta
 import polars as pl
 import pytest
 
-from libs.common.exceptions import StalenessError
-from libs.data_pipeline.freshness import check_freshness, check_freshness_safe
+from libs.core.common.exceptions import StalenessError
+from libs.data.data_pipeline.freshness import check_freshness, check_freshness_safe
 
 
 class TestCheckFreshness:

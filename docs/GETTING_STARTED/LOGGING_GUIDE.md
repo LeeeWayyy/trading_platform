@@ -8,7 +8,7 @@ This guide shows how to use the centralized structured logging system in your se
 
 ```python
 # In your service's main.py
-from libs.common.logging import configure_logging, add_trace_id_middleware
+from libs.core.common.logging import configure_logging, add_trace_id_middleware
 from fastapi import FastAPI
 
 # Configure logging at startup
@@ -22,7 +22,7 @@ app = FastAPI()
 add_trace_id_middleware(app)
 
 # Use throughout your service
-from libs.common.logging import get_logger, log_with_context
+from libs.core.common.logging import get_logger, log_with_context
 
 logger = get_logger(__name__)
 
@@ -43,7 +43,7 @@ log_with_context(
 ### 2. Make Traced HTTP Requests
 
 ```python
-from libs.common.logging import get_traced_client
+from libs.core.common.logging import get_traced_client
 
 # Async client (automatically propagates trace ID)
 async with get_traced_client(base_url="http://other-service") as client:
@@ -51,13 +51,13 @@ async with get_traced_client(base_url="http://other-service") as client:
     # X-Trace-ID header added automatically
 
 # Sync client
-from libs.common.logging import get_traced_sync_client
+from libs.core.common.logging import get_traced_sync_client
 
 with get_traced_sync_client() as client:
     response = client.get("http://other-service/api/data")
 
 # Convenience functions
-from libs.common.logging import traced_get, traced_post
+from libs.core.common.logging import traced_get, traced_post
 
 response = await traced_get("http://other-service/api/data")
 response = await traced_post("http://other-service/api/create", json={"name": "test"})
@@ -146,7 +146,7 @@ Get a logger instance for a module.
 
 **Example:**
 ```python
-from libs.common.logging import get_logger
+from libs.core.common.logging import get_logger
 
 logger = get_logger(__name__)
 logger.info("Module initialized")
@@ -168,7 +168,7 @@ Log a message with structured context fields.
 
 **Example:**
 ```python
-from libs.common.logging import log_with_context
+from libs.core.common.logging import log_with_context
 
 log_with_context(
     logger,
@@ -213,7 +213,7 @@ Manually set the trace ID for the current context.
 
 **Example:**
 ```python
-from libs.common.logging import set_trace_id
+from libs.core.common.logging import set_trace_id
 
 set_trace_id("custom-trace-id")
 logger.info("This log will have trace_id='custom-trace-id'")
@@ -227,7 +227,7 @@ Get the current trace ID from context.
 
 **Example:**
 ```python
-from libs.common.logging import get_trace_id
+from libs.core.common.logging import get_trace_id
 
 trace_id = get_trace_id()
 if trace_id:
@@ -242,7 +242,7 @@ Generate a new UUID v4 trace ID.
 
 **Example:**
 ```python
-from libs.common.logging import generate_trace_id
+from libs.core.common.logging import generate_trace_id
 
 new_trace = generate_trace_id()  # "550e8400-e29b-41d4-a716-446655440000"
 ```
@@ -253,7 +253,7 @@ Clear the trace ID from context.
 
 **Example:**
 ```python
-from libs.common.logging import clear_trace_id
+from libs.core.common.logging import clear_trace_id
 
 clear_trace_id()
 assert get_trace_id() is None
@@ -280,7 +280,7 @@ Add trace ID middleware to a FastAPI application.
 **Example:**
 ```python
 from fastapi import FastAPI
-from libs.common.logging import add_trace_id_middleware
+from libs.core.common.logging import add_trace_id_middleware
 
 app = FastAPI()
 add_trace_id_middleware(app)
@@ -309,7 +309,7 @@ Create an async HTTP client with automatic trace ID propagation.
 
 **Example:**
 ```python
-from libs.common.logging import get_traced_client
+from libs.core.common.logging import get_traced_client
 
 async with get_traced_client(base_url="http://api.example.com") as client:
     response = await client.get("/users")
@@ -322,7 +322,7 @@ Synchronous version of `get_traced_client()`.
 
 **Example:**
 ```python
-from libs.common.logging import get_traced_sync_client
+from libs.core.common.logging import get_traced_sync_client
 
 with get_traced_sync_client(base_url="http://api.example.com") as client:
     response = client.get("/users")
@@ -334,7 +334,7 @@ Convenience functions for single HTTP requests.
 
 **Example:**
 ```python
-from libs.common.logging import traced_get, traced_post
+from libs.core.common.logging import traced_get, traced_post
 
 # GET request
 response = await traced_get("http://api.example.com/data")
@@ -490,7 +490,7 @@ async with httpx.AsyncClient() as client:
     ...
 
 # Use this
-from libs.common.logging import get_traced_client
+from libs.core.common.logging import get_traced_client
 async with get_traced_client() as client:
     ...
 ```
@@ -535,7 +535,7 @@ logger.info(f"Completed processing {len(items)} items")
 ### Example 1: Trading Signal Generation
 
 ```python
-from libs.common.logging import configure_logging, log_with_context, get_logger
+from libs.core.common.logging import configure_logging, log_with_context, get_logger
 
 # Configure at startup
 logger = configure_logging("signal_service", log_level="INFO")
@@ -592,7 +592,7 @@ def generate_signals(symbols: list[str]):
 ### Example 2: Service-to-Service Call
 
 ```python
-from libs.common.logging import get_traced_client, log_with_context, get_logger
+from libs.core.common.logging import get_traced_client, log_with_context, get_logger
 
 logger = get_logger(__name__)
 
@@ -645,7 +645,7 @@ async def submit_order(order_data: dict):
 ### Example 3: Manual Trace ID Management
 
 ```python
-from libs.common.logging import set_trace_id, get_trace_id, LogContext, get_logger
+from libs.core.common.logging import set_trace_id, get_trace_id, LogContext, get_logger
 
 logger = get_logger(__name__)
 

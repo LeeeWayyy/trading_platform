@@ -16,7 +16,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from libs.models import (
+from libs.models.models import (
     IntegrityError,
     ModelRegistry,
     ModelStatus,

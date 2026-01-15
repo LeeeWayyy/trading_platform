@@ -31,13 +31,13 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.ui.helpers import safe_classes
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from psycopg_pool import ConnectionPool
     from redis import Redis
 
-    from libs.backtest.job_queue import BacktestJobQueue
+    from libs.trading.backtest.job_queue import BacktestJobQueue
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def _get_user_id(user: dict[str, Any]) -> str:
 
 def _get_job_queue() -> BacktestJobQueue:
     """Get BacktestJobQueue instance (sync context manager)."""
-    from libs.backtest.job_queue import BacktestJobQueue as _BacktestJobQueue
+    from libs.trading.backtest.job_queue import BacktestJobQueue as _BacktestJobQueue
 
     redis_client = _get_rq_redis_client()
     db_pool = get_sync_db_pool()
@@ -182,7 +182,7 @@ def _get_user_jobs_sync(
 
 def _get_available_alphas() -> list[str]:
     """Get list of registered alpha names from alpha library."""
-    from libs.alpha.alpha_library import CANONICAL_ALPHAS
+    from libs.trading.alpha.alpha_library import CANONICAL_ALPHAS
 
     return list(CANONICAL_ALPHAS.keys())
 
@@ -274,7 +274,7 @@ async def backtest_page() -> None:
 
 async def _render_new_backtest_form(user: dict[str, Any]) -> None:
     """Render the new backtest submission form."""
-    from libs.backtest.job_queue import (
+    from libs.trading.backtest.job_queue import (
         BacktestJobConfig,
         DataProvider,
         JobPriority,
@@ -642,8 +642,8 @@ async def _render_backtest_results(
     redis_client: Redis,
 ) -> None:
     """Render completed backtest results with visualization."""
-    from libs.backtest.models import ResultPathMissing
-    from libs.backtest.result_storage import BacktestResultStorage
+    from libs.trading.backtest.models import ResultPathMissing
+    from libs.trading.backtest.result_storage import BacktestResultStorage
 
     jobs_data: list[dict[str, Any]] = []
     comparison_mode = False

@@ -49,20 +49,20 @@ from prometheus_client import Counter, Gauge, Histogram, Info, make_asgi_app
 from pydantic import BaseModel, Field, validator
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from libs.common.api_auth_dependency import (
+from libs.core.common.api_auth_dependency import (
     APIAuthConfig,
     AuthContext,
     api_auth,
 )
-from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
-from libs.common.secrets import (
+from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
+from libs.core.common.secrets import (
     close_secret_manager,
     get_optional_secret,
     get_optional_secret_or_none,
     get_required_secret,
     validate_required_secrets,
 )
-from libs.redis_client import (
+from libs.core.redis_client import (
     EventPublisher,
     FallbackBuffer,
     FeatureCache,
@@ -70,7 +70,7 @@ from libs.redis_client import (
     RedisConnectionError,
     SignalEvent,
 )
-from libs.web_console_auth.permissions import Permission
+from libs.platform.web_console_auth.permissions import Permission
 
 from .config import Settings
 from .model_registry import ModelMetadata, ModelRegistry

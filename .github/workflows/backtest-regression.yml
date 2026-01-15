@@ -21,7 +21,7 @@ on:
       - 'strategies/**'
       - 'apps/backtest_worker/**'
       - 'tests/regression/**'
-      - 'scripts/generate_golden_results.py'
+      - 'scripts/dev/generate_golden_results.py'
       - 'docs/CONCEPTS/backtest-regression.md'
 
   pull_request:
@@ -43,7 +43,7 @@ on:
       - 'strategies/**'
       - 'apps/backtest_worker/**'
       - 'tests/regression/**'
-      - 'scripts/generate_golden_results.py'
+      - 'scripts/dev/generate_golden_results.py'
       - 'docs/CONCEPTS/backtest-regression.md'
 
 permissions:
@@ -102,7 +102,7 @@ jobs:
 
       - name: Validate golden checksums
         run: |
-          python scripts/generate_golden_results.py --validate
+          python scripts/dev/generate_golden_results.py --validate
 
       - name: Run regression tests
         run: |
@@ -112,7 +112,7 @@ jobs:
         if: failure()
         run: |
           echo "::error::Backtest regression detected! Review metric changes."
-          echo "::error::If this is expected, regenerate golden results with: python scripts/generate_golden_results.py"
+          echo "::error::If this is expected, regenerate golden results with: python scripts/dev/generate_golden_results.py"
 
       - name: Regression test summary
         if: success()

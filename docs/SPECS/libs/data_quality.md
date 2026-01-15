@@ -87,7 +87,7 @@ raw dataset -> validator -> manifest -> snapshot/versioning
 ## Usage Examples
 ### Example 1: Write manifest
 ```python
-from libs.data_quality import ManifestManager, SyncManifest
+from libs.data.data_quality import ManifestManager, SyncManifest
 
 manager = ManifestManager()
 manager.write_manifest(dataset, manifest)
@@ -95,7 +95,7 @@ manager.write_manifest(dataset, manifest)
 
 ### Example 2: Validate dataset
 ```python
-from libs.data_quality import DataValidator
+from libs.data.data_quality import DataValidator
 
 validator = DataValidator()
 alerts = validator.validate(dataset_path)
@@ -135,7 +135,7 @@ alerts = validator.validate(dataset_path)
 - Prevents checksum mismatches and corrupted snapshots.
 
 ## Testing
-- **Test Files:** `tests/libs/data_quality/`
+- **Test Files:** `tests/libs/data/data_quality/`
 - **Run Tests:** `pytest tests/libs/data_quality -v`
 - **Coverage:** N/A
 
@@ -150,5 +150,5 @@ alerts = validator.validate(dataset_path)
 
 ## Metadata
 - **Last Updated:** 2026-01-10
-- **Source Files:** `libs/data_quality/__init__.py`, `libs/data_quality/manifest.py`, `libs/data_quality/validation.py`, `libs/data_quality/schema.py`, `libs/data_quality/versioning.py`, `libs/data_quality/exceptions.py`, `libs/data_quality/types.py`
+- **Source Files:** `libs/data/data_quality/__init__.py`, `libs/data/data_quality/manifest.py`, `libs/data/data_quality/validation.py`, `libs/data/data_quality/schema.py`, `libs/data/data_quality/versioning.py`, `libs/data/data_quality/exceptions.py`, `libs/data/data_quality/types.py`
 - **ADRs:** N/A

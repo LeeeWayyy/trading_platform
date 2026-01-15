@@ -29,8 +29,8 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
-from libs.common.log_sanitizer import sanitize_dict
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.core.common.log_sanitizer import sanitize_dict
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -338,7 +338,7 @@ async def _create_api_key(
     expires_at: datetime | None,
 ) -> dict[str, Any] | None:
     """Create a new API key."""
-    from libs.admin.api_keys import generate_api_key, hash_api_key
+    from libs.platform.admin.api_keys import generate_api_key, hash_api_key
 
     full_key, prefix, salt = generate_api_key()
     key_hash = hash_api_key(full_key, salt)

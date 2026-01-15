@@ -227,12 +227,15 @@ except SpecificException as e:
 - [tax](./libs/tax.md)
 - [web_console_auth](./libs/web_console_auth.md)
 
-### Strategies (strategies/)
+### Strategies
+**Production (strategies/):**
 - [alpha_baseline](./strategies/alpha_baseline.md)
 - [backtest](./strategies/backtest.md)
 - [ensemble](./strategies/ensemble.md)
-- [mean_reversion](./strategies/mean_reversion.md)
-- [momentum](./strategies/momentum.md)
+
+**Experimental (research/strategies/):**
+- [mean_reversion](./strategies/mean_reversion.md) 🧪
+- [momentum](./strategies/momentum.md) 🧪
 
 ### Infrastructure
 - [alertmanager](./infrastructure/alertmanager.md)

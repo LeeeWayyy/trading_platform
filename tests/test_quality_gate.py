@@ -15,8 +15,8 @@ from datetime import date
 import polars as pl
 import pytest
 
-from libs.common.exceptions import OutlierError
-from libs.data_pipeline.quality_gate import check_quality, detect_outliers
+from libs.core.common.exceptions import OutlierError
+from libs.data.data_pipeline.quality_gate import check_quality, detect_outliers
 
 
 class TestDetectOutliers:

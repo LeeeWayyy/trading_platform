@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tests for scripts/generate_architecture.py.
+Tests for scripts/dev/generate_architecture.py.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-import scripts.generate_architecture as architecture
+import scripts.dev.generate_architecture as architecture
 
 
 @pytest.fixture()
@@ -49,7 +49,7 @@ def _write_file(path: Path, content: str) -> None:
 def test_scan_imports_parses_various_patterns(tmp_path: Path) -> None:
     source = (
         "import apps.service_a\n"
-        "import libs.common.utils as utils\n"
+        "import libs.core.common.utils as utils\n"
         "from strategies.alpha_baseline import model\n"
         "from .helpers import foo\n"
         "from ..shared import bar\n"
@@ -61,7 +61,7 @@ def test_scan_imports_parses_various_patterns(tmp_path: Path) -> None:
 
     assert set(imports) == {
         "apps.service_a",
-        "libs.common.utils",
+        "libs.core.common.utils",
         "strategies.alpha_baseline",
         "apps.service_a.helpers",
         "apps.shared",
@@ -118,7 +118,7 @@ def test_build_dependency_graph_with_filtering(
     """Test that filtering hides edges to common libs."""
     service_dir = tmp_repo_root / "apps" / "service_a"
     common_dir = tmp_repo_root / "libs" / "common"
-    _write_file(service_dir / "main.py", "import libs.common.utils\n")
+    _write_file(service_dir / "main.py", "import libs.core.common.utils\n")
     _write_file(common_dir / "__init__.py", "pass\n")
 
     config = architecture.Config(
@@ -158,9 +158,9 @@ def test_build_dependency_graph_allowlist_preserves_edges(
 ) -> None:
     """Test that allowlisted components keep edges to common libs."""
     service_dir = tmp_repo_root / "apps" / "execution_gateway"
-    common_dir = tmp_repo_root / "libs" / "common"
-    _write_file(service_dir / "main.py", "import libs.common.utils\n")
-    _write_file(common_dir / "__init__.py", "pass\n")
+    core_dir = tmp_repo_root / "libs" / "core"
+    _write_file(service_dir / "main.py", "import libs.core.common.utils\n")
+    _write_file(core_dir / "common" / "__init__.py", "pass\n")
 
     config = architecture.Config(
         version="1.0.0",
@@ -170,11 +170,11 @@ def test_build_dependency_graph_allowlist_preserves_edges(
         ],
         components={
             "apps/execution_gateway": {"layer": "core", "spec": ""},
-            "libs/common": {"layer": "infra", "spec": ""},
+            "libs/core": {"layer": "infra", "spec": ""},
         },
         filtering={
             "hide_to_common_libs": True,
-            "common_libs": ["libs/common"],
+            "common_libs": ["libs/core"],
             "allowlist": ["apps/execution_gateway"],
         },
     )
@@ -188,14 +188,18 @@ def test_build_dependency_graph_allowlist_preserves_edges(
             spec="",
         ),
         architecture.Component(
-            category="Libraries", name="common", path=common_dir, layer="infra", spec=""
+            category="Libraries",
+            name="core",
+            path=core_dir,
+            layer="infra",
+            spec="",
         ),
     ]
 
     edges = architecture.build_dependency_graph(components, config)
 
     # Edge should be preserved for allowlisted component
-    assert ("svc_execution_gateway", "lib_common") in edges
+    assert ("svc_execution_gateway", "lib_core") in edges
 
 
 def test_generate_obsidian_canvas_structure(minimal_config: architecture.Config) -> None:

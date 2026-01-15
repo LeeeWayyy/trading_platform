@@ -32,7 +32,7 @@ source data -> validation -> atomic write -> manifest update
 ## Usage Examples
 ### Example 1: Run historical ETL
 ```python
-from libs.data_pipeline import HistoricalETL
+from libs.data.data_pipeline import HistoricalETL
 
 etl = HistoricalETL(...)
 result = etl.run()
@@ -40,7 +40,7 @@ result = etl.run()
 
 ### Example 2: Read progress
 ```python
-from libs.data_pipeline import ETLProgressManifest
+from libs.data.data_pipeline import ETLProgressManifest
 
 manifest = ETLProgressManifest.load("path/to/manifest.json")
 ```
@@ -68,7 +68,7 @@ manifest = ETLProgressManifest.load("path/to/manifest.json")
 - N/A (data processing library).
 
 ## Testing
-- **Test Files:** `tests/libs/data_pipeline/`
+- **Test Files:** `tests/libs/data/data_pipeline/`
 - **Run Tests:** `pytest tests/libs/data_pipeline -v`
 - **Coverage:** N/A
 
@@ -82,5 +82,5 @@ manifest = ETLProgressManifest.load("path/to/manifest.json")
 
 ## Metadata
 - **Last Updated:** 2026-01-10
-- **Source Files:** `libs/data_pipeline/historical_etl.py`
+- **Source Files:** `libs/data/data_pipeline/historical_etl.py`
 - **ADRs:** N/A

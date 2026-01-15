@@ -19,8 +19,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from libs.common.exceptions import DataQualityError, StalenessError
-from libs.data_pipeline.etl import load_adjusted_data, run_etl_pipeline
+from libs.core.common.exceptions import DataQualityError, StalenessError
+from libs.data.data_pipeline.etl import load_adjusted_data, run_etl_pipeline
 
 
 class TestRunETLPipeline:

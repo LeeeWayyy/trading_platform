@@ -17,7 +17,7 @@ import pytest
 
 from apps.signal_service.model_registry import ModelRegistry
 from apps.signal_service.signal_generator import SignalGenerator
-from libs.redis_client import FeatureCache
+from libs.core.redis_client import FeatureCache
 
 
 @pytest.fixture()

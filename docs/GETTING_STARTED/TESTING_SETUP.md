@@ -114,10 +114,10 @@ psql -U postgres -l | grep trading_platform
 cd /path/to/trading_platform
 
 # Run migration for production database
-psql -U postgres -d trading_platform -f migrations/001_create_model_registry.sql
+psql -U postgres -d trading_platform -f db/legacy/migrations_pre_alembic/001_create_model_registry.sql
 
 # Run migration for test database
-psql -U postgres -d trading_platform_test -f migrations/001_create_model_registry.sql
+psql -U postgres -d trading_platform_test -f db/legacy/migrations_pre_alembic/001_create_model_registry.sql
 ```
 
 **Expected output for each:**
@@ -301,7 +301,7 @@ Run the automated health check script:
 chmod +x scripts/test_health_check.sh
 
 # Run health check
-./scripts/test_health_check.sh
+./scripts/testing/validate_health_check.sh
 ```
 
 **Expected output:**
@@ -558,7 +558,7 @@ Before running tests, verify:
 
 **Quick verification:**
 ```bash
-./scripts/test_health_check.sh
+./scripts/testing/validate_health_check.sh
 ```
 
 ---
@@ -606,7 +606,7 @@ jobs:
 
       - name: Run migrations
         run: |
-          psql -h localhost -U postgres -d trading_platform_test -f migrations/001_create_model_registry.sql
+          psql -h localhost -U postgres -d trading_platform_test -f db/legacy/migrations_pre_alembic/001_create_model_registry.sql
 
       - name: Run tests
         run: |
@@ -647,14 +647,14 @@ For project-specific documentation:
 # 1. Setup databases
 createdb -U postgres trading_platform
 createdb -U postgres trading_platform_test
-psql -U postgres -d trading_platform -f migrations/001_create_model_registry.sql
-psql -U postgres -d trading_platform_test -f migrations/001_create_model_registry.sql
+psql -U postgres -d trading_platform -f db/legacy/migrations_pre_alembic/001_create_model_registry.sql
+psql -U postgres -d trading_platform_test -f db/legacy/migrations_pre_alembic/001_create_model_registry.sql
 
 # 2. Register model
-./scripts/register_model.sh
+./scripts/ops/register_model.sh
 
 # 3. Run health check
-./scripts/test_health_check.sh
+./scripts/testing/validate_health_check.sh
 
 # 4. Run tests
 pytest apps/signal_service/tests/ -v

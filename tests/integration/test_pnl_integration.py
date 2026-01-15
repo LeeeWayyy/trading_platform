@@ -19,7 +19,7 @@ import pytest
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from scripts.paper_run import calculate_enhanced_pnl, fetch_current_prices  # noqa: E402
+from scripts.ops.paper_run import calculate_enhanced_pnl, fetch_current_prices  # noqa: E402
 
 
 @pytest.mark.integration()
@@ -41,7 +41,7 @@ class TestPNLIntegration:
         mock_executor.get_latest_quotes.return_value = mock_quotes
 
         # When: Execute P&L calculation workflow
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             open_symbols = [p["symbol"] for p in positions if p.get("qty", 0) != 0]
             prices = await fetch_current_prices(open_symbols, {})
             result = await calculate_enhanced_pnl(positions, prices)
@@ -64,7 +64,7 @@ class TestPNLIntegration:
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.return_value = mock_quotes
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             open_symbols = [p["symbol"] for p in positions if p.get("qty", 0) != 0]
             prices = await fetch_current_prices(open_symbols, {})
             result = await calculate_enhanced_pnl(positions, prices)
@@ -87,7 +87,7 @@ class TestPNLIntegration:
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.return_value = mock_quotes
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             open_symbols = [p["symbol"] for p in positions if p.get("qty", 0) != 0]
             prices = await fetch_current_prices(open_symbols, {})
             result = await calculate_enhanced_pnl(positions, prices)
@@ -112,7 +112,7 @@ class TestPNLIntegration:
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.return_value = mock_quotes
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             open_symbols = [p["symbol"] for p in positions if p.get("qty", 0) != 0]
             prices = await fetch_current_prices(open_symbols, {})
             result = await calculate_enhanced_pnl(positions, prices)
@@ -137,7 +137,7 @@ class TestPNLIntegration:
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.return_value = mock_quotes
 
-        with patch("scripts.paper_run.AlpacaExecutor", return_value=mock_executor):
+        with patch("scripts.ops.paper_run.AlpacaExecutor", return_value=mock_executor):
             open_symbols = [p["symbol"] for p in positions if p.get("qty", 0) != 0]
             prices = await fetch_current_prices(open_symbols, {})
             result = await calculate_enhanced_pnl(positions, prices)

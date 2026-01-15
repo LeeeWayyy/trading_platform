@@ -49,7 +49,7 @@ import numpy as np
 import pandas as pd
 from redis.exceptions import RedisError
 
-from libs.redis_client import FeatureCache
+from libs.core.redis_client import FeatureCache
 
 
 class PrecomputeResult(TypedDict):
@@ -122,7 +122,7 @@ class SignalGenerator:
         ... )
         >>>
         >>> # With caching (T1.2)
-        >>> from libs.redis_client import RedisClient, FeatureCache
+        >>> from libs.core.redis_client import RedisClient, FeatureCache
         >>> redis_client = RedisClient()
         >>> feature_cache = FeatureCache(redis_client)
         >>> generator = SignalGenerator(

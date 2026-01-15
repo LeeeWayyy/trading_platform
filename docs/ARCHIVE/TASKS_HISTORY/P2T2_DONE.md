@@ -280,7 +280,7 @@ class AWSSecretsManager(SecretManager):
 **Example service config:**
 ```python
 # apps/signal_service/config.py (updated)
-from libs.secrets.manager import SecretManager
+from libs.platform.secrets.manager import SecretManager
 
 class Settings(BaseSettings):
     # Configuration (non-sensitive, from env vars)
@@ -740,7 +740,7 @@ CREATE TABLE secret_rotation_log (
 **Service Startup Flow (updated):**
 ```python
 # apps/signal_service/main.py (example)
-from libs.secrets.factory import create_secret_manager
+from libs.platform.secrets.factory import create_secret_manager
 
 # 1. Initialize SecretManager
 secret_mgr = create_secret_manager()

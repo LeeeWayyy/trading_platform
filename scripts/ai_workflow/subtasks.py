@@ -352,7 +352,7 @@ class SubtaskOrchestrator:
                         file=sys.stderr,
                     )
                     print(
-                        "   Use: ./scripts/workflow_gate.py subtask-start <task-id> before completing",
+                        "   Use: ./scripts/admin/workflow_gate.py subtask-start <task-id> before completing",
                         file=sys.stderr,
                     )
                 task["status"] = (

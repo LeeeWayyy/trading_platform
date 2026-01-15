@@ -456,7 +456,7 @@ quotes = get_quotes(symbol="AAPL", snapshot=snapshot_id)
 The `MicrostructureAnalyzer` class provides a unified interface:
 
 ```python
-from libs.analytics import MicrostructureAnalyzer
+from libs.platform.analytics import MicrostructureAnalyzer
 
 analyzer = MicrostructureAnalyzer(
     taq_provider=TAQLocalProvider(data_path="./data/taq")

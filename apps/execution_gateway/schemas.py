@@ -13,7 +13,7 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
-from libs.common import TimestampSerializerMixin
+from libs.core.common import TimestampSerializerMixin
 
 # ============================================================================
 # Type Aliases

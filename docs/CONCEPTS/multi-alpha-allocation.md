@@ -34,7 +34,7 @@ portfolio = (alpha_baseline + momentum + mean_reversion) / 3
 
 **Multi-alpha allocation solution:**
 ```python
-from libs.allocation import MultiAlphaAllocator
+from libs.trading.allocation import MultiAlphaAllocator
 
 # Configure allocator with safety constraints
 allocator = MultiAlphaAllocator(
@@ -409,7 +409,7 @@ correlations = allocator.check_correlation({
 ### Basic: Rank Aggregation with 3 Strategies
 
 ```python
-from libs.allocation import MultiAlphaAllocator
+from libs.trading.allocation import MultiAlphaAllocator
 import polars as pl
 
 # Step 1: Collect signals from each strategy

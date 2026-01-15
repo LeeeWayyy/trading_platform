@@ -200,7 +200,7 @@ This module defines Pydantic models for all risk limits and configuration.
 Configuration is loaded from environment variables with sensible defaults.
 
 Example:
-    >>> from libs.risk_management.config import RiskConfig
+    >>> from libs.trading.risk_management.config import RiskConfig
     >>> config = RiskConfig()
     >>> config.position_limits.max_position_size
     1000
@@ -405,7 +405,7 @@ class RiskConfig(BaseModel):
 
 import pytest
 from decimal import Decimal
-from libs.risk_management.config import (
+from libs.trading.risk_management.config import (
     PositionLimits,
     PortfolioLimits,
     LossLimits,
@@ -615,8 +615,8 @@ Storage:
     State persisted in Redis for fast access and cross-service consistency.
 
 Example:
-    >>> from libs.redis_client import RedisClient
-    >>> from libs.risk_management.breaker import CircuitBreaker
+    >>> from libs.core.redis_client import RedisClient
+    >>> from libs.trading.risk_management.breaker import CircuitBreaker
     >>>
     >>> redis = RedisClient(host="localhost", port=6379)
     >>> breaker = CircuitBreaker(redis_client=redis)
@@ -642,8 +642,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 
-from libs.redis_client import RedisClient
-from libs.risk_management.exceptions import CircuitBreakerError, CircuitBreakerTripped
+from libs.core.redis_client import RedisClient
+from libs.trading.risk_management.exceptions import CircuitBreakerError, CircuitBreakerTripped
 
 logger = logging.getLogger(__name__)
 
@@ -714,7 +714,7 @@ class CircuitBreaker:
             redis_client: Redis client for state persistence
 
         Example:
-            >>> from libs.redis_client import RedisClient
+            >>> from libs.core.redis_client import RedisClient
             >>> redis = RedisClient(host="localhost", port=6379)
             >>> breaker = CircuitBreaker(redis_client=redis)
         """

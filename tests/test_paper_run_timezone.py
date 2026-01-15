@@ -26,7 +26,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.paper_run import (  # noqa: E402
+from scripts.ops.paper_run import (  # noqa: E402
     format_console_output,
     save_results,
 )
@@ -316,7 +316,7 @@ class TestTimezoneRegression:
         """Test that timezone is imported from datetime module."""
         # This test verifies the import statement includes timezone
         # to prevent accidental removal in future refactoring
-        import scripts.paper_run as paper_run_module
+        import scripts.ops.paper_run as paper_run_module
 
         # Verify timezone is available in the module
         assert hasattr(

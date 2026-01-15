@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 from apps.execution_gateway.api import dependencies as deps
 from apps.execution_gateway.api.manual_controls import router
 from apps.execution_gateway.schemas import OrderDetail, Position
-from libs.web_console_auth.audit_logger import AuditLogger
-from libs.web_console_auth.exceptions import (
+from libs.platform.web_console_auth.audit_logger import AuditLogger
+from libs.platform.web_console_auth.exceptions import (
     InvalidAudienceError,
     InvalidIssuerError,
     InvalidSignatureError,
@@ -28,9 +28,9 @@ from libs.web_console_auth.exceptions import (
     TokenReplayedError,
     TokenRevokedError,
 )
-from libs.web_console_auth.gateway_auth import AuthenticatedUser
-from libs.web_console_auth.permissions import Role
-from libs.web_console_auth.rate_limiter import RateLimiter
+from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
+from libs.platform.web_console_auth.permissions import Role
+from libs.platform.web_console_auth.rate_limiter import RateLimiter
 
 
 def _err(resp: Any) -> dict[str, Any]:

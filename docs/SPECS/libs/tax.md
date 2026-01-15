@@ -122,7 +122,7 @@ rows = await exporter.generate(user_id, tax_year=2025)
 - Uses DB access controls; no secrets handled directly.
 
 ## Testing
-- **Test Files:** `tests/libs/tax/`
+- **Test Files:** `tests/libs/platform/tax/`
 - **Run Tests:** `pytest tests/libs/tax -v`
 - **Coverage:** N/A
 
@@ -137,5 +137,5 @@ rows = await exporter.generate(user_id, tax_year=2025)
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `libs/tax/__init__.py`, `libs/tax/tax_loss_harvesting.py`, `libs/tax/wash_sale_detector.py`, `libs/tax/form_8949.py`, `libs/tax/export.py`, `libs/tax/protocols.py`
+- **Source Files:** `libs/platform/tax/__init__.py`, `libs/platform/tax/tax_loss_harvesting.py`, `libs/platform/tax/wash_sale_detector.py`, `libs/platform/tax/form_8949.py`, `libs/platform/tax/export.py`, `libs/platform/tax/protocols.py`
 - **ADRs:** N/A

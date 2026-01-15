@@ -14,7 +14,7 @@ import subprocess
 
 import pytest
 
-from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
+from libs.core.common.hash_utils import compute_git_diff_hash, is_merge_commit
 
 
 @pytest.fixture()

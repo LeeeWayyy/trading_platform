@@ -327,7 +327,7 @@ def validate_session_sync(
     async def _validate_with_fresh_resources():
         """Create fresh Redis AND DB clients for this isolated event loop."""
         from apps.web_console.auth.session_store import create_redis_session_store
-        from libs.common.db import create_db_pool  # [FIXED v1.4] Fresh DB pool
+        from libs.core.common.db import create_db_pool  # [FIXED v1.4] Fresh DB pool
 
         # Create fresh resources for this isolated loop
         fresh_session_store = await create_redis_session_store()
@@ -371,7 +371,7 @@ def _get_all_strategy_ids_sync() -> list[str]:
     import concurrent.futures
 
     async def _fetch_all():
-        from libs.common.db import create_db_pool
+        from libs.core.common.db import create_db_pool
         db_pool = await create_db_pool()
         try:
             async with db_pool.acquire() as conn:
@@ -670,7 +670,7 @@ import asyncio
 import logging
 from datetime import datetime, UTC
 
-from libs.common.db import create_db_pool
+from libs.core.common.db import create_db_pool
 from apps.web_console.auth.audit_log import AuditLogger, AUDIT_RETENTION_DAYS
 
 logger = logging.getLogger(__name__)
@@ -1283,7 +1283,7 @@ import click
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from libs.common.config import get_database_url
+from libs.core.common.config import get_database_url
 
 async def get_db_pool() -> asyncpg.Pool:
     """Create database connection pool."""
@@ -2129,7 +2129,7 @@ def get_rate_limiter() -> RateLimiter:
     """
     global _rate_limiter
     if _rate_limiter is None:
-        from libs.common.config import get_redis_url
+        from libs.core.common.config import get_redis_url
 
         # Create connection pool with sizing limits
         pool = redis.ConnectionPool.from_url(

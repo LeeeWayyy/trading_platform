@@ -24,7 +24,7 @@ from pathlib import Path
 
 import polars as pl
 
-from libs.data_pipeline.etl import load_adjusted_data, run_etl_pipeline
+from libs.data.data_pipeline.etl import load_adjusted_data, run_etl_pipeline
 from tests.fixtures.mock_data import create_multi_symbol_data
 
 

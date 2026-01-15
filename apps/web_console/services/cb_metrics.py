@@ -26,7 +26,7 @@ import redis
 from prometheus_client import Counter, Gauge
 
 if TYPE_CHECKING:
-    from libs.redis_client import RedisClient
+    from libs.core.redis_client import RedisClient
 
 logger = logging.getLogger(__name__)
 

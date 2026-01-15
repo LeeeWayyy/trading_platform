@@ -32,7 +32,7 @@ input returns -> model/analysis -> metrics/attribution results
 ## Usage Examples
 ### Example 1: Event study
 ```python
-from libs.analytics import EventStudyFramework, EventStudyConfig
+from libs.platform.analytics import EventStudyFramework, EventStudyConfig
 
 framework = EventStudyFramework(EventStudyConfig(...))
 result = framework.run_event_study(...)
@@ -40,7 +40,7 @@ result = framework.run_event_study(...)
 
 ### Example 2: Factor attribution
 ```python
-from libs.analytics import FactorAttribution, FactorAttributionConfig
+from libs.platform.analytics import FactorAttribution, FactorAttributionConfig
 
 attr = FactorAttribution(FactorAttributionConfig(...))
 report = attr.run(...)
@@ -69,7 +69,7 @@ report = attr.run(...)
 - N/A (analytics library).
 
 ## Testing
-- **Test Files:** `tests/libs/analytics/`
+- **Test Files:** `tests/libs/platform/analytics/`
 - **Run Tests:** `pytest tests/libs/analytics -v`
 - **Coverage:** N/A
 
@@ -83,5 +83,5 @@ report = attr.run(...)
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/analytics/__init__.py`, `libs/analytics/event_study.py`, `libs/analytics/attribution.py`
+- **Source Files:** `libs/platform/analytics/__init__.py`, `libs/platform/analytics/event_study.py`, `libs/platform/analytics/attribution.py`
 - **ADRs:** N/A

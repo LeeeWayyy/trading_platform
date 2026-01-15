@@ -17,12 +17,12 @@ from psycopg_pool import AsyncConnectionPool, ConnectionPool
 from redis import Redis
 from rq import Queue, Worker
 
-from libs.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSChannel
-from libs.alerts.delivery_service import DeliveryExecutor, QueueDepthManager
-from libs.alerts.models import ChannelType, DeliveryResult
-from libs.alerts.poison_queue import PoisonQueue
-from libs.common.exceptions import ConfigurationError
-from libs.web_console_auth.rate_limiter import RateLimiter
+from libs.core.common.exceptions import ConfigurationError
+from libs.platform.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSChannel
+from libs.platform.alerts.delivery_service import DeliveryExecutor, QueueDepthManager
+from libs.platform.alerts.models import ChannelType, DeliveryResult
+from libs.platform.alerts.poison_queue import PoisonQueue
+from libs.platform.web_console_auth.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 

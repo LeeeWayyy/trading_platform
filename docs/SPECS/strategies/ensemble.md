@@ -85,7 +85,7 @@ result = combine_signals(signals_df, config)
 | Conflicting signals | +1 and -1 | Filtered to 0 if `require_agreement=True`. |
 
 ## Dependencies
-- **Internal:** `strategies/mean_reversion`, `strategies/momentum`
+- **Internal:** `strategies/alpha_baseline` (production), `research/strategies/mean_reversion`, `research/strategies/momentum` (experimental)
 - **External:** polars
 
 ## Configuration

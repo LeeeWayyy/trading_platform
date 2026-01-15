@@ -19,93 +19,54 @@ flowchart TB
     svc_signal_service["Signal Service"]
   end
   subgraph domain["Domain Logic"]
-    lib_allocation["Allocation"]
-    lib_alpha["Alpha"]
     strat_alpha_baseline["Alpha Baseline"]
-    lib_analytics["Analytics"]
-    lib_backtest["Backtest"]
     strat_backtest["Backtest"]
-    lib_data_pipeline["Data Pipeline"]
-    lib_data_providers["Data Providers"]
-    lib_data_quality["Data Quality"]
+    lib_data["Data"]
     strat_ensemble["Ensemble"]
-    lib_factors["Factors"]
-    lib_market_data["Market Data"]
-    strat_mean_reversion["Mean Reversion"]
     lib_models["Models"]
-    strat_momentum["Momentum"]
-    lib_risk["Risk"]
-    lib_risk_management["Risk Management"]
-    lib_tax["Tax"]
+    lib_trading["Trading"]
   end
   subgraph infra["Infrastructure"]
-    lib_admin["Admin"]
-    lib_alerts["Alerts"]
-    lib_common["Common"]
-    lib_health["Health"]
-    lib_redis_client["Redis Client"]
-    lib_secrets["Secrets"]
-    lib_web_console_auth["Web Console Auth"]
+    lib_core["Core"]
+    lib_platform["Platform"]
   end
 
-  lib_admin -.-> lib_web_console_auth
-  lib_alerts -.-> svc_alert_worker
-  lib_alpha -.-> lib_data_providers
-  lib_alpha -.-> lib_data_quality
-  lib_analytics -.-> lib_data_providers
-  lib_analytics -.-> lib_data_quality
-  lib_backtest -.-> lib_alpha
-  lib_backtest -.-> lib_data_providers
-  lib_backtest -.-> lib_data_quality
-  lib_backtest -.-> lib_models
-  lib_common -.-> lib_web_console_auth
-  lib_common -.-> svc_execution_gateway
-  lib_data_pipeline -.-> lib_data_providers
-  lib_data_pipeline -.-> lib_data_quality
-  lib_data_providers -.-> lib_data_quality
-  lib_factors -.-> lib_data_providers
-  lib_factors -.-> lib_data_quality
-  lib_market_data -.-> lib_redis_client
-  lib_models -.-> lib_data_quality
-  lib_risk -.-> lib_factors
-  lib_risk_management -.-> lib_redis_client
-  svc_alert_worker -.-> lib_alerts
-  svc_alert_worker -.-> lib_web_console_auth
+  lib_core -.-> lib_platform
+  lib_core -.-> svc_execution_gateway
+  lib_data -.-> lib_core
+  lib_data -.-> lib_platform
+  lib_models -.-> lib_data
+  lib_platform -.-> lib_core
+  lib_platform -.-> lib_data
+  lib_platform -.-> svc_alert_worker
+  lib_trading -.-> lib_core
+  lib_trading -.-> lib_data
+  lib_trading -.-> lib_models
+  svc_alert_worker -.-> lib_core
+  svc_alert_worker -.-> lib_platform
+  svc_auth_service -.-> lib_core
   svc_auth_service -.-> svc_web_console
-  svc_backtest_worker -.-> lib_backtest
-  svc_execution_gateway -.-> lib_common
-  svc_execution_gateway -.-> lib_redis_client
-  svc_execution_gateway -.-> lib_risk_management
-  svc_execution_gateway -.-> lib_web_console_auth
-  svc_market_data_service -.-> lib_market_data
-  svc_market_data_service -.-> lib_redis_client
+  svc_backtest_worker -.-> lib_trading
+  svc_execution_gateway -.-> lib_core
+  svc_execution_gateway -.-> lib_platform
+  svc_execution_gateway -.-> lib_trading
+  svc_market_data_service -.-> lib_core
+  svc_market_data_service -.-> lib_data
   svc_model_registry -.-> lib_models
-  svc_orchestrator -.-> lib_allocation
-  svc_orchestrator -.-> lib_common
-  svc_orchestrator -.-> lib_redis_client
-  svc_orchestrator -.-> lib_risk_management
-  svc_signal_service -.-> lib_common
-  svc_signal_service -.-> lib_redis_client
-  svc_signal_service -.-> lib_web_console_auth
+  svc_orchestrator -.-> lib_core
+  svc_orchestrator -.-> lib_trading
+  svc_signal_service -.-> lib_core
+  svc_signal_service -.-> lib_platform
   svc_signal_service -.-> strat_alpha_baseline
-  svc_web_console -.-> lib_alerts
-  svc_web_console -.-> lib_alpha
-  svc_web_console -.-> lib_backtest
+  svc_web_console -.-> lib_core
   svc_web_console -.-> lib_models
-  svc_web_console -.-> lib_redis_client
-  svc_web_console -.-> lib_risk
-  svc_web_console -.-> lib_risk_management
-  svc_web_console -.-> lib_web_console_auth
+  svc_web_console -.-> lib_platform
+  svc_web_console -.-> lib_trading
   svc_web_console -.-> svc_web_console_ng
-  svc_web_console_ng -.-> lib_admin
-  svc_web_console_ng -.-> lib_alerts
-  svc_web_console_ng -.-> lib_alpha
-  svc_web_console_ng -.-> lib_backtest
+  svc_web_console_ng -.-> lib_core
   svc_web_console_ng -.-> lib_models
-  svc_web_console_ng -.-> lib_redis_client
-  svc_web_console_ng -.-> lib_risk
-  svc_web_console_ng -.-> lib_risk_management
-  svc_web_console_ng -.-> lib_web_console_auth
+  svc_web_console_ng -.-> lib_platform
+  svc_web_console_ng -.-> lib_trading
   svc_web_console_ng -.-> svc_web_console
 
   %% Click links to documentation
@@ -119,31 +80,14 @@ flowchart TB
   click svc_signal_service "../SPECS/services/signal_service.md"
   click svc_web_console "../SPECS/services/web_console.md"
   click svc_web_console_ng "../SPECS/services/web_console_ng.md"
-  click lib_admin "../SPECS/libs/admin.md"
-  click lib_alerts "../SPECS/libs/alerts.md"
-  click lib_allocation "../SPECS/libs/allocation.md"
-  click lib_alpha "../SPECS/libs/alpha.md"
-  click lib_analytics "../SPECS/libs/analytics.md"
-  click lib_backtest "../SPECS/libs/backtest.md"
-  click lib_common "../SPECS/libs/common.md"
-  click lib_data_pipeline "../SPECS/libs/data_pipeline.md"
-  click lib_data_providers "../SPECS/libs/data_providers.md"
-  click lib_data_quality "../SPECS/libs/data_quality.md"
-  click lib_factors "../SPECS/libs/factors.md"
-  click lib_health "../SPECS/libs/health.md"
-  click lib_market_data "../SPECS/libs/market_data.md"
+  click lib_core "../SPECS/libs/core.md"
+  click lib_data "../SPECS/libs/data.md"
   click lib_models "../SPECS/libs/models.md"
-  click lib_redis_client "../SPECS/libs/redis_client.md"
-  click lib_risk "../SPECS/libs/risk.md"
-  click lib_risk_management "../SPECS/libs/risk_management.md"
-  click lib_secrets "../SPECS/libs/secrets.md"
-  click lib_tax "../SPECS/libs/tax.md"
-  click lib_web_console_auth "../SPECS/libs/web_console_auth.md"
+  click lib_platform "../SPECS/libs/platform.md"
+  click lib_trading "../SPECS/libs/trading.md"
   click strat_alpha_baseline "../SPECS/strategies/alpha_baseline.md"
   click strat_backtest "../SPECS/strategies/backtest.md"
   click strat_ensemble "../SPECS/strategies/ensemble.md"
-  click strat_mean_reversion "../SPECS/strategies/mean_reversion.md"
-  click strat_momentum "../SPECS/strategies/momentum.md"
 ```
 
 ## Legend

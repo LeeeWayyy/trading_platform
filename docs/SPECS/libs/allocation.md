@@ -43,7 +43,7 @@ strategy signals -> allocation method -> normalization -> final weights
 ## Usage Examples
 ### Example 1: Rank aggregation
 ```python
-from libs.allocation import MultiAlphaAllocator
+from libs.trading.allocation import MultiAlphaAllocator
 
 allocator = MultiAlphaAllocator(method="rank_aggregation")
 result = allocator.allocate(signals, strategy_stats={})
@@ -78,7 +78,7 @@ result = allocator.allocate(signals, strategy_stats={"alpha": {"vol": 0.2}})
 - N/A (pure computation).
 
 ## Testing
-- **Test Files:** `tests/libs/allocation/`
+- **Test Files:** `tests/libs/trading/allocation/`
 - **Run Tests:** `pytest tests/libs/allocation -v`
 - **Coverage:** N/A
 
@@ -92,5 +92,5 @@ result = allocator.allocate(signals, strategy_stats={"alpha": {"vol": 0.2}})
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `libs/allocation/multi_alpha.py`
+- **Source Files:** `libs/trading/allocation/multi_alpha.py`
 - **ADRs:** N/A

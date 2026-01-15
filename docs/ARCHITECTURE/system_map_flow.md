@@ -19,33 +19,16 @@ flowchart TB
     svc_signal_service["Signal Service"]
   end
   subgraph domain["Domain Logic"]
-    lib_allocation["Allocation"]
-    lib_alpha["Alpha"]
     strat_alpha_baseline["Alpha Baseline"]
-    lib_analytics["Analytics"]
-    lib_backtest["Backtest"]
     strat_backtest["Backtest"]
-    lib_data_pipeline["Data Pipeline"]
-    lib_data_providers["Data Providers"]
-    lib_data_quality["Data Quality"]
+    lib_data["Data"]
     strat_ensemble["Ensemble"]
-    lib_factors["Factors"]
-    lib_market_data["Market Data"]
-    strat_mean_reversion["Mean Reversion"]
     lib_models["Models"]
-    strat_momentum["Momentum"]
-    lib_risk["Risk"]
-    lib_risk_management["Risk Management"]
-    lib_tax["Tax"]
+    lib_trading["Trading"]
   end
   subgraph infra["Infrastructure"]
-    lib_admin["Admin"]
-    lib_alerts["Alerts"]
-    lib_common["Common"]
-    lib_health["Health"]
-    lib_redis_client["Redis Client"]
-    lib_secrets["Secrets"]
-    lib_web_console_auth["Web Console Auth"]
+    lib_core["Core"]
+    lib_platform["Platform"]
     ext_alpaca[("Alpaca API")]
     ext_grafana[("Grafana")]
     ext_postgres[("PostgreSQL")]
@@ -65,7 +48,7 @@ flowchart TB
   svc_web_console_ng -->|realtime updates| ext_redis
   ext_redis -->|positions/orders| svc_web_console_ng
   svc_alert_worker -->|alert events| ext_redis
-  lib_risk_management -->|circuit breaker state| ext_redis
+  lib_trading -->|circuit breaker state| ext_redis
 
   %% Click links to documentation
   click svc_alert_worker "../SPECS/services/alert_worker.md"
@@ -78,31 +61,14 @@ flowchart TB
   click svc_signal_service "../SPECS/services/signal_service.md"
   click svc_web_console "../SPECS/services/web_console.md"
   click svc_web_console_ng "../SPECS/services/web_console_ng.md"
-  click lib_admin "../SPECS/libs/admin.md"
-  click lib_alerts "../SPECS/libs/alerts.md"
-  click lib_allocation "../SPECS/libs/allocation.md"
-  click lib_alpha "../SPECS/libs/alpha.md"
-  click lib_analytics "../SPECS/libs/analytics.md"
-  click lib_backtest "../SPECS/libs/backtest.md"
-  click lib_common "../SPECS/libs/common.md"
-  click lib_data_pipeline "../SPECS/libs/data_pipeline.md"
-  click lib_data_providers "../SPECS/libs/data_providers.md"
-  click lib_data_quality "../SPECS/libs/data_quality.md"
-  click lib_factors "../SPECS/libs/factors.md"
-  click lib_health "../SPECS/libs/health.md"
-  click lib_market_data "../SPECS/libs/market_data.md"
+  click lib_core "../SPECS/libs/core.md"
+  click lib_data "../SPECS/libs/data.md"
   click lib_models "../SPECS/libs/models.md"
-  click lib_redis_client "../SPECS/libs/redis_client.md"
-  click lib_risk "../SPECS/libs/risk.md"
-  click lib_risk_management "../SPECS/libs/risk_management.md"
-  click lib_secrets "../SPECS/libs/secrets.md"
-  click lib_tax "../SPECS/libs/tax.md"
-  click lib_web_console_auth "../SPECS/libs/web_console_auth.md"
+  click lib_platform "../SPECS/libs/platform.md"
+  click lib_trading "../SPECS/libs/trading.md"
   click strat_alpha_baseline "../SPECS/strategies/alpha_baseline.md"
   click strat_backtest "../SPECS/strategies/backtest.md"
   click strat_ensemble "../SPECS/strategies/ensemble.md"
-  click strat_mean_reversion "../SPECS/strategies/mean_reversion.md"
-  click strat_momentum "../SPECS/strategies/momentum.md"
   click ext_redis "../SPECS/infrastructure/redis.md"
   click ext_postgres "../SPECS/infrastructure/postgres.md"
   click ext_prometheus "../SPECS/infrastructure/prometheus.md"

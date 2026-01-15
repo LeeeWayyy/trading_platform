@@ -203,7 +203,7 @@ class TestCircuitBreakerServiceReset:
         self, cb_service: CircuitBreakerService
     ) -> None:
         """reset should clear rate limit token if breaker.reset() fails."""
-        from libs.risk_management.breaker import CircuitBreakerError
+        from libs.trading.risk_management.breaker import CircuitBreakerError
 
         user = {"user_id": "test_user", "role": "operator"}
         reason = "Conditions cleared, verified system health"

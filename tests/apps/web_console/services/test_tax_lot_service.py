@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from apps.web_console.services.tax_lot_service import TaxLotService
-from libs.web_console_auth.permissions import Role
+from libs.platform.web_console_auth.permissions import Role
 
 
 def make_user(user_id: str, role: Role | str) -> dict:

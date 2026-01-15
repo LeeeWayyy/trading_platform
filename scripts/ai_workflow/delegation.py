@@ -354,4 +354,4 @@ class DelegationRules:
             print("See @docs/AI/Workflows/16-subagent-delegation.md for delegation patterns")
             print()
             print("To create subtasks:")
-            print("  ./scripts/workflow_gate.py subtask-create --pr <num> --comments-json <file>")
+            print("  ./scripts/admin/workflow_gate.py subtask-create --pr <num> --comments-json <file>")

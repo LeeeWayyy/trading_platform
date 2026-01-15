@@ -318,7 +318,7 @@ logger.info("Signal generation started")
 **For background tasks:** Use `LogContext` for batch jobs, cron tasks, or other entry points that don't originate from a web request:
 
 ```python
-from libs.common.logging import LogContext, get_logger
+from libs.core.common.logging import LogContext, get_logger
 
 logger = get_logger(__name__)
 
@@ -486,7 +486,7 @@ Investigates root cause
 **Always use traced HTTP clients:**
 ```python
 # Good
-from libs.common.logging import get_traced_client
+from libs.core.common.logging import get_traced_client
 
 async with get_traced_client(base_url="http://service") as client:
     response = await client.get("/api")  # Trace ID auto-injected

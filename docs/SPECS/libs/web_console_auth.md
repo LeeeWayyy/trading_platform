@@ -130,7 +130,7 @@ claims = manager.validate_token(token, expected_type="access")
 - Refresh tokens stored with rotation and blacklist support.
 
 ## Testing
-- **Test Files:** `tests/libs/web_console_auth/`
+- **Test Files:** `tests/libs/platform/web_console_auth/`
 - **Run Tests:** `pytest tests/libs/web_console_auth -v`
 - **Coverage:** N/A
 
@@ -145,5 +145,5 @@ claims = manager.validate_token(token, expected_type="access")
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/web_console_auth/__init__.py`, `libs/web_console_auth/config.py`, `libs/web_console_auth/jwt_manager.py`, `libs/web_console_auth/session.py`, `libs/web_console_auth/permissions.py`, `libs/web_console_auth/rate_limiter.py`, `libs/web_console_auth/jwks_validator.py`
+- **Source Files:** `libs/platform/web_console_auth/__init__.py`, `libs/platform/web_console_auth/config.py`, `libs/platform/web_console_auth/jwt_manager.py`, `libs/platform/web_console_auth/session.py`, `libs/platform/web_console_auth/permissions.py`, `libs/platform/web_console_auth/rate_limiter.py`, `libs/platform/web_console_auth/jwks_validator.py`
 - **ADRs:** N/A

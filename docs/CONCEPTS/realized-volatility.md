@@ -293,7 +293,7 @@ forecast = max(0, forecast)
 ### Code Example
 
 ```python
-from libs.analytics import HARVolatilityModel
+from libs.platform.analytics import HARVolatilityModel
 import polars as pl
 
 # Load historical RV data

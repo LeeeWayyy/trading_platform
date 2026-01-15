@@ -6,7 +6,7 @@ frontend code. This module re-exports the same symbols for backward
 compatibility with existing imports in the web console.
 """
 
-from libs.web_console_auth.permissions import (  # noqa:F401
+from libs.platform.web_console_auth.permissions import (  # noqa:F401
     ROLE_PERMISSIONS,
     Permission,
     Role,

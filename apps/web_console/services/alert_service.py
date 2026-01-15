@@ -12,12 +12,12 @@ from pydantic import BaseModel, ConfigDict
 
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.utils.db import acquire_connection
-from libs.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSChannel
-from libs.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
-from libs.alerts.pii import mask_for_logs
-from libs.alerts.poison_queue import _sanitize_error_for_log
-from libs.common.exceptions import ConfigurationError
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.core.common.exceptions import ConfigurationError
+from libs.platform.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSChannel
+from libs.platform.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
+from libs.platform.alerts.pii import mask_for_logs
+from libs.platform.alerts.poison_queue import _sanitize_error_for_log
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 

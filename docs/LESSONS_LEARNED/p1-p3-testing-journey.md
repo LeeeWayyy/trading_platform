@@ -357,12 +357,12 @@ Ranking methods in pandas:
 
 ## Testing Infrastructure Created
 
-### 1. Setup Automation (`scripts/setup_testing_env.sh`)
+### 1. Setup Automation (`scripts/hooks/setup_testing_env.sh`)
 
 Master script that automates entire testing environment setup:
 
 ```bash
-./scripts/setup_testing_env.sh
+./scripts/hooks/setup_testing_env.sh
 ```
 
 **What it does:**
@@ -387,7 +387,7 @@ Master script that automates entire testing environment setup:
 Validates complete testing environment:
 
 ```bash
-./scripts/test_health_check.sh
+./scripts/testing/validate_health_check.sh
 ```
 
 **8 comprehensive checks:**
@@ -654,7 +654,7 @@ Add automated health monitoring:
 
 ```bash
 # Run before committing
-./scripts/test_health_check.sh && \
+./scripts/testing/validate_health_check.sh && \
 python scripts/test_p1_p2_model_registry.py && \
 python scripts/test_p3_signal_generator.py
 
@@ -743,9 +743,9 @@ def test_hot_reload_during_signal_generation():
 ### Created During Testing
 
 1. **Testing infrastructure:**
-   - `scripts/setup_testing_env.sh` (230 lines)
+   - `scripts/hooks/setup_testing_env.sh` (230 lines)
    - `scripts/test_health_check.sh` (150 lines)
-   - `scripts/register_model.sh` (197 lines)
+   - `scripts/ops/register_model.sh` (197 lines)
    - `scripts/test_p1_p2_model_registry.py` (285 lines)
    - `scripts/test_p3_signal_generator.py` (354 lines)
 
@@ -783,8 +783,8 @@ The P1-P3 testing journey demonstrated the value of:
 4. **Realistic expectations** - Tests that match real-world behavior
 
 **Key success metric:** Starting from scratch, any developer can now:
-1. Run `./scripts/setup_testing_env.sh` (~5 min)
-2. Run `./scripts/test_health_check.sh` (~2 sec)
+1. Run `./scripts/hooks/setup_testing_env.sh` (~5 min)
+2. Run `./scripts/testing/validate_health_check.sh` (~2 sec)
 3. Run P1-P2 tests (100% pass, ~5 sec)
 4. Run P3 tests (100% pass, ~8 sec)
 
@@ -800,8 +800,8 @@ Total: ~6 minutes to validated working P1-P3 system.
 
 ```bash
 # Complete test suite
-./scripts/setup_testing_env.sh && \
-./scripts/test_health_check.sh && \
+./scripts/hooks/setup_testing_env.sh && \
+./scripts/testing/validate_health_check.sh && \
 python scripts/test_p1_p2_model_registry.py && \
 python scripts/test_p3_signal_generator.py
 ```

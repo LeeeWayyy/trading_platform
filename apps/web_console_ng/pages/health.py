@@ -27,7 +27,7 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
-from libs.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from apps.web_console.services.health_service import HealthMonitorService
@@ -45,9 +45,9 @@ def _get_health_service() -> HealthMonitorService:
     if not hasattr(app.storage, "_health_service"):
         from apps.web_console.services.health_service import HealthMonitorService
         from apps.web_console_ng.config import PROMETHEUS_URL, REDIS_URL, SERVICE_URLS
-        from libs.health.health_client import HealthClient
-        from libs.health.prometheus_client import PrometheusClient
-        from libs.redis_client import RedisClient
+        from libs.core.health.health_client import HealthClient
+        from libs.core.health.prometheus_client import PrometheusClient
+        from libs.core.redis_client import RedisClient
 
         # Get async DB pool for async health checks
         async_db_pool = get_db_pool()

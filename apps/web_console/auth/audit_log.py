@@ -18,7 +18,7 @@ from typing import Any
 from apps.web_console.utils.db import acquire_connection
 
 # Import shared Prometheus metrics from libs to avoid duplicate registration
-from libs.web_console_auth.audit_logger import (
+from libs.platform.web_console_auth.audit_logger import (
     admin_action_total,
     audit_cleanup_duration_seconds,
     audit_events_total,

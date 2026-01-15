@@ -165,8 +165,8 @@ We will implement a dedicated **Market Data Service** that streams real-time pri
 
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from libs.market_data import AlpacaMarketDataStream
-from libs.redis_client import RedisClient
+from libs.data.market_data import AlpacaMarketDataStream
+from libs.core.redis_client import RedisClient
 
 stream: Optional[AlpacaMarketDataStream] = None
 

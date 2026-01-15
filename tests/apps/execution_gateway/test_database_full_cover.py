@@ -42,14 +42,14 @@ except ImportError:  # pragma: no cover - fallback for hermetic envs
     sys.modules.setdefault("pydantic", pydantic_stub)
 
 # Stub libs.common TimestampSerializerMixin dependency
-common_schemas_stub = ModuleType("libs.common.schemas")
+common_schemas_stub = ModuleType("libs.core.common.schemas")
 
 
 class TimestampSerializerMixin: ...
 
 
 common_schemas_stub.TimestampSerializerMixin = TimestampSerializerMixin
-sys.modules.setdefault("libs.common.schemas", common_schemas_stub)
+sys.modules.setdefault("libs.core.common.schemas", common_schemas_stub)
 common_stub = ModuleType("libs.common")
 common_stub.TimestampSerializerMixin = TimestampSerializerMixin
 sys.modules.setdefault("libs.common", common_stub)

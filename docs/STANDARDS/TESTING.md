@@ -73,7 +73,7 @@ Incorrect mocking is a major cause of CI test failures. Common issues:
 
 ```python
 # File: apps/execution_gateway/main.py
-from libs.risk_management.kill_switch import KillSwitch
+from libs.trading.risk_management.kill_switch import KillSwitch
 
 def submit_order(...):
     kill_switch = KillSwitch()

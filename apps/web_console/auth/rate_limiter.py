@@ -11,7 +11,7 @@ from typing import Any
 import redis.asyncio as redis
 
 # Import shared Prometheus metrics from libs to avoid duplicate registration
-from libs.web_console_auth.rate_limiter import (
+from libs.platform.web_console_auth.rate_limiter import (
     rate_limit_checks_total,
     rate_limit_redis_errors_total,
 )

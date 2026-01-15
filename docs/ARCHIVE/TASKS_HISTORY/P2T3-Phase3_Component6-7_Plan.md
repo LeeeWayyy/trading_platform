@@ -873,7 +873,7 @@ scrape_configs:
 **Code Examples:**
 ```python
 # Check authentication status
-from libs.web_console_auth import require_auth, get_current_user
+from libs.platform.web_console_auth import require_auth, get_current_user
 
 @require_auth
 def my_protected_page():

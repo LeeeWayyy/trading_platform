@@ -19,7 +19,7 @@ Monte Carlo simulation stress-tests a backtest by resampling the observed daily 
 
 ## Example Usage
 ```python
-from libs.backtest import MonteCarloConfig, MonteCarloSimulator
+from libs.trading.backtest import MonteCarloConfig, MonteCarloSimulator
 
 config = MonteCarloConfig(n_simulations=1000, method="bootstrap", random_seed=42)
 simulator = MonteCarloSimulator(config)

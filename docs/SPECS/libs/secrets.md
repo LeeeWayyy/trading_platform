@@ -35,7 +35,7 @@ secret key -> backend -> cache -> caller
 ## Usage Examples
 ### Example 1: Create manager
 ```python
-from libs.secrets import create_secret_manager
+from libs.platform.secrets import create_secret_manager
 
 manager = create_secret_manager()
 value = manager.get_secret("alpaca/api_key_id")
@@ -43,7 +43,7 @@ value = manager.get_secret("alpaca/api_key_id")
 
 ### Example 2: Use cache directly
 ```python
-from libs.secrets import SecretCache
+from libs.platform.secrets import SecretCache
 
 cache = SecretCache(ttl_seconds=3600)
 ```
@@ -71,7 +71,7 @@ cache = SecretCache(ttl_seconds=3600)
 - Centralized secret access with TTL caching and no-logging policy.
 
 ## Testing
-- **Test Files:** `tests/libs/secrets/`
+- **Test Files:** `tests/libs/platform/secrets/`
 - **Run Tests:** `pytest tests/libs/secrets -v`
 - **Coverage:** N/A
 
@@ -85,5 +85,5 @@ cache = SecretCache(ttl_seconds=3600)
 
 ## Metadata
 - **Last Updated:** 2026-01-09
-- **Source Files:** `libs/secrets/__init__.py`, `libs/secrets/factory.py`, `libs/secrets/manager.py`
+- **Source Files:** `libs/platform/secrets/__init__.py`, `libs/platform/secrets/factory.py`, `libs/platform/secrets/manager.py`
 - **ADRs:** `docs/ADRs/0017-secrets-management.md`

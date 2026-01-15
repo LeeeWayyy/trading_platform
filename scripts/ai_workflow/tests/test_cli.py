@@ -29,13 +29,13 @@ class TestCLIStatus:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 # Capture stdout
                 import io
                 from contextlib import redirect_stdout
 
-                from workflow_gate import cmd_status
+                from scripts.admin.workflow_gate import cmd_status
 
                 f = io.StringIO()
                 with redirect_stdout(f):
@@ -70,9 +70,9 @@ class TestCLIStartTask:
                 f,
             )
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_start_task
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                from scripts.admin.workflow_gate import cmd_start_task
 
                 args = MagicMock()
                 args.task_file = "task-123.md"
@@ -110,9 +110,9 @@ class TestCLISetComponent:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_set_component
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                from scripts.admin.workflow_gate import cmd_set_component
 
                 args = MagicMock()
                 args.name = "NewComponent"
@@ -147,10 +147,10 @@ class TestCLIAdvance:
 
         test_gate = WorkflowGate(state_file=state_file)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                with patch("workflow_gate._gate", test_gate):
-                    from workflow_gate import cmd_advance
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                with patch("scripts.admin.workflow_gate._gate", test_gate):
+                    from scripts.admin.workflow_gate import cmd_advance
 
                     args = MagicMock()
                     args.step = "plan-review"
@@ -175,9 +175,9 @@ class TestCLIAdvance:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_advance
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                from scripts.admin.workflow_gate import cmd_advance
 
                 args = MagicMock()
                 args.step = "review"  # Invalid: plan -> review
@@ -211,11 +211,11 @@ class TestCLIRecordReview:
 
         test_gate = WorkflowGate(state_file=state_file)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                with patch("workflow_gate._gate", test_gate):
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                with patch("scripts.admin.workflow_gate._gate", test_gate):
                     with patch("ai_workflow.core.AUDIT_LOG_FILE", audit_log):
-                        from workflow_gate import cmd_record_review
+                        from scripts.admin.workflow_gate import cmd_record_review
 
                         args = MagicMock()
                         args.reviewer = "claude"
@@ -252,9 +252,9 @@ class TestCLIRecordCI:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_record_ci
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                from scripts.admin.workflow_gate import cmd_record_ci
 
                 args = MagicMock()
                 args.passed = "true"
@@ -296,12 +296,12 @@ class TestCLICheckCommit:
 
         test_gate = WorkflowGate(state_file=state_file)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                with patch("workflow_gate._gate", test_gate):
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                with patch("scripts.admin.workflow_gate._gate", test_gate):
                     with patch("ai_workflow.config.CONFIG_FILE", config_file):
                         with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                            from workflow_gate import cmd_check_commit
+                            from scripts.admin.workflow_gate import cmd_check_commit
 
                             args = MagicMock()
 
@@ -341,12 +341,12 @@ class TestCLICheckCommit:
 
         test_gate = WorkflowGate(state_file=state_file)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                with patch("workflow_gate._gate", test_gate):
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                with patch("scripts.admin.workflow_gate._gate", test_gate):
                     with patch("ai_workflow.config.CONFIG_FILE", config_file):
                         with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                            from workflow_gate import cmd_check_commit
+                            from scripts.admin.workflow_gate import cmd_check_commit
 
                             args = MagicMock()
 
@@ -385,9 +385,9 @@ class TestCLIRecordCommit:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_record_commit
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                from scripts.admin.workflow_gate import cmd_record_commit
 
                 args = MagicMock()
                 args.hash = "abc123def456"
@@ -427,11 +427,11 @@ class TestCLIPRPhase:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 with patch("ai_workflow.config.CONFIG_FILE", config_file):
                     with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                        from workflow_gate import cmd_start_pr_phase
+                        from scripts.admin.workflow_gate import cmd_start_pr_phase
 
                         args = MagicMock()
                         args.pr_url = "https://github.com/owner/repo/pull/123"
@@ -475,11 +475,11 @@ class TestCLISubtasks:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 with patch("ai_workflow.config.CONFIG_FILE", config_file):
                     with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                        from workflow_gate import cmd_subtask_status
+                        from scripts.admin.workflow_gate import cmd_subtask_status
 
                         args = MagicMock()
 
@@ -521,7 +521,7 @@ class TestCLIConfig:
             json.dump(config, f)
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
-            from workflow_gate import cmd_config_show
+            from scripts.admin.workflow_gate import cmd_config_show
 
             args = MagicMock()
 
@@ -556,7 +556,7 @@ class TestCLIConfig:
             json.dump(config, f)
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
-            from workflow_gate import cmd_check_reviewers
+            from scripts.admin.workflow_gate import cmd_check_reviewers
 
             args = MagicMock()
 
@@ -591,9 +591,9 @@ class TestCLIStateTransaction:
         with open(state_file, "w") as f:
             json.dump(original_state, f)
 
-        with patch("workflow_gate.STATE_FILE", state_file):
-            with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import state_transaction
+        with patch("scripts.admin.workflow_gate.STATE_FILE", state_file):
+            with patch("scripts.admin.workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                from scripts.admin.workflow_gate import state_transaction
 
                 try:
                     with state_transaction() as state:

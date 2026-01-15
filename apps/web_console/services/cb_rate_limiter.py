@@ -18,7 +18,7 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from libs.redis_client import RedisClient
+    from libs.core.redis_client import RedisClient
 
 
 # Lua script for atomic INCR + EXPIRE (prevents race condition/orphaned keys)
