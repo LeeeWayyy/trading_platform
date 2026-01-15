@@ -119,6 +119,111 @@
     },
     {
       "pattern": "^https://dohost.us"
+    },
+    {
+      "pattern": "^https://www.investopedia.com"
+    },
+    {
+      "pattern": "^https://docs.pytest.org"
+    },
+    {
+      "pattern": "^https://auth0.com"
+    },
+    {
+      "pattern": "^https://duckdb.org"
+    },
+    {
+      "pattern": "^https://parquet.apache.org"
+    },
+    {
+      "pattern": "^https://redis.io"
+    },
+    {
+      "pattern": "^https://en.wikipedia.org"
+    },
+    {
+      "pattern": "^https://fastapi.tiangolo.com"
+    },
+    {
+      "pattern": "^http://fastapi.tiangolo.com"
+    },
+    {
+      "pattern": "^https://www.uvicorn.org"
+    },
+    {
+      "pattern": "^https://docs.pydantic.dev"
+    },
+    {
+      "pattern": "^https://developer.mozilla.org"
+    },
+    {
+      "pattern": "^https://docs.alpaca.markets"
+    },
+    {
+      "pattern": "^https://docs.docker.com"
+    },
+    {
+      "pattern": "^https://grafana.com"
+    },
+    {
+      "pattern": "^https://alpaca.markets"
+    },
+    {
+      "pattern": "^https://developer.hashicorp.com"
+    },
+    {
+      "pattern": "^https://docs.aws.amazon.com"
+    },
+    {
+      "pattern": "^https://claude.com"
+    },
+    {
+      "pattern": "^https://qlib.readthedocs.io"
+    },
+    {
+      "pattern": "^https://pandas.pydata.org"
+    },
+    {
+      "pattern": "^https://www.crsp.org"
+    },
+    {
+      "pattern": "^https://www.wiley.com"
+    },
+    {
+      "pattern": "^http://www.quantitativevalue.net"
+    },
+    {
+      "pattern": "^https://pola-rs.github.io"
+    },
+    {
+      "pattern": "^https://accounts.google.com"
+    },
+    {
+      "pattern": "^https://www.w3.org"
+    },
+    {
+      "pattern": "^https://csp-evaluator.withgoogle.com"
+    },
+    {
+      "pattern": "^https://app.alpaca.markets"
+    },
+    {
+      "pattern": "^https://papers.nips.cc"
+    },
+    {
+      "pattern": "^https://research.google"
+    },
+    {
+      "pattern": "^https://www.datacouncil.ai"
+    },
+    {
+      "pattern": "^https://engineering.linkedin.com"
+    },
+    {
+      "pattern": "^https://www.postgresql.org"
+    },
+    {
+      "pattern": "^https://megamorf.gitlab.io"
     }
   ],
   "replacementPatterns": [

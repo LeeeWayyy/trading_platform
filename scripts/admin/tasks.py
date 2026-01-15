@@ -34,9 +34,9 @@ from pathlib import Path
 from typing import Literal
 
 # Project root directory
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 TASKS_DIR = PROJECT_ROOT / "docs" / "TASKS"
-TEMPLATES_DIR = TASKS_DIR
+TEMPLATES_DIR = PROJECT_ROOT / "docs" / "TEMPLATES"
 
 # Template files
 TEMPLATE_TASK = TEMPLATES_DIR / "00-TEMPLATE_TASK.md"

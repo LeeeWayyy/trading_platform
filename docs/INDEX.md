@@ -58,6 +58,8 @@ Essential project-level documentation:
 - [CURRENT, 2025-10-31, Guide] [README.md](../README.md) - Project overview and quick start
 - [CURRENT, 2025-10-31, Guide] [CLAUDE.md](../CLAUDE.md) - AI assistant primary guidance and workflow index
 - [CURRENT, 2025-10-19, Guide] [AGENTS.md](../AGENTS.md) - AI agent configuration and usage
+- [CURRENT, 2026-01-14, Guide] [data/README.md](../data/README.md) - Data directory structure, schemas, and lifecycle documentation
+- [CURRENT, 2026-01-14, Guide] [db/README.md](../db/README.md) - Database migrations with Alembic, schema versioning
 
 **Priority:** 🔴 **CRITICAL** - Read CLAUDE.md first for complete guidance
 
@@ -75,6 +77,7 @@ These documents define **mandatory** practices for all code and contributions:
 - [CURRENT, 2025-11-16, Standard] [BRANCH_PROTECTION.md](./STANDARDS/BRANCH_PROTECTION.md) - GitHub branch protection setup and verification (repository administrators)
 - [CURRENT, 2025-01-17, Standard] [TESTING.md](./STANDARDS/TESTING.md) - Test structure, coverage requirements (read before writing tests)
 - [CURRENT, 2025-01-17, Standard] [ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md) - When/how to write ADRs (read before making architectural decisions)
+- [CURRENT, 2026-01-14, Standard] [PYTHON_DEPENDENCIES.md](./STANDARDS/PYTHON_DEPENDENCIES.md) - Python dependency management with Poetry, service-specific requirements
 
 **Priority:** 🔴 **CRITICAL** - AI assistants MUST read these first for any code task
 
@@ -92,6 +95,7 @@ Onboarding and environment setup:
 - [CURRENT, 2025-01-17, Guide] [REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md) - Codebase navigation guide (new developers)
 - [CURRENT, 2025-01-17, Guide] [SETUP.md](./GETTING_STARTED/SETUP.md) - Development environment setup (new developers)
 - [CURRENT, 2025-01-17, Guide] [TESTING_SETUP.md](./GETTING_STARTED/TESTING_SETUP.md) - Test environment configuration (QA, developers)
+- [CURRENT, 2026-01-14, Guide] [CI_CD_GUIDE.md](./GETTING_STARTED/CI_CD_GUIDE.md) - CI/CD pipeline architecture, workflows, and debugging
 
 **Priority:** 🟡 **HIGH** - Read during onboarding or when confused about structure
 
@@ -275,6 +279,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0029](./ADRs/ADR-0029-alerting-system.md) | Alerting system architecture (multi-channel delivery, rate limiting) | 🚧 Proposed |
 | [ADR-0030](./ADRs/ADR-0030-reporting-architecture.md) | Reporting architecture for scheduled reports and PDF generation | 🚧 Proposed |
 | [ADR-0031](./ADRs/ADR-0031-nicegui-migration.md) | NiceGUI migration from Streamlit for web console | ✅ Accepted |
+| [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
@@ -405,19 +410,18 @@ Step-by-step implementation instructions for each major task:
 Current and future work items organized by phase. Completed tasks are archived in `docs/ARCHIVE/TASKS_HISTORY/`.
 
 **Templates:**
-- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](./TASKS/00-TEMPLATE_DONE.md) - Template for completed task documents
-- [Template, 2025-10-18, Template] [00-TEMPLATE_FEATURE.md](./TASKS/00-TEMPLATE_FEATURE.md) - Template for feature-level task documents
-- [Template, 2025-10-18, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TASKS/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
-- [Template, 2025-10-18, Template] [00-TEMPLATE_PROGRESS.md](./TASKS/00-TEMPLATE_PROGRESS.md) - Template for in-progress task documents
-- [Template, 2025-10-18, Template] [00-TEMPLATE_TASK.md](./TASKS/00-TEMPLATE_TASK.md) - Template for new task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](./TEMPLATES/00-TEMPLATE_DONE.md) - Template for completed task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_FEATURE.md](./TEMPLATES/00-TEMPLATE_FEATURE.md) - Template for feature-level task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TEMPLATES/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_PROGRESS.md](./TEMPLATES/00-TEMPLATE_PROGRESS.md) - Template for in-progress task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_TASK.md](./TEMPLATES/00-TEMPLATE_TASK.md) - Template for new task documents
 - [Template, 2025-11-15, Template] [00-PLANNING_WORKFLOW_TEMPLATE.md](./TASKS/00-PLANNING_WORKFLOW_TEMPLATE.md) - Template for planning workflow documentation
 
 **Phase Planning:**
-- [CURRENT, 2026-01-02, Planning] [D0_PLANNING.md](./TASKS/D0_PLANNING.md) - D0 Documentation Infrastructure Overhaul planning - 📋 0% (0/6 tasks)
-- [CURRENT, 2025-10-18, Planning] [P0_TASKS_DONE.md](./ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
-- [CURRENT, 2025-10-26, Planning] [P1_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
-- [CURRENT, 2025-10-26, Planning] [P2_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 advanced features planning (archived) - 📋 0% (0/6 tasks)
-- [CURRENT, 2025-12-31, Planning] [P5_PLANNING.md](./TASKS/P5_PLANNING.md) - P5 NiceGUI Migration phase planning
+- [ARCHIVED, 2025-10-18, Planning] [P0_TASKS_DONE.md](./ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
+- [ARCHIVED, 2025-10-26, Planning] [P1_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
+- [ARCHIVED, 2025-10-26, Planning] [P2_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 advanced features planning (archived) - 📋 0% (0/6 tasks)
+- [ARCHIVED, 2025-12-31, Planning] [P5_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P5_PLANNING_DONE.md) - P5 NiceGUI Migration phase planning
 - [CURRENT, 2025-10-18, Planning] [INDEX.md](./TASKS/INDEX.md) - Task index and status tracker
 - [CURRENT, 2025-10-18, Planning] [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) - Original master plan (reference)
 
@@ -500,10 +504,10 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2025-12-31, Task] [P5T3_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T3_DONE.md) - P5T3: Dashboard Migration (cards, charts, live data)
 - [CURRENT, 2025-12-31, Task] [P5T4_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T4_DONE.md) - P5T4: Strategy Analytics Migration (tables, parameters)
 - [CURRENT, 2025-12-31, Task] [P5T5_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T5_DONE.md) - P5T5: Risk & Trade Controls (circuit breaker, kill switch)
-- [CURRENT, 2025-12-31, Task] [P5T6_TASK.md](./TASKS/P5T6_TASK.md) - P5T6: Data Management Migration (sync, quality, explorer)
-- [CURRENT, 2025-12-31, Task] [P5T7_TASK.md](./TASKS/P5T7_TASK.md) - P5T7: Research & Reports Migration (notebooks, PDF)
-- [CURRENT, 2025-12-31, Task] [P5T8_TASK.md](./TASKS/P5T8_TASK.md) - P5T8: Remaining Pages Migration (alpha explorer, compare, journal, notebooks, performance, reports)
-- [CURRENT, 2025-12-31, Task] [P5T9_TASK.md](./TASKS/P5T9_TASK.md) - P5T9: Streamlit Deprecation & Documentation (archive, documentation, testing)
+- [ARCHIVED, 2025-12-31, Task] [P5T6_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T6_DONE.md) - P5T6: Data Management Migration (sync, quality, explorer)
+- [ARCHIVED, 2025-12-31, Task] [P5T7_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T7_DONE.md) - P5T7: Research & Reports Migration (notebooks, PDF)
+- [ARCHIVED, 2025-12-31, Task] [P5T8_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T8_DONE.md) - P5T8: Remaining Pages Migration (alpha explorer, compare, journal, notebooks, performance, reports)
+- [ARCHIVED, 2025-12-31, Task] [P5T9_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T9_DONE.md) - P5T9: Streamlit Deprecation & Documentation (archive, documentation, testing)
 
 **Phase 6 Tasks (Professional Trading Terminal):**
 - [CURRENT, 2026-01-13, Planning] [P6_PLANNING.md](./TASKS/P6_PLANNING.md) - P6: Professional Trading Terminal & Research Platform planning
@@ -561,6 +565,23 @@ Completed and legacy planning artifacts preserved for reference:
 - [PLANS/](./ARCHIVE/PLANS/) - Archived implementation plans (historical reference)
 
 **Priority:** 🟢 **LOW** - Reference when you need historical context
+
+---
+
+### 6.75. Document Templates
+
+**Location:** `docs/TEMPLATES/`
+
+Reusable templates for creating standardized documentation:
+
+- [CURRENT, 2026-01-14, Index] [README.md](./TEMPLATES/README.md) - Template directory index and usage guide
+- [CURRENT, 2026-01-14, Template] [00-TEMPLATE_DONE.md](./TEMPLATES/00-TEMPLATE_DONE.md) - Template for completed task documentation
+- [CURRENT, 2026-01-14, Template] [00-TEMPLATE_FEATURE.md](./TEMPLATES/00-TEMPLATE_FEATURE.md) - Template for feature-level task documents
+- [CURRENT, 2026-01-14, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TEMPLATES/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
+- [CURRENT, 2026-01-14, Template] [00-TEMPLATE_PROGRESS.md](./TEMPLATES/00-TEMPLATE_PROGRESS.md) - Template for in-progress task tracking
+- [CURRENT, 2026-01-14, Template] [00-TEMPLATE_TASK.md](./TEMPLATES/00-TEMPLATE_TASK.md) - Template for new task documents
+
+**Priority:** 🟢 **LOW** - Reference when creating new documentation
 
 ---
 
@@ -706,6 +727,9 @@ Configuration files, templates, prompts, and tooling:
 
 **tests/strategies/ (Test Documentation):**
 - [CURRENT, 2025-10-20, Guide] [alpha_baseline/README.md](../tests/strategies/alpha_baseline/README.md) - Alpha baseline strategy test documentation
+
+**tests/apps/ (Application Test Documentation):**
+- [CURRENT, 2026-01-14, Guide] [backtest_worker/README.md](../tests/apps/backtest_worker/README.md) - Backtest worker test status and coverage requirements
 
 **Priority:** 🟢 **LOW** - Reference as needed for configuration and templates
 

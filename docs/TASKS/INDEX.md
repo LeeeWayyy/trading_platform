@@ -92,7 +92,7 @@ These documents provide comprehensive phase-level planning, progress tracking, a
 | **P0** | _Not yet created_ | MVP Core planning | 0 tasks |
 | **P1** | [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) | Hardening & Automation | 11 tasks (T0-T10) |
 | **P2** | _Not yet created_ | Advanced Features | 0 tasks |
-| **P5** | [P5_PLANNING.md](./P5_PLANNING.md) | Web Console NiceGUI Migration | 52 tasks (8 phases) |
+| **P5** | [P5_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P5_PLANNING_DONE.md) | Web Console NiceGUI Migration | 52 tasks (8 phases) |
 | **P6** | [P6_PLANNING.md](./P6_PLANNING.md) | Professional Trading Terminal & Research Platform | 70 tasks (18 tracks) |
 
 ### Existing Task Files by Phase
@@ -180,7 +180,7 @@ P1_PLANNING_DONE.md     → Phase-level planning (archived: ../ARCHIVE/TASKS_HIS
 
 ### P0T0: Example Task (Template)
 **Status:** TASK (Not Started)
-**File:** See [00-TEMPLATE_TASK.md](./00-TEMPLATE_TASK.md) for template
+**File:** See [00-TEMPLATE_TASK.md](../TEMPLATES/00-TEMPLATE_TASK.md) for template
 **Owner:** @development-team
 **Effort:** 3 days
 **Depends On:** -
@@ -196,7 +196,7 @@ P1_PLANNING_DONE.md     → Phase-level planning (archived: ../ARCHIVE/TASKS_HIS
 
 ### P0T1: Example Task in Progress
 **Status:** PROGRESS (In Development)
-**File:** See [00-TEMPLATE_PROGRESS.md](./00-TEMPLATE_PROGRESS.md) for template
+**File:** See [00-TEMPLATE_PROGRESS.md](../TEMPLATES/00-TEMPLATE_PROGRESS.md) for template
 **Owner:** @development-team
 **Started:** YYYY-MM-DD
 **Effort:** 5 days
@@ -256,7 +256,7 @@ P1_PLANNING_DONE.md     → Phase-level planning (archived: ../ARCHIVE/TASKS_HIS
 
 ### P2T0: Example Future Task
 **Status:** TASK (Not Started)
-**File:** See [00-TEMPLATE_TASK.md](./00-TEMPLATE_TASK.md) for template
+**File:** See [00-TEMPLATE_TASK.md](../TEMPLATES/00-TEMPLATE_TASK.md) for template
 
 [Details...]
 
@@ -360,10 +360,10 @@ grep -l "owner: \"@alice\"" P*_*.md
 
 ## Templates
 
-- [TASK Template](./00-TEMPLATE_TASK.md) - Planning phase
-- [PROGRESS Template](./00-TEMPLATE_PROGRESS.md) - Active development
-- [DONE Template](./00-TEMPLATE_DONE.md) - Completion documentation
-- [FEATURE Template](./00-TEMPLATE_FEATURE.md) - Sub-component tracking
+- [TASK Template](../TEMPLATES/00-TEMPLATE_TASK.md) - Planning phase
+- [PROGRESS Template](../TEMPLATES/00-TEMPLATE_PROGRESS.md) - Active development
+- [DONE Template](../TEMPLATES/00-TEMPLATE_DONE.md) - Completion documentation
+- [FEATURE Template](../TEMPLATES/00-TEMPLATE_FEATURE.md) - Sub-component tracking
 
 ---
 

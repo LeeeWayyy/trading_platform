@@ -101,7 +101,7 @@
     {"from": "apps/web_console_ng", "to": "ext_redis", "type": "data_flow", "label": "realtime updates"},
     {"from": "ext_redis", "to": "apps/web_console_ng", "type": "event", "label": "positions/orders"},
     {"from": "apps/alert_worker", "to": "ext_redis", "type": "data_flow", "label": "alert events"},
-    {"from": "libs/trading/risk_management", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
+    {"from": "libs/trading", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
   ],
 
   "filtering": {
@@ -111,8 +111,8 @@
       "apps/execution_gateway",
       "apps/signal_service",
       "apps/orchestrator",
-      "libs/trading/risk_management",
-      "libs/core/redis_client"
+      "libs/trading",
+      "libs/core"
     ]
   },
 

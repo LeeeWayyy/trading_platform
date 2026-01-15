@@ -248,7 +248,7 @@ Research artifacts are excluded from version control:
 ## Questions?
 
 See:
-- [Development Guide](../docs/GETTING_STARTED/DEVELOPMENT.md)
+- [Setup Guide](../docs/GETTING_STARTED/SETUP.md)
 - [Coding Standards](../docs/STANDARDS/CODING_STANDARDS.md)
 - [Testing Standards](../docs/STANDARDS/TESTING.md)
 
