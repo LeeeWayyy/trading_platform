@@ -201,7 +201,6 @@ except SpecificException as e:
 - [model_registry](./services/model_registry.md)
 - [orchestrator](./services/orchestrator.md)
 - [signal_service](./services/signal_service.md)
-- [web_console](./services/web_console.md)
 - [web_console_ng](./services/web_console_ng.md)
 
 ### Libraries (libs/)
@@ -226,6 +225,8 @@ except SpecificException as e:
 - [secrets](./libs/secrets.md)
 - [tax](./libs/tax.md)
 - [web_console_auth](./libs/web_console_auth.md)
+- [web_console_data](./libs/web_console_data.md)
+- [web_console_services](./libs/web_console_services.md)
 
 ### Strategies
 **Production (strategies/):**

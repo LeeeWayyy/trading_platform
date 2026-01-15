@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from apps.web_console.services.data_explorer_service import DataExplorerService, RateLimitExceeded
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services.data_explorer_service import DataExplorerService, RateLimitExceeded
 
 
 @dataclass(frozen=True)

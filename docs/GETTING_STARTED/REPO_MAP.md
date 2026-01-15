@@ -109,18 +109,6 @@ FastAPI-based microservices implementing the trading platform's core functionali
 - `model_loader.py` - Model registry integration
 - `config.py` - Service configuration
 
-### apps/web_console/ (Legacy Backend Services)
-**Purpose:** Shared backend services used by NiceGUI web console
-**Status:** Streamlit UI removed in P5T9 - only backend services remain
-
-**Key Directories:**
-- `services/` - Backend services (RiskService, AlphaExplorerService, etc.)
-- `utils/` - Database utilities, validators
-- `data/` - Data access layer (StrategyScopedDataAccess)
-- `auth/` - Auth utilities (AuditLogger, permissions)
-
-See `apps/web_console/README.md` for migration roadmap.
-
 ### apps/web_console_ng/
 **Purpose:** NiceGUI-based web console (primary UI application)
 **Related:** [ADR-0031](../ADRs/ADR-0031-nicegui-migration.md)
@@ -230,11 +218,13 @@ Reusable libraries shared across services, organized into logical subdirectories
 
 ```
 libs/
-├── core/          # Core infrastructure (common, health, redis_client)
-├── data/          # Data pipeline and providers
-├── trading/       # Trading logic (allocation, alpha, backtest, risk)
-├── models/        # Model registry and factors
-└── platform/      # Platform services (admin, alerts, analytics, secrets, tax, web_console_auth)
+├── core/                    # Core infrastructure (common, health, redis_client)
+├── data/                    # Data pipeline and providers
+├── trading/                 # Trading logic (allocation, alpha, backtest, risk)
+├── models/                  # Model registry and factors
+├── platform/                # Platform services (admin, alerts, analytics, secrets, tax, web_console_auth)
+├── web_console_data/        # Web console data layer (strategy-scoped queries)
+└── web_console_services/    # Web console backend services (migrated from apps/web_console)
 ```
 
 ### libs/core/ - Core Infrastructure
@@ -245,6 +235,10 @@ libs/
 - `logging/` - Centralized structured logging (JSON, Loki integration)
 - `exceptions.py` - Custom exception classes
 - `utils.py` - General utilities
+- `db.py` - Database connection helpers
+- `db_pool.py` - PostgreSQL connection pooling (psycopg async)
+- `sync_db_pool.py` - PostgreSQL connection pooling (psycopg sync)
+- `validators.py` - Input validation utilities
 
 #### libs/core/health/
 **Purpose:** Health check and Prometheus latency clients with cached, staleness-aware responses.
@@ -347,6 +341,39 @@ libs/
 #### libs/platform/analytics/
 **Purpose:** Analytics tools for microstructure, event studies, volatility modeling, and factor attribution.
 
+### libs/web_console_data/ - Web Console Data Layer
+
+**Purpose:** Data access layer for web console with strategy-scoped queries
+**Key Features:**
+- Strategy-scoped data access with encryption
+- User authorization and data isolation
+- Query result caching
+
+**Key Files:**
+- `strategy_scoped_queries.py` - Strategy-scoped database queries
+
+### libs/web_console_services/ - Web Console Services
+
+**Purpose:** Backend services for web console application (migrated from apps/web_console)
+**Key Services:**
+- `alert_service.py` - Alert configuration and management
+- `alpha_explorer_service.py` - Alpha signal exploration
+- `cb_service.py` - Circuit breaker control and monitoring
+- `comparison_service.py` - Strategy comparison analytics
+- `data_explorer_service.py` - Dataset exploration with SQL validation
+- `data_quality_service.py` - Data quality monitoring and alerts
+- `data_sync_service.py` - Data synchronization scheduling
+- `health_service.py` - System health monitoring
+- `notebook_launcher_service.py` - Jupyter notebook launcher
+- `risk_service.py` - Risk analytics and position monitoring
+- `scheduled_reports_service.py` - Report scheduling and generation
+- `sql_validator.py` - SQL query validation and sanitization
+
+**Key Directories:**
+- `schemas/` - Pydantic models for service DTOs (data_management.py, health.py, risk.py)
+- `config.py` - Service configuration (database URLs, endpoints)
+- `cb_metrics.py` - Circuit breaker Prometheus metrics
+
 #### libs/platform/secrets/
 **Purpose:** Secrets management with pluggable backends
 **Key Features:**
@@ -365,7 +392,25 @@ libs/
 **Purpose:** Tax lot tracking, wash sale detection, and Form 8949 export utilities.
 
 #### libs/platform/web_console_auth/
-**Purpose:** JWT/mTLS auth library for web console sessions, roles, and rate limiting.
+**Purpose:** JWT/mTLS authentication and authorization library for web console
+**Key Features:**
+- OAuth2 flow with PKCE
+- JWT validation and JWKS integration
+- Role-based access control (RBAC)
+- Session management and invalidation
+- Rate limiting
+- Audit logging
+- API client authentication
+
+**Key Modules:**
+- `oauth2_flow.py` - OAuth2 flow handler with PKCE
+- `jwks_validator.py` - JWT validation and JWKS fetching
+- `permissions.py` - Role and permission definitions
+- `session_store.py` - Redis session management
+- `rate_limiter.py` - Rate limiting utilities
+- `audit_log.py` - Audit logger for security events
+- `api_client.py` - Authenticated API client
+- `helpers.py` - Authentication helper functions
 
 ---
 
@@ -509,7 +554,9 @@ tests/
 │   │   ├── analytics/
 │   │   ├── secrets/
 │   │   ├── tax/
-│   │   └── web_console_auth/
+│   │   ├── web_console_auth/
+│   │   ├── web_console_data/
+│   │   └── web_console_services/
 │   └── trading/           # Trading logic tests
 │       ├── allocation/
 │       ├── alpha/
@@ -712,6 +759,9 @@ make kill-switch # Emergency stop
 - Order execution: `apps/execution_gateway/`
 - Risk checks: `libs/trading/risk_management/`
 - Market data: `apps/market_data_service/`, `libs/data/market_data/`
+- Web console services: `libs/web_console_services/`
+- Web console auth: `libs/platform/web_console_auth/`
+- Web console data: `libs/web_console_data/`
 - Secrets: `libs/platform/secrets/`
 - Logging: `libs/core/common/logging/`
 
@@ -736,6 +786,6 @@ make kill-switch # Emergency stop
 
 ---
 
-**Document Version:** 2.0 (Comprehensive Restructure)
-**Last Updated:** 2026-01-02
+**Document Version:** 2.1 (Web Console Migration Complete)
+**Last Updated:** 2026-01-14
 **Maintained By:** Development Team

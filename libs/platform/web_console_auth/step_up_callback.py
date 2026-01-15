@@ -9,9 +9,9 @@ from typing import Any, cast
 
 import jwt
 
-from apps.web_console.auth.jwks_validator import JWKSValidator
-from apps.web_console.auth.mfa_verification import get_amr_method, verify_step_up_auth
-from apps.web_console.auth.session_invalidation import validate_session_version
+from .jwks_validator import JWKSValidator
+from .mfa_verification import get_amr_method, verify_step_up_auth
+from .session_invalidation import validate_session_version
 
 logger = logging.getLogger(__name__)
 

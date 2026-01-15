@@ -13,8 +13,9 @@ class AuthConfig:
     """
 
     # JWT Settings
-    jwt_private_key_path: Path = Path("apps/web_console/certs/jwt_private.key")
-    jwt_public_key_path: Path = Path("apps/web_console/certs/jwt_public.pem")
+    # NOTE: Certs moved to web_console_ng as part of web_console migration
+    jwt_private_key_path: Path = Path("apps/web_console_ng/certs/jwt_private.key")
+    jwt_public_key_path: Path = Path("apps/web_console_ng/certs/jwt_public.pem")
     jwt_algorithm: str = "RS256"
     jwt_issuer: str = "trading-platform-web-console"  # Issuer claim (prevents token confusion)
     jwt_audience: str = "trading-platform-api"  # Audience claim (prevents cross-service replay)
@@ -68,10 +69,10 @@ class AuthConfig:
         """
         return cls(
             jwt_private_key_path=Path(
-                os.getenv("JWT_PRIVATE_KEY_PATH", "apps/web_console/certs/jwt_private.key")
+                os.getenv("JWT_PRIVATE_KEY_PATH", "apps/web_console_ng/certs/jwt_private.key")
             ),
             jwt_public_key_path=Path(
-                os.getenv("JWT_PUBLIC_KEY_PATH", "apps/web_console/certs/jwt_public.pem")
+                os.getenv("JWT_PUBLIC_KEY_PATH", "apps/web_console_ng/certs/jwt_public.pem")
             ),
             jwt_algorithm=os.getenv("JWT_ALGORITHM", "RS256"),
             jwt_issuer=os.getenv("JWT_ISSUER", "trading-platform-web-console"),

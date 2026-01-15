@@ -23,7 +23,7 @@
       {"id": "strategies", "label": "Strategies", "members": ["strategies/alpha_baseline", "strategies/backtest", "strategies/ensemble", "research/strategies/mean_reversion", "research/strategies/momentum"]}
     ],
     "infra": [
-      {"id": "auth", "label": "Auth", "members": ["libs/platform/admin", "libs/platform/web_console_auth"]},
+      {"id": "auth", "label": "Auth", "members": ["libs/platform/admin", "libs/platform/web_console_auth", "libs/web_console_data", "libs/web_console_services"]},
       {"id": "core_libs", "label": "Core Libs", "members": ["libs/core", "libs/core/common", "libs/platform/secrets", "libs/core/health", "libs/core/redis_client", "libs/platform/alerts"]},
       {"id": "external", "label": "External Systems", "members": ["ext_alpaca", "ext_redis", "ext_postgres", "ext_prometheus", "ext_grafana"]}
     ]
@@ -38,7 +38,6 @@
   ],
 
   "components": {
-    "apps/web_console": {"layer": "presentation", "spec": "../SPECS/services/web_console.md"},
     "apps/web_console_ng": {"layer": "presentation", "spec": "../SPECS/services/web_console_ng.md"},
     "apps/auth_service": {"layer": "presentation", "spec": "../SPECS/services/auth_service.md"},
 
@@ -74,6 +73,8 @@
     "libs/platform/alerts": {"layer": "infra", "spec": "../SPECS/libs/alerts.md"},
     "libs/platform/admin": {"layer": "infra", "spec": "../SPECS/libs/admin.md"},
     "libs/platform/web_console_auth": {"layer": "infra", "spec": "../SPECS/libs/web_console_auth.md"},
+    "libs/web_console_data": {"layer": "infra", "spec": "../SPECS/libs/web_console_data.md"},
+    "libs/web_console_services": {"layer": "infra", "spec": "../SPECS/libs/web_console_services.md"},
     "libs/platform/secrets": {"layer": "infra", "spec": "../SPECS/libs/secrets.md"},
 
     "libs/core": {"layer": "infra", "spec": "../SPECS/libs/core.md"},
@@ -96,7 +97,6 @@
     {"from": "ext_alpaca", "to": "apps/execution_gateway", "type": "data_flow", "label": "order updates"},
     {"from": "apps/market_data_service", "to": "ext_redis", "type": "data_flow", "label": "publish quotes"},
     {"from": "ext_redis", "to": "apps/signal_service", "type": "data_flow", "label": "subscribe quotes"},
-    {"from": "apps/web_console", "to": "apps/orchestrator", "type": "control", "label": "manual control"},
     {"from": "apps/web_console_ng", "to": "apps/execution_gateway", "type": "control", "label": "manual trading"},
     {"from": "apps/web_console_ng", "to": "ext_redis", "type": "data_flow", "label": "realtime updates"},
     {"from": "ext_redis", "to": "apps/web_console_ng", "type": "event", "label": "positions/orders"},

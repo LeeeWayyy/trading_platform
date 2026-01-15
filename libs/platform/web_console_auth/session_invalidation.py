@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from apps.web_console.utils.db import acquire_connection
+from libs.core.common.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 

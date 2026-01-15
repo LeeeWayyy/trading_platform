@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apps.web_console.services.cb_rate_limiter import CBRateLimiter
+from libs.web_console_services.cb_rate_limiter import CBRateLimiter
 
 
 class TestCBRateLimiter:

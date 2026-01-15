@@ -325,7 +325,8 @@ docker-compose up -d
 docker-compose --profile mtls up -d
 # Starts web_console_mtls (auth_type=mtls) + nginx
 # Port 443 exposed on host (HTTPS with mTLS)
-# Requires certificates in apps/web_console/certs/
+# Requires certificates in apps/web_console_ng/certs/
+# NOTE: Path updated in Web Console Migration (2026-01)
 # TRUSTED_PROXY_IPS=172.28.0.10 (nginx static IP)
 ```
 

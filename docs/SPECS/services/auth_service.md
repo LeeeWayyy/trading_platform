@@ -75,7 +75,7 @@ Browser
 ```
 
 ## Dependencies
-- **Internal:** `apps.web_console.auth.*` (OAuth2 flow, state store, session store), `libs.common.network_utils`
+- **Internal:** `libs.platform.web_console_auth.*` (OAuth2 flow, state store, session store), `libs.common.network_utils`
 - **External:** Auth0, Redis, optional Postgres (session invalidation), FastAPI, Jinja2 templates
 
 ## Configuration
@@ -141,11 +141,11 @@ curl -I http://localhost:8001/login
 | None | - | No known issues | - |
 
 ## Related Specs
-- `docs/SPECS/services/web_console.md`
+- `docs/SPECS/services/web_console_ng.md`
 - `docs/SPECS/libs/web_console_auth.md`
 - `docs/SPECS/libs/redis_client.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated:** 2026-01-14 (Web Console Migration: Updated imports in dependencies.py from apps.web_console.auth to libs.platform.web_console_auth)
 - **Source Files:** `apps/auth_service/main.py`, `apps/auth_service/routes/*.py`, `apps/auth_service/dependencies.py`
 - **ADRs:** N/A

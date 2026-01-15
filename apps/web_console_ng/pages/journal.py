@@ -241,7 +241,7 @@ async def _render_trade_journal(
         offset = state["page"] * page_size
 
         # Import data access
-        from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
+        from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
         data_access = StrategyScopedDataAccess(db_pool, None, user)
 
@@ -523,8 +523,8 @@ async def _do_export(
 
         # Audit log
         try:
-            from apps.web_console.auth.audit_log import AuditLogger
             from apps.web_console_ng.core.database import get_db_pool
+            from libs.platform.web_console_auth.audit_log import AuditLogger
 
             db_pool = get_db_pool()
             if db_pool:

@@ -6,7 +6,7 @@ Tokens are NEVER stored in client session state - they are always fetched from
 encrypted Redis storage when needed for API calls.
 
 Usage in Web Console pages:
-    from apps.web_console.auth.api_client import call_api_with_auth
+    from libs.platform.web_console_auth.api_client import call_api_with_auth
 
     # Make authenticated API call
     response = await call_api_with_auth(
@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 
-from apps.web_console.auth.session_store import RedisSessionStore
+from .session_store import RedisSessionStore
 
 logger = logging.getLogger(__name__)
 

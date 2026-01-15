@@ -1684,8 +1684,8 @@ This document catalogs application data models discovered in source code and SQL
   - `timestamp`: `int` — No description in code.
 
 - `AuthConfig` (dataclass) — `libs/platform/web_console_auth/config.py`
-  - `jwt_private_key_path`: `Path` — No description in code. (default: `Path('apps/web_console/certs/jwt_private.key')`)
-  - `jwt_public_key_path`: `Path` — No description in code. (default: `Path('apps/web_console/certs/jwt_public.pem')`)
+  - `jwt_private_key_path`: `Path` — No description in code. (default: `Path('apps/web_console_ng/certs/jwt_private.key')`)
+  - `jwt_public_key_path`: `Path` — No description in code. (default: `Path('apps/web_console_ng/certs/jwt_public.pem')`)
   - `jwt_algorithm`: `str` — No description in code. (default: `'RS256'`)
   - `jwt_issuer`: `str` — No description in code. (default: `'trading-platform-web-console'`)
   - `jwt_audience`: `str` — No description in code. (default: `'trading-platform-api'`)

@@ -13,7 +13,6 @@ from typing import Any
 import httpx
 from nicegui import Client, events, ui
 
-from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
@@ -41,6 +40,7 @@ from apps.web_console_ng.core.realtime import (
 )
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
+from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 logger = logging.getLogger(__name__)
 

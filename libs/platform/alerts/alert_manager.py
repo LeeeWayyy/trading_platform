@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -16,7 +16,6 @@ from psycopg_pool import AsyncConnectionPool
 from redis import Redis
 from rq import Queue
 
-from apps.alert_worker.entrypoint import execute_delivery_job
 from libs.platform.alerts.dedup import compute_dedup_key, get_recipient_hash_secret
 from libs.platform.alerts.delivery_service import QueueDepthManager, QueueFullError
 from libs.platform.alerts.metrics import alert_dropped_total, alert_queue_full_total
@@ -40,12 +39,26 @@ class AlertManager:
         *,
         db_pool: AsyncConnectionPool,
         redis_client: redis_async.Redis,
+        delivery_job_func: Callable[..., Any],
         rq_queue: Queue | None = None,
         queue_depth_manager: QueueDepthManager | None = None,
         redis_sync: Redis | None = None,
     ) -> None:
+        """Initialize AlertManager.
+
+        Args:
+            db_pool: Async database connection pool.
+            redis_client: Async Redis client for caching/dedup.
+            delivery_job_func: RQ job function for delivery execution.
+                Injected to avoid libs depending on apps layer.
+                Typically: apps.alert_worker.entrypoint.execute_delivery_job
+            rq_queue: Optional RQ queue (default: create "alerts" queue).
+            queue_depth_manager: Optional queue depth manager.
+            redis_sync: Optional sync Redis client (default: derived from async).
+        """
         self.db_pool = db_pool
         self.redis = redis_client
+        self._delivery_job_func = delivery_job_func
         sync_redis = redis_sync or self._derive_sync_redis(redis_client)
         self.queue = rq_queue or Queue("alerts", connection=sync_redis)
         self.queue_depth_manager = queue_depth_manager or QueueDepthManager(redis_client)
@@ -241,7 +254,7 @@ class AlertManager:
             try:
                 await asyncio.to_thread(
                     self.queue.enqueue,
-                    execute_delivery_job,
+                    self._delivery_job_func,
                     delivery_id,
                     channel.type.value,
                     channel.recipient,

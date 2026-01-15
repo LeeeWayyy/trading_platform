@@ -21,18 +21,19 @@ import httpx
 import jwt
 from pydantic import BaseModel
 
-from apps.web_console.auth.audit_log import AuditLogger
-from apps.web_console.auth.jwks_validator import JWKSValidator
-from apps.web_console.auth.oauth2_state import OAuth2State, OAuth2StateStore
-from apps.web_console.auth.pkce import (
+from libs.core.common.db import acquire_connection
+
+from .audit_log import AuditLogger
+from .jwks_validator import JWKSValidator
+from .oauth2_state import OAuth2State, OAuth2StateStore
+from .pkce import (
     generate_nonce,
     generate_pkce_challenge,
     generate_session_id,
     generate_state,
 )
-from apps.web_console.auth.session_invalidation import validate_session_version
-from apps.web_console.auth.session_store import RedisSessionStore, SessionData
-from apps.web_console.utils.db import acquire_connection
+from .session_invalidation import validate_session_version
+from .session_store import RedisSessionStore, SessionData
 
 logger = logging.getLogger(__name__)
 

@@ -12,8 +12,8 @@ from typing import Any
 import plotly.graph_objects as go
 from nicegui import ui
 
-from apps.web_console.utils.validators import validate_stress_tests
 from apps.web_console_ng.components.factor_exposure_chart import FACTOR_DISPLAY_NAMES
+from libs.core.common.validators import validate_stress_tests
 
 # Predefined scenarios in display order
 SCENARIO_DISPLAY_ORDER = [

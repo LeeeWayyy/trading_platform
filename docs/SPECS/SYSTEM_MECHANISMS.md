@@ -279,7 +279,7 @@ sequenceDiagram
 
 - `docs/ADRs/0011-risk-management-system.md`
 - `docs/SPECS/libs/risk_management.md`
-- `docs/SPECS/services/web_console.md`
+- `docs/SPECS/services/web_console_ng.md`
 - `docs/RUNBOOKS/circuit-breaker-ops.md`
 
 ---

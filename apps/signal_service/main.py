@@ -916,13 +916,18 @@ signal_generate_rl = rate_limit(
 # ==============================================================================
 # Auth dependency for signal generation endpoint. Defaults to enforce mode (fail-closed).
 # Set API_AUTH_MODE=log_only for staged rollout.
+#
+# NOTE: Signal service is S2S only (internal token auth), not JWT.
+# JWT auth requests will receive 401 with "jwt_not_supported" error in enforce mode.
+# If JWT auth is needed in future, add authenticator_getter parameter.
 
 signal_generate_auth = api_auth(
     APIAuthConfig(
         action="signal_generate",
         require_role=None,  # Role checked via permission
         require_permission=Permission.GENERATE_SIGNALS,
-    )
+    ),
+    # authenticator_getter=None - S2S only, no JWT auth support
 )
 
 

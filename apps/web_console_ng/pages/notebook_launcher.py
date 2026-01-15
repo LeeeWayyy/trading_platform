@@ -61,7 +61,7 @@ def _save_redis_session_store(user_id: str, session_store: dict[str, Any]) -> No
 
 def _get_service(user: dict[str, Any], session_store: dict[str, Any]) -> Any:
     """Get or create NotebookLauncherService with session storage."""
-    from apps.web_console.services.notebook_launcher_service import NotebookLauncherService
+    from libs.web_console_services.notebook_launcher_service import NotebookLauncherService
 
     return NotebookLauncherService(
         user=dict(user),
@@ -281,7 +281,7 @@ async def _render_notebook_launcher(
             ui.label("Launching notebook...")
 
         try:
-            from apps.web_console.services.notebook_launcher_service import SessionStatus
+            from libs.web_console_services.notebook_launcher_service import SessionStatus
 
             session = await run.io_bound(
                 service.create_notebook, selected_id, parameters

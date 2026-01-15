@@ -65,18 +65,9 @@
     },
     {
       "color": "5",
-      "fromNode": "svc_web_console",
-      "fromSide": "bottom",
-      "id": "edge_7",
-      "label": "manual control",
-      "toNode": "svc_orchestrator",
-      "toSide": "top"
-    },
-    {
-      "color": "5",
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_8",
+      "id": "edge_7",
       "label": "manual trading",
       "toNode": "svc_execution_gateway",
       "toSide": "top"
@@ -85,7 +76,7 @@
       "color": "4",
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_9",
+      "id": "edge_8",
       "label": "realtime updates",
       "toNode": "ext_redis",
       "toSide": "top"
@@ -94,7 +85,7 @@
       "color": "6",
       "fromNode": "ext_redis",
       "fromSide": "top",
-      "id": "edge_10",
+      "id": "edge_9",
       "label": "positions/orders",
       "toNode": "svc_web_console_ng",
       "toSide": "bottom"
@@ -103,62 +94,69 @@
       "color": "4",
       "fromNode": "svc_alert_worker",
       "fromSide": "bottom",
-      "id": "edge_11",
+      "id": "edge_10",
       "label": "alert events",
       "toNode": "ext_redis",
       "toSide": "top"
     },
     {
-      "fromNode": "lib_core",
-      "fromSide": "top",
-      "id": "edge_12",
-      "toNode": "svc_execution_gateway",
-      "toSide": "bottom"
-    },
-    {
       "fromNode": "lib_data",
       "fromSide": "bottom",
-      "id": "edge_13",
+      "id": "edge_11",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
       "fromNode": "lib_models",
       "fromSide": "top",
-      "id": "edge_14",
+      "id": "edge_12",
       "toNode": "lib_data",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_web_console_data",
+      "fromSide": "top",
+      "id": "edge_13",
+      "toNode": "lib_core",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_web_console_services",
+      "fromSide": "top",
+      "id": "edge_14",
+      "toNode": "lib_core",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_web_console_services",
+      "fromSide": "top",
+      "id": "edge_15",
+      "toNode": "lib_models",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_web_console_services",
+      "fromSide": "top",
+      "id": "edge_16",
+      "toNode": "lib_web_console_data",
       "toSide": "bottom"
     },
     {
       "fromNode": "svc_alert_worker",
       "fromSide": "bottom",
-      "id": "edge_15",
-      "toNode": "lib_core",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_auth_service",
-      "fromSide": "bottom",
-      "id": "edge_16",
-      "toNode": "lib_core",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_auth_service",
-      "fromSide": "top",
       "id": "edge_17",
-      "toNode": "svc_web_console",
-      "toSide": "bottom"
+      "toNode": "lib_core",
+      "toSide": "top"
     },
     {
-      "fromNode": "svc_execution_gateway",
+      "fromNode": "svc_auth_service",
       "fromSide": "bottom",
       "id": "edge_18",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_market_data_service",
+      "fromNode": "svc_execution_gateway",
       "fromSide": "bottom",
       "id": "edge_19",
       "toNode": "lib_core",
@@ -168,25 +166,25 @@
       "fromNode": "svc_market_data_service",
       "fromSide": "bottom",
       "id": "edge_20",
+      "toNode": "lib_core",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_market_data_service",
+      "fromSide": "bottom",
+      "id": "edge_21",
       "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_model_registry",
       "fromSide": "bottom",
-      "id": "edge_21",
+      "id": "edge_22",
       "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_orchestrator",
-      "fromSide": "bottom",
-      "id": "edge_22",
-      "toNode": "lib_core",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_signal_service",
       "fromSide": "bottom",
       "id": "edge_23",
       "toNode": "lib_core",
@@ -196,50 +194,43 @@
       "fromNode": "svc_signal_service",
       "fromSide": "bottom",
       "id": "edge_24",
-      "toNode": "strat_alpha_baseline",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_web_console",
-      "fromSide": "bottom",
-      "id": "edge_25",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_web_console",
+      "fromNode": "svc_signal_service",
       "fromSide": "bottom",
-      "id": "edge_26",
-      "toNode": "lib_models",
+      "id": "edge_25",
+      "toNode": "strat_alpha_baseline",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_web_console",
-      "fromSide": "top",
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_26",
+      "toNode": "lib_core",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
       "id": "edge_27",
-      "toNode": "svc_web_console_ng",
-      "toSide": "bottom"
+      "toNode": "lib_models",
+      "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_28",
-      "toNode": "lib_core",
+      "toNode": "lib_web_console_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_29",
-      "toNode": "lib_models",
+      "toNode": "lib_web_console_services",
       "toSide": "top"
-    },
-    {
-      "fromNode": "svc_web_console_ng",
-      "fromSide": "top",
-      "id": "edge_30",
-      "toNode": "svc_web_console",
-      "toSide": "bottom"
     }
   ],
   "nodes": [
@@ -254,20 +245,11 @@
     },
     {
       "height": 60,
-      "id": "svc_web_console",
-      "text": "[[../SPECS/services/web_console.md|Web Console]]",
-      "type": "text",
-      "width": 320,
-      "x": 380,
-      "y": 40
-    },
-    {
-      "height": 60,
       "id": "svc_web_console_ng",
       "text": "[[../SPECS/services/web_console_ng.md|Web Console Ng]]",
       "type": "text",
       "width": 320,
-      "x": 720,
+      "x": 380,
       "y": 40
     },
     {
@@ -380,11 +362,29 @@
     },
     {
       "height": 60,
+      "id": "lib_web_console_data",
+      "text": "[[../SPECS/libs/web_console_data.md|Web Console Data]]",
+      "type": "text",
+      "width": 320,
+      "x": 70,
+      "y": 1350
+    },
+    {
+      "height": 60,
+      "id": "lib_web_console_services",
+      "text": "[[../SPECS/libs/web_console_services.md|Web Console Services]]",
+      "type": "text",
+      "width": 320,
+      "x": 410,
+      "y": 1350
+    },
+    {
+      "height": 60,
       "id": "lib_core",
       "text": "[[../SPECS/libs/core.md|Core]]",
       "type": "text",
       "width": 320,
-      "x": 70,
+      "x": 830,
       "y": 1350
     },
     {
@@ -394,7 +394,7 @@
       "text": "Alpaca API",
       "type": "text",
       "width": 320,
-      "x": 490,
+      "x": 1250,
       "y": 1350
     },
     {
@@ -404,7 +404,7 @@
       "text": "[[../SPECS/infrastructure/grafana.md|Grafana]]",
       "type": "text",
       "width": 320,
-      "x": 830,
+      "x": 1590,
       "y": 1350
     },
     {
@@ -414,7 +414,7 @@
       "text": "[[../SPECS/infrastructure/postgres.md|PostgreSQL]]",
       "type": "text",
       "width": 320,
-      "x": 1170,
+      "x": 1930,
       "y": 1350
     },
     {
@@ -424,7 +424,7 @@
       "text": "[[../SPECS/infrastructure/prometheus.md|Prometheus]]",
       "type": "text",
       "width": 320,
-      "x": 1510,
+      "x": 2270,
       "y": 1350
     },
     {
@@ -434,7 +434,7 @@
       "text": "[[../SPECS/infrastructure/redis.md|Redis]]",
       "type": "text",
       "width": 320,
-      "x": 1850,
+      "x": 2610,
       "y": 1350
     },
     {
@@ -442,7 +442,7 @@
       "id": "group_presentation",
       "label": "Presentation Layer",
       "type": "group",
-      "width": 1080,
+      "width": 740,
       "x": 0,
       "y": 0
     },
@@ -520,11 +520,20 @@
     },
     {
       "height": 120,
+      "id": "group_infra_auth",
+      "label": "Auth",
+      "type": "group",
+      "width": 720,
+      "x": 40,
+      "y": 1320
+    },
+    {
+      "height": 120,
       "id": "group_infra_core_libs",
       "label": "Core Libs",
       "type": "group",
       "width": 380,
-      "x": 40,
+      "x": 800,
       "y": 1320
     },
     {
@@ -533,7 +542,7 @@
       "label": "External Systems",
       "type": "group",
       "width": 1740,
-      "x": 460,
+      "x": 1220,
       "y": 1320
     },
     {
@@ -541,7 +550,7 @@
       "id": "group_infra",
       "label": "Infrastructure",
       "type": "group",
-      "width": 2240,
+      "width": 3000,
       "x": 0,
       "y": 1280
     }

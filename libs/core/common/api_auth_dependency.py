@@ -685,101 +685,122 @@ def api_auth(
             if x_user_id and x_request_id and x_session_version:
                 try:
                     # Lazy resolution of authenticator - only when JWT auth is actually needed
-                    # Import here to avoid requiring execution_gateway module in other services
+                    # authenticator_getter MUST be injected by the application layer
+                    # to avoid libs depending on apps (layering violation)
+                    jwt_auth_skipped = False
                     if authenticator_getter:
                         authenticator = authenticator_getter()
                     else:
-                        from apps.execution_gateway.api.dependencies import (
-                            build_gateway_authenticator,
+                        # JWT auth attempted but no authenticator configured
+                        # This endpoint doesn't support JWT auth - only S2S internal tokens
+                        logger.warning(
+                            "jwt_auth_not_configured",
+                            extra={
+                                "action": config.action,
+                                "message": "JWT auth attempted but authenticator not configured",
+                            },
                         )
-
-                        authenticator = build_gateway_authenticator()
-                    session_version = int(x_session_version)
-                    user = await authenticator.authenticate(
-                        token=token,
-                        x_user_id=x_user_id,
-                        x_request_id=x_request_id,
-                        x_session_version=session_version,
-                    )
-
-                    # Set request.state for C5 rate limiting
-                    request.state.user = {
-                        "user_id": user.user_id,
-                        "role": user.role.value if user.role else None,
-                        "strategies": user.strategies,
-                    }
-
-                    # Check role requirement
-                    # SECURITY: Must check even if user.role is None to prevent bypass
-                    if config.require_role:
-                        # Define role levels for clear hierarchy comparison
-                        # Higher level = more permissions (ADMIN > OPERATOR > VIEWER)
-                        # SECURITY: Use all Role enum values to ensure new roles don't bypass checks
-                        ROLE_LEVELS: dict[Role, int] = {
-                            Role.VIEWER: 0,
-                            Role.RESEARCHER: 1,
-                            Role.OPERATOR: 2,
-                            Role.ADMIN: 3,
-                        }
-                        user_level = ROLE_LEVELS.get(user.role, -1) if user.role else -1
-                        required_level = ROLE_LEVELS.get(config.require_role, -1)
-                        # SECURITY: Fail-closed - if required role is unknown, deny access
-                        # This prevents new roles from accidentally granting access
-                        if required_level == -1:
-                            logger.error(
-                                "unknown_required_role",
-                                extra={"role": config.require_role, "action": config.action},
-                            )
+                        # Only hard-fail in enforce mode; in log_only mode, let it fall through
+                        # to the final auth check so staged rollouts aren't blocked
+                        if mode == "enforce":
                             raise HTTPException(
-                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail={
-                                    "error": "configuration_error",
-                                    "message": "Invalid role configuration",
+                                    "error": "jwt_not_supported",
+                                    "message": "This endpoint does not support JWT authentication. Use internal token auth.",
                                 },
                             )
-                        if user_level < required_level:
-                            api_auth_checks_total.labels(
-                                action=config.action,
-                                result="insufficient_role",
-                                auth_type="jwt",
-                                mode=mode,
-                            ).inc()
-                            if mode == "enforce":
+                        # In log_only mode, skip JWT auth and fall through to unauthenticated path
+                        jwt_auth_skipped = True
+
+                    if not jwt_auth_skipped:
+                        session_version = int(x_session_version)
+                        user = await authenticator.authenticate(
+                            token=token,
+                            x_user_id=x_user_id,
+                            x_request_id=x_request_id,
+                            x_session_version=session_version,
+                        )
+
+                        # Set request.state for C5 rate limiting
+                        request.state.user = {
+                            "user_id": user.user_id,
+                            "role": user.role.value if user.role else None,
+                            "strategies": user.strategies,
+                        }
+
+                        # Check role requirement
+                        # SECURITY: Must check even if user.role is None to prevent bypass
+                        if config.require_role:
+                            # Define role levels for clear hierarchy comparison
+                            # Higher level = more permissions (ADMIN > OPERATOR > VIEWER)
+                            # SECURITY: Use all Role enum values to ensure new roles don't bypass checks
+                            ROLE_LEVELS: dict[Role, int] = {
+                                Role.VIEWER: 0,
+                                Role.RESEARCHER: 1,
+                                Role.OPERATOR: 2,
+                                Role.ADMIN: 3,
+                            }
+                            user_level = ROLE_LEVELS.get(user.role, -1) if user.role else -1
+                            required_level = ROLE_LEVELS.get(config.require_role, -1)
+                            # SECURITY: Fail-closed - if required role is unknown, deny access
+                            # This prevents new roles from accidentally granting access
+                            if required_level == -1:
+                                logger.error(
+                                    "unknown_required_role",
+                                    extra={"role": config.require_role, "action": config.action},
+                                )
                                 raise HTTPException(
-                                    status_code=status.HTTP_403_FORBIDDEN,
+                                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                                     detail={
-                                        "error": "insufficient_role",
-                                        "message": f"Role {config.require_role.value} or higher required",
+                                        "error": "configuration_error",
+                                        "message": "Invalid role configuration",
                                     },
                                 )
+                            if user_level < required_level:
+                                api_auth_checks_total.labels(
+                                    action=config.action,
+                                    result="insufficient_role",
+                                    auth_type="jwt",
+                                    mode=mode,
+                                ).inc()
+                                if mode == "enforce":
+                                    raise HTTPException(
+                                        status_code=status.HTTP_403_FORBIDDEN,
+                                        detail={
+                                            "error": "insufficient_role",
+                                            "message": f"Role {config.require_role.value} or higher required",
+                                        },
+                                    )
 
-                    # Check permission requirement
-                    if config.require_permission:
-                        if not has_permission(user, config.require_permission):
-                            api_auth_checks_total.labels(
-                                action=config.action,
-                                result="permission_denied",
-                                auth_type="jwt",
-                                mode=mode,
-                            ).inc()
-                            if mode == "enforce":
-                                raise HTTPException(
-                                    status_code=status.HTTP_403_FORBIDDEN,
-                                    detail={
-                                        "error": "permission_denied",
-                                        "message": f"Permission {config.require_permission.value} required",
-                                    },
-                                )
+                        # Check permission requirement
+                        if config.require_permission:
+                            if not has_permission(user, config.require_permission):
+                                api_auth_checks_total.labels(
+                                    action=config.action,
+                                    result="permission_denied",
+                                    auth_type="jwt",
+                                    mode=mode,
+                                ).inc()
+                                if mode == "enforce":
+                                    raise HTTPException(
+                                        status_code=status.HTTP_403_FORBIDDEN,
+                                        detail={
+                                            "error": "permission_denied",
+                                            "message": f"Permission {config.require_permission.value} required",
+                                        },
+                                    )
 
-                    api_auth_checks_total.labels(
-                        action=config.action, result="authenticated", auth_type="jwt", mode=mode
-                    ).inc()
-                    return AuthContext(
-                        user=user,
-                        internal_claims=None,
-                        auth_type="jwt",
-                        is_authenticated=True,
-                    )
+                        api_auth_checks_total.labels(
+                            action=config.action, result="authenticated", auth_type="jwt", mode=mode
+                        ).inc()
+                        return AuthContext(
+                            user=user,
+                            internal_claims=None,
+                            auth_type="jwt",
+                            is_authenticated=True,
+                        )
+                    # jwt_auth_skipped=True: fall through to section 3 "No valid authentication found"
                 except HTTPException:
                     raise
                 except Exception as exc:

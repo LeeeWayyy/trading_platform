@@ -9,7 +9,7 @@ The key design principle is:
   redis.asyncio when used in environments creating fresh event loops.
 
 Usage:
-    from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
+    from libs.core.common.db_pool import get_db_pool, get_redis_client
 
     # In a service or page
     db_adapter = get_db_pool()
@@ -31,7 +31,9 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from apps.web_console import config
+# Configuration from environment
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
+DATABASE_CONNECT_TIMEOUT = int(os.getenv("DATABASE_CONNECT_TIMEOUT", "2"))
 
 if TYPE_CHECKING:
     pass
@@ -178,7 +180,7 @@ def get_db_pool() -> AsyncConnectionAdapter | None:
         AsyncConnectionAdapter that creates fresh connections, or None if
         DATABASE_URL is not configured or initialization fails.
     """
-    database_url = config.DATABASE_URL
+    database_url = DATABASE_URL
     if not database_url:
         logger.warning(
             "db_pool_not_configured",
@@ -189,11 +191,11 @@ def get_db_pool() -> AsyncConnectionAdapter | None:
     try:
         adapter = AsyncConnectionAdapter(
             database_url,
-            connect_timeout=config.DATABASE_CONNECT_TIMEOUT,
+            connect_timeout=DATABASE_CONNECT_TIMEOUT,
         )
         logger.info(
             "db_adapter_initialized",
-            extra={"connect_timeout": config.DATABASE_CONNECT_TIMEOUT},
+            extra={"connect_timeout": DATABASE_CONNECT_TIMEOUT},
         )
         return adapter
     except (ImportError, TypeError, ValueError) as e:

@@ -65,7 +65,8 @@ RSA_KEY_SIZE = 4096
 PRIVATE_KEY_PERMISSIONS = 0o600
 
 # Default output directory
-DEFAULT_CERTS_DIR = Path(__file__).parent.parent / "apps" / "web_console" / "certs"
+# NOTE: Certs moved to web_console_ng as part of web_console migration (2026-01)
+DEFAULT_CERTS_DIR = Path(__file__).parent.parent / "apps" / "web_console_ng" / "certs"
 
 
 def add_years_safe(dt: datetime, years: int) -> datetime:
@@ -652,7 +653,7 @@ Security Notes:
             print("   3. Redistributing certificates to all users")
             print()
             print("To proceed:")
-            print("   - Backup existing certs: cp -r apps/web_console/certs/ backups/")
+            print("   - Backup existing certs: cp -r apps/web_console_ng/certs/ backups/")
             print("   - Then run with --force flag: ./scripts/generate_certs.py --ca-only --force")
             return 1
 
@@ -696,7 +697,7 @@ Security Notes:
         print("   3. Redistributing certificates to all users")
         print()
         print("To proceed:")
-        print("   - Backup existing certs: cp -r apps/web_console/certs/ backups/")
+        print("   - Backup existing certs: cp -r apps/web_console_ng/certs/ backups/")
         print("   - Then run with --force flag")
         return 1
 

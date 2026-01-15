@@ -44,7 +44,7 @@ class MockTransaction:
         return None
 
 
-from apps.web_console.services.user_management import (
+from libs.web_console_services.user_management import (
     change_user_role,
     list_users,
 )

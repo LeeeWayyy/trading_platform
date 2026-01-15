@@ -16,6 +16,12 @@
 | `get_required_secret` | key | str | Fetch secret (raises if missing). |
 | `get_optional_secret` | key | str | Fetch secret (optional). |
 | `hash_file_sha256` | path | str | Hash file contents. |
+| `acquire_connection` | db_pool | connection | Acquire database connection from pool (context manager). |
+| `get_db_pool` | - | AsyncConnectionPool | Get or create async database connection pool. |
+| `get_sync_db_pool` | - | ConnectionPool | Get or create sync database connection pool. |
+| `validate_symbol` | symbol | bool | Validate stock symbol format. |
+| `validate_date` | date_str | bool | Validate date string format. |
+| `validate_email` | email | bool | Validate email address format. |
 
 ## Behavioral Contracts
 ### rate_limit(...)
@@ -24,17 +30,33 @@
 ### Secrets helpers
 **Purpose:** Provide a unified wrapper around `libs.secrets` and caching.
 
+### Database connection pooling
+**Purpose:** Manage PostgreSQL connection pools for both async and sync operations.
+
+**Features:**
+- Automatic pool creation and management
+- Connection timeout handling
+- Environment-based configuration
+- Both async (psycopg) and sync connection pools
+
+### Validation utilities
+**Purpose:** Input validation for common data types (symbols, dates, emails).
+
 ### Invariants
 - Secrets must be fetched via shared manager to avoid backend duplication.
+- Database pools are singletons per process.
+- Connections must be released after use (via context manager).
 
 ## Data Flow
 ```
 request -> rate limiter -> allow/deny
 secret key -> secret manager -> value
+app -> db_pool -> postgres connection
+input -> validator -> bool (valid/invalid)
 ```
-- **Input format:** FastAPI requests, secret identifiers.
-- **Output format:** rate-limit responses or secret values.
-- **Side effects:** Redis counters, secret cache updates.
+- **Input format:** FastAPI requests, secret identifiers, database queries, validation inputs.
+- **Output format:** rate-limit responses, secret values, database connections, validation results.
+- **Side effects:** Redis counters, secret cache updates, database connection pooling.
 
 ## Usage Examples
 ### Example 1: Rate limit dependency
@@ -52,6 +74,30 @@ from libs.core.common import get_required_secret
 api_key = get_required_secret("alpaca/api_key_id")
 ```
 
+### Example 3: Database connection pooling
+```python
+from libs.core.common.db import acquire_connection
+from libs.core.common.db_pool import get_db_pool
+
+# Async usage
+db_pool = await get_db_pool()
+async with acquire_connection(db_pool) as conn:
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT * FROM orders WHERE id = %s", (order_id,))
+        result = await cur.fetchone()
+```
+
+### Example 4: Input validation
+```python
+from libs.core.common.validators import validate_symbol, validate_email
+
+if not validate_symbol("AAPL"):
+    raise ValueError("Invalid symbol")
+
+if not validate_email("user@example.com"):
+    raise ValueError("Invalid email")
+```
+
 ## Edge Cases & Boundaries
 | Scenario | Input | Expected Behavior |
 |----------|-------|-------------------|
@@ -60,13 +106,14 @@ api_key = get_required_secret("alpaca/api_key_id")
 | Invalid file path | hash missing | `FileNotFoundError`. |
 
 ## Dependencies
-- **Internal:** `libs.secrets`
-- **External:** Redis (rate limiting)
+- **Internal:** `libs.secrets`, `libs.platform.secrets`
+- **External:** Redis (rate limiting), PostgreSQL (database connections), psycopg (async/sync drivers)
 
 ## Configuration
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| N/A | - | - | Secrets backend configured in `libs.secrets`. |
+| `DATABASE_URL` | No | `postgresql://trader:trader@localhost:5433/trader` | PostgreSQL connection string. |
+| `DATABASE_CONNECT_TIMEOUT` | No | `2` | Database connection timeout (seconds). |
 
 ## Error Handling
 - Custom exceptions in `libs.common.exceptions`.
@@ -89,6 +136,6 @@ api_key = get_required_secret("alpaca/api_key_id")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-09
-- **Source Files:** `libs/core/common/__init__.py`, `libs/core/common/rate_limit_dependency.py`, `libs/core/common/secrets.py`
+- **Last Updated:** 2026-01-14
+- **Source Files:** `libs/core/common/__init__.py`, `libs/core/common/rate_limit_dependency.py`, `libs/core/common/secrets.py`, `libs/core/common/db.py`, `libs/core/common/db_pool.py`, `libs/core/common/sync_db_pool.py`, `libs/core/common/validators.py`
 - **ADRs:** N/A

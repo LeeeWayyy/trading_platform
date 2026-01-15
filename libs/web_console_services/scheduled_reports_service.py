@@ -6,16 +6,39 @@ import html
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from psycopg.rows import dict_row
 
-from apps.web_console.utils.db import acquire_connection
+from libs.core.common.db import acquire_connection
 from libs.platform.web_console_auth.permissions import Permission, has_permission
+
+
+class TradingClientProtocol(Protocol):
+    """Protocol for trading client dependency injection."""
+
+    async def startup(self) -> None: ...
+
+    async def fetch_positions(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def fetch_recent_fills(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +79,15 @@ class ReportRun:
 class ScheduledReportsService:
     """CRUD service for report schedules and archives."""
 
-    def __init__(self, db_pool: Any, user: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        db_pool: Any,
+        user: dict[str, Any],
+        trading_client_factory: Callable[[], TradingClientProtocol] | None = None,
+    ) -> None:
         self._db_pool = db_pool
         self._user = user
+        self._trading_client_factory = trading_client_factory
 
     async def list_schedules(
         self, user_id: str | None = None, *, all_users: bool = False
@@ -344,10 +373,13 @@ class ScheduledReportsService:
         positions_payload: dict[str, Any] = {}
         fills_payload: dict[str, Any] = {}
 
-        try:
-            from apps.web_console_ng.core.client import AsyncTradingClient
+        if self._trading_client_factory is None:
+            data_errors.append("Trading client not configured")
+            return positions_payload, fills_payload, data_errors
 
-            client = AsyncTradingClient.get()
+        client = None
+        try:
+            client = self._trading_client_factory()
             await client.startup()
             positions_payload = await client.fetch_positions(
                 current_user_id or "",
@@ -362,6 +394,9 @@ class ScheduledReportsService:
             )
         except (OSError, ConnectionError, KeyError, ValueError, TypeError) as exc:
             data_errors.append(f"Failed to fetch trading data: {exc}")
+        # NOTE: Do NOT shutdown the client here - it's a shared singleton managed
+        # at the application level (NiceGUI lifespan). Shutting it down would break
+        # other concurrent requests (dashboard, orders, etc.).
 
         return positions_payload, fills_payload, data_errors
 

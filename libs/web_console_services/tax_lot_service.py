@@ -11,7 +11,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
-from apps.web_console.utils.db import acquire_connection
+from libs.core.common.db import acquire_connection
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)

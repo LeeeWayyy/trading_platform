@@ -1,5 +1,5 @@
 # FastAPI auth service dependencies
-# Inherits from apps/web_console/requirements.txt for auth modules
+# Uses auth modules from libs/platform/web_console_auth
 
 # FastAPI framework
 fastapi>=0.104.0

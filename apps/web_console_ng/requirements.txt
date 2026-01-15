@@ -51,7 +51,7 @@ pandas==2.2.3
 numpy==2.2.1
 polars==1.30.0
 
-# Legacy shared libs dependencies (libs/risk, apps/web_console services)
+# Legacy shared libs dependencies (libs/risk, libs/web_console_services)
 scipy==1.14.1
 statsmodels==0.14.4
 scikit-learn==1.5.2

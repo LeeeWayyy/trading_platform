@@ -719,12 +719,16 @@ reconciliation_fills_backfill_rl = rate_limit(
 # Auth dependencies for trading endpoints. Defaults to enforce mode (fail-closed).
 # Set API_AUTH_MODE=log_only for staged rollout.
 
+# Import authenticator builder for JWT validation (injected to avoid layering violation)
+from apps.execution_gateway.api.dependencies import build_gateway_authenticator  # noqa: E402
+
 order_submit_auth = api_auth(
     APIAuthConfig(
         action="order_submit",
         require_role=None,  # Role checked via permission
         require_permission=Permission.SUBMIT_ORDER,
-    )
+    ),
+    authenticator_getter=build_gateway_authenticator,
 )
 
 order_slice_auth = api_auth(
@@ -732,7 +736,8 @@ order_slice_auth = api_auth(
         action="order_slice",
         require_role=None,
         require_permission=Permission.SUBMIT_ORDER,
-    )
+    ),
+    authenticator_getter=build_gateway_authenticator,
 )
 
 order_cancel_auth = api_auth(
@@ -740,7 +745,8 @@ order_cancel_auth = api_auth(
         action="order_cancel",
         require_role=None,
         require_permission=Permission.CANCEL_ORDER,
-    )
+    ),
+    authenticator_getter=build_gateway_authenticator,
 )
 
 order_read_auth = api_auth(
@@ -748,7 +754,8 @@ order_read_auth = api_auth(
         action="order_read",
         require_role=None,
         require_permission=Permission.VIEW_POSITIONS,
-    )
+    ),
+    authenticator_getter=build_gateway_authenticator,
 )
 
 kill_switch_auth = api_auth(
@@ -756,7 +763,8 @@ kill_switch_auth = api_auth(
         action="kill_switch",
         require_role=None,
         require_permission=Permission.CANCEL_ORDER,
-    )
+    ),
+    authenticator_getter=build_gateway_authenticator,
 )
 
 app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])

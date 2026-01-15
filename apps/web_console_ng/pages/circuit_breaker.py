@@ -32,7 +32,7 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 from libs.trading.risk_management.breaker import CircuitBreakerState
 
 if TYPE_CHECKING:
-    from apps.web_console.services.cb_service import CircuitBreakerService
+    from libs.web_console_services.cb_service import CircuitBreakerService
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def _get_cb_service() -> CircuitBreakerService | None:
     See P5T7_TASK.md Note #16, #30.
     """
     if not hasattr(app.storage, "_cb_service"):
-        from apps.web_console.services.cb_service import CircuitBreakerService
+        from libs.web_console_services.cb_service import CircuitBreakerService
 
         # Get sync dependencies for legacy service
         try:
@@ -220,7 +220,7 @@ async def circuit_breaker_page() -> None:
                 trip_reason.on_value_change(on_reason_change)
 
                 async def do_trip() -> None:
-                    from apps.web_console.services.cb_service import (
+                    from libs.web_console_services.cb_service import (
                         RBACViolation,
                         ValidationError,
                     )
@@ -299,7 +299,7 @@ async def circuit_breaker_page() -> None:
                 acknowledged.on_value_change(on_ack_change)
 
                 async def do_reset() -> None:
-                    from apps.web_console.services.cb_service import (
+                    from libs.web_console_services.cb_service import (
                         RateLimitExceeded,
                         RBACViolation,
                         ValidationError,

@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 import psycopg
 import pytest
 
-from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
-from apps.web_console.services.cb_service import (
+from libs.web_console_services.cb_service import (
     CircuitBreakerService,
     RateLimitExceeded,
     RBACViolation,
     ValidationError,
 )
+from libs.web_console_services.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
 
 
 class TestCircuitBreakerServiceGetStatus:
@@ -28,7 +28,7 @@ class TestCircuitBreakerServiceGetStatus:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=None)
@@ -49,7 +49,7 @@ class TestCircuitBreakerServiceGetStatus:
         """get_status should increment Prometheus counter."""
         cb_service.breaker.get_status.return_value = {"state": "OPEN"}
 
-        with patch("apps.web_console.services.cb_service.CB_STATUS_CHECKS") as mock_counter:
+        with patch("libs.web_console_services.cb_service.CB_STATUS_CHECKS") as mock_counter:
             cb_service.get_status()
             mock_counter.inc.assert_called_once()
 
@@ -65,7 +65,7 @@ class TestCircuitBreakerServiceTrip:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=None)
@@ -94,7 +94,7 @@ class TestCircuitBreakerServiceTrip:
         """trip should increment Prometheus counter."""
         user = {"user_id": "test_user", "role": "admin"}
 
-        with patch("apps.web_console.services.cb_service.CB_TRIP_TOTAL") as mock_counter:
+        with patch("libs.web_console_services.cb_service.CB_TRIP_TOTAL") as mock_counter:
             cb_service.trip("MANUAL", user, acknowledged=True)
             mock_counter.inc.assert_called_once()
 
@@ -119,7 +119,7 @@ class TestCircuitBreakerServiceReset:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             # Mock get_status to return TRIPPED (required for reset validation)
@@ -221,7 +221,7 @@ class TestCircuitBreakerServiceReset:
         user = {"user_id": "test_user", "role": "admin"}
         reason = "Conditions cleared, verified system health"
 
-        with patch("apps.web_console.services.cb_service.CB_RESET_TOTAL") as mock_counter:
+        with patch("libs.web_console_services.cb_service.CB_RESET_TOTAL") as mock_counter:
             cb_service.reset(reason, user, acknowledged=True)
             mock_counter.inc.assert_called_once()
 
@@ -237,7 +237,7 @@ class TestCircuitBreakerServiceGetHistory:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=None)
@@ -282,7 +282,7 @@ class TestCircuitBreakerServiceAuditFallback:
         self, mock_redis: MagicMock, mock_db_pool: MagicMock
     ) -> CircuitBreakerService:
         """Create service with mocked dependencies including db_pool."""
-        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=mock_db_pool)
@@ -394,7 +394,7 @@ class TestCircuitBreakerServiceRBAC:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             # Mock get_status to return TRIPPED (required for reset validation)
