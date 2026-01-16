@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "last_updated": "2026-01-15",
+  "updated_by": "Initial baseline",
+  "overall": 19,
+  "modules": {
+    "libs/trading/risk_management/breaker.py": 30,
+    "libs/trading/risk_management/checker.py": 28,
+    "libs/trading/risk_management/kill_switch.py": 22,
+    "libs/core/redis_client/client.py": 35,
+    "apps/execution_gateway/main.py": 18,
+    "apps/execution_gateway/alpaca_client.py": 15
+  }
+}

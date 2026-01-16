@@ -75,6 +75,9 @@ croniter = "^2.0.0"  # Cron expression parsing for scheduled reports
 pytest = "^8.0.0"
 pytest-asyncio = "^0.23.0"
 pytest-cov = "^4.1.0"
+pytest-xdist = "^3.5.0"  # Parallel test execution
+pytest-socket = "^0.7.0"  # Network blocking enforcement for tests
+freezegun = "^1.5.0"  # Time freezing for deterministic tests
 playwright = ">=1.43.0"
 pytest-playwright = ">=0.4.4"
 fakeredis = "^2.20.0"

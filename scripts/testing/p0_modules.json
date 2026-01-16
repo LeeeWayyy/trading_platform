@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "last_updated": "2026-01-15",
+  "note": "Exact paths finalized during Phase 0 audit. This is the single source of truth for P0 modules.",
+  "p0_modules": [
+    "libs/trading/risk_management/breaker.py",
+    "libs/trading/risk_management/checker.py",
+    "libs/trading/risk_management/kill_switch.py",
+    "libs/core/redis_client/client.py",
+    "libs/core/redis_client/feature_cache.py",
+    "apps/execution_gateway/main.py",
+    "apps/execution_gateway/alpaca_client.py",
+    "apps/execution_gateway/reconciliation.py"
+  ],
+  "p1_modules": [
+    "libs/platform/",
+    "apps/orchestrator/"
+  ],
+  "p0_target_coverage": 95,
+  "p1_target_coverage": 90
+}

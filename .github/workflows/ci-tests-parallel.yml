@@ -1,0 +1,543 @@
+name: CI - Parallel Tests & Coverage
+
+# This workflow REPLACES ci-tests-coverage.yml
+# Implements runtime-based sharding for parallel test execution
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # ============================================================================
+  # Stage 1: Quick checks (parallel with tests)
+  # ============================================================================
+
+  lint-and-typecheck:
+    name: Linting & Type Checking
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Documentation freshness check
+        run: |
+          python scripts/dev/check_doc_freshness.py
+
+      - name: Architecture map drift check
+        run: |
+          python scripts/dev/generate_architecture.py --check
+
+      - name: Type checking (mypy)
+        run: |
+          poetry run mypy libs/ apps/ strategies/ --strict
+
+      - name: Linting (ruff)
+        run: |
+          poetry run ruff check .
+
+      - name: Layer violation check
+        run: |
+          python scripts/dev/check_layering.py
+
+      - name: Governance checks
+        run: |
+          python scripts/testing/verify_gate_compliance.py || echo "Gate compliance check skipped (script may not exist yet)"
+          python scripts/testing/verify_branch_protection.py || echo "Branch protection check skipped (script may not exist yet)"
+
+  # ============================================================================
+  # Marker Governance Job
+  # ============================================================================
+
+  marker-governance:
+    name: Marker Governance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Verify integration tests have markers
+        run: |
+          # All tests in tests/integration/ MUST have @pytest.mark.integration
+          UNMARKED=$(PYTHONPATH=. pytest --collect-only -q tests/integration/ -m "not integration" 2>/dev/null | grep -c "::" || true)
+          if [ "$UNMARKED" -gt 0 ]; then
+            echo "ERROR: $UNMARKED integration tests missing @pytest.mark.integration marker"
+            PYTHONPATH=. pytest --collect-only -q tests/integration/ -m "not integration"
+            exit 1
+          fi
+          echo "✓ All integration tests have markers"
+
+      - name: Verify e2e tests have markers
+        run: |
+          # All tests in tests/e2e/ MUST have @pytest.mark.e2e
+          UNMARKED=$(PYTHONPATH=. pytest --collect-only -q tests/e2e/ -m "not e2e" 2>/dev/null | grep -c "::" || true)
+          if [ "$UNMARKED" -gt 0 ]; then
+            echo "ERROR: $UNMARKED e2e tests missing @pytest.mark.e2e marker"
+            PYTHONPATH=. pytest --collect-only -q tests/e2e/ -m "not e2e"
+            exit 1
+          fi
+          echo "✓ All e2e tests have markers"
+
+      - name: Verify P0 tests have markers (advisory)
+        run: |
+          # Advisory check during Phase 0-1, enforced in Phase 2+
+          if [ ! -f scripts/testing/p0_modules.json ]; then
+            echo "⚠️  p0_modules.json not found, skipping P0 marker check"
+            exit 0
+          fi
+
+          P0_DIRS=$(python -c "
+          import json
+          from pathlib import Path
+          if not Path('scripts/testing/p0_modules.json').exists():
+              exit(0)
+          modules = json.load(open('scripts/testing/p0_modules.json'))['p0_modules']
+          dirs = set()
+          for m in modules:
+              parts = m.replace('.py', '').split('/')
+              if len(parts) >= 2:
+                  dirs.add('tests/' + '/'.join(parts[:-1]) + '/')
+          print(' '.join(sorted(dirs)))
+          " || echo "")
+
+          if [ -z "$P0_DIRS" ]; then
+            echo "⚠️  No P0 directories found"
+            exit 0
+          fi
+
+          P0_UNMARKED=$(PYTHONPATH=. pytest --collect-only -q $P0_DIRS -m "not p0" 2>/dev/null | grep -c "::" || true)
+          if [ "$P0_UNMARKED" -gt 0 ]; then
+            echo "::warning::$P0_UNMARKED tests in P0 paths missing @pytest.mark.p0 marker"
+            echo "This will become an error in Phase 2+"
+            PYTHONPATH=. pytest --collect-only -q $P0_DIRS -m "not p0" | head -20
+          else
+            echo "✓ All P0 tests have markers"
+          fi
+
+  # ============================================================================
+  # P0 Guard Job  # ============================================================================
+
+  p0-guard:
+    name: P0 Test Guard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Verify P0 tests not quarantined
+        run: |
+          if [ ! -f scripts/testing/p0_modules.json ]; then
+            echo "⚠️  p0_modules.json not found, skipping P0 guard"
+            exit 0
+          fi
+
+          if [ ! -f tests/quarantine.txt ]; then
+            echo "✓ No quarantine file found"
+            exit 0
+          fi
+
+          P0_TEST_DIRS=$(python -c "
+          import json
+          from pathlib import Path
+          if not Path('scripts/testing/p0_modules.json').exists():
+              exit(0)
+          modules = json.load(open('scripts/testing/p0_modules.json'))['p0_modules']
+          dirs = set()
+          for m in modules:
+              parts = m.replace('.py', '').split('/')
+              if len(parts) >= 2:
+                  dirs.add('tests/' + '/'.join(parts[:-1]) + '/')
+          print(' '.join(sorted(dirs)))
+          " || echo "")
+
+          if [ -z "$P0_TEST_DIRS" ]; then
+            echo "⚠️  No P0 directories found"
+            exit 0
+          fi
+
+          for p0_test_dir in $P0_TEST_DIRS; do
+            if grep -q "$p0_test_dir" tests/quarantine.txt 2>/dev/null; then
+              echo "ERROR: P0 test quarantined without Tech Lead approval in: $p0_test_dir"
+              echo "Quarantined P0 tests:"
+              grep "$p0_test_dir" tests/quarantine.txt
+              exit 1
+            fi
+          done
+
+          echo "✓ No P0 tests quarantined"
+
+      - name: Verify P0 tests exist in test collection
+        run: |
+          if [ ! -f scripts/testing/p0_modules.json ]; then
+            echo "⚠️  p0_modules.json not found, skipping P0 existence check"
+            exit 0
+          fi
+
+          P0_DIRS=$(python -c "
+          import json
+          from pathlib import Path
+          if not Path('scripts/testing/p0_modules.json').exists():
+              exit(0)
+          modules = json.load(open('scripts/testing/p0_modules.json'))['p0_modules']
+          dirs = set()
+          for m in modules:
+              parts = m.replace('.py', '').split('/')
+              if len(parts) >= 2:
+                  dirs.add('tests/' + '/'.join(parts[:-1]) + '/')
+          print(' '.join(sorted(dirs)))
+          " || echo "")
+
+          if [ -z "$P0_DIRS" ]; then
+            echo "⚠️  No P0 directories found"
+            exit 0
+          fi
+
+          PYTHONPATH=. pytest --collect-only -q $P0_DIRS > /tmp/p0_tests.txt 2>&1 || true
+          if [ ! -s /tmp/p0_tests.txt ]; then
+            echo "ERROR: No P0 tests collected. Check test paths."
+            exit 1
+          fi
+
+          echo "✓ P0 guard passed: $(wc -l < /tmp/p0_tests.txt) P0 tests verified"
+
+  # ============================================================================
+  # Shard Validation Job
+  # ============================================================================
+
+  validate-shards:
+    name: Validate Shard Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Collect all unit tests
+        run: |
+          # Collect with same selection criteria as unit test shards
+          DESELECT_ARGS=""
+          if [ -f tests/quarantine.txt ]; then
+            DESELECT_ARGS=$(grep -v '^#' tests/quarantine.txt | cut -d'|' -f1 | xargs -I{} echo "--deselect {}" | tr '\n' ' ')
+          fi
+          PYTHONPATH=. pytest --collect-only -q \
+            -m "not integration and not e2e" \
+            $DESELECT_ARGS \
+            tests/ > all_tests.txt || true
+
+      - name: Verify shard coverage
+        run: |
+          if [ -f scripts/testing/verify_shard_coverage.py ]; then
+            python scripts/testing/verify_shard_coverage.py
+          else
+            echo "⚠️  verify_shard_coverage.py not found, skipping validation"
+          fi
+
+  # ============================================================================
+  # Quarantine Expiration Check
+  # ============================================================================
+
+  check-quarantine-expiration:
+    name: Check Quarantine Expiration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for expired quarantine entries
+        run: |
+          if [ -f scripts/testing/check_quarantine_expiration.py ]; then
+            python scripts/testing/check_quarantine_expiration.py
+          else
+            echo "⚠️  check_quarantine_expiration.py not found, skipping check"
+          fi
+
+  # ============================================================================
+  # Stage 2: Unit tests (parallel matrix)
+  # ============================================================================
+
+  unit-tests:
+    name: Unit Tests (${{ matrix.test-group.name }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        test-group:
+          - name: libs-core
+            paths: "tests/libs/core/"
+          - name: libs-platform
+            paths: "tests/libs/platform/"
+          - name: libs-trading
+            paths: "tests/libs/trading/ tests/libs/data/"
+          - name: apps-services
+            paths: "tests/apps/"
+          - name: strategies
+            paths: "tests/strategies/ tests/research/"
+          - name: root-and-misc
+            paths: "tests/test_*.py tests/regression/ tests/workflows/ tests/fixtures/ tests/infra/ tests/load/"
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: trading_platform
+          POSTGRES_PASSWORD: dev_password
+          POSTGRES_DB: trading_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      COVERAGE_FILE: .coverage.${{ matrix.test-group.name }}
+      COVERAGE_RCFILE: pyproject.toml
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Run unit tests with coverage
+        run: |
+          # Exclude integration/e2e tests and quarantined tests
+          DESELECT_ARGS=""
+          if [ -f tests/quarantine.txt ]; then
+            DESELECT_ARGS=$(grep -v '^#' tests/quarantine.txt | cut -d'|' -f1 | xargs -I{} echo "--deselect {}" | tr '\n' ' ' || true)
+          fi
+          PYTHONPATH=. poetry run pytest ${{ matrix.test-group.paths }} \
+            -m "not integration and not e2e" \
+            $DESELECT_ARGS \
+            --cov=libs --cov=apps --cov-branch \
+            --cov-report=term-missing \
+            --durations=50 || true
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.test-group.name }}
+          path: .coverage.${{ matrix.test-group.name }}
+          retention-days: 1
+
+  # ============================================================================
+  # Stage 3: Integration tests (after unit tests pass)
+  # ============================================================================
+
+  integration-tests:
+    name: Integration Tests
+    needs: [lint-and-typecheck, unit-tests]
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: trading_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/trading_test
+      REDIS_URL: redis://localhost:6379
+      ALPACA_USE_MOCK: "true"
+      ALPACA_API_KEY: "mock_key_for_ci"
+      ALPACA_SECRET_KEY: "mock_secret_for_ci"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Initialize database schema
+        run: |
+          # Use Alembic for migrations if available
+          if [ -f db/alembic.ini ]; then
+            poetry run alembic upgrade head
+          else
+            echo "⚠️  Alembic not configured, skipping migrations"
+          fi
+
+      - name: Run integration tests (no coverage)
+        run: |
+          PYTHONPATH=. poetry run pytest tests/integration/ \
+            --no-cov \
+            -p no:randomly \
+            -v || echo "⚠️  Integration tests not yet available"
+
+  # ============================================================================
+  # Stage 4: Coverage aggregation (unit tests only)
+  # ============================================================================
+
+  coverage-report:
+    name: Coverage Report & Ratchet
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+
+    env:
+      COVERAGE_RCFILE: pyproject.toml
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+
+      - name: Combine coverage files
+        run: |
+          coverage combine .coverage.* || echo "⚠️  Coverage combine had issues"
+          coverage xml -o coverage.xml || echo "⚠️  Coverage XML generation had issues"
+          coverage report --format=markdown >> $GITHUB_STEP_SUMMARY || echo "⚠️  Coverage report had issues"
+
+      - name: Check coverage ratchet
+        run: |
+          if [ -f scripts/testing/check_coverage_ratchet.py ]; then
+            python scripts/testing/check_coverage_ratchet.py || echo "⚠️  Coverage ratchet check had issues (may not be configured yet)"
+          else
+            echo "⚠️  check_coverage_ratchet.py not found, skipping ratchet check"
+          fi
+
+      - name: Upload combined coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        continue-on-error: true

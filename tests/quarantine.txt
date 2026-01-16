@@ -1,0 +1,11 @@
+# Test Quarantine List
+# Format: test_path | added_date | expiration_date | owner | severity | issue_url | reason
+#
+# Example:
+# tests/libs/core/test_redis_client.py::test_concurrent_publish | 2026-01-15 | 2026-01-22 | @developer | P2 | https://github.com/org/repo/issues/123 | State pollution with xdist
+#
+# Rules:
+# - Maximum 1 week expiration from added_date
+# - P0 tests require Tech Lead approval
+# - Maximum 2 renewals (3 weeks total)
+# - Issue URL is REQUIRED
