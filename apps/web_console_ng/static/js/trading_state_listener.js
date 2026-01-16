@@ -95,17 +95,34 @@
     if (readOnlyTargets.length > 0 && typeof readOnly === 'boolean') {
       readOnlyTargets.forEach((el) => {
         if (readOnly) {
+          // Store original disabled state and title before overriding
+          if (!el.hasAttribute('data-original-disabled-stored')) {
+            el.dataset.originalDisabled = el.hasAttribute('disabled') ? 'true' : 'false';
+            el.dataset.originalTitle = el.title || '';
+            el.setAttribute('data-original-disabled-stored', 'true');
+          }
           el.setAttribute('disabled', 'true');
           el.classList.add('opacity-50', 'cursor-not-allowed');
-          if (!el.title) {
-            el.title = el.dataset.readonlyTooltip || 'Connection lost - read-only mode';
-          }
+          el.title = el.dataset.readonlyTooltip || 'Connection lost - read-only mode';
         } else {
-          el.removeAttribute('disabled');
-          el.classList.remove('opacity-50', 'cursor-not-allowed');
-          if (el.dataset.readonlyTooltip) {
+          // Restore original disabled state and title
+          if (el.hasAttribute('data-original-disabled-stored')) {
+            if (el.dataset.originalDisabled === 'true') {
+              el.setAttribute('disabled', 'true');
+            } else {
+              el.removeAttribute('disabled');
+            }
+            el.title = el.dataset.originalTitle || '';
+            // Clear stored state
+            el.removeAttribute('data-original-disabled-stored');
+            delete el.dataset.originalDisabled;
+            delete el.dataset.originalTitle;
+          } else {
+            // No stored state - just clear read-only effects
+            el.removeAttribute('disabled');
             el.title = '';
           }
+          el.classList.remove('opacity-50', 'cursor-not-allowed');
         }
       });
     }

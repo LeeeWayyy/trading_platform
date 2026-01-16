@@ -211,6 +211,17 @@ async def position_management_page(client: Client) -> None:
     def is_read_only_mode() -> bool:
         return bool(app.storage.user.get("read_only"))
 
+    def notify_if_readonly() -> bool:
+        """Check read-only mode and notify user if active.
+
+        Returns:
+            True if in read-only mode (action should be blocked), False otherwise
+        """
+        if is_read_only_mode():
+            ui.notify("Read-only mode: connection lost", type="warning")
+            return True
+        return False
+
     async def check_kill_switch_status() -> None:
         nonlocal kill_switch_engaged
         try:
@@ -265,6 +276,9 @@ async def position_management_page(client: Client) -> None:
     async def show_close_dialog() -> None:
         nonlocal action_in_progress
         if action_in_progress:
+            return
+
+        if notify_if_readonly():
             return
 
         if kill_switch_engaged:
@@ -410,8 +424,7 @@ async def position_management_page(client: Client) -> None:
         if action_in_progress:
             return
 
-        if is_read_only_mode():
-            ui.notify("Read-only mode: connection lost", type="warning")
+        if notify_if_readonly():
             return
 
         # Cancel-all BYPASSES kill switch (risk-reducing)
@@ -449,8 +462,7 @@ async def position_management_page(client: Client) -> None:
                     if action_in_progress:
                         return
 
-                    if is_read_only_mode():
-                        ui.notify("Read-only mode: connection lost", type="warning")
+                    if notify_if_readonly():
                         return
 
                     reason = (reason_input.value or "").strip()
@@ -543,8 +555,7 @@ async def position_management_page(client: Client) -> None:
         if action_in_progress:
             return
 
-        if is_read_only_mode():
-            ui.notify("Read-only mode: connection lost", type="warning")
+        if notify_if_readonly():
             return
 
         if kill_switch_engaged:
@@ -616,8 +627,7 @@ async def position_management_page(client: Client) -> None:
                     if action_in_progress:
                         return
 
-                    if is_read_only_mode():
-                        ui.notify("Read-only mode: connection lost", type="warning")
+                    if notify_if_readonly():
                         return
 
                     if confirm_input.value != "FLATTEN":

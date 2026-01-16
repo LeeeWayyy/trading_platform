@@ -141,6 +141,24 @@ class HeaderMetrics:
             return "bg-yellow-500 text-black"
         return "bg-red-600 text-white"
 
+    def _extract_positions(self, positions_result: Any) -> list[dict[str, Any]]:
+        """Extract positions list from API result.
+
+        Handles both direct list format and dict wrapper format.
+
+        Args:
+            positions_result: API result (list, dict with "positions" key, or None)
+
+        Returns:
+            List of position dictionaries, empty list on invalid input
+        """
+        if isinstance(positions_result, list):
+            return positions_result
+        if isinstance(positions_result, dict):
+            positions = positions_result.get("positions", [])
+            return positions if isinstance(positions, list) else []
+        return []
+
     def _calculate_leverage(
         self, positions: list[dict[str, Any]], nlv: float
     ) -> tuple[float | None, bool]:
@@ -275,26 +293,8 @@ class HeaderMetrics:
             # Get NLV (portfolio_value)
             nlv = _safe_float(account_info.get("portfolio_value"))
 
-            # Get positions list (handle both list and dict wrapper formats)
-            # Note: Don't call dict() on positions_result - it may already be a list
-            positions: list[dict[str, Any]]
-            if isinstance(positions_result, list):
-                positions = positions_result
-            elif isinstance(positions_result, dict):
-                positions = positions_result.get("positions", [])
-                if not isinstance(positions, list):
-                    positions = []
-            elif positions_result is not None:
-                # Try dict conversion for other mapping types
-                try:
-                    positions_dict = dict(positions_result)
-                    positions = positions_dict.get("positions", [])
-                    if not isinstance(positions, list):
-                        positions = []
-                except (TypeError, ValueError):
-                    positions = []
-            else:
-                positions = []
+            # Extract positions list (handles list or dict wrapper formats)
+            positions = self._extract_positions(positions_result)
 
             # Update NLV display
             if self._nlv_label:
@@ -312,21 +312,21 @@ class HeaderMetrics:
                         leverage_text += "*"  # Indicate partial data
                     self._leverage_label.set_text(leverage_text)
 
-                    # Update color class
+                    # Update color class using single call with add/remove
                     new_class = self._get_leverage_color_class(leverage)
                     if self._current_leverage_class != new_class:
-                        if self._current_leverage_class:
-                            self._leverage_label.classes(
-                                remove=self._current_leverage_class
-                            )
-                        self._leverage_label.classes(new_class)
+                        self._leverage_label.classes(
+                            add=new_class,
+                            remove=self._current_leverage_class or "",
+                        )
                         self._current_leverage_class = new_class
                 else:
                     self._leverage_label.set_text("--")
-                    # Reset to neutral color
-                    if self._current_leverage_class:
-                        self._leverage_label.classes(remove=self._current_leverage_class)
-                    self._leverage_label.classes("bg-gray-600 text-white")
+                    # Reset to neutral color using single call with add/remove
+                    self._leverage_label.classes(
+                        add="bg-gray-600 text-white",
+                        remove=self._current_leverage_class or "",
+                    )
                     self._current_leverage_class = "bg-gray-600 text-white"
 
             # Calculate and update day change
@@ -341,14 +341,14 @@ class HeaderMetrics:
                     _format_day_change(day_change, day_change_pct)
                 )
 
-                # Color based on positive/negative
+                # Color based on positive/negative using consistent add/remove pattern
                 if day_change >= 0:
                     self._day_change_label.classes(
-                        "text-green-400", remove="text-red-400"
+                        add="text-green-400", remove="text-red-400"
                     )
                 else:
                     self._day_change_label.classes(
-                        "text-red-400", remove="text-green-400"
+                        add="text-red-400", remove="text-green-400"
                     )
             elif self._day_change_label:
                 self._day_change_label.set_text("--")

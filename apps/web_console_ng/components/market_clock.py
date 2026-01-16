@@ -75,30 +75,36 @@ class MarketClock:
                 next_transition = MarketHours.get_next_transition(exchange, now=current_utc)
                 delta = MarketHours.time_to_next_transition(exchange, now=current_utc)
 
+                # All possible color classes to remove when switching states
+                _remove_colors = (
+                    "bg-slate-700 bg-blue-600 bg-green-600 bg-yellow-500 bg-gray-600 "
+                    "text-white text-black"
+                )
+
                 if exchange.upper() == "CRYPTO":
                     label.set_text("CRYPTO: 24/7")
-                    label.classes("bg-blue-600 text-white", remove="bg-slate-700")
+                    label.classes(add="bg-blue-600 text-white", remove=_remove_colors)
                     continue
 
                 if state == SessionState.OPEN:
                     countdown = _format_timedelta(delta) if delta else "--"
                     label.set_text(f"{exchange}: OPEN · Closes in {countdown}")
-                    label.classes("bg-green-600 text-white", remove="bg-slate-700")
+                    label.classes(add="bg-green-600 text-white", remove=_remove_colors)
                 elif state == SessionState.PRE_MARKET:
                     countdown = _format_timedelta(delta) if delta else "--"
                     label.set_text(f"{exchange}: PRE-MKT · Opens in {countdown}")
-                    label.classes("bg-yellow-500 text-black", remove="bg-slate-700")
+                    label.classes(add="bg-yellow-500 text-black", remove=_remove_colors)
                 elif state == SessionState.POST_MARKET:
                     countdown = _format_timedelta(delta) if delta else "--"
                     label.set_text(f"{exchange}: POST-MKT · Closes in {countdown}")
-                    label.classes("bg-yellow-500 text-black", remove="bg-slate-700")
+                    label.classes(add="bg-yellow-500 text-black", remove=_remove_colors)
                 else:
                     if next_transition is not None:
                         open_time = _format_time_label(next_transition)
                         label.set_text(f"{exchange}: CLOSED · Opens {open_time}")
                     else:
                         label.set_text(f"{exchange}: CLOSED")
-                    label.classes("bg-gray-600 text-white", remove="bg-slate-700")
+                    label.classes(add="bg-gray-600 text-white", remove=_remove_colors)
 
                 if next_transition is not None:
                     label.tooltip(
@@ -113,7 +119,12 @@ class MarketClock:
                     extra={"exchange": exchange, "error": type(exc).__name__},
                 )
                 label.set_text(f"{exchange}: --")
-                label.classes("bg-gray-600 text-white", remove="bg-slate-700")
+                # Use same removal pattern for error state
+                _remove_colors_err = (
+                    "bg-slate-700 bg-blue-600 bg-green-600 bg-yellow-500 bg-gray-600 "
+                    "text-white text-black"
+                )
+                label.classes(add="bg-gray-600 text-white", remove=_remove_colors_err)
 
         self._last_update = now_monotonic
 

@@ -326,6 +326,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         status_poll_lock = asyncio.Lock()
 
+        def reset_latency_badge() -> None:
+            """Reset latency badge to disconnected state."""
+            latency_badge.set_text("--")
+            latency_badge.classes(
+                add="bg-gray-500 text-white",
+                remove="bg-green-600 bg-orange-500 bg-red-600",
+            )
+            latency_badge.tooltip("API Latency: --")
+
         def sync_connection_state() -> None:
             nonlocal last_connection_state, last_read_only
             state_value = connection_monitor.get_connection_state().value
@@ -354,12 +363,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             async with status_poll_lock:
                 if not connection_monitor.should_attempt():
                     connection_monitor.start_reconnect()
-                    latency_badge.set_text("--")
-                    latency_badge.classes(
-                        "bg-gray-500 text-white",
-                        remove="bg-green-600 bg-orange-500 bg-red-600",
-                    )
-                    latency_badge.tooltip("API Latency: --")
+                    reset_latency_badge()
                     try:
                         market_clock.update()
                     except Exception as e:
@@ -495,12 +499,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "Latency monitor update failed",
                         extra={"user_id": user_id, "error": type(e).__name__},
                     )
-                    latency_badge.set_text("--")
-                    latency_badge.classes(
-                        "bg-gray-500 text-white",
-                        remove="bg-green-600 bg-orange-500 bg-red-600",
-                    )
-                    latency_badge.tooltip("API Latency: --")
+                    reset_latency_badge()
 
                 try:
                     market_clock.update()
