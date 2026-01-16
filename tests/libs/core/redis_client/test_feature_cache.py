@@ -371,3 +371,191 @@ class TestFeatureCacheEndToEnd:
             mock_redis.get.return_value = json.dumps(features_map[date])
             result = cache.get("AAPL", date)
             assert result == features_map[date]
+"""
+P0 Coverage Tests for FeatureCache - Additional branch coverage to reach 95%+ target.
+
+Missing branches from coverage report (71% → 95%):
+- Lines 227-256: mget() method (batch retrieval with multiple symbols)
+- Line 321: __repr__() method
+"""
+
+import json
+from unittest.mock import Mock, patch
+
+import pytest
+from redis.exceptions import RedisError
+
+from libs.core.redis_client import FeatureCache, RedisClient
+
+
+class TestFeatureCacheMget:
+    """Tests for mget() batch retrieval method."""
+
+    def test_mget_empty_symbols_list(self):
+        """Test mget() with empty symbols list returns empty dict."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client)
+
+            # Empty symbols list should return empty dict without calling Redis
+            result = cache.mget([], "2025-01-17")
+
+            assert result == {}
+            mock_client.mget.assert_not_called()
+
+    def test_mget_all_hits(self):
+        """Test mget() with all cache hits."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+
+            # Mock MGET returning features for all symbols
+            features_aapl = {"feature_1": 0.5, "feature_2": 0.3}
+            features_msft = {"feature_1": 0.7, "feature_2": 0.4}
+            features_googl = {"feature_1": 0.6, "feature_2": 0.2}
+
+            mock_client.mget.return_value = [
+                json.dumps(features_aapl),
+                json.dumps(features_msft),
+                json.dumps(features_googl),
+            ]
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client)
+
+            # Request features for 3 symbols
+            result = cache.mget(["AAPL", "MSFT", "GOOGL"], "2025-01-17")
+
+            # Verify all symbols returned with features
+            assert len(result) == 3
+            assert result["AAPL"] == features_aapl
+            assert result["MSFT"] == features_msft
+            assert result["GOOGL"] == features_googl
+
+            # Verify mget was called with correct keys
+            mock_client.mget.assert_called_once()
+            keys = mock_client.mget.call_args[0][0]
+            assert keys == [
+                "features:AAPL:2025-01-17",
+                "features:MSFT:2025-01-17",
+                "features:GOOGL:2025-01-17",
+            ]
+
+    def test_mget_mixed_hits_and_misses(self):
+        """Test mget() with some hits and some misses."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+
+            # Mock MGET returning some hits and some misses
+            features_aapl = {"feature_1": 0.5}
+            mock_client.mget.return_value = [
+                json.dumps(features_aapl),  # AAPL: hit
+                None,  # MSFT: miss
+                None,  # GOOGL: miss
+            ]
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client)
+
+            # Request features for 3 symbols
+            result = cache.mget(["AAPL", "MSFT", "GOOGL"], "2025-01-17")
+
+            # Verify mixed results
+            assert len(result) == 3
+            assert result["AAPL"] == features_aapl
+            assert result["MSFT"] is None
+            assert result["GOOGL"] is None
+
+    def test_mget_invalid_json_in_cache(self):
+        """Test mget() handles invalid JSON gracefully."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+
+            # Mock MGET returning invalid JSON for second symbol
+            features_aapl = {"feature_1": 0.5}
+            mock_client.mget.return_value = [
+                json.dumps(features_aapl),  # AAPL: valid JSON
+                "invalid-json-{",  # MSFT: invalid JSON
+                None,  # GOOGL: miss
+            ]
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client)
+
+            # Request features for 3 symbols
+            result = cache.mget(["AAPL", "MSFT", "GOOGL"], "2025-01-17")
+
+            # Verify AAPL has features, MSFT is None (invalid JSON), GOOGL is None (miss)
+            assert len(result) == 3
+            assert result["AAPL"] == features_aapl
+            assert result["MSFT"] is None  # Invalid JSON treated as None
+            assert result["GOOGL"] is None
+
+    def test_mget_redis_error(self):
+        """Test mget() handles RedisError gracefully (returns all None)."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+
+            # Mock MGET raising RedisError
+            mock_client.mget.side_effect = RedisError("MGET failed")
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client)
+
+            # Request features for 3 symbols
+            result = cache.mget(["AAPL", "MSFT", "GOOGL"], "2025-01-17")
+
+            # Verify graceful degradation: all symbols return None
+            assert len(result) == 3
+            assert result["AAPL"] is None
+            assert result["MSFT"] is None
+            assert result["GOOGL"] is None
+
+
+class TestFeatureCacheRepr:
+    """Tests for __repr__() method."""
+
+    def test_repr_includes_ttl_and_prefix(self):
+        """Test __repr__() returns formatted string with ttl and prefix."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client, ttl=7200, prefix="custom_prefix")
+
+            repr_str = repr(cache)
+
+            # Verify repr includes ttl and prefix
+            assert "FeatureCache" in repr_str
+            assert "7200s" in repr_str
+            assert "custom_prefix" in repr_str
+
+    def test_repr_default_params(self):
+        """Test __repr__() with default parameters."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_redis_class.return_value = mock_client
+
+            redis_client = RedisClient()
+            cache = FeatureCache(redis_client)  # Default ttl=3600, prefix="features"
+
+            repr_str = repr(cache)
+
+            # Verify repr includes default values
+            assert "FeatureCache" in repr_str
+            assert "3600s" in repr_str
+            assert "features" in repr_str

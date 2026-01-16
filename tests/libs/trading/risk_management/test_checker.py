@@ -533,3 +533,378 @@ class TestValidateOrderEdgeCases:
         assert is_valid is False
         assert "Circuit breaker" in reason
         assert "blacklist" not in reason.lower()
+"""
+P0 Coverage Tests for RiskChecker - Additional branch coverage to reach 95%+ target.
+
+Missing branches from coverage report (75% → 95%):
+- Line 215->229: Position size limit check (when _skip_position_limit=False)
+- Lines 408-449: validate_order_with_reservation method
+- Lines 468-473: confirm_reservation method
+- Lines 493-498: release_reservation method
+"""
+
+from decimal import Decimal
+from unittest.mock import Mock
+
+import pytest
+
+from libs.trading.risk_management.breaker import CircuitBreaker, CircuitBreakerState
+from libs.trading.risk_management.checker import RiskChecker
+from libs.trading.risk_management.config import PositionLimits, PortfolioLimits, RiskConfig
+from libs.trading.risk_management.kill_switch import KillSwitch
+from libs.trading.risk_management.position_reservation import (
+    PositionReservation,
+    ReservationResult,
+)
+
+
+class TestRiskCheckerPositionReservation:
+    """Tests for atomic position reservation integration."""
+
+    @pytest.fixture()
+    def mock_breaker(self):
+        """Create mock circuit breaker."""
+        breaker = Mock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        breaker.get_trip_reason.return_value = None
+        return breaker
+
+    @pytest.fixture()
+    def mock_position_reservation(self):
+        """Create mock position reservation."""
+        return Mock(spec=PositionReservation)
+
+    @pytest.fixture()
+    def config(self):
+        """Create risk config."""
+        return RiskConfig(
+            position_limits=PositionLimits(
+                max_position_size=1000, max_position_pct=Decimal("0.2")
+            ),
+            portfolio_limits=PortfolioLimits(
+                max_total_notional=Decimal("100000.00"),
+                max_long_exposure=Decimal("80000.00"),
+                max_short_exposure=Decimal("20000.00"),
+            ),
+            blacklist=[],
+        )
+
+    def test_validate_order_with_reservation_success(
+        self, config, mock_breaker, mock_position_reservation
+    ):
+        """Test validate_order_with_reservation when all checks pass."""
+        # Setup successful reservation
+        reservation_result = ReservationResult(
+            success=True,
+            token="test-token-123",
+            reason="",
+            previous_position=0,
+            new_position=100,
+        )
+        mock_position_reservation.reserve.return_value = reservation_result
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Validate order with reservation
+        is_valid, reason, result = checker.validate_order_with_reservation(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        # Verify success
+        assert is_valid is True
+        assert reason == ""
+        assert result is not None
+        assert result.success is True
+        assert result.token == "test-token-123"
+
+        # Verify reservation was attempted with correct parameters
+        mock_position_reservation.reserve.assert_called_once_with(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            max_limit=1000,  # config.position_limits.max_position_size
+            current_position=0,
+        )
+
+    def test_validate_order_with_reservation_breaker_tripped(
+        self, config, mock_breaker, mock_position_reservation
+    ):
+        """Test validate_order_with_reservation when circuit breaker tripped."""
+        # Circuit breaker tripped
+        mock_breaker.is_tripped.return_value = True
+        mock_breaker.get_trip_reason.return_value = "DAILY_LOSS_EXCEEDED"
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Validate order with reservation
+        is_valid, reason, result = checker.validate_order_with_reservation(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        # Verify blocked by circuit breaker (no reservation attempted)
+        assert is_valid is False
+        assert "Circuit breaker TRIPPED" in reason
+        assert result is None
+
+        # Verify reservation was NOT attempted
+        mock_position_reservation.reserve.assert_not_called()
+
+    def test_validate_order_with_reservation_blacklist(
+        self, config, mock_breaker, mock_position_reservation
+    ):
+        """Test validate_order_with_reservation when symbol blacklisted."""
+        # Blacklist AAPL
+        config.blacklist = ["AAPL"]
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Validate order with reservation
+        is_valid, reason, result = checker.validate_order_with_reservation(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        # Verify blocked by blacklist (no reservation attempted)
+        assert is_valid is False
+        assert "blacklisted" in reason
+        assert result is None
+
+        # Verify reservation was NOT attempted
+        mock_position_reservation.reserve.assert_not_called()
+
+    def test_validate_order_with_reservation_reservation_failed(
+        self, config, mock_breaker, mock_position_reservation
+    ):
+        """Test validate_order_with_reservation when reservation fails."""
+        # Setup failed reservation
+        reservation_result = ReservationResult(
+            success=False,
+            token=None,
+            reason="Position limit exceeded: 1100 > 1000",
+            previous_position=1000,
+            new_position=1100,
+        )
+        mock_position_reservation.reserve.return_value = reservation_result
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Validate order with reservation
+        is_valid, reason, result = checker.validate_order_with_reservation(
+            symbol="AAPL", side="buy", qty=100, current_position=1000
+        )
+
+        # Verify blocked by reservation failure
+        assert is_valid is False
+        assert "Position limit exceeded" in reason
+        assert result is not None
+        assert result.success is False
+
+        # Verify reservation was attempted
+        mock_position_reservation.reserve.assert_called_once()
+
+    def test_validate_order_with_reservation_no_reservation_configured(
+        self, config, mock_breaker
+    ):
+        """Test validate_order_with_reservation when position_reservation is None."""
+        # Checker without position reservation
+        checker = RiskChecker(config=config, breaker=mock_breaker, position_reservation=None)
+
+        # Validate order with reservation
+        is_valid, reason, result = checker.validate_order_with_reservation(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        # Verify success (fallback to standard validation)
+        assert is_valid is True
+        assert reason == ""
+        assert result is None  # No reservation result when not configured
+
+    def test_validate_order_with_reservation_with_price_check(
+        self, config, mock_breaker, mock_position_reservation
+    ):
+        """Test validate_order_with_reservation with price and portfolio checks."""
+        # Setup successful reservation
+        reservation_result = ReservationResult(
+            success=True,
+            token="test-token-456",
+            reason="",
+            previous_position=0,
+            new_position=25,
+        )
+        mock_position_reservation.reserve.return_value = reservation_result
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Validate order with price and portfolio value
+        # 25 shares * $200/share = $5,000 notional, 10% of $50,000 portfolio (within 20% limit)
+        is_valid, reason, result = checker.validate_order_with_reservation(
+            symbol="AAPL",
+            side="buy",
+            qty=25,
+            current_position=0,
+            current_price=Decimal("200.00"),
+            portfolio_value=Decimal("50000.00"),
+        )
+
+        # Verify success (25 * $200 = $5k notional, 10% of $50k portfolio, within 20% limit)
+        assert is_valid is True
+        assert reason == ""
+        assert result is not None
+        assert result.success is True
+
+
+class TestRiskCheckerConfirmRelease:
+    """Tests for confirm and release reservation methods."""
+
+    @pytest.fixture()
+    def mock_breaker(self):
+        """Create mock circuit breaker."""
+        breaker = Mock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        return breaker
+
+    @pytest.fixture()
+    def mock_position_reservation(self):
+        """Create mock position reservation."""
+        return Mock(spec=PositionReservation)
+
+    @pytest.fixture()
+    def config(self):
+        """Create risk config."""
+        return RiskConfig()
+
+    def test_confirm_reservation_success(self, config, mock_breaker, mock_position_reservation):
+        """Test confirm_reservation when successful."""
+        # Setup successful confirm
+        confirm_result = ReservationResult(
+            success=True,
+            token="test-token",
+            reason="",
+            previous_position=0,
+            new_position=100,
+        )
+        mock_position_reservation.confirm.return_value = confirm_result
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Confirm reservation
+        result = checker.confirm_reservation("AAPL", "test-token")
+
+        # Verify success
+        assert result is True
+        mock_position_reservation.confirm.assert_called_once_with("AAPL", "test-token")
+
+    def test_confirm_reservation_no_position_reservation(self, config, mock_breaker):
+        """Test confirm_reservation when position_reservation is None."""
+        checker = RiskChecker(config=config, breaker=mock_breaker, position_reservation=None)
+
+        # Confirm reservation (should return False)
+        result = checker.confirm_reservation("AAPL", "test-token")
+
+        assert result is False
+
+    def test_release_reservation_success(self, config, mock_breaker, mock_position_reservation):
+        """Test release_reservation when successful."""
+        # Setup successful release
+        release_result = ReservationResult(
+            success=True,
+            token="test-token",
+            reason="",
+            previous_position=100,
+            new_position=0,
+        )
+        mock_position_reservation.release.return_value = release_result
+
+        checker = RiskChecker(
+            config=config,
+            breaker=mock_breaker,
+            position_reservation=mock_position_reservation,
+        )
+
+        # Release reservation
+        result = checker.release_reservation("AAPL", "test-token")
+
+        # Verify success
+        assert result is True
+        mock_position_reservation.release.assert_called_once_with("AAPL", "test-token")
+
+    def test_release_reservation_no_position_reservation(self, config, mock_breaker):
+        """Test release_reservation when position_reservation is None."""
+        checker = RiskChecker(config=config, breaker=mock_breaker, position_reservation=None)
+
+        # Release reservation (should return False)
+        result = checker.release_reservation("AAPL", "test-token")
+
+        assert result is False
+
+
+class TestRiskCheckerPositionLimitSkip:
+    """Tests for position limit skip behavior when using atomic reservation."""
+
+    @pytest.fixture()
+    def mock_breaker(self):
+        """Create mock circuit breaker."""
+        breaker = Mock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        return breaker
+
+    @pytest.fixture()
+    def config(self):
+        """Create risk config with low position limit."""
+        return RiskConfig(
+            position_limits=PositionLimits(max_position_size=50, max_position_pct=Decimal("0.2"))
+        )
+
+    def test_position_limit_not_skipped_without_reservation(self, config, mock_breaker):
+        """Test position limit check enforced when no reservation configured."""
+        checker = RiskChecker(config=config, breaker=mock_breaker, position_reservation=None)
+
+        # Order would exceed position limit (100 > 50)
+        is_valid, reason = checker.validate_order(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        # Verify blocked by position limit
+        assert is_valid is False
+        assert "Position limit exceeded" in reason
+        assert "100 shares > 50 max" in reason
+
+    def test_position_limit_skipped_in_validate_order_with_skip_flag(self, config, mock_breaker):
+        """Test position limit check skipped when _skip_position_limit=True."""
+        checker = RiskChecker(config=config, breaker=mock_breaker, position_reservation=None)
+
+        # Order would exceed position limit (100 > 50), but skip flag set
+        is_valid, reason = checker.validate_order(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            current_position=0,
+            _skip_position_limit=True,
+        )
+
+        # Verify NOT blocked by position limit (check was skipped)
+        assert is_valid is True
+        assert reason == ""

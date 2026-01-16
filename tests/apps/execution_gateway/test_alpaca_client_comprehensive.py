@@ -821,3 +821,234 @@ class TestAlpacaExecutorLatestQuotes:
 
         assert "AAPL" in result
         assert executor.data_client.get_stock_latest_quote.call_count == 3
+"""
+P0 Coverage Tests for AlpacaExecutor - Additional branch coverage to reach 95%+ target.
+
+Missing branches from coverage report (66% → 95%):
+- Lines 260-272: Network error handling in submit_order (httpx timeouts)
+- Lines 274-288: Data validation errors in submit_order
+"""
+
+import json
+from decimal import Decimal
+from unittest.mock import Mock, patch
+
+import httpx
+import pytest
+
+from apps.execution_gateway.alpaca_client import (
+    AlpacaConnectionError,
+    AlpacaExecutor,
+    AlpacaRejectionError,
+    AlpacaValidationError,
+)
+from apps.execution_gateway.schemas import OrderRequest
+
+
+class TestAlpacaExecutorNetworkErrors:
+    """Tests for network error handling in submit_order."""
+
+    def test_submit_order_connect_timeout(self):
+        """Test submit_order handles httpx.ConnectTimeout."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class:
+            # Mock trading client
+            mock_client = Mock()
+            mock_client.submit_order.side_effect = httpx.ConnectTimeout("Connection timeout")
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
+
+            # Should raise AlpacaConnectionError
+            with pytest.raises(AlpacaConnectionError, match="Network error"):
+                executor.submit_order(order, "test-order-123")
+
+    def test_submit_order_read_timeout(self):
+        """Test submit_order handles httpx.ReadTimeout."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class:
+            # Mock trading client
+            mock_client = Mock()
+            mock_client.submit_order.side_effect = httpx.ReadTimeout("Read timeout")
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
+
+            # Should raise AlpacaConnectionError
+            with pytest.raises(AlpacaConnectionError, match="Network error"):
+                executor.submit_order(order, "test-order-123")
+
+    def test_submit_order_network_error(self):
+        """Test submit_order handles httpx.NetworkError."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class:
+            # Mock trading client
+            mock_client = Mock()
+            mock_client.submit_order.side_effect = httpx.NetworkError("Network unreachable")
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
+
+            # Should raise AlpacaConnectionError
+            with pytest.raises(AlpacaConnectionError, match="Network error"):
+                executor.submit_order(order, "test-order-123")
+
+
+class TestAlpacaExecutorDataValidationErrors:
+    """Tests for data validation error handling."""
+
+    def test_submit_order_json_decode_error(self):
+        """Test submit_order handles json.JSONDecodeError."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class:
+            # Mock trading client
+            mock_client = Mock()
+            mock_client.submit_order.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
+
+            # Should raise AlpacaValidationError
+            with pytest.raises(AlpacaValidationError, match="Data validation error"):
+                executor.submit_order(order, "test-order-123")
+
+    def test_submit_order_key_error(self):
+        """Test submit_order handles KeyError (missing field in response)."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class:
+            # Mock trading client
+            mock_client = Mock()
+            mock_client.submit_order.side_effect = KeyError("missing_field")
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
+
+            # Should raise AlpacaValidationError
+            with pytest.raises(AlpacaValidationError, match="Data validation error"):
+                executor.submit_order(order, "test-order-123")
+
+
+class TestAlpacaExecutorGetOrderErrors:
+    """Tests for get_order_by_client_id error handling."""
+
+    def test_get_order_by_client_id_api_error_404(self):
+        """Test get_order_by_client_id returns None for 404 errors."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class, patch(
+            "apps.execution_gateway.alpaca_client.AlpacaAPIError", Exception
+        ):
+            # Mock trading client
+            mock_client = Mock()
+            # Mock 404 error
+            mock_error = Exception("Order not found")
+            mock_error.status_code = 404
+            mock_client.get_order_by_client_id.side_effect = mock_error
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            # Should return None for 404
+            result = executor.get_order_by_client_id("nonexistent-order")
+            assert result is None
+
+    def test_get_order_by_client_id_api_error_non_404(self):
+        """Test get_order_by_client_id raises AlpacaConnectionError for non-404 errors."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class, patch(
+            "apps.execution_gateway.alpaca_client.AlpacaAPIError", Exception
+        ):
+            # Mock trading client
+            mock_client = Mock()
+            # Mock non-404 error
+            mock_error = Exception("API error")
+            mock_error.status_code = 500
+            mock_client.get_order_by_client_id.side_effect = mock_error
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            # Should raise AlpacaConnectionError for non-404
+            with pytest.raises(AlpacaConnectionError, match="Error fetching order"):
+                executor.get_order_by_client_id("test-order")
+
+
+class TestAlpacaExecutorPositionErrors:
+    """Tests for position-related error handling."""
+
+    def test_get_open_position_api_error_404(self):
+        """Test get_open_position returns None for 404 errors."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class, patch(
+            "apps.execution_gateway.alpaca_client.AlpacaAPIError", Exception
+        ):
+            # Mock trading client
+            mock_client = Mock()
+            # Mock 404 error
+            mock_error = Exception("Position not found")
+            mock_error.status_code = 404
+            mock_client.get_open_position.side_effect = mock_error
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            # Should return None for 404
+            result = executor.get_open_position("AAPL")
+            assert result is None
+
+
+class TestAlpacaExecutorAccountInfoErrors:
+    """Tests for get_account_info error handling."""
+
+    def test_get_account_info_api_error(self):
+        """Test get_account_info handles AlpacaAPIError."""
+        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), patch(
+            "apps.execution_gateway.alpaca_client.TradingClient"
+        ) as mock_trading_client_class, patch(
+            "apps.execution_gateway.alpaca_client.AlpacaAPIError", Exception
+        ):
+            # Mock trading client
+            mock_client = Mock()
+            mock_client.get_account.side_effect = Exception("Account unavailable")
+            mock_trading_client_class.return_value = mock_client
+
+            executor = AlpacaExecutor(
+                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+            )
+
+            # Should return None on error
+            result = executor.get_account_info()
+            assert result is None

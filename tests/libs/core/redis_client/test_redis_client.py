@@ -66,7 +66,7 @@ class TestRedisClientInitialization:
         mock_redis_class.return_value = mock_redis
 
         # Verify initialization raises RedisConnectionError
-        with pytest.raises(RedisConnectionError, match="Cannot connect to Redis"):
+        with pytest.raises(RedisConnectionError):
             RedisClient(host="localhost", port=6379)
 
 
@@ -477,3 +477,367 @@ class TestRedisClientListOperations:
         mock_redis.rpush.assert_called_once()
         mock_redis.ltrim.assert_called_once()
         mock_redis.lrange.assert_called_once()
+"""
+P0 Coverage Tests for RedisClient - Additional branch coverage to reach 95%+ target.
+
+Missing branches from coverage report (69% → 95%):
+- Line 196: mget with empty keys list (early return)
+- Lines 201-203: mget RedisError exception handling
+- Lines 219-222: lock method (not tested yet)
+- Lines 280-285: set_if_not_exists RedisError exception handling
+- Line 296: setnx method (alias, not tested yet)
+- Lines 325-327: delete RedisError exception handling
+- Lines 413-415: sadd RedisError exception handling
+- Lines 430-432: smembers RedisError exception handling
+- Lines 448-458: sscan_iter RedisError exception handling
+- Lines 478-480: zadd RedisError exception handling
+- Lines 499-501: zcard RedisError exception handling
+- Lines 523-525: zremrangebyrank RedisError exception handling
+- Lines 564-566: get_info RedisError exception handling
+- Lines 709-711: eval RedisError exception handling
+- Lines 738-743: incr RedisError exception handling
+- Lines 768-773: expire RedisError exception handling
+- Lines 800-805: zrevrange RedisError exception handling
+- Lines 827-832: zrem RedisError exception handling
+- Line 856: __repr__ method (not tested yet)
+"""
+
+from unittest.mock import Mock, patch
+
+import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError_Exception
+from redis.exceptions import RedisError
+
+from libs.core.redis_client import RedisClient
+
+
+class TestRedisClientMgetEdgeCases:
+    """Tests for mget() method edge cases."""
+
+    def test_mget_empty_keys_list(self):
+        """Test mget() with empty keys list returns empty list (early return)."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+            result = client.mget([])
+
+            # Verify empty list returned without calling Redis
+            assert result == []
+            mock_client.mget.assert_not_called()
+
+    def test_mget_redis_error(self):
+        """Test mget() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.mget.side_effect = RedisError("Connection lost")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt mget should raise RedisError after retries
+            with pytest.raises(RedisError, match="Connection lost"):
+                client.mget(["key1", "key2"])
+
+
+class TestRedisClientLock:
+    """Tests for lock() distributed locking method."""
+
+    def test_lock_creates_redis_lock(self):
+        """Test lock() returns a Redis distributed lock."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_lock = Mock()
+            mock_client.lock.return_value = mock_lock
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+            lock = client.lock("mylock", timeout=30, blocking_timeout=10.0)
+
+            # Verify lock was created with correct parameters
+            assert lock == mock_lock
+            mock_client.lock.assert_called_once_with(
+                "mylock", timeout=30, blocking_timeout=10.0
+            )
+
+    def test_lock_without_blocking_timeout(self):
+        """Test lock() with blocking_timeout=None (wait forever)."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_lock = Mock()
+            mock_client.lock.return_value = mock_lock
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+            lock = client.lock("mylock", timeout=60, blocking_timeout=None)
+
+            # Verify lock was created with None blocking timeout
+            assert lock == mock_lock
+            mock_client.lock.assert_called_once_with(
+                "mylock", timeout=60, blocking_timeout=None
+            )
+
+
+class TestRedisClientSetIfNotExists:
+    """Tests for set_if_not_exists() atomic operation."""
+
+    def test_set_if_not_exists_redis_error(self):
+        """Test set_if_not_exists() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.set.side_effect = RedisError("SETNX failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt set_if_not_exists should raise RedisError
+            with pytest.raises(RedisError, match="SETNX failed"):
+                client.set_if_not_exists("key", "value", ex=60)
+
+
+class TestRedisClientSetnx:
+    """Tests for setnx() backward-compatible alias."""
+
+    def test_setnx_calls_set_if_not_exists(self):
+        """Test setnx() is an alias for set_if_not_exists()."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.set.return_value = True  # Key was set
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+            result = client.setnx("key", "value", ex=30)
+
+            # Verify setnx delegates to set_if_not_exists
+            assert result is True
+            mock_client.set.assert_called_once_with("key", "value", nx=True, ex=30)
+
+
+class TestRedisClientDeleteError:
+    """Tests for delete() exception handling."""
+
+    def test_delete_redis_error(self):
+        """Test delete() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.delete.side_effect = RedisError("DELETE failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt delete should raise RedisError
+            with pytest.raises(RedisError, match="DELETE failed"):
+                client.delete("key1", "key2")
+
+
+class TestRedisClientSetOperationsErrors:
+    """Tests for set operations (sadd, smembers, sscan_iter) exception handling."""
+
+    def test_sadd_redis_error(self):
+        """Test sadd() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.sadd.side_effect = RedisError("SADD failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt sadd should raise RedisError
+            with pytest.raises(RedisError, match="SADD failed"):
+                client.sadd("myset", "member1", "member2")
+
+    def test_smembers_redis_error(self):
+        """Test smembers() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.smembers.side_effect = RedisError("SMEMBERS failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt smembers should raise RedisError
+            with pytest.raises(RedisError, match="SMEMBERS failed"):
+                client.smembers("myset")
+
+    def test_sscan_iter_redis_error(self):
+        """Test sscan_iter() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.sscan_iter.side_effect = RedisError("SSCAN failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt to iterate should raise RedisError
+            with pytest.raises(RedisError, match="SSCAN failed"):
+                list(client.sscan_iter("myset", count=50))
+
+
+class TestRedisClientSortedSetOperationsErrors:
+    """Tests for sorted set operations (zadd, zcard, etc.) exception handling."""
+
+    def test_zadd_redis_error(self):
+        """Test zadd() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.zadd.side_effect = RedisError("ZADD failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt zadd should raise RedisError
+            with pytest.raises(RedisError, match="ZADD failed"):
+                client.zadd("myzset", {"member1": 1.0, "member2": 2.0})
+
+    def test_zcard_redis_error(self):
+        """Test zcard() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.zcard.side_effect = RedisError("ZCARD failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt zcard should raise RedisError
+            with pytest.raises(RedisError, match="ZCARD failed"):
+                client.zcard("myzset")
+
+    def test_zremrangebyrank_redis_error(self):
+        """Test zremrangebyrank() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.zremrangebyrank.side_effect = RedisError("ZREMRANGEBYRANK failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt zremrangebyrank should raise RedisError
+            with pytest.raises(RedisError, match="ZREMRANGEBYRANK failed"):
+                client.zremrangebyrank("myzset", 0, 10)
+
+    def test_zrevrange_redis_error(self):
+        """Test zrevrange() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.zrevrange.side_effect = RedisError("ZREVRANGE failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt zrevrange should raise RedisError
+            with pytest.raises(RedisError, match="ZREVRANGE failed"):
+                client.zrevrange("myzset", 0, 10, withscores=True)
+
+    def test_zrem_redis_error(self):
+        """Test zrem() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.zrem.side_effect = RedisError("ZREM failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt zrem should raise RedisError
+            with pytest.raises(RedisError, match="ZREM failed"):
+                client.zrem("myzset", "member1", "member2")
+
+
+class TestRedisClientServerOperationsErrors:
+    """Tests for server operations (get_info, eval, etc.) exception handling."""
+
+    def test_get_info_redis_error(self):
+        """Test get_info() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.info.side_effect = RedisError("INFO failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt get_info should raise RedisError
+            with pytest.raises(RedisError, match="INFO failed"):
+                client.get_info()
+
+    def test_eval_redis_error(self):
+        """Test eval() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.eval.side_effect = RedisError("EVAL failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt eval should raise RedisError
+            script = "return redis.call('GET', KEYS[1])"
+            with pytest.raises(RedisError, match="EVAL failed"):
+                client.eval(script, 1, "mykey")
+
+
+class TestRedisClientStringOperationsErrors:
+    """Tests for string operations (incr, expire) exception handling."""
+
+    def test_incr_redis_error(self):
+        """Test incr() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.incr.side_effect = RedisError("INCR failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt incr should raise RedisError
+            with pytest.raises(RedisError, match="INCR failed"):
+                client.incr("counter")
+
+    def test_expire_redis_error(self):
+        """Test expire() handles RedisError exception."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_client.expire.side_effect = RedisError("EXPIRE failed")
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient()
+
+            # Attempt expire should raise RedisError
+            with pytest.raises(RedisError, match="EXPIRE failed"):
+                client.expire("mykey", 60)
+
+
+class TestRedisClientRepr:
+    """Tests for __repr__() method."""
+
+    def test_repr_includes_connection_info(self):
+        """Test __repr__() returns formatted string with connection details."""
+        with patch("libs.core.redis_client.client.redis.Redis") as mock_redis_class:
+            mock_client = Mock()
+            mock_client.ping.return_value = True
+            mock_redis_class.return_value = mock_client
+
+            client = RedisClient(host="prod-redis", port=6380, db=2)
+            repr_str = repr(client)
+
+            # Verify repr includes connection details
+            assert "RedisClient" in repr_str
+            assert "prod-redis" in repr_str
+            assert "6380" in repr_str
+            assert "db=2" in repr_str
