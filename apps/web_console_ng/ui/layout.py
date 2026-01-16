@@ -23,6 +23,11 @@ from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
 from apps.web_console_ng.core.grid_performance import get_all_monitors
 from apps.web_console_ng.core.latency_monitor import LatencyMonitor
 from apps.web_console_ng.ui.dark_theme import enable_dark_mode
+from apps.web_console_ng.ui.theme import (
+    CONNECTION_BADGE_REMOVE_CLASSES,
+    LATENCY_BADGE_REMOVE_CLASSES,
+    LATENCY_DISCONNECTED,
+)
 from apps.web_console_ng.utils.session import get_or_create_client_id
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
@@ -330,8 +335,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             """Reset latency badge to disconnected state."""
             latency_badge.set_text("--")
             latency_badge.classes(
-                add="bg-gray-500 text-white",
-                remove="bg-green-600 bg-orange-500 bg-red-600",
+                add=LATENCY_DISCONNECTED,
+                remove=LATENCY_BADGE_REMOVE_CLASSES,
             )
             latency_badge.tooltip("API Latency: --")
 
@@ -342,7 +347,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             connection_badge.set_text(connection_monitor.get_badge_text())
             connection_badge.classes(
                 connection_monitor.get_badge_class(),
-                remove="bg-green-500 bg-yellow-500 bg-red-500 bg-gray-500 text-white text-black",
+                remove=CONNECTION_BADGE_REMOVE_CLASSES,
             )
             app.storage.user["connection_state"] = state_value
             app.storage.user["read_only"] = read_only
@@ -491,7 +496,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     latency_badge.set_text(latency_monitor.format_display())
                     latency_badge.classes(
                         latency_monitor.get_status_color_class(),
-                        remove="bg-green-600 bg-orange-500 bg-red-600 bg-gray-500 text-white",
+                        remove=LATENCY_BADGE_REMOVE_CLASSES,
                     )
                     latency_badge.tooltip(latency_monitor.format_tooltip())
                 except Exception as e:

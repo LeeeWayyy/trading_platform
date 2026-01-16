@@ -15,6 +15,12 @@ from enum import Enum
 import httpx
 
 from apps.web_console_ng import config
+from apps.web_console_ng.ui.theme import (
+    LATENCY_DEGRADED,
+    LATENCY_DISCONNECTED,
+    LATENCY_GOOD,
+    LATENCY_POOR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +108,12 @@ class LatencyMonitor:
         """
         status = self.get_latency_status()
         if status == LatencyStatus.GOOD:
-            return "bg-green-600 text-white"
+            return LATENCY_GOOD
         if status == LatencyStatus.DEGRADED:
-            return "bg-orange-500 text-white"
+            return LATENCY_DEGRADED
         if status == LatencyStatus.POOR:
-            return "bg-red-600 text-white"
-        return "bg-gray-500 text-white"  # DISCONNECTED
+            return LATENCY_POOR
+        return LATENCY_DISCONNECTED
 
     def get_history(self) -> list[tuple[float, float]]:
         """Get historical latency measurements for debugging.

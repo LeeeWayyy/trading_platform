@@ -16,6 +16,15 @@ from zoneinfo import ZoneInfo
 
 from nicegui import app, ui
 
+from apps.web_console_ng.ui.theme import (
+    DAY_CHANGE_NEGATIVE,
+    DAY_CHANGE_POSITIVE,
+    LEVERAGE_GREEN,
+    LEVERAGE_NEUTRAL,
+    LEVERAGE_RED,
+    LEVERAGE_YELLOW,
+)
+
 if TYPE_CHECKING:
     from apps.web_console_ng.core.client import AsyncTradingClient
 
@@ -136,10 +145,10 @@ class HeaderMetrics:
     def _get_leverage_color_class(self, leverage: float) -> str:
         """Get the appropriate color class for leverage value."""
         if leverage < LEVERAGE_GREEN_MAX:
-            return "bg-green-600 text-white"
+            return LEVERAGE_GREEN
         if leverage < LEVERAGE_YELLOW_MAX:
-            return "bg-yellow-500 text-black"
-        return "bg-red-600 text-white"
+            return LEVERAGE_YELLOW
+        return LEVERAGE_RED
 
     def _extract_positions(self, positions_result: Any) -> list[dict[str, Any]]:
         """Extract positions list from API result.
@@ -324,10 +333,10 @@ class HeaderMetrics:
                     self._leverage_label.set_text("--")
                     # Reset to neutral color using single call with add/remove
                     self._leverage_label.classes(
-                        add="bg-gray-600 text-white",
+                        add=LEVERAGE_NEUTRAL,
                         remove=self._current_leverage_class or "",
                     )
-                    self._current_leverage_class = "bg-gray-600 text-white"
+                    self._current_leverage_class = LEVERAGE_NEUTRAL
 
             # Calculate and update day change
             if self._day_change_label and nlv > 0:
@@ -344,16 +353,18 @@ class HeaderMetrics:
                 # Color based on positive/negative using consistent add/remove pattern
                 if day_change >= 0:
                     self._day_change_label.classes(
-                        add="text-green-400", remove="text-red-400"
+                        add=DAY_CHANGE_POSITIVE, remove=DAY_CHANGE_NEGATIVE
                     )
                 else:
                     self._day_change_label.classes(
-                        add="text-red-400", remove="text-green-400"
+                        add=DAY_CHANGE_NEGATIVE, remove=DAY_CHANGE_POSITIVE
                     )
             elif self._day_change_label:
                 self._day_change_label.set_text("--")
                 # Clear any previous color classes when showing placeholder
-                self._day_change_label.classes(remove="text-green-400 text-red-400")
+                self._day_change_label.classes(
+                    remove=f"{DAY_CHANGE_POSITIVE} {DAY_CHANGE_NEGATIVE}"
+                )
 
             # Update successful - clear stale and record time
             self._clear_stale()

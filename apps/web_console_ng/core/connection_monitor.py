@@ -11,6 +11,14 @@ import logging
 import time
 from enum import Enum
 
+from apps.web_console_ng.ui.theme import (
+    CONNECTION_CONNECTED,
+    CONNECTION_DEGRADED,
+    CONNECTION_DISCONNECTED,
+    CONNECTION_RECONNECTING,
+    CONNECTION_STALE,
+)
+
 logger = logging.getLogger(__name__)
 
 # Defaults
@@ -186,15 +194,15 @@ class ConnectionMonitor:
             ConnectionState.CONNECTED,
             ConnectionState.DEGRADED,
         }:
-            return "bg-yellow-500 text-black"
+            return CONNECTION_STALE
 
         if self._state == ConnectionState.CONNECTED:
-            return "bg-green-500 text-white"
+            return CONNECTION_CONNECTED
         if self._state == ConnectionState.DEGRADED:
-            return "bg-yellow-500 text-black"
+            return CONNECTION_DEGRADED
         if self._state == ConnectionState.RECONNECTING:
-            return "bg-gray-500 text-white"
-        return "bg-red-500 text-white"
+            return CONNECTION_RECONNECTING
+        return CONNECTION_DISCONNECTED
 
 
 __all__ = [
