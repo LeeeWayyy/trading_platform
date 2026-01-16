@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-15 - Type annotation fix in scheduled_reports.py -->
+<!-- Last reviewed: 2026-01-16 - P6T2 Header/Status Bar components - latency monitor config import fix -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
@@ -100,6 +100,24 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 **Safety Pattern:**
 - Double-check pattern: verify kill switch state at both preview and confirmation.
 - Fail-closed: unknown states block action until verified.
+
+### Header & Status Bar (P6T2)
+**Purpose:** Always-visible trading health indicators and emergency state banner.
+
+**Behavior:**
+- Header shows NLV/leverage/day change, latency badge, connection status, and market clock.
+- Latency badge pings `/healthz` every 5 seconds and shows rolling latency quality.
+- Connection monitor tracks CONNECTED/DEGRADED/DISCONNECTED/RECONNECTING with stale-data warning.
+- Read-only mode activates on disconnect/reconnect and disables order submission/cancel/flatten.
+- Status bar shows `TRADING ACTIVE` (green) or `TRADING HALTED` (red) based on kill switch.
+
+**Components:**
+- `components/header_metrics.py` - NLV/Leverage/Day Change
+- `components/status_bar.py` - Persistent trading status bar
+- `components/market_clock.py` - Market session state + countdown
+- `core/latency_monitor.py` - API latency monitoring
+- `core/connection_monitor.py` - Connection state + read-only gating
+- `libs/common/market_hours.py` - Exchange session logic via `exchange_calendars`
 
 ### Manual Order Entry (P5T5)
 **Purpose:** Submit manual orders with safety checks and audit trail.
@@ -415,6 +433,36 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 **Access Control:**
 - Workspace persistence requires authenticated session.
 
+### Header Metrics Display (P6T2)
+**Purpose:** Compact header display for NLV, leverage ratio, and day change metrics.
+
+**Behavior:**
+- NLV (Net Liquidation Value) formatted with K/M/B suffixes.
+- Leverage ratio with color coding: green (<2x), yellow (2-3x), red (>3x).
+- Day change calculated from session baseline with +/- sign and percentage.
+- Metrics isolated from kill switch updates (separate try/except).
+- Stale indicator (opacity) after 30s without update.
+- Auth headers passed to all API calls for production compatibility.
+
+**Components:**
+- `components/header_metrics.py` - HeaderMetrics class with NLV, leverage, day change labels.
+
+**Data Sources:**
+- `GET /api/v1/account` for `portfolio_value` (NLV).
+- `GET /api/v1/positions` for position market values (leverage calculation).
+- Leverage = Sum(abs(market_value)) / NLV.
+- Day change = current NLV - baseline NLV (stored in `app.storage.user`).
+
+**Isolation Pattern:**
+- Metrics update runs AFTER kill switch/circuit breaker updates.
+- Errors/timeouts only mark metrics stale; never affect connection badge or kill switch.
+- Uses `asyncio.gather(return_exceptions=True)` for parallel account/positions fetch.
+- Wrapped in `asyncio.wait_for(timeout=4.0)` to prevent blocking poll lock.
+
+**Timezone Handling:**
+- Day baseline resets at 00:00 ET using `ZoneInfo("America/New_York")`.
+- Handles DST transitions automatically via `ZoneInfo`.
+
 ## Data Flow
 ```
 Browser
@@ -535,7 +583,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_services.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-14 (Web Console Migration: Updated imports in 13 files from apps.web_console.data/services to libs.web_console_data/libs.web_console_services)
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/utils/session.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`
+- **Last Updated:** 2026-01-15 (P6T2: Added HeaderMetrics component for NLV, leverage, and day change display)
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/utils/session.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/components/header_metrics.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`
 - **ADRs:** N/A
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence), P6T2 (Header Metrics - NLV, leverage, day change display)

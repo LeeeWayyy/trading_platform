@@ -1,5 +1,7 @@
 # common
 
+<!-- Last reviewed: 2026-01-16 - MarketHours type hint fix for pandas Timestamp.date() return -->
+
 ## Identity
 - **Type:** Library
 - **Port:** N/A
@@ -22,6 +24,8 @@
 | `validate_symbol` | symbol | bool | Validate stock symbol format. |
 | `validate_date` | date_str | bool | Validate date string format. |
 | `validate_email` | email | bool | Validate email address format. |
+| `MarketHours` | - | class | Market session state and timing service. |
+| `SessionState` | - | enum | Market session states (OPEN, PRE_MARKET, POST_MARKET, CLOSED). |
 
 ## Behavioral Contracts
 ### rate_limit(...)
@@ -41,6 +45,21 @@
 
 ### Validation utilities
 **Purpose:** Input validation for common data types (symbols, dates, emails).
+
+### MarketHours (P6T2)
+**Purpose:** Determine market session state and timing for trading UI components.
+
+**Features:**
+- Session state detection: OPEN, PRE_MARKET, POST_MARKET, CLOSED
+- Next transition time calculation
+- Support for NYSE/NASDAQ (via exchange_calendars) and crypto (24/7)
+- Timezone-aware calculations with US/Eastern
+
+**Methods:**
+- `get_session_state(exchange)` - Returns current SessionState enum
+- `get_next_transition(exchange)` - Returns datetime of next state change
+- `time_to_next_transition(exchange)` - Returns timedelta to next change
+- `is_trading_day(exchange, date)` - Returns bool for trading day check
 
 ### Invariants
 - Secrets must be fetched via shared manager to avoid backend duplication.
@@ -98,6 +117,20 @@ if not validate_email("user@example.com"):
     raise ValueError("Invalid email")
 ```
 
+### Example 5: Market hours service
+```python
+from libs.common.market_hours import MarketHours, SessionState
+
+market = MarketHours()
+state = market.get_session_state("NYSE")
+
+if state == SessionState.OPEN:
+    print("Market is open")
+elif state == SessionState.CLOSED:
+    next_open = market.get_next_transition("NYSE")
+    print(f"Market opens at {next_open}")
+```
+
 ## Edge Cases & Boundaries
 | Scenario | Input | Expected Behavior |
 |----------|-------|-------------------|
@@ -107,7 +140,7 @@ if not validate_email("user@example.com"):
 
 ## Dependencies
 - **Internal:** `libs.secrets`, `libs.platform.secrets`
-- **External:** Redis (rate limiting), PostgreSQL (database connections), psycopg (async/sync drivers)
+- **External:** Redis (rate limiting), PostgreSQL (database connections), psycopg (async/sync drivers), exchange_calendars (market hours)
 
 ## Configuration
 | Variable | Required | Default | Description |
@@ -136,6 +169,7 @@ if not validate_email("user@example.com"):
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-14
-- **Source Files:** `libs/core/common/__init__.py`, `libs/core/common/rate_limit_dependency.py`, `libs/core/common/secrets.py`, `libs/core/common/db.py`, `libs/core/common/db_pool.py`, `libs/core/common/sync_db_pool.py`, `libs/core/common/validators.py`
+- **Last Updated:** 2026-01-15 (P6T2: Added MarketHours service for market session state)
+- **Source Files:** `libs/core/common/__init__.py`, `libs/core/common/rate_limit_dependency.py`, `libs/core/common/secrets.py`, `libs/core/common/db.py`, `libs/core/common/db_pool.py`, `libs/core/common/sync_db_pool.py`, `libs/core/common/validators.py`, `libs/common/market_hours.py`
 - **ADRs:** N/A
+- **Tasks:** P6T2 (Market Clock & Session State)

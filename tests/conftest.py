@@ -25,6 +25,11 @@ import redis  # noqa: F401
 # Also import redis.exceptions to ensure it's available
 import redis.exceptions  # noqa: F401
 
+# Pre-import libs.common to avoid namespace conflict with libs.core.common
+# Python's import system can get confused when libs.core.common is imported first
+# which caches 'libs.core' and then importing 'libs.common' fails
+import libs.common  # noqa: F401
+
 
 def _create_mock_db_client() -> Mock:
     """Create a mock DatabaseClient for tests."""

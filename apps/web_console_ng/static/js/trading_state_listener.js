@@ -13,6 +13,8 @@
     const killSwitchState = detail.killSwitchState;
     const circuitBreaker = detail.circuitBreaker;
     const circuitBreakerState = detail.circuitBreakerState;
+    const readOnly = detail.readOnly;
+    const connectionState = detail.connectionState;
 
     // Update kill switch badge
     const ksEl = document.getElementById('kill-switch-badge');
@@ -78,6 +80,34 @@
           cbEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
         }
       }
+    }
+
+    if (typeof readOnly === 'boolean') {
+      window._tradingState = window._tradingState || {};
+      window._tradingState.readOnly = readOnly;
+    }
+    if (typeof connectionState === 'string') {
+      window._tradingState = window._tradingState || {};
+      window._tradingState.connectionState = connectionState;
+    }
+
+    const readOnlyTargets = document.querySelectorAll('[data-readonly-disable=\"true\"]');
+    if (readOnlyTargets.length > 0 && typeof readOnly === 'boolean') {
+      readOnlyTargets.forEach((el) => {
+        if (readOnly) {
+          el.setAttribute('disabled', 'true');
+          el.classList.add('opacity-50', 'cursor-not-allowed');
+          if (!el.title) {
+            el.title = el.dataset.readonlyTooltip || 'Connection lost - read-only mode';
+          }
+        } else {
+          el.removeAttribute('disabled');
+          el.classList.remove('opacity-50', 'cursor-not-allowed');
+          if (el.dataset.readonlyTooltip) {
+            el.title = '';
+          }
+        }
+      });
     }
   });
 })();

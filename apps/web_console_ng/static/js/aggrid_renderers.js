@@ -3,7 +3,9 @@
 
 window._tradingState = {
     killSwitchEngaged: false,
-    circuitBreakerTripped: false
+    circuitBreakerTripped: false,
+    readOnly: false,
+    connectionState: 'connected'
 };
 
 window.addEventListener('trading_state_change', function(event) {
@@ -20,6 +22,12 @@ window.addEventListener('trading_state_change', function(event) {
     if ('circuitBreakerState' in detail) {
         window._tradingState.circuitBreakerTripped = detail.circuitBreakerState === 'TRIPPED';
     }
+    if ('readOnly' in detail) {
+        window._tradingState.readOnly = !!detail.readOnly;
+    }
+    if ('connectionState' in detail) {
+        window._tradingState.connectionState = detail.connectionState;
+    }
     if (window._positionsGridApi) window._positionsGridApi.refreshCells();
     if (window._ordersGridApi) window._ordersGridApi.refreshCells();
 });
@@ -29,11 +37,11 @@ function isClosePositionDisabled() {
 }
 
 function isCancelOrderDisabled() {
-    // Cancels are always allowed (risk-reducing), even during kill switch/circuit breaker.
-    return false;
+    return window._tradingState.readOnly;
 }
 
 function isNewEntryDisabled() {
+    if (window._tradingState.readOnly) return true;
     return window._tradingState.killSwitchEngaged ||
            window._tradingState.circuitBreakerTripped;
 }

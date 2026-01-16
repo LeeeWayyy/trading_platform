@@ -26,6 +26,7 @@ flowchart TB
     lib_trading["Trading"]
   end
   subgraph infra["Infrastructure"]
+    lib_common["Common"]
     lib_core["Core"]
     lib_platform["Platform"]
     lib_web_console_data["Web Console Data"]
@@ -65,6 +66,7 @@ flowchart TB
   svc_signal_service -.-> lib_core
   svc_signal_service -.-> lib_platform
   svc_signal_service -.-> strat_alpha_baseline
+  svc_web_console_ng -.-> lib_common
   svc_web_console_ng -.-> lib_core
   svc_web_console_ng -.-> lib_models
   svc_web_console_ng -.-> lib_platform
@@ -82,6 +84,7 @@ flowchart TB
   click svc_orchestrator "../SPECS/services/orchestrator.md"
   click svc_signal_service "../SPECS/services/signal_service.md"
   click svc_web_console_ng "../SPECS/services/web_console_ng.md"
+  click lib_common "../SPECS/libs/common.md"
   click lib_core "../SPECS/libs/core.md"
   click lib_data "../SPECS/libs/data.md"
   click lib_models "../SPECS/libs/models.md"
