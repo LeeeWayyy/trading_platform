@@ -24,7 +24,7 @@
     ],
     "infra": [
       {"id": "auth", "label": "Auth", "members": ["libs/platform/admin", "libs/platform/web_console_auth", "libs/web_console_data", "libs/web_console_services"]},
-      {"id": "core_libs", "label": "Core Libs", "members": ["libs/core", "libs/core/common", "libs/platform/secrets", "libs/core/health", "libs/core/redis_client", "libs/platform/alerts"]},
+      {"id": "core_libs", "label": "Core Libs", "members": ["libs/core", "libs/core/common", "libs/common", "libs/platform/secrets", "libs/core/health", "libs/core/redis_client", "libs/platform/alerts"]},
       {"id": "external", "label": "External Systems", "members": ["ext_alpaca", "ext_redis", "ext_postgres", "ext_prometheus", "ext_grafana"]}
     ]
   },
@@ -79,6 +79,7 @@
 
     "libs/core": {"layer": "infra", "spec": "../SPECS/libs/core.md"},
     "libs/core/common": {"layer": "infra", "spec": "../SPECS/libs/common.md"},
+    "libs/common": {"layer": "infra", "spec": "../SPECS/libs/common.md"},
     "libs/core/redis_client": {"layer": "infra", "spec": "../SPECS/libs/redis_client.md"},
     "libs/core/health": {"layer": "infra", "spec": "../SPECS/libs/health.md"},
 

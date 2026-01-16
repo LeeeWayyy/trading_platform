@@ -208,27 +208,34 @@
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_26",
-      "toNode": "lib_core",
+      "toNode": "lib_common",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_27",
-      "toNode": "lib_models",
+      "toNode": "lib_core",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_28",
-      "toNode": "lib_web_console_data",
+      "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_29",
+      "toNode": "lib_web_console_data",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_30",
       "toNode": "lib_web_console_services",
       "toSide": "top"
     }
@@ -380,11 +387,20 @@
     },
     {
       "height": 60,
+      "id": "lib_common",
+      "text": "[[../SPECS/libs/common.md|Common]]",
+      "type": "text",
+      "width": 320,
+      "x": 830,
+      "y": 1350
+    },
+    {
+      "height": 60,
       "id": "lib_core",
       "text": "[[../SPECS/libs/core.md|Core]]",
       "type": "text",
       "width": 320,
-      "x": 830,
+      "x": 1170,
       "y": 1350
     },
     {
@@ -394,7 +410,7 @@
       "text": "Alpaca API",
       "type": "text",
       "width": 320,
-      "x": 1250,
+      "x": 1590,
       "y": 1350
     },
     {
@@ -404,7 +420,7 @@
       "text": "[[../SPECS/infrastructure/grafana.md|Grafana]]",
       "type": "text",
       "width": 320,
-      "x": 1590,
+      "x": 1930,
       "y": 1350
     },
     {
@@ -414,7 +430,7 @@
       "text": "[[../SPECS/infrastructure/postgres.md|PostgreSQL]]",
       "type": "text",
       "width": 320,
-      "x": 1930,
+      "x": 2270,
       "y": 1350
     },
     {
@@ -424,7 +440,7 @@
       "text": "[[../SPECS/infrastructure/prometheus.md|Prometheus]]",
       "type": "text",
       "width": 320,
-      "x": 2270,
+      "x": 2610,
       "y": 1350
     },
     {
@@ -434,7 +450,7 @@
       "text": "[[../SPECS/infrastructure/redis.md|Redis]]",
       "type": "text",
       "width": 320,
-      "x": 2610,
+      "x": 2950,
       "y": 1350
     },
     {
@@ -532,7 +548,7 @@
       "id": "group_infra_core_libs",
       "label": "Core Libs",
       "type": "group",
-      "width": 380,
+      "width": 720,
       "x": 800,
       "y": 1320
     },
@@ -542,7 +558,7 @@
       "label": "External Systems",
       "type": "group",
       "width": 1740,
-      "x": 1220,
+      "x": 1560,
       "y": 1320
     },
     {
@@ -550,7 +566,7 @@
       "id": "group_infra",
       "label": "Infrastructure",
       "type": "group",
-      "width": 3000,
+      "width": 3340,
       "x": 0,
       "y": 1280
     }

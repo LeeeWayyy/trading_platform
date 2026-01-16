@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from nicegui import Client, ui
+from nicegui import Client, app, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.audit import audit_log
@@ -115,7 +115,12 @@ async def manual_order_page(client: Client) -> None:
             validation={"Min 10 characters": lambda v: bool(v and len(v.strip()) >= 10)},
         ).classes("w-full mb-4")
 
-        submit_btn = ui.button("Preview Order", color="primary").classes("w-full")
+        submit_btn = ui.button("Preview Order", color="primary").classes("w-full").props(
+            "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
+        )
+
+    def is_read_only_mode() -> bool:
+        return bool(app.storage.user.get("read_only"))
 
     async def check_kill_switch(*, use_cache: bool = False) -> bool:
         """Check if kill switch is engaged. Returns True if safe to proceed.
@@ -210,6 +215,10 @@ async def manual_order_page(client: Client) -> None:
         if submitting:
             return
 
+        if is_read_only_mode():
+            ui.notify("Read-only mode: connection lost", type="warning")
+            return
+
         order_data = validate_form()
         if order_data is None:
             return
@@ -256,6 +265,12 @@ async def manual_order_page(client: Client) -> None:
                     submit_btn.disable()
 
                     try:
+                        if is_read_only_mode():
+                            ui.notify("Read-only mode: connection lost", type="warning")
+                            submitting = False
+                            confirm_btn.enable()
+                            submit_btn.enable()
+                            return
                         # FRESH kill switch check at confirmation time
                         if not await check_kill_switch():
                             return

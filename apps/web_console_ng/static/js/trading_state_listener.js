@@ -13,6 +13,8 @@
     const killSwitchState = detail.killSwitchState;
     const circuitBreaker = detail.circuitBreaker;
     const circuitBreakerState = detail.circuitBreakerState;
+    const readOnly = detail.readOnly;
+    const connectionState = detail.connectionState;
 
     // Update kill switch badge
     const ksEl = document.getElementById('kill-switch-badge');
@@ -78,6 +80,51 @@
           cbEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
         }
       }
+    }
+
+    if (typeof readOnly === 'boolean') {
+      window._tradingState = window._tradingState || {};
+      window._tradingState.readOnly = readOnly;
+    }
+    if (typeof connectionState === 'string') {
+      window._tradingState = window._tradingState || {};
+      window._tradingState.connectionState = connectionState;
+    }
+
+    const readOnlyTargets = document.querySelectorAll('[data-readonly-disable=\"true\"]');
+    if (readOnlyTargets.length > 0 && typeof readOnly === 'boolean') {
+      readOnlyTargets.forEach((el) => {
+        if (readOnly) {
+          // Store original disabled state and title before overriding
+          if (!el.hasAttribute('data-original-disabled-stored')) {
+            el.dataset.originalDisabled = el.hasAttribute('disabled') ? 'true' : 'false';
+            el.dataset.originalTitle = el.title || '';
+            el.setAttribute('data-original-disabled-stored', 'true');
+          }
+          el.setAttribute('disabled', 'true');
+          el.classList.add('opacity-50', 'cursor-not-allowed');
+          el.title = el.dataset.readonlyTooltip || 'Connection lost - read-only mode';
+        } else {
+          // Restore original disabled state and title
+          if (el.hasAttribute('data-original-disabled-stored')) {
+            if (el.dataset.originalDisabled === 'true') {
+              el.setAttribute('disabled', 'true');
+            } else {
+              el.removeAttribute('disabled');
+            }
+            el.title = el.dataset.originalTitle || '';
+            // Clear stored state
+            el.removeAttribute('data-original-disabled-stored');
+            delete el.dataset.originalDisabled;
+            delete el.dataset.originalTitle;
+          } else {
+            // No stored state - just clear read-only effects
+            el.removeAttribute('disabled');
+            el.title = '';
+          }
+          el.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+      });
     }
   });
 })();

@@ -171,8 +171,12 @@ async def position_management_page(client: Client) -> None:
         # Action buttons
         with ui.row().classes("w-full gap-4"):
             close_btn = ui.button("Close Selected Position", color="orange").classes("text-white")
-            cancel_all_btn = ui.button("Cancel All Orders (Selected Symbol)", color="yellow").classes("text-black")
-            flatten_btn = ui.button("FLATTEN ALL POSITIONS", color="red").classes("text-white")
+            cancel_all_btn = ui.button("Cancel All Orders (Selected Symbol)", color="yellow").classes(
+                "text-black"
+            ).props("data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'")
+            flatten_btn = ui.button("FLATTEN ALL POSITIONS", color="red").classes(
+                "text-white"
+            ).props("data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'")
 
     def update_summary() -> None:
         position_count_label.set_text(f"Positions: {len(positions_data)}")
@@ -203,6 +207,20 @@ async def position_management_page(client: Client) -> None:
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
             ui.notify("Failed to load positions: network error", type="negative")
+
+    def is_read_only_mode() -> bool:
+        return bool(app.storage.user.get("read_only"))
+
+    def notify_if_readonly() -> bool:
+        """Check read-only mode and notify user if active.
+
+        Returns:
+            True if in read-only mode (action should be blocked), False otherwise
+        """
+        if is_read_only_mode():
+            ui.notify("Read-only mode: connection lost", type="warning")
+            return True
+        return False
 
     async def check_kill_switch_status() -> None:
         nonlocal kill_switch_engaged
@@ -258,6 +276,9 @@ async def position_management_page(client: Client) -> None:
     async def show_close_dialog() -> None:
         nonlocal action_in_progress
         if action_in_progress:
+            return
+
+        if notify_if_readonly():
             return
 
         if kill_switch_engaged:
@@ -403,6 +424,9 @@ async def position_management_page(client: Client) -> None:
         if action_in_progress:
             return
 
+        if notify_if_readonly():
+            return
+
         # Cancel-all BYPASSES kill switch (risk-reducing)
 
         position = await get_selected_position()
@@ -436,6 +460,9 @@ async def position_management_page(client: Client) -> None:
                 async def confirm_cancel() -> None:
                     nonlocal action_in_progress
                     if action_in_progress:
+                        return
+
+                    if notify_if_readonly():
                         return
 
                     reason = (reason_input.value or "").strip()
@@ -528,6 +555,9 @@ async def position_management_page(client: Client) -> None:
         if action_in_progress:
             return
 
+        if notify_if_readonly():
+            return
+
         if kill_switch_engaged:
             ui.notify("Cannot flatten: Kill Switch is ENGAGED", type="negative")
             return
@@ -595,6 +625,9 @@ async def position_management_page(client: Client) -> None:
                 async def execute_flatten() -> None:
                     nonlocal action_in_progress, kill_switch_engaged
                     if action_in_progress:
+                        return
+
+                    if notify_if_readonly():
                         return
 
                     if confirm_input.value != "FLATTEN":
