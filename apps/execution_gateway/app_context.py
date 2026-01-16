@@ -20,13 +20,17 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 0 for design decisions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+import asyncio
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Protocol
 
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 from apps.execution_gateway.liquidity_service import LiquidityService
 from apps.execution_gateway.order_slicer import TWAPSlicer
 from libs.trading.risk_management import RiskConfig
+
+if TYPE_CHECKING:
+    from apps.execution_gateway.schemas import OrderRequest
 
 
 class DatabaseClientProtocol(Protocol):
@@ -66,27 +70,48 @@ class AlpacaClientProtocol(Protocol):
 
     This protocol enables dependency injection and mocking in tests
     without depending on the concrete AlpacaExecutor implementation.
+
+    Note: Methods are synchronous to match the actual AlpacaExecutor
+    implementation which uses synchronous httpx/alpaca-py calls.
     """
 
-    async def submit_order(
+    def submit_order(
         self,
-        symbol: str,
-        qty: int,
-        side: str,
-        order_type: str,
-        time_in_force: str,
+        order: OrderRequest,
         client_order_id: str,
-        limit_price: float | None = None,
-    ) -> dict[str, object]:
-        """Submit an order to Alpaca."""
+    ) -> dict[str, Any]:
+        """Submit an order to Alpaca.
+
+        Args:
+            order: OrderRequest with symbol, side, qty, order_type, etc.
+            client_order_id: Deterministic client order ID for idempotency
+
+        Returns:
+            Order response dict with 'id' (broker_order_id), 'status', etc.
+        """
         ...
 
-    async def cancel_order(self, client_order_id: str) -> dict[str, object]:
-        """Cancel an order."""
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel an order by broker order_id.
+
+        Args:
+            order_id: Alpaca broker order ID (not client_order_id)
+
+        Returns:
+            True if cancelled successfully
+        """
         ...
 
-    async def get_positions(self) -> list[dict[str, object]]:
-        """Get all positions."""
+    def get_all_positions(self) -> list[dict[str, Any]]:
+        """Get all open positions from Alpaca."""
+        ...
+
+    def get_order_by_client_id(self, client_order_id: str) -> dict[str, Any] | None:
+        """Get order by client_order_id."""
+        ...
+
+    def check_connection(self) -> bool:
+        """Check if connection to Alpaca is healthy."""
         ...
 
 
@@ -243,3 +268,6 @@ class AppContext:
     fat_finger_validator: FatFingerValidator
     twap_slicer: TWAPSlicer
     webhook_secret: str
+    # Position tracking state (for Prometheus metrics)
+    position_metrics_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    tracked_position_symbols: set[str] = field(default_factory=set)

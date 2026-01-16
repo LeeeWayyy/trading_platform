@@ -75,6 +75,7 @@ def _create_mock_recovery_manager() -> Mock:
     mock.set_kill_switch_unavailable = Mock()
     mock.set_circuit_breaker_unavailable = Mock()
     mock.set_position_reservation_unavailable = Mock()
+    mock.attempt_recovery = Mock()
 
     return mock
 

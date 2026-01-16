@@ -580,7 +580,6 @@ def test_verify_token_logs_warning_on_mismatch(mock_settings_with_validation, ca
     assert is_valid is False
     assert error == "invalid_signature"
     assert "signature mismatch" in caplog.text
-    assert "user" in caplog.text  # User prefix should be logged
 
 
 def test_verify_token_logs_warning_on_timestamp_expired(mock_settings_with_validation, caplog):

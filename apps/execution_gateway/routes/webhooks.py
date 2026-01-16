@@ -113,11 +113,10 @@ async def handle_order_webhook(
         dict: Status response with client_order_id
     """
     try:
-        # Parse webhook payload
+        # Read raw body for signature verification (before parsing JSON)
         body = await request.body()
-        payload = await request.json()
 
-        # Verify webhook signature (required when secret configured)
+        # Verify webhook signature BEFORE parsing JSON (security requirement)
         webhook_secret = ctx.webhook_secret
         if webhook_secret:
             signature_header = request.headers.get("X-Alpaca-Signature")
@@ -140,7 +139,6 @@ async def handle_order_webhook(
             logger.debug("Webhook signature verified successfully")
         else:
             # SECURITY: In production, missing webhook secret is a configuration error
-            # We must reject webhooks rather than accepting unsigned ones
             environment = config.environment
             if environment not in ("dev", "test"):
                 logger.error(
@@ -155,200 +153,229 @@ async def handle_order_webhook(
                 "Webhook signature verification disabled (WEBHOOK_SECRET not set, dev/test only)"
             )
 
-            logger.info(
-                f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
+        # Parse JSON only AFTER signature verification passes
+        payload = await request.json()
+
+        # Validate payload is a dict (not a JSON array or primitive)
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Webhook payload is not a JSON object",
+                extra={"payload_type": type(payload).__name__},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Webhook payload must be a JSON object",
             )
 
-            # Extract order information
-            event_type = payload.get("event")
+        logger.info(
+            f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
+        )
 
-            # Track webhook metrics
-            webhook_received_total.labels(event_type=event_type or "unknown").inc()
-            order_data = payload.get("order", {})
+        # Extract order information
+        event_type = payload.get("event")
 
-            client_order_id = order_data.get("client_order_id")
-            broker_order_id = order_data.get("id")
-            order_status = order_data.get("status")
-            filled_qty = order_data.get("filled_qty")
-            filled_avg_price = order_data.get("filled_avg_price")
+        # Track webhook metrics
+        webhook_received_total.labels(event_type=event_type or "unknown").inc()
+        order_data = payload.get("order", {})
 
-            if not client_order_id:
-                logger.warning("Webhook missing client_order_id")
-                return {"status": "ignored", "reason": "missing_client_order_id"}
+        client_order_id = order_data.get("client_order_id")
+        broker_order_id = order_data.get("id")
+        order_status = order_data.get("status")
+        filled_qty = order_data.get("filled_qty")
+        filled_avg_price = order_data.get("filled_avg_price")
 
-            # Fast path: if no fill info, just update status and return
-            if (
-                event_type not in ("fill", "partial_fill")
-                or not filled_qty
-                or not filled_avg_price
-            ):
-                broker_updated_at = parse_webhook_timestamp(
-                    order_data.get("updated_at"),
-                    payload.get("timestamp"),
-                    order_data.get("created_at"),
-                    default=datetime.now(UTC),
-                )
+        if not client_order_id:
+            logger.warning("Webhook missing client_order_id")
+            return {"status": "ignored", "reason": "missing_client_order_id"}
 
-                updated_order = ctx.db.update_order_status_cas(
-                    client_order_id=client_order_id,
-                    status=order_status,
-                    broker_updated_at=broker_updated_at,
-                    status_rank=status_rank_for(order_status or ""),
-                    source_priority=SOURCE_PRIORITY_WEBHOOK,
-                    filled_qty=Decimal(str(filled_qty)) if filled_qty else Decimal("0"),
-                    filled_avg_price=Decimal(str(filled_avg_price)) if filled_avg_price else None,
-                    filled_at=None,
-                    broker_order_id=broker_order_id,
-                    broker_event_id=payload.get("execution_id"),
-                )
-                if not updated_order:
-                    logger.warning(
-                        f"Order not found for webhook or CAS skipped: {client_order_id}"
-                    )
-                    return {"status": "ignored", "reason": "order_not_found"}
-                return {"status": "ok", "client_order_id": client_order_id}
-
-            # Fill processing: transactional with row locks
-            filled_qty_dec = Decimal(str(filled_qty))
-            filled_avg_price_dec = Decimal(str(filled_avg_price))
-
-            per_fill_price = Decimal(str(payload.get("price", filled_avg_price_dec)))
-
-            # Parse fill and broker timestamps using helper
-            server_now = datetime.now(UTC)
-            fill_timestamp = parse_webhook_timestamp(
-                payload.get("timestamp"),
-                payload.get("filled_at"),
-                order_data.get("filled_at"),
-                default=server_now,
-            )
-
+        # Fast path: if no fill info, just update status and return
+        # Use explicit None checks to avoid skipping valid 0/0.0 values
+        if (
+            event_type not in ("fill", "partial_fill")
+            or filled_qty is None
+            or filled_avg_price is None
+        ):
             broker_updated_at = parse_webhook_timestamp(
                 order_data.get("updated_at"),
                 payload.get("timestamp"),
-                order_data.get("filled_at"),
-                default=fill_timestamp,
+                order_data.get("created_at"),
+                default=datetime.now(UTC),
             )
 
-            with ctx.db.transaction() as conn:
-                order = ctx.db.get_order_for_update(client_order_id, conn)
-                if not order:
-                    logger.warning(f"Order not found for webhook: {client_order_id}")
-                    return {"status": "ignored", "reason": "order_not_found"}
-
-                # Use Decimal values but compute integer delta from cumulative quantities
-                # This ensures fractional fills accumulate at integer boundaries
-                # e.g., 0.3 + 0.4 + 0.3 = 1.0 triggers a position update when crossing 1
-                prev_filled_qty_dec = order.filled_qty or Decimal("0")
-                incremental_fill_qty_int = int(filled_qty_dec) - int(prev_filled_qty_dec)
-
-                # Log fractional remainder for observability (positions table uses integers)
-                fractional_current = filled_qty_dec % 1
-                fractional_prev = prev_filled_qty_dec % 1
-                if fractional_current != 0 or fractional_prev != 0:
-                    logger.info(
-                        "Fractional fill quantities detected; position updates at integer boundaries",
-                        extra={
-                            "client_order_id": client_order_id,
-                            "filled_qty_decimal": str(filled_qty_dec),
-                            "prev_filled_qty_decimal": str(prev_filled_qty_dec),
-                            "incremental_fill_int": incremental_fill_qty_int,
-                            "fractional_current": str(fractional_current),
-                            "fractional_prev": str(fractional_prev),
-                        },
-                    )
-
-                # Only update position and append fill metadata if there's an incremental fill
-                if incremental_fill_qty_int > 0:
-                    position_locked = ctx.db.get_position_for_update(order.symbol, conn)
-                    old_realized = position_locked.realized_pl if position_locked else Decimal("0")
-
-                    position = ctx.db.update_position_on_fill_with_conn(
-                        symbol=order.symbol,
-                        fill_qty=incremental_fill_qty_int,
-                        fill_price=per_fill_price,
-                        side=order.side,
-                        conn=conn,
-                    )
-
-                    realized_delta = position.realized_pl - old_realized
-
-                    ctx.db.append_fill_to_order_metadata(
-                        client_order_id=client_order_id,
-                        fill_data={
-                            "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
-                            "fill_qty": incremental_fill_qty_int,
-                            "fill_price": str(per_fill_price),
-                            "realized_pl": str(realized_delta),
-                            "timestamp": fill_timestamp.isoformat(),
-                        },
-                        conn=conn,
-                    )
-                else:
-                    logger.info(
-                        "No incremental fill; skipping position update but still updating order status",
-                        extra={
-                            "client_order_id": client_order_id,
-                            "prev_filled_qty": str(prev_filled_qty_dec),
-                            "current_filled_qty": str(filled_qty_dec),
-                            "order_status": order_status,
-                        },
-                    )
-
-                # Always update order status/avg_price (even with no incremental fill)
-                # This ensures status-only updates and price corrections are captured
-                ctx.db.update_order_status_with_conn(
-                    client_order_id=client_order_id,
-                    status=order_status,
-                    filled_qty=filled_qty_dec,
-                    filled_avg_price=filled_avg_price_dec,
-                    filled_at=fill_timestamp if order_status == "filled" else None,
-                    conn=conn,
-                    broker_order_id=broker_order_id,
-                    broker_updated_at=broker_updated_at,
-                    status_rank=status_rank_for(order_status or ""),
-                    source_priority=SOURCE_PRIORITY_WEBHOOK,
-                    broker_event_id=payload.get("execution_id"),
+            updated_order = ctx.db.update_order_status_cas(
+                client_order_id=client_order_id,
+                status=order_status,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank_for(order_status or ""),
+                source_priority=SOURCE_PRIORITY_WEBHOOK,
+                filled_qty=Decimal(str(filled_qty)) if filled_qty else Decimal("0"),
+                filled_avg_price=Decimal(str(filled_avg_price)) if filled_avg_price else None,
+                filled_at=None,
+                broker_order_id=broker_order_id,
+                broker_event_id=payload.get("execution_id"),
+            )
+            if not updated_order:
+                logger.warning(
+                    f"Order not found for webhook or CAS skipped: {client_order_id}"
                 )
-
-            # Invalidate performance cache after successful fill
-            invalidate_performance_cache(trade_date=fill_timestamp.date())
-
+                return {"status": "ignored", "reason": "order_not_found"}
             return {"status": "ok", "client_order_id": client_order_id}
 
-        except HTTPException:
-            # Re-raise HTTPException with its original status code (e.g., 401 from signature validation)
-            raise
-        except ValidationError as e:
-            logger.error(
-                "Webhook processing error - validation error",
-                extra={"error": str(e), "error_type": type(e).__name__},
-                exc_info=True,
+        # Fill processing: transactional with row locks
+        filled_qty_dec = Decimal(str(filled_qty))
+        filled_avg_price_dec = Decimal(str(filled_avg_price))
+
+        # Handle null/blank/invalid price gracefully (use filled_avg_price as fallback)
+        price_value = payload.get("price")
+        try:
+            # Treat None, empty string, and whitespace as missing
+            if price_value is None or (isinstance(price_value, str) and not price_value.strip()):
+                per_fill_price = filled_avg_price_dec
+            else:
+                per_fill_price = Decimal(str(price_value))
+        except InvalidOperation:
+            # Non-numeric price string - fallback to filled_avg_price
+            logger.warning(
+                f"Invalid per-fill price value, using filled_avg_price: {price_value}",
+                extra={"client_order_id": client_order_id, "price_value": price_value},
             )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Webhook validation failed: {str(e)}",
-            ) from e
-        except psycopg.OperationalError as e:
-            logger.error(
-                "Webhook processing error - database connection error",
-                extra={"error": str(e), "error_type": type(e).__name__},
-                exc_info=True,
+            per_fill_price = filled_avg_price_dec
+
+        # Parse fill and broker timestamps using helper
+        server_now = datetime.now(UTC)
+        fill_timestamp = parse_webhook_timestamp(
+            payload.get("timestamp"),
+            payload.get("filled_at"),
+            order_data.get("filled_at"),
+            default=server_now,
+        )
+
+        broker_updated_at = parse_webhook_timestamp(
+            order_data.get("updated_at"),
+            payload.get("timestamp"),
+            order_data.get("filled_at"),
+            default=fill_timestamp,
+        )
+
+        with ctx.db.transaction() as conn:
+            order = ctx.db.get_order_for_update(client_order_id, conn)
+            if not order:
+                logger.warning(f"Order not found for webhook: {client_order_id}")
+                return {"status": "ignored", "reason": "order_not_found"}
+
+            # Use Decimal values but compute integer delta from cumulative quantities
+            # This ensures fractional fills accumulate at integer boundaries
+            # e.g., 0.3 + 0.4 + 0.3 = 1.0 triggers a position update when crossing 1
+            prev_filled_qty_dec = order.filled_qty or Decimal("0")
+            incremental_fill_qty_int = int(filled_qty_dec) - int(prev_filled_qty_dec)
+
+            # Log fractional remainder for observability (positions table uses integers)
+            fractional_current = filled_qty_dec % 1
+            fractional_prev = prev_filled_qty_dec % 1
+            if fractional_current != 0 or fractional_prev != 0:
+                logger.info(
+                    "Fractional fill quantities detected; position updates at integer boundaries",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "filled_qty_decimal": str(filled_qty_dec),
+                        "prev_filled_qty_decimal": str(prev_filled_qty_dec),
+                        "incremental_fill_int": incremental_fill_qty_int,
+                        "fractional_current": str(fractional_current),
+                        "fractional_prev": str(fractional_prev),
+                    },
+                )
+
+            # Only update position and append fill metadata if there's an incremental fill
+            if incremental_fill_qty_int > 0:
+                position_locked = ctx.db.get_position_for_update(order.symbol, conn)
+                old_realized = position_locked.realized_pl if position_locked else Decimal("0")
+
+                position = ctx.db.update_position_on_fill_with_conn(
+                    symbol=order.symbol,
+                    fill_qty=incremental_fill_qty_int,
+                    fill_price=per_fill_price,
+                    side=order.side,
+                    conn=conn,
+                )
+
+                realized_delta = position.realized_pl - old_realized
+
+                ctx.db.append_fill_to_order_metadata(
+                    client_order_id=client_order_id,
+                    fill_data={
+                        "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
+                        "fill_qty": incremental_fill_qty_int,
+                        "fill_price": str(per_fill_price),
+                        "realized_pl": str(realized_delta),
+                        "timestamp": fill_timestamp.isoformat(),
+                    },
+                    conn=conn,
+                )
+            else:
+                logger.info(
+                    "No incremental fill; skipping position update but still updating order status",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "prev_filled_qty": str(prev_filled_qty_dec),
+                        "current_filled_qty": str(filled_qty_dec),
+                        "order_status": order_status,
+                    },
+                )
+
+            # Always update order status/avg_price (even with no incremental fill)
+            # This ensures status-only updates and price corrections are captured
+            ctx.db.update_order_status_with_conn(
+                client_order_id=client_order_id,
+                status=order_status,
+                filled_qty=filled_qty_dec,
+                filled_avg_price=filled_avg_price_dec,
+                filled_at=fill_timestamp if order_status == "filled" else None,
+                conn=conn,
+                broker_order_id=broker_order_id,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank_for(order_status or ""),
+                source_priority=SOURCE_PRIORITY_WEBHOOK,
+                broker_event_id=payload.get("execution_id"),
             )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Webhook processing failed: database error",
-            ) from e
-        except (KeyError, TypeError, ValueError, InvalidOperation) as e:
-            logger.error(
-                "Webhook processing error - data parsing error",
-                extra={"error": str(e), "error_type": type(e).__name__},
-                exc_info=True,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Webhook processing failed: {str(e)}",
-            ) from e
+
+        # Invalidate performance cache after successful fill
+        invalidate_performance_cache(ctx.redis, trade_date=fill_timestamp.date())
+
+        return {"status": "ok", "client_order_id": client_order_id}
+
+    except HTTPException:
+        # Re-raise HTTPException with its original status code (e.g., 401 from signature validation)
+        raise
+    except ValidationError as e:
+        logger.error(
+            "Webhook processing error - validation error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Webhook validation failed: {str(e)}",
+        ) from e
+    except psycopg.OperationalError as e:
+        logger.error(
+            "Webhook processing error - database connection error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Webhook processing failed: database error",
+        ) from e
+    except (KeyError, TypeError, ValueError, InvalidOperation) as e:
+        logger.error(
+            "Webhook processing error - data parsing error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Webhook processing failed: {str(e)}",
+        ) from e
 
 
 # =============================================================================

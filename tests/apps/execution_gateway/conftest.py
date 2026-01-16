@@ -14,11 +14,24 @@ Note on environment variable setup:
 from __future__ import annotations
 
 import os
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Request, Response
 
 # Import shared mock helpers from root conftest (DRY principle)
 from tests.conftest import _create_mock_db_client, _create_mock_recovery_manager
+
+from apps.execution_gateway import main
+from apps.execution_gateway.app_factory import create_mock_context, create_test_config
+from apps.execution_gateway.fat_finger_validator import FatFingerValidator
+from apps.execution_gateway.routes import admin as admin_routes
+from apps.execution_gateway.routes import orders as orders_routes
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.routes import slicing as slicing_routes
+from apps.execution_gateway.schemas import FatFingerThresholds
+from apps.execution_gateway.services.auth_helpers import build_user_context
+from libs.trading.risk_management import RiskConfig
 
 # Test environment defaults - use setdefault to allow explicit overrides
 # These MUST be set before importing main.py to ensure correct initialization
@@ -60,13 +73,6 @@ def restore_main_globals():
     The root fixture runs first (pytest outer-to-inner), this one second.
     Both check `if main.X is None` to avoid conflicts.
     """
-    # Import the module
-    try:
-        from apps.execution_gateway import main
-    except ImportError:
-        yield
-        return
-
     # Override auth dependencies for tests (C6)
     # Import lazily to avoid import order issues with test files that stub modules
     try:
@@ -93,12 +99,22 @@ def restore_main_globals():
                 "user": {"role": "admin", "strategies": ["alpha_baseline"], "user_id": "test-user"},
             }
 
-        main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
-        main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
-        main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
-        main.app.dependency_overrides[main.order_read_auth] = _mock_auth_context
-        main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
-        main.app.dependency_overrides[main._build_user_context] = _mock_user_context
+        main.app.dependency_overrides[orders_routes.order_submit_auth] = _mock_auth_context
+        main.app.dependency_overrides[orders_routes.order_cancel_auth] = _mock_auth_context
+        main.app.dependency_overrides[orders_routes.order_read_auth] = _mock_auth_context
+        main.app.dependency_overrides[slicing_routes.order_slice_auth] = _mock_auth_context
+        main.app.dependency_overrides[slicing_routes.order_read_auth] = _mock_auth_context
+        main.app.dependency_overrides[slicing_routes.order_cancel_auth] = _mock_auth_context
+        main.app.dependency_overrides[positions_routes.order_read_auth] = _mock_auth_context
+        main.app.dependency_overrides[admin_routes.kill_switch_auth] = _mock_auth_context
+        main.app.dependency_overrides[build_user_context] = _mock_user_context
+
+        def _noop_rate_limit(_request: Request, _response: Response) -> int:
+            return 999
+
+        main.app.dependency_overrides[orders_routes.order_submit_rl] = _noop_rate_limit
+        main.app.dependency_overrides[orders_routes.order_cancel_rl] = _noop_rate_limit
+        main.app.dependency_overrides[slicing_routes.order_slice_rl] = _noop_rate_limit
     except (ImportError, AttributeError):
         # Auth dependencies not available (module stubs in test files)
         pass
@@ -112,7 +128,11 @@ def restore_main_globals():
     original_position_reservation = getattr(main, "position_reservation", None)
     original_reconciliation_service = getattr(main, "reconciliation_service", None)
     original_reconciliation_task = getattr(main, "reconciliation_task", None)
-    original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    original_feature_flag = getattr(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    original_app_context = getattr(main.app.state, "context", None)
+    original_app_config = getattr(main.app.state, "config", None)
+    original_app_version = getattr(main.app.state, "version", None)
+    original_app_metrics = getattr(main.app.state, "metrics", None)
 
     # Set up default mocks for variables that are None (initialized in lifespan)
     # This allows tests to run without the full lifespan context
@@ -120,6 +140,28 @@ def restore_main_globals():
         main.db_client = _create_mock_db_client()
     if main.recovery_manager is None:
         main.recovery_manager = _create_mock_recovery_manager()
+
+    if getattr(main.app.state, "context", None) is None:
+        mock_redis = MagicMock()
+        mock_redis.health_check.return_value = True
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        mock_context = create_mock_context(
+            db=main.db_client,
+            redis=mock_redis,
+            recovery_manager=main.recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        main.app.state.context = mock_context
+
+    if getattr(main.app.state, "config", None) is None:
+        main.app.state.config = create_test_config(dry_run=True)
+
+    if getattr(main.app.state, "version", None) is None:
+        main.app.state.version = "test"
+
+    if getattr(main.app.state, "metrics", None) is None:
+        main.app.state.metrics = main._build_metrics()
 
     yield
 
@@ -132,7 +174,11 @@ def restore_main_globals():
     main.position_reservation = original_position_reservation
     main.reconciliation_service = original_reconciliation_service
     main.reconciliation_task = original_reconciliation_task
-    main.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag
+    positions_routes.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag
+    main.app.state.context = original_app_context
+    main.app.state.config = original_app_config
+    main.app.state.version = original_app_version
+    main.app.state.metrics = original_app_metrics
 
     # Clear dependency overrides
     main.app.dependency_overrides.clear()

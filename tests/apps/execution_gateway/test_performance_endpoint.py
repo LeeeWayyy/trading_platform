@@ -86,6 +86,13 @@ sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 from apps.execution_gateway import main
 from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.services.auth_helpers import build_user_context
+from apps.execution_gateway.services.performance_cache import (
+    create_performance_cache_index_key,
+    create_performance_cache_key,
+)
+from apps.execution_gateway.services.pnl_calculator import compute_daily_performance
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -141,9 +148,9 @@ def override_user_context():
             "user": {"role": "viewer", "strategies": ["alpha_baseline"], "user_id": "u1"},
         }
 
-    main.app.dependency_overrides[main._build_user_context] = override_ctx
+    main.app.dependency_overrides[build_user_context] = override_ctx
     yield
-    main.app.dependency_overrides.pop(main._build_user_context, None)
+    main.app.dependency_overrides.pop(build_user_context, None)
 
 
 def restore_default_user_context():
@@ -163,7 +170,7 @@ def restore_default_user_context():
             "user": {"role": "viewer", "strategies": ["alpha_baseline"], "user_id": "u1"},
         }
 
-    main.app.dependency_overrides[main._build_user_context] = _ctx
+    main.app.dependency_overrides[build_user_context] = _ctx
 
 
 def make_override(user_ctx: dict[str, Any]) -> Callable[..., dict[str, Any]]:
@@ -225,9 +232,9 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -250,9 +257,9 @@ class TestDailyPerformanceEndpoint:
         params = {"start_date": "2024-01-01", "end_date": "2024-01-02"}
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -273,9 +280,9 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = []
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -296,7 +303,7 @@ class TestDailyPerformanceEndpoint:
         tomorrow = date.today() + timedelta(days=1)
         params = {"end_date": tomorrow.isoformat(), "strategies": ["alpha_baseline"]}
 
-        with patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 params=params,
@@ -320,9 +327,9 @@ class TestDailyPerformanceEndpoint:
         ).model_dump_json()
 
         with (
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -340,7 +347,7 @@ class TestDailyPerformanceEndpoint:
 
     def test_strategy_filtering_applied(self, test_client, mock_db, mock_redis):
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
-        main.app.dependency_overrides[main._build_user_context] = make_override(
+        main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
                 "strategies": ["s1", "s2"],
@@ -350,9 +357,9 @@ class TestDailyPerformanceEndpoint:
             }
         )
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             test_client.get(
                 "/api/v1/performance/daily",
@@ -372,7 +379,7 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
         # Override to simulate user with no strategies
-        main.app.dependency_overrides[main._build_user_context] = make_override(
+        main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
                 "strategies": [],
@@ -383,9 +390,9 @@ class TestDailyPerformanceEndpoint:
         )
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -404,12 +411,12 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
         # Remove override to simulate absence of request.state.user
-        main.app.dependency_overrides.pop(main._build_user_context, None)
+        main.app.dependency_overrides.pop(build_user_context, None)
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -425,9 +432,9 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", False),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", False),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -441,7 +448,7 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
         # Override to omit user_id
-        main.app.dependency_overrides[main._build_user_context] = make_override(
+        main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
                 "strategies": ["s1"],
@@ -452,9 +459,9 @@ class TestDailyPerformanceEndpoint:
         )
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -468,7 +475,7 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
         # User authorized only for s1
-        main.app.dependency_overrides[main._build_user_context] = make_override(
+        main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
                 "strategies": ["s1"],
@@ -479,9 +486,9 @@ class TestDailyPerformanceEndpoint:
         )
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "FEATURE_PERFORMANCE_DASHBOARD", True),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
         ):
             resp = test_client.get(
                 "/api/v1/performance/daily",
@@ -498,13 +505,13 @@ class TestDailyPerformanceEndpoint:
         """Ensure performance cache is cleared after a fill webhook."""
 
         # Prepare cached entry and index membership
-        cache_key = main._performance_cache_key(
+        cache_key = create_performance_cache_key(
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 2),
             strategies=("alpha_baseline",),
             user_id="u1",
         )
-        index_key = main._performance_cache_index_key(date(2024, 1, 1))
+        index_key = create_performance_cache_index_key(date(2024, 1, 1))
         # sscan_iter is now used instead of smembers for non-blocking iteration
         mock_redis.sscan_iter.return_value = iter([cache_key])
         mock_redis.delete.return_value = True
@@ -526,9 +533,9 @@ class TestDailyPerformanceEndpoint:
         mock_db.update_order_status_with_conn.return_value = None
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", mock_redis),
-            patch.object(main, "WEBHOOK_SECRET", ""),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", mock_redis),
+            patch.object(main.app.state.context, "webhook_secret", ""),
         ):
             resp = test_client.post(
                 "/api/v1/webhooks/orders",
@@ -556,7 +563,7 @@ class TestDailyPerformanceEndpoint:
 class TestDailyPnLDatabase:
     def test_compute_daily_performance_drawdown(self):
         rows = _sample_daily_rows()
-        daily, total, max_dd = main._compute_daily_performance(
+        daily, total, max_dd = compute_daily_performance(
             rows, date(2024, 1, 1), date(2024, 1, 2)
         )
 
@@ -572,7 +579,7 @@ class TestDailyPnLDatabase:
                 "closing_trade_count": 1,
             }
         ]
-        daily, _, _ = main._compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 3))
+        daily, _, _ = compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 3))
 
         assert len(daily) == 3
         assert daily[1].realized_pl == Decimal("0")
@@ -580,7 +587,7 @@ class TestDailyPnLDatabase:
 
     def test_all_negative_series_tracks_drawdown(self):
         rows = _all_negative_rows()
-        daily, total, max_dd = main._compute_daily_performance(
+        daily, total, max_dd = compute_daily_performance(
             rows, date(2024, 1, 1), date(2024, 1, 3)
         )
 
@@ -648,7 +655,7 @@ class TestDatabaseClientNewMethods:
 class TestWebhookSecurity:
     def test_invalid_signature_rejected(self, test_client):
         with (
-            patch.object(main, "WEBHOOK_SECRET", "shh"),
+            patch.object(main.app.state.context, "webhook_secret", "shh"),
             patch("apps.execution_gateway.main.verify_webhook_signature", return_value=False),
         ):
             resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
@@ -656,7 +663,7 @@ class TestWebhookSecurity:
         assert resp.status_code == 401
 
     def test_missing_signature_rejected(self, test_client):
-        with patch.object(main, "WEBHOOK_SECRET", "shh"):
+        with patch.object(main.app.state.context, "webhook_secret", "shh"):
             resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
 
         assert resp.status_code == 401
@@ -674,9 +681,9 @@ class TestOutOfOrderWebhooks:
         mock_db.get_order_for_update.return_value = mock_order
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", None),
-            patch.object(main, "WEBHOOK_SECRET", ""),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", None),
+            patch.object(main.app.state.context, "webhook_secret", ""),
         ):
             resp = test_client.post(
                 "/api/v1/webhooks/orders",
@@ -704,7 +711,7 @@ class TestOutOfOrderWebhooks:
 class TestRealtimePnlRbac:
     def test_realtime_pnl_requires_strategy_access(self, test_client, mock_db):
         # No authorized strategies -> 403
-        main.app.dependency_overrides[main._build_user_context] = make_override(
+        main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
                 "strategies": [],
@@ -713,12 +720,12 @@ class TestRealtimePnlRbac:
                 "user": {"role": "viewer", "strategies": [], "user_id": "u1"},
             }
         )
-        with patch.object(main, "db_client", mock_db):
+        with patch.object(main.app.state.context, "db", mock_db):
             resp = test_client.get("/api/v1/positions/pnl/realtime")
         assert resp.status_code == 403
 
     def test_realtime_pnl_allows_authorized_viewer(self, test_client, mock_db):
-        main.app.dependency_overrides[main._build_user_context] = make_override(
+        main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
                 "strategies": ["alpha_baseline"],
@@ -728,7 +735,7 @@ class TestRealtimePnlRbac:
             }
         )
         mock_db.get_positions_for_strategies.return_value = []
-        with patch.object(main, "db_client", mock_db):
+        with patch.object(main.app.state.context, "db", mock_db):
             resp = test_client.get("/api/v1/positions/pnl/realtime")
         assert resp.status_code == 200
 
@@ -800,9 +807,9 @@ class TestBrokerTimestamps:
         mock_db.append_fill_to_order_metadata.side_effect = _capture_fill
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", None),
-            patch.object(main, "WEBHOOK_SECRET", ""),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", None),
+            patch.object(main.app.state.context, "webhook_secret", ""),
         ):
             resp = test_client.post(
                 "/api/v1/webhooks/orders",
@@ -842,9 +849,9 @@ class TestConcurrentWebhooks:
         )
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", None),
-            patch.object(main, "WEBHOOK_SECRET", ""),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", None),
+            patch.object(main.app.state.context, "webhook_secret", ""),
         ):
             resp = test_client.post(
                 "/api/v1/webhooks/orders",
@@ -896,9 +903,9 @@ class TestConcurrentWebhooks:
         mock_db.update_order_status_with_conn.return_value = None
 
         with (
-            patch.object(main, "db_client", mock_db),
-            patch.object(main, "redis_client", None),
-            patch.object(main, "WEBHOOK_SECRET", ""),
+            patch.object(main.app.state.context, "db", mock_db),
+            patch.object(main.app.state.context, "redis", None),
+            patch.object(main.app.state.context, "webhook_secret", ""),
         ):
             resp1 = test_client.post(
                 "/api/v1/webhooks/orders",

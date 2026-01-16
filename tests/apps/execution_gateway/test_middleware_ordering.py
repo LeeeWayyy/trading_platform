@@ -228,15 +228,15 @@ def test_auth_middleware_sets_user_before_rate_limiter():
 
     user_seen_by_rate_limiter = {}
 
-    # Add populate_user_from_headers first (will execute first in chain)
-    app.middleware("http")(populate_user_from_headers)
-
-    # Add rate limiter middleware second (will execute after auth)
+    # Add rate limiter middleware first (will execute after auth)
     @app.middleware("http")
     async def rate_limiter_middleware(request: Request, call_next):
         # Capture user state at rate limiter execution time
         user_seen_by_rate_limiter["user"] = getattr(request.state, "user", None)
         return await call_next(request)
+
+    # Add populate_user_from_headers last (executes first in chain)
+    app.middleware("http")(populate_user_from_headers)
 
     @app.get("/test")
     async def test_endpoint():

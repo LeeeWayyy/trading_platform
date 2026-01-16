@@ -9,6 +9,8 @@ TestClient = pytest.importorskip("fastapi.testclient").TestClient
 Request = pytest.importorskip("starlette.requests").Request
 
 from apps.execution_gateway import main
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.services.auth_helpers import build_user_context
 
 
 def _make_user_context_override(user_ctx: dict) -> callable:
@@ -44,8 +46,8 @@ def test_daily_performance_future_date_rejected(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
-    monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(user_ctx)
+    monkeypatch.setattr(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True)
 
     resp = test_client.get(
         "/api/v1/performance/daily",
@@ -68,8 +70,8 @@ def test_daily_performance_flag_disabled_returns_404(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
-    monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", False)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(user_ctx)
+    monkeypatch.setattr(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", False)
 
     resp = test_client.get(
         "/api/v1/performance/daily",

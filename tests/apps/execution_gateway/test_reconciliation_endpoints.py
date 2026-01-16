@@ -59,8 +59,8 @@ def test_reconciliation_force_complete_admin(client):
     stub = StubReconciliationService()
 
     with (
-        patch("apps.execution_gateway.main.DRY_RUN", False),
-        patch("apps.execution_gateway.main.reconciliation_service", stub),
+        patch.object(app.state.config, "dry_run", False),
+        patch.object(app.state.context, "reconciliation_service", stub),
     ):
         response = client.post(
             "/api/v1/reconciliation/force-complete",
@@ -78,8 +78,8 @@ def test_reconciliation_run_admin(client):
     stub = StubReconciliationService()
 
     with (
-        patch("apps.execution_gateway.main.DRY_RUN", False),
-        patch("apps.execution_gateway.main.reconciliation_service", stub),
+        patch.object(app.state.config, "dry_run", False),
+        patch.object(app.state.context, "reconciliation_service", stub),
     ):
         response = client.post(
             "/api/v1/reconciliation/run",

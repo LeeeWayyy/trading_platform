@@ -1,72 +1,98 @@
-from unittest.mock import patch
+"""Tests for reconciliation gating logic.
+
+Note: The detailed reduce-only gating logic (_enforce_reduce_only_order) was simplified
+during the Phase 2B refactoring. The current implementation blocks ALL orders during
+reconciliation rather than implementing per-order reduce-only checks.
+
+These tests verify the simplified reconciliation gating behavior via the
+_require_reconciliation_ready_or_reduce_only function in routes/orders.py.
+"""
+
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
 
-from apps.execution_gateway.main import _enforce_reduce_only_order
+from apps.execution_gateway.routes.orders import _require_reconciliation_ready_or_reduce_only
 from apps.execution_gateway.schemas import OrderRequest
 
 
-class StubAlpaca:
-    def __init__(self, position_qty, open_orders):
-        self._position_qty = position_qty
-        self._open_orders = open_orders
-
-    def get_open_position(self, symbol):
-        if self._position_qty == 0:
-            return None
-        return {"symbol": symbol, "qty": self._position_qty}
-
-    def get_orders(self, status, limit, after, symbols=None):
-        return self._open_orders
-
-
-class StubLock:
-    def __init__(self):
-        self._locked = False
-
-    def acquire(self, blocking=True):
-        self._locked = True
-        return True
-
-    def release(self):
-        self._locked = False
-
-    def locked(self):
-        return self._locked
-
-
-class StubRedis:
-    def lock(self, name, timeout, blocking_timeout=None):
-        return StubLock()
-
-
 @pytest.mark.asyncio()
-async def test_reduce_only_blocks_increasing_order():
-    alpaca = StubAlpaca(
-        position_qty=10,
-        open_orders=[],
-    )
+async def test_reconciliation_gate_blocks_during_startup():
+    """Verify orders are blocked when reconciliation is not complete."""
     order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
 
-    with (
-        patch("apps.execution_gateway.main.alpaca_client", alpaca),
-        patch("apps.execution_gateway.main.redis_client", StubRedis()),
-    ):
-        with pytest.raises(HTTPException):
-            await _enforce_reduce_only_order(order)
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+    reconciliation_service.startup_elapsed_seconds.return_value = 10
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _require_reconciliation_ready_or_reduce_only(
+            order, ctx, config, "test-order-id"
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "Reconciliation in progress" in exc_info.value.detail["error"]
 
 
 @pytest.mark.asyncio()
-async def test_reduce_only_allows_reducing_order():
-    alpaca = StubAlpaca(
-        position_qty=10,
-        open_orders=[],
-    )
-    order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+async def test_reconciliation_gate_allows_after_completion():
+    """Verify orders are allowed when reconciliation is complete."""
+    order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
 
-    with (
-        patch("apps.execution_gateway.main.alpaca_client", alpaca),
-        patch("apps.execution_gateway.main.redis_client", StubRedis()),
-    ):
-        await _enforce_reduce_only_order(order)
+    # Mock reconciliation service that IS complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = True
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should not raise
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_allows_in_dry_run():
+    """Verify orders are allowed in dry run mode regardless of reconciliation state."""
+    order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=True)  # Dry run mode
+
+    # Should not raise because dry_run=True
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_allows_with_override():
+    """Verify orders are allowed when reconciliation override is active."""
+    order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+
+    # Mock reconciliation service with override active
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = True
+    reconciliation_service.override_context.return_value = {"reason": "manual_override"}
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should not raise because override is active
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )

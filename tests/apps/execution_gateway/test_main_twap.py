@@ -114,6 +114,10 @@ def app_client(monkeypatch):
         update_order_status=lambda **kwargs: SimpleNamespace(),
     )
     main.db_client = db  # type: ignore
+    main.app.state.context.db = db
+    main.app.state.context.recovery_manager = main.recovery_manager
+    main.app.state.context.twap_slicer = main.twap_slicer
+    main.app.state.context.liquidity_service = main.liquidity_service
 
     # slice_scheduler needs kill_switch & circuit_breaker for initialization; they are already patched
     return TestClient(main.app)
