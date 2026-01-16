@@ -6,7 +6,7 @@ import logging
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Any, cast
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
@@ -69,14 +69,30 @@ class MarketHours:
             return ZoneInfo("UTC")
         try:
             return ZoneInfo(str(calendar.tz))
-        except Exception:
+        except (ZoneInfoNotFoundError, AttributeError) as e:
+            logger.warning(
+                "market_calendar_timezone_fallback",
+                extra={
+                    "calendar_tz": getattr(calendar, "tz", "N/A"),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             return ZoneInfo("America/New_York")
 
     @classmethod
     def _is_trading_day(cls, calendar: Any, session_date: date) -> bool:
         try:
             return bool(calendar.is_session(pd.Timestamp(session_date)))
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "market_calendar_session_check_failed",
+                extra={
+                    "session_date": str(session_date),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             return False
 
     @classmethod

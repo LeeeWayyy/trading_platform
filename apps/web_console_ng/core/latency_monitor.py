@@ -129,6 +129,15 @@ class LatencyMonitor:
             await self._http_client.aclose()
             self._http_client = None
 
+    def _handle_failure(self) -> None:
+        """Handle a failed latency measurement.
+
+        Increments consecutive failure count and clears latency after 3 failures.
+        """
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= 3:
+            self._current_latency = None
+
     async def measure(self) -> float | None:
         """Measure round-trip latency to the API health endpoint.
 
@@ -170,9 +179,7 @@ class LatencyMonitor:
 
         except httpx.TimeoutException:
             logger.warning("Latency measurement timed out")
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= 3:
-                self._current_latency = None
+            self._handle_failure()
             return None
 
         except httpx.HTTPStatusError as e:
@@ -180,9 +187,7 @@ class LatencyMonitor:
                 "Latency measurement failed with HTTP error",
                 extra={"status_code": e.response.status_code},
             )
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= 3:
-                self._current_latency = None
+            self._handle_failure()
             return None
 
         except Exception as e:
@@ -190,9 +195,7 @@ class LatencyMonitor:
                 "Latency measurement failed",
                 extra={"error": str(e), "error_type": type(e).__name__},
             )
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= 3:
-                self._current_latency = None
+            self._handle_failure()
             return None
 
     def format_display(self) -> str:

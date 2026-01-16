@@ -112,26 +112,31 @@ class ConnectionMonitor:
                 self._state = ConnectionState.CONNECTED
 
     def record_failure(self) -> None:
-        """Record a failed connection check and schedule reconnect."""
+        """Record a failed connection check and schedule reconnect.
+
+        After max_reconnect_attempts, continues retrying with capped backoff
+        to allow recovery from extended outages without requiring page refresh.
+        """
         now = time.monotonic()
         self._last_failure_time = now
         self._consecutive_degraded = 0
         self._state = ConnectionState.DISCONNECTED
 
-        if self._reconnect_attempts >= self._max_reconnect_attempts:
-            self._next_retry_at = None
+        self._reconnect_attempts += 1
+
+        if self._reconnect_attempts > self._max_reconnect_attempts:
+            # Continue retrying with max backoff - don't stop permanently
             logger.warning(
-                "connection_reconnect_exhausted",
+                "connection_reconnect_extended",
                 extra={"attempts": self._reconnect_attempts},
             )
-            return
-
-        self._reconnect_attempts += 1
-        backoff = min(
-            self._backoff_base_seconds * (2 ** (self._reconnect_attempts - 1)),
-            self._backoff_max_seconds,
-        )
-        self._next_retry_at = now + backoff
+            self._next_retry_at = now + self._backoff_max_seconds
+        else:
+            backoff = min(
+                self._backoff_base_seconds * (2 ** (self._reconnect_attempts - 1)),
+                self._backoff_max_seconds,
+            )
+            self._next_retry_at = now + backoff
 
     def start_reconnect(self) -> None:
         """Transition from DISCONNECTED to RECONNECTING if a retry is scheduled."""
