@@ -9,19 +9,33 @@ CRITICAL SECURITY NOTE:
 
 Signature verification uses HMAC-SHA256 with WEBHOOK_SECRET.
 See apps/execution_gateway/webhook_security.py for implementation.
+
+This module uses FastAPI's native dependency injection pattern (Depends())
+instead of factory functions for cleaner, more testable code.
+
+Design Pattern:
+    - Router defined at module level (not inside factory function)
+    - Dependencies injected via Depends() in route handlers
+    - Dependencies retrieved from app.state via dependency providers
+    - No closure over dependencies (cleaner, more testable)
+
+See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 2B for design decisions.
 """
 
+from __future__ import annotations
+
 import logging
-import os
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from prometheus_client import Counter
 from pydantic import ValidationError
 
-from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.app_context import AppContext
+from apps.execution_gateway.config import ExecutionGatewayConfig
+from apps.execution_gateway.dependencies import get_config, get_context
 from apps.execution_gateway.reconciliation import SOURCE_PRIORITY_WEBHOOK
 from apps.execution_gateway.services.order_helpers import parse_webhook_timestamp
 from apps.execution_gateway.services.performance_cache import invalidate_performance_cache
@@ -32,11 +46,8 @@ from apps.execution_gateway.webhook_security import (
 
 logger = logging.getLogger(__name__)
 
-# Environment configuration
-ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
-
-# Webhook secret (loaded during app lifespan)
-WEBHOOK_SECRET: str = ""
+# Router defined at module level (Phase 2B refactoring)
+router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
 
 # Metrics
 webhook_received_total = Counter(
@@ -46,7 +57,7 @@ webhook_received_total = Counter(
 )
 
 
-def status_rank_for(status: str) -> int:
+def status_rank_for(status_str: str) -> int:
     """
     Return numeric rank for order status for CAS comparison.
     Higher rank = more authoritative.
@@ -64,88 +75,85 @@ def status_rank_for(status: str) -> int:
         "replaced": 8,
         "rejected": 9,
     }
-    return rank_map.get(status, 0)
+    return rank_map.get(status_str, 0)
 
 
-def create_webhooks_router(
-    db_client: DatabaseClient,
-    webhook_secret: str,
-) -> APIRouter:
+# =============================================================================
+# Webhook Endpoints
+# =============================================================================
+
+
+@router.post("/orders")
+async def handle_order_webhook(
+    request: Request,
+    ctx: AppContext = Depends(get_context),
+    config: ExecutionGatewayConfig = Depends(get_config),
+) -> dict[str, str]:
     """
-    Create webhooks router with dependencies.
+    Webhook for Alpaca order updates with per-fill P&L and row locking.
+
+    AUTHENTICATION:
+    - Uses signature verification (X-Alpaca-Signature header)
+    - NO bearer token required
+    - NO trading gates (kill-switch, circuit-breaker)
+
+    PROCESSING:
+    - Verifies HMAC-SHA256 signature
+    - Updates order status in database
+    - Processes fills with position updates
+    - Tracks realized P&L per fill
+    - Invalidates performance cache
 
     Args:
-        db_client: Database client for order/position updates
-        webhook_secret: HMAC secret for signature verification
+        request: FastAPI request object
+        ctx: Application context with all dependencies (injected)
+        config: Application configuration (injected)
 
     Returns:
-        Configured APIRouter instance
+        dict: Status response with client_order_id
     """
-    global WEBHOOK_SECRET
-    WEBHOOK_SECRET = webhook_secret
+    try:
+        # Parse webhook payload
+        body = await request.body()
+        payload = await request.json()
 
-    router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
+        # Verify webhook signature (required when secret configured)
+        webhook_secret = ctx.webhook_secret
+        if webhook_secret:
+            signature_header = request.headers.get("X-Alpaca-Signature")
+            signature = extract_signature_from_header(signature_header)
 
-    @router.post("/orders")
-    async def handle_order_webhook(request: Request) -> dict[str, str]:
-        """
-        Webhook for Alpaca order updates with per-fill P&L and row locking.
-
-        AUTHENTICATION:
-        - Uses signature verification (X-Alpaca-Signature header)
-        - NO bearer token required
-        - NO trading gates (kill-switch, circuit-breaker)
-
-        PROCESSING:
-        - Verifies HMAC-SHA256 signature
-        - Updates order status in database
-        - Processes fills with position updates
-        - Tracks realized P&L per fill
-        - Invalidates performance cache
-
-        Returns:
-            dict: Status response with client_order_id
-        """
-        try:
-            # Parse webhook payload
-            body = await request.body()
-            payload = await request.json()
-
-            # Verify webhook signature (required when secret configured)
-            if WEBHOOK_SECRET:
-                signature_header = request.headers.get("X-Alpaca-Signature")
-                signature = extract_signature_from_header(signature_header)
-
-                if not signature:
-                    logger.warning("Webhook received without signature")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Missing webhook signature",
-                    )
-
-                if not verify_webhook_signature(body, signature, WEBHOOK_SECRET):
-                    logger.error("Webhook signature verification failed")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid webhook signature",
-                    )
-
-                logger.debug("Webhook signature verified successfully")
-            else:
-                # SECURITY: In production, missing webhook secret is a configuration error
-                # We must reject webhooks rather than accepting unsigned ones
-                if ENVIRONMENT not in ("dev", "test"):
-                    logger.error(
-                        "Webhook rejected: WEBHOOK_SECRET not configured in production",
-                        extra={"environment": ENVIRONMENT},
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Webhook verification unavailable - secret not configured",
-                    )
-                logger.warning(
-                    "Webhook signature verification disabled (WEBHOOK_SECRET not set, dev/test only)"
+            if not signature:
+                logger.warning("Webhook received without signature")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Missing webhook signature",
                 )
+
+            if not verify_webhook_signature(body, signature, webhook_secret):
+                logger.error("Webhook signature verification failed")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid webhook signature",
+                )
+
+            logger.debug("Webhook signature verified successfully")
+        else:
+            # SECURITY: In production, missing webhook secret is a configuration error
+            # We must reject webhooks rather than accepting unsigned ones
+            environment = config.environment
+            if environment not in ("dev", "test"):
+                logger.error(
+                    "Webhook rejected: WEBHOOK_SECRET not configured in production",
+                    extra={"environment": environment},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Webhook verification unavailable - secret not configured",
+                )
+            logger.warning(
+                "Webhook signature verification disabled (WEBHOOK_SECRET not set, dev/test only)"
+            )
 
             logger.info(
                 f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
@@ -181,7 +189,7 @@ def create_webhooks_router(
                     default=datetime.now(UTC),
                 )
 
-                updated_order = db_client.update_order_status_cas(
+                updated_order = ctx.db.update_order_status_cas(
                     client_order_id=client_order_id,
                     status=order_status,
                     broker_updated_at=broker_updated_at,
@@ -222,8 +230,8 @@ def create_webhooks_router(
                 default=fill_timestamp,
             )
 
-            with db_client.transaction() as conn:
-                order = db_client.get_order_for_update(client_order_id, conn)
+            with ctx.db.transaction() as conn:
+                order = ctx.db.get_order_for_update(client_order_id, conn)
                 if not order:
                     logger.warning(f"Order not found for webhook: {client_order_id}")
                     return {"status": "ignored", "reason": "order_not_found"}
@@ -252,10 +260,10 @@ def create_webhooks_router(
 
                 # Only update position and append fill metadata if there's an incremental fill
                 if incremental_fill_qty_int > 0:
-                    position_locked = db_client.get_position_for_update(order.symbol, conn)
+                    position_locked = ctx.db.get_position_for_update(order.symbol, conn)
                     old_realized = position_locked.realized_pl if position_locked else Decimal("0")
 
-                    position = db_client.update_position_on_fill_with_conn(
+                    position = ctx.db.update_position_on_fill_with_conn(
                         symbol=order.symbol,
                         fill_qty=incremental_fill_qty_int,
                         fill_price=per_fill_price,
@@ -265,7 +273,7 @@ def create_webhooks_router(
 
                     realized_delta = position.realized_pl - old_realized
 
-                    db_client.append_fill_to_order_metadata(
+                    ctx.db.append_fill_to_order_metadata(
                         client_order_id=client_order_id,
                         fill_data={
                             "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
@@ -289,7 +297,7 @@ def create_webhooks_router(
 
                 # Always update order status/avg_price (even with no incremental fill)
                 # This ensures status-only updates and price corrections are captured
-                db_client.update_order_status_with_conn(
+                ctx.db.update_order_status_with_conn(
                     client_order_id=client_order_id,
                     status=order_status,
                     filled_qty=filled_qty_dec,
@@ -342,4 +350,13 @@ def create_webhooks_router(
                 detail=f"Webhook processing failed: {str(e)}",
             ) from e
 
-    return router
+
+# =============================================================================
+# Legacy Factory Function (Deprecated)
+# =============================================================================
+# The create_webhooks_router factory function has been deprecated in favor of
+# module-level router definition with Depends() pattern.
+# This factory is kept temporarily for backward compatibility during Phase 2B
+# transition. It will be removed after all routes are migrated.
+#
+# See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 2B for migration details.

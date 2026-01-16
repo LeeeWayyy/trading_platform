@@ -39,7 +39,6 @@ def sample_long_position() -> Position:
         avg_entry_price=Decimal("150.00"),
         current_price=Decimal("155.00"),  # Database fallback price
         realized_pl=Decimal("0"),
-        strategy_id="test_strategy",
         updated_at=datetime.now(UTC),
     )
 
@@ -53,7 +52,6 @@ def sample_short_position() -> Position:
         avg_entry_price=Decimal("200.00"),
         current_price=Decimal("195.00"),  # Database fallback price
         realized_pl=Decimal("0"),
-        strategy_id="test_strategy",
         updated_at=datetime.now(UTC),
     )
 
@@ -67,7 +65,6 @@ def sample_zero_position() -> Position:
         avg_entry_price=Decimal("300.00"),
         current_price=Decimal("310.00"),
         realized_pl=Decimal("100.50"),
-        strategy_id="test_strategy",
         updated_at=datetime.now(UTC),
     )
 
@@ -166,7 +163,6 @@ def test_calculate_position_pnl_zero_entry_price() -> None:
         avg_entry_price=Decimal("0"),  # Edge case
         current_price=Decimal("100"),
         realized_pl=Decimal("0"),
-        strategy_id="test_strategy",
         updated_at=datetime.now(UTC),
     )
 
@@ -224,7 +220,6 @@ def test_resolve_pnl_entry_price_fallback() -> None:
         avg_entry_price=Decimal("150.00"),
         current_price=None,  # No database price
         realized_pl=Decimal("0"),
-        strategy_id="test_strategy",
         updated_at=datetime.now(UTC),
     )
     realtime_data = (None, None)  # No real-time price
@@ -436,6 +431,133 @@ def test_compute_daily_performance_zero_peak_edge_case() -> None:
     assert daily[1].drawdown_pct == Decimal("-100")
 
     assert max_drawdown == Decimal("-100")
+
+
+def test_compute_daily_performance_zero_cumulative_first_day() -> None:
+    """Test computation when first day has zero P&L."""
+    rows = [
+        {"trade_date": date(2024, 1, 1), "daily_realized_pl": 0, "closing_trade_count": 0},
+        {"trade_date": date(2024, 1, 2), "daily_realized_pl": 100, "closing_trade_count": 1},
+    ]
+
+    daily, total_realized, max_drawdown = compute_daily_performance(
+        rows, date(2024, 1, 1), date(2024, 1, 2)
+    )
+
+    # Day 1: cumulative = 0, peak = 0
+    assert daily[0].cumulative_realized_pl == Decimal("0")
+    assert daily[0].peak_equity == Decimal("0")
+    # Drawdown with zero peak should be 0 (avoid division by zero)
+    assert daily[0].drawdown_pct == Decimal("0")
+
+    # Day 2: cumulative = 100, new peak = 100
+    assert daily[1].cumulative_realized_pl == Decimal("100")
+    assert daily[1].peak_equity == Decimal("100")
+
+    assert total_realized == Decimal("100")
+    assert max_drawdown == Decimal("0")
+
+
+def test_calculate_position_pnl_preserves_symbol_info(sample_long_position: Position) -> None:
+    """Test that P&L calculation preserves all position info."""
+    now = datetime.now(UTC)
+    pnl = calculate_position_pnl(
+        pos=sample_long_position,
+        current_price=Decimal("155.00"),
+        price_source="real-time",
+        last_price_update=now,
+    )
+
+    # Verify all position fields are preserved
+    assert pnl.symbol == sample_long_position.symbol
+    assert pnl.qty == sample_long_position.qty
+    assert pnl.avg_entry_price == sample_long_position.avg_entry_price
+    assert pnl.current_price == Decimal("155.00")
+
+
+def test_resolve_pnl_with_zero_realtime_price() -> None:
+    """Test price resolution with zero as real-time price (edge case)."""
+    pos = Position(
+        symbol="AAPL",
+        qty=Decimal("100"),
+        avg_entry_price=Decimal("150.00"),
+        current_price=Decimal("155.00"),
+        realized_pl=Decimal("0"),
+        updated_at=datetime.now(UTC),
+    )
+    now = datetime.now(UTC)
+    # Zero is a valid price (though unlikely in practice)
+    realtime_data = (Decimal("0"), now)
+
+    pnl, is_realtime = resolve_and_calculate_pnl(pos, realtime_data)
+
+    assert is_realtime is True
+    assert pnl.price_source == "real-time"
+    assert pnl.current_price == Decimal("0")
+    # P&L: (0 - 150) * 100 = -15000
+    assert pnl.unrealized_pl == Decimal("-15000.00")
+
+
+def test_compute_daily_performance_missing_closing_trade_count() -> None:
+    """Test handling of rows with missing closing_trade_count."""
+    rows = [
+        {"trade_date": date(2024, 1, 1), "daily_realized_pl": 100},  # Missing closing_trade_count
+        {"trade_date": date(2024, 1, 2), "daily_realized_pl": 50, "closing_trade_count": None},  # Explicit None
+    ]
+
+    daily, total_realized, max_drawdown = compute_daily_performance(
+        rows, date(2024, 1, 1), date(2024, 1, 2)
+    )
+
+    # Should default to 0 for missing/None closing_trade_count
+    assert daily[0].closing_trade_count == 0
+    assert daily[1].closing_trade_count == 0
+
+    assert total_realized == Decimal("150")
+
+
+def test_compute_daily_performance_single_day() -> None:
+    """Test computation with a single day of data."""
+    rows = [
+        {"trade_date": date(2024, 1, 15), "daily_realized_pl": 250, "closing_trade_count": 3},
+    ]
+
+    daily, total_realized, max_drawdown = compute_daily_performance(
+        rows, date(2024, 1, 15), date(2024, 1, 15)
+    )
+
+    assert len(daily) == 1
+    assert daily[0].date == date(2024, 1, 15)
+    assert daily[0].realized_pl == Decimal("250")
+    assert daily[0].cumulative_realized_pl == Decimal("250")
+    assert daily[0].peak_equity == Decimal("250")
+    assert daily[0].drawdown_pct == Decimal("0")
+    assert daily[0].closing_trade_count == 3
+
+    assert total_realized == Decimal("250")
+    assert max_drawdown == Decimal("0")
+
+
+def test_calculate_position_pnl_breakeven() -> None:
+    """Test P&L calculation at breakeven (price = entry)."""
+    pos = Position(
+        symbol="AAPL",
+        qty=Decimal("100"),
+        avg_entry_price=Decimal("150.00"),
+        current_price=Decimal("150.00"),
+        realized_pl=Decimal("0"),
+        updated_at=datetime.now(UTC),
+    )
+
+    pnl = calculate_position_pnl(
+        pos=pos,
+        current_price=Decimal("150.00"),  # Same as entry
+        price_source="real-time",
+        last_price_update=datetime.now(UTC),
+    )
+
+    assert pnl.unrealized_pl == Decimal("0")
+    assert pnl.unrealized_pl_pct == Decimal("0")
 
 
 if __name__ == "__main__":

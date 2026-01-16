@@ -420,5 +420,221 @@ async def test_middleware_strategies_with_whitespace():
     assert request_mock.state.user["strategies"] == ["alpha_baseline", "momentum"]
 
 
+def test_verify_token_future_timestamp(mock_settings_with_validation):
+    """Test that future timestamp outside tolerance returns error."""
+    # 400 seconds in the future (tolerance: 300)
+    future_timestamp = str(int(time.time()) + 400)
+
+    is_valid, error = _verify_internal_token(
+        token="abc123",
+        timestamp_str=future_timestamp,
+        user_id="user123",
+        role="trader",
+        strategies="alpha_baseline",
+        settings=mock_settings_with_validation,
+    )
+
+    assert is_valid is False
+    assert error == "timestamp_expired"
+
+
+def test_verify_token_within_tolerance_boundary(mock_settings_with_validation):
+    """Test that timestamp at exactly tolerance boundary is valid."""
+    # Exactly at 300 second boundary (should be valid)
+    boundary_timestamp = str(int(time.time()) - 300)
+    user_id = "user123"
+    role = "trader"
+    strategies = "alpha_baseline"
+
+    valid_token = create_valid_token(user_id, role, strategies, boundary_timestamp, "test_secret_key")
+
+    is_valid, error = _verify_internal_token(
+        token=valid_token,
+        timestamp_str=boundary_timestamp,
+        user_id=user_id,
+        role=role,
+        strategies=strategies,
+        settings=mock_settings_with_validation,
+    )
+
+    assert is_valid is True
+    assert error == ""
+
+
+@pytest.mark.asyncio
+async def test_middleware_missing_user_id_with_role():
+    """Test middleware when role is present but user_id is missing."""
+    request_mock = MagicMock(spec=Request)
+    request_mock.headers.get.side_effect = lambda key, default=None: {
+        "X-User-Role": "trader",
+        "X-User-Id": None,  # Missing user_id
+        "X-User-Strategies": "alpha_baseline",
+    }.get(key, default)
+    request_mock.state = MagicMock()
+
+    call_next_mock = AsyncMock(return_value="response")
+
+    with patch("config.settings.get_settings") as mock_get_settings:
+        mock_get_settings.return_value = MagicMock(internal_token_required=False)
+
+        response = await populate_user_from_headers(request_mock, call_next_mock)
+
+    # Should pass through without setting user (role AND user_id required)
+    assert response == "response"
+    call_next_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_middleware_missing_role_with_user_id():
+    """Test middleware when user_id is present but role is missing."""
+    request_mock = MagicMock(spec=Request)
+    request_mock.headers.get.side_effect = lambda key, default=None: {
+        "X-User-Role": None,  # Missing role
+        "X-User-Id": "user123",
+        "X-User-Strategies": "alpha_baseline",
+    }.get(key, default)
+    request_mock.state = MagicMock()
+
+    call_next_mock = AsyncMock(return_value="response")
+
+    with patch("config.settings.get_settings") as mock_get_settings:
+        mock_get_settings.return_value = MagicMock(internal_token_required=False)
+
+        response = await populate_user_from_headers(request_mock, call_next_mock)
+
+    # Should pass through without setting user (role AND user_id required)
+    assert response == "response"
+    call_next_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_middleware_missing_timestamp_with_validation(mock_settings_with_validation):
+    """Test middleware returns 401 when timestamp is missing but validation enabled."""
+    request_mock = MagicMock(spec=Request)
+    request_mock.headers.get.side_effect = lambda key, default=None: {
+        "X-User-Role": "trader",
+        "X-User-Id": "user123",
+        "X-User-Strategies": "alpha_baseline",
+        "X-User-Signature": "some_signature",
+        "X-Request-Timestamp": None,  # Missing timestamp
+    }.get(key, default)
+    request_mock.url.path = "/api/v1/test"
+    request_mock.state = MagicMock()
+
+    call_next_mock = AsyncMock(return_value="response")
+
+    with patch("config.settings.get_settings") as mock_get_settings:
+        mock_get_settings.return_value = mock_settings_with_validation
+
+        response = await populate_user_from_headers(request_mock, call_next_mock)
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 401
+    call_next_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_middleware_missing_signature_with_validation(mock_settings_with_validation):
+    """Test middleware returns 401 when signature is missing but validation enabled."""
+    timestamp_str = str(int(time.time()))
+
+    request_mock = MagicMock(spec=Request)
+    request_mock.headers.get.side_effect = lambda key, default=None: {
+        "X-User-Role": "trader",
+        "X-User-Id": "user123",
+        "X-User-Strategies": "alpha_baseline",
+        "X-User-Signature": None,  # Missing signature
+        "X-Request-Timestamp": timestamp_str,
+    }.get(key, default)
+    request_mock.url.path = "/api/v1/test"
+    request_mock.state = MagicMock()
+
+    call_next_mock = AsyncMock(return_value="response")
+
+    with patch("config.settings.get_settings") as mock_get_settings:
+        mock_get_settings.return_value = mock_settings_with_validation
+
+        response = await populate_user_from_headers(request_mock, call_next_mock)
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 401
+    call_next_mock.assert_not_called()
+
+
+def test_verify_token_logs_warning_on_mismatch(mock_settings_with_validation, caplog):
+    """Test that signature mismatch is logged with appropriate details."""
+    import logging
+
+    timestamp_str = str(int(time.time()))
+
+    with caplog.at_level(logging.WARNING):
+        is_valid, error = _verify_internal_token(
+            token="invalid_signature_12345",
+            timestamp_str=timestamp_str,
+            user_id="user123",
+            role="trader",
+            strategies="alpha_baseline",
+            settings=mock_settings_with_validation,
+        )
+
+    assert is_valid is False
+    assert error == "invalid_signature"
+    assert "signature mismatch" in caplog.text
+    assert "user" in caplog.text  # User prefix should be logged
+
+
+def test_verify_token_logs_warning_on_timestamp_expired(mock_settings_with_validation, caplog):
+    """Test that expired timestamp is logged with skew details."""
+    import logging
+
+    old_timestamp = str(int(time.time()) - 400)
+
+    with caplog.at_level(logging.WARNING):
+        is_valid, error = _verify_internal_token(
+            token="some_token",
+            timestamp_str=old_timestamp,
+            user_id="user123",
+            role="trader",
+            strategies="alpha_baseline",
+            settings=mock_settings_with_validation,
+        )
+
+    assert is_valid is False
+    assert error == "timestamp_expired"
+    assert "outside tolerance" in caplog.text
+
+
+def test_verify_token_empty_token_string(mock_settings_with_validation):
+    """Test that empty string token returns missing_token error."""
+    timestamp_str = str(int(time.time()))
+
+    is_valid, error = _verify_internal_token(
+        token="",  # Empty string
+        timestamp_str=timestamp_str,
+        user_id="user123",
+        role="trader",
+        strategies="alpha_baseline",
+        settings=mock_settings_with_validation,
+    )
+
+    assert is_valid is False
+    assert error == "missing_token"
+
+
+def test_verify_token_empty_timestamp_string(mock_settings_with_validation):
+    """Test that empty string timestamp returns missing_timestamp error."""
+    is_valid, error = _verify_internal_token(
+        token="some_token",
+        timestamp_str="",  # Empty string
+        user_id="user123",
+        role="trader",
+        strategies="alpha_baseline",
+        settings=mock_settings_with_validation,
+    )
+
+    assert is_valid is False
+    assert error == "missing_timestamp"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

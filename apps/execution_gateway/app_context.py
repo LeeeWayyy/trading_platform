@@ -141,12 +141,65 @@ class RecoveryManagerProtocol(Protocol):
     without depending on the concrete RecoveryManager implementation.
     """
 
+    @property
+    def kill_switch(self) -> object | None:
+        """Get the kill switch instance."""
+        ...
+
+    @property
+    def circuit_breaker(self) -> object | None:
+        """Get the circuit breaker instance."""
+        ...
+
+    @property
+    def position_reservation(self) -> object | None:
+        """Get the position reservation instance."""
+        ...
+
     def kill_switch_engaged(self) -> bool:
         """Check if kill switch is engaged."""
         ...
 
     def circuit_breaker_tripped(self) -> bool:
         """Check if circuit breaker is tripped."""
+        ...
+
+    def is_kill_switch_unavailable(self) -> bool:
+        """Check if kill switch is unavailable (Redis down)."""
+        ...
+
+    def is_circuit_breaker_unavailable(self) -> bool:
+        """Check if circuit breaker is unavailable (Redis down)."""
+        ...
+
+    def is_position_reservation_unavailable(self) -> bool:
+        """Check if position reservation is unavailable (Redis down)."""
+        ...
+
+    def set_kill_switch_unavailable(self, unavailable: bool) -> None:
+        """Set kill switch unavailability flag."""
+        ...
+
+    def set_circuit_breaker_unavailable(self, unavailable: bool) -> None:
+        """Set circuit breaker unavailability flag."""
+        ...
+
+    def set_position_reservation_unavailable(self, unavailable: bool) -> None:
+        """Set position reservation unavailability flag."""
+        ...
+
+    def needs_recovery(self) -> bool:
+        """Check if any safety component needs recovery."""
+        ...
+
+    def attempt_recovery(
+        self,
+        kill_switch_factory: object | None = None,
+        circuit_breaker_factory: object | None = None,
+        position_reservation_factory: object | None = None,
+        slice_scheduler_factory: object | None = None,
+    ) -> None:
+        """Attempt to recover unavailable safety components."""
         ...
 
 

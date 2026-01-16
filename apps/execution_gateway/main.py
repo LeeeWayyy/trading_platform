@@ -208,13 +208,15 @@ from libs.trading.risk_management import (
     RiskConfig,
 )
 # Phase 2: Router modules for clean architecture
-from apps.execution_gateway.routes.admin import create_admin_router
-# Health router imported at module level (line ~862) - Phase 2B refactored to Depends() pattern
+# Admin router imported at module level - Phase 2B refactored to Depends() pattern
+from apps.execution_gateway.routes import admin as admin_routes
+# Health router imported at module level - Phase 2B refactored to Depends() pattern
 from apps.execution_gateway.routes.orders import create_orders_router
 from apps.execution_gateway.routes.positions import create_positions_router
-# Reconciliation router imported at module level (line ~870) - Phase 2B refactored to Depends() pattern
+# Reconciliation router imported at module level - Phase 2B refactored to Depends() pattern
 from apps.execution_gateway.routes.slicing import create_slicing_router
-from apps.execution_gateway.routes.webhooks import create_webhooks_router
+# Webhooks router imported at module level - Phase 2B refactored to Depends() pattern
+from apps.execution_gateway.routes import webhooks as webhooks_routes
 
 
 # ============================================================================
@@ -700,23 +702,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Mounting API routers (factory pattern - Phase 2A)...")
 
         # NOTE: Health router now mounted at module level (Phase 2B refactoring)
-        # See line ~950 for module-level router mounting
-
-        # Admin endpoints
-        admin_router = create_admin_router(
-            fat_finger_validator=fat_finger_validator,
-            recovery_manager=recovery_manager,
-            db_client=db_client,
-            environment=ENVIRONMENT,
-            dry_run=DRY_RUN,
-            alpaca_paper=ALPACA_PAPER,
-            circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
-            liquidity_check_enabled=LIQUIDITY_CHECK_ENABLED,
-            max_slice_pct_of_adv=MAX_SLICE_PCT_OF_ADV,
-            strategy_activity_threshold_seconds=STRATEGY_ACTIVITY_THRESHOLD_SECONDS,
-            authenticator_getter=build_gateway_authenticator,
-        )
-        app.include_router(admin_router)
+        # NOTE: Admin router now mounted at module level (Phase 2B refactoring)
+        # NOTE: Reconciliation router now mounted at module level (Phase 2B refactoring)
+        # See module-level router mounting section below
 
         # Order endpoints
         orders_router = create_orders_router(
@@ -771,15 +759,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app.include_router(positions_router)
 
-        # Webhook endpoints (NO auth middleware - signature auth only)
-        webhooks_router = create_webhooks_router(
-            db_client=db_client,
-            webhook_secret=WEBHOOK_SECRET,
-        )
-        app.include_router(webhooks_router)
-
+        # NOTE: Webhooks router now mounted at module level (Phase 2B refactoring)
         # NOTE: Reconciliation router now mounted at module level (Phase 2B refactoring)
-        # See line ~870 for module-level router mounting
+        # See module-level router mounting section below
 
         logger.info("All API routers mounted successfully")
 
@@ -862,7 +844,14 @@ app.include_router(health_routes.router)
 # Mount reconciliation router (Phase 2B - uses Depends() pattern)
 app.include_router(reconciliation_routes.router)
 
-logger.info("Health and reconciliation routers mounted at module level (Phase 2B)")
+# Mount admin router (Phase 2B - uses Depends() pattern)
+app.include_router(admin_routes.router)
+
+# Mount webhooks router (Phase 2B - uses Depends() pattern)
+# NOTE: Webhooks use SIGNATURE auth only (no bearer token) - see routes/webhooks.py
+app.include_router(webhooks_routes.router)
+
+logger.info("Health, reconciliation, admin, and webhooks routers mounted at module level (Phase 2B)")
 
 # ============================================================================
 # Proxy Headers Middleware (for accurate client IP behind load balancers)

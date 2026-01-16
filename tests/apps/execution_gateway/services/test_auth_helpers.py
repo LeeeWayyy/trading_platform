@@ -218,5 +218,75 @@ def test_build_user_context_preserves_all_user_data() -> None:
     assert context["user"]["permissions"] == ["read", "write"]
 
 
+def test_build_user_context_state_without_user_attribute() -> None:
+    """Test that 401 raised when state exists but has no user attribute."""
+    request_mock = MagicMock(spec=Request)
+    # Create a state object without user attribute
+    request_mock.state = MagicMock(spec=[])  # Empty spec means no 'user' attribute
+
+    with pytest.raises(HTTPException) as exc_info:
+        build_user_context(request_mock)
+
+    assert exc_info.value.status_code == 401
+    assert "Missing authenticated user context" in exc_info.value.detail
+
+
+def test_build_user_context_object_without_dict() -> None:
+    """Test user object that has __dict__ returning empty but attributes accessible."""
+    request_mock = MagicMock(spec=Request)
+
+    # Create object with properties (like a slot-based class)
+    class SlottedUser:
+        __slots__ = ("role", "strategies", "user_id")
+
+        def __init__(self) -> None:
+            self.role = "trader"
+            self.strategies = ["alpha_baseline"]
+            self.user_id = "slot_user"
+
+    user_obj = SlottedUser()
+    request_mock.state.user = user_obj
+    request_mock.query_params.getlist.return_value = []
+
+    context = build_user_context(request_mock)
+
+    assert context["role"] == "trader"
+    assert context["strategies"] == ["alpha_baseline"]
+    assert context["user_id"] == "slot_user"
+
+
+def test_build_user_context_user_id_none() -> None:
+    """Test user context when user_id is explicitly None."""
+    request_mock = MagicMock(spec=Request)
+    request_mock.state.user = {
+        "role": "viewer",
+        "user_id": None,  # Explicitly None
+    }
+    request_mock.query_params.getlist.return_value = []
+
+    context = build_user_context(request_mock)
+
+    assert context["role"] == "viewer"
+    assert context["user_id"] is None
+
+
+def test_build_user_context_dict_copy_safety() -> None:
+    """Test that original dict is not mutated."""
+    original_user = {
+        "role": "trader",
+        "strategies": ["alpha_baseline"],
+        "user_id": "user123",
+    }
+    request_mock = MagicMock(spec=Request)
+    request_mock.state.user = original_user
+    request_mock.query_params.getlist.return_value = []
+
+    context = build_user_context(request_mock)
+
+    # Modifying context should not affect original
+    context["user"]["new_field"] = "new_value"
+    assert "new_field" not in original_user
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

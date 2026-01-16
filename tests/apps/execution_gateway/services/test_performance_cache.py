@@ -391,5 +391,131 @@ def test_invalidate_cache_attribute_error(caplog: pytest.LogCaptureFixture) -> N
     assert "Performance cache invalidation failed" in caplog.text
 
 
+def test_create_cache_key_hash_uniqueness() -> None:
+    """Test that different strategies produce different hashes."""
+    key1 = create_performance_cache_key(
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 1, 31),
+        strategies=("alpha_baseline",),
+        user_id="user123",
+    )
+
+    key2 = create_performance_cache_key(
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 1, 31),
+        strategies=("momentum",),
+        user_id="user123",
+    )
+
+    # Same dates and user, different strategies = different keys
+    assert key1 != key2
+
+
+def test_create_cache_key_date_range_uniqueness() -> None:
+    """Test that different date ranges produce different keys."""
+    key1 = create_performance_cache_key(
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 1, 31),
+        strategies=("alpha_baseline",),
+        user_id="user123",
+    )
+
+    key2 = create_performance_cache_key(
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 2, 29),  # Different end date
+        strategies=("alpha_baseline",),
+        user_id="user123",
+    )
+
+    assert key1 != key2
+
+
+def test_register_cache_type_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Test error handling for TypeError during registration."""
+    redis_mock = MagicMock()
+    pipeline_mock = MagicMock()
+    redis_mock.pipeline.return_value = pipeline_mock
+    pipeline_mock.execute.side_effect = TypeError("Invalid type")
+
+    register_performance_cache(
+        redis_client=redis_mock,
+        cache_key="test_key",
+        start_date=date(2024, 1, 15),
+        end_date=date(2024, 1, 15),
+        ttl_seconds=300,
+    )
+
+    # Verify warning logged
+    assert "Performance cache index registration failed - invalid data" in caplog.text
+
+
+def test_invalidate_cache_type_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Test error handling for TypeError during invalidation."""
+    redis_mock = MagicMock()
+    redis_mock.sscan_iter.side_effect = TypeError("Invalid type")
+
+    invalidate_performance_cache(redis_mock, date(2024, 1, 15))
+
+    # Verify warning logged
+    assert "Performance cache invalidation failed - invalid data" in caplog.text
+
+
+def test_invalidate_cache_delete_error_handling(caplog: pytest.LogCaptureFixture) -> None:
+    """Test error handling when delete fails during invalidation."""
+    redis_mock = MagicMock()
+    redis_mock.sscan_iter.return_value = iter(["key1", "key2"])
+    redis_mock.delete.side_effect = RedisError("Delete failed")
+
+    invalidate_performance_cache(redis_mock, date(2024, 1, 15))
+
+    # Verify warning logged
+    assert "Performance cache invalidation failed - Redis error" in caplog.text
+
+
+def test_register_cache_large_date_range() -> None:
+    """Test cache registration for larger date range (30 days)."""
+    redis_mock = MagicMock()
+    pipeline_mock = MagicMock()
+    redis_mock.pipeline.return_value = pipeline_mock
+
+    register_performance_cache(
+        redis_client=redis_mock,
+        cache_key="test_key",
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 1, 30),  # 30 days
+        ttl_seconds=300,
+    )
+
+    # Verify 30 days = 30 sadd + 30 expire calls
+    assert pipeline_mock.sadd.call_count == 30
+    assert pipeline_mock.expire.call_count == 30
+    pipeline_mock.execute.assert_called_once()
+
+
+def test_invalidate_cache_at_batch_boundary() -> None:
+    """Test cache invalidation when keys = batch_size - 1."""
+    redis_mock = MagicMock()
+    # 99 keys (just under batch size of 100)
+    keys = [f"cache_key_{i}" for i in range(99)]
+    redis_mock.sscan_iter.return_value = iter(keys)
+
+    invalidate_performance_cache(redis_mock, date(2024, 1, 15))
+
+    # Should be single delete call with 99 keys + index key
+    assert redis_mock.delete.call_count == 1
+    batch = redis_mock.delete.call_args_list[0][0]
+    assert len(batch) == 100  # 99 keys + index key
+
+
+def test_create_index_key_year_boundary() -> None:
+    """Test index key generation across year boundary."""
+    key_dec = create_performance_cache_index_key(date(2023, 12, 31))
+    key_jan = create_performance_cache_index_key(date(2024, 1, 1))
+
+    assert key_dec == "performance:daily:index:2023-12-31"
+    assert key_jan == "performance:daily:index:2024-01-01"
+    assert key_dec != key_jan
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
