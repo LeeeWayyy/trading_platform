@@ -78,7 +78,11 @@ See [libs/risk_management.md](./risk_management.md) for detailed specification.
 - [../services/execution_gateway.md](../services/execution_gateway.md) - Order execution
 - [../services/signal_service.md](../services/signal_service.md) - Signal generation
 
+## Testing
+- **Test Files:** `tests/libs/trading/` (centralized test directory)
+- **Run Tests:** `pytest tests/libs/trading -v`
+
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from collocated directories to tests/libs/trading/)
 - **Source Files:** `libs/trading/` (group index)
 - **ADRs:** N/A

@@ -531,6 +531,7 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2026-01-13, Task] [P6T18_TASK.md](./TASKS/P6T18_TASK.md) - P6T18: Performance Optimization
 
 **Test Improvement Tasks:**
+- [CURRENT, 2026-01-15, Plan] [TEST_IMPROVEMENT_PLAN.md](./TASKS/TEST_IMPROVEMENT_PLAN.md) - Test Improvement Plan for coverage and parallel CI
 - [CURRENT, 2026-01-15, Task] [REFACTOR_EXECUTION_GATEWAY_TASK.md](./TASKS/REFACTOR_EXECUTION_GATEWAY_TASK.md) - Refactor Execution Gateway for Testability
 
 **Backlog Tasks (B0):**

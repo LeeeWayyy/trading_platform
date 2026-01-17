@@ -248,7 +248,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-17
+- **Last Updated:** 2026-01-16 (Reconciliation refactor: split into package; test consolidation)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`
@@ -259,7 +259,16 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
   - `apps/execution_gateway/middleware.py`
   - `apps/execution_gateway/metrics.py`
   - `apps/execution_gateway/database.py`
-  - `apps/execution_gateway/reconciliation.py`
+  - `apps/execution_gateway/reconciliation/` (package - refactored from reconciliation.py)
+    - `__init__.py` (backward-compatible exports)
+    - `service.py` (ReconciliationService orchestrator)
+    - `state.py` (startup gate and override state)
+    - `context.py` (dependency injection context)
+    - `orders.py` (order sync and CAS updates)
+    - `fills.py` (fill backfill logic)
+    - `positions.py` (position reconciliation)
+    - `orphans.py` (orphan detection and quarantine)
+    - `helpers.py` (pure utility functions)
   - `apps/execution_gateway/alpaca_client.py`
   - `apps/execution_gateway/fat_finger_validator.py`
   - `apps/execution_gateway/liquidity_service.py`
