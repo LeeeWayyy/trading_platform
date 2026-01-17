@@ -40,6 +40,9 @@ if TYPE_CHECKING:
         RedisClientProtocol,
     )
     from apps.execution_gateway.config import ExecutionGatewayConfig
+    from apps.execution_gateway.fat_finger_validator import FatFingerValidator
+    from apps.execution_gateway.liquidity_service import LiquidityService
+    from apps.execution_gateway.order_slicer import TWAPSlicer
 
 
 def get_context(request: Request) -> AppContext:
@@ -250,7 +253,7 @@ def get_reconciliation_service(
     return ctx.reconciliation_service
 
 
-def get_fat_finger_validator(ctx: AppContext = Depends(get_context)) -> object:
+def get_fat_finger_validator(ctx: AppContext = Depends(get_context)) -> FatFingerValidator:
     """Get fat-finger validator from context.
 
     Args:
@@ -262,7 +265,7 @@ def get_fat_finger_validator(ctx: AppContext = Depends(get_context)) -> object:
     return ctx.fat_finger_validator
 
 
-def get_liquidity_service(ctx: AppContext = Depends(get_context)) -> object | None:
+def get_liquidity_service(ctx: AppContext = Depends(get_context)) -> LiquidityService | None:
     """Get liquidity service from context.
 
     Args:
@@ -274,7 +277,7 @@ def get_liquidity_service(ctx: AppContext = Depends(get_context)) -> object | No
     return ctx.liquidity_service
 
 
-def get_twap_slicer(ctx: AppContext = Depends(get_context)) -> object:
+def get_twap_slicer(ctx: AppContext = Depends(get_context)) -> TWAPSlicer:
     """Get TWAP slicer from context.
 
     Args:

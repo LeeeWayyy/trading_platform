@@ -248,7 +248,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-16
+- **Last Updated:** 2026-01-17
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`

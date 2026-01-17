@@ -238,17 +238,19 @@ def _is_reconciliation_ready(ctx: AppContext, config: ExecutionGatewayConfig) ->
 
 
 def _is_reduce_only_order(order: OrderRequest, broker_position: dict[str, Any] | None) -> bool:
-    """Check if an order would reduce the current position.
+    """Check if an order would strictly reduce the current position without flipping.
 
     Per ADR-0020, during startup gating we allow risk-reducing orders computed
-    from LIVE Alpaca data (not stale DB).
+    from LIVE Alpaca data (not stale DB). An order is reduce-only if:
+    1. The side is correct (sell for long, buy for short)
+    2. The quantity doesn't exceed current position (no flipping to opposite side)
 
     Args:
         order: The order request
         broker_position: Live position from Alpaca, or None if flat
 
     Returns:
-        True if order reduces position, False if it increases position
+        True if order strictly reduces position, False otherwise
     """
     if broker_position is None:
         # No position means any order would increase exposure
@@ -260,13 +262,21 @@ def _is_reduce_only_order(order: OrderRequest, broker_position: dict[str, Any] |
         return False
 
     order_side = order.side.lower()
+    order_qty = Decimal(str(order.qty))
 
-    # Long position (positive qty): sell reduces, buy increases
-    # Short position (negative qty): buy reduces, sell increases
+    # Long position (positive qty): only sell that doesn't exceed position
     if current_qty > 0:
-        return order_side == "sell"
+        if order_side != "sell":
+            return False
+        # Sell qty must not exceed position (would flip to short)
+        return order_qty <= current_qty
+
+    # Short position (negative qty): only buy that doesn't exceed position
     else:
-        return order_side == "buy"
+        if order_side != "buy":
+            return False
+        # Buy qty must not exceed abs(position) (would flip to long)
+        return order_qty <= abs(current_qty)
 
 
 async def _require_reconciliation_ready_or_reduce_only(
@@ -849,6 +859,19 @@ async def submit_order(
                     "client_order_id": client_order_id,
                     "error": str(e),
                 },
+            )
+            # Update order status to "failed" to prevent stuck orders in pending_new
+            ctx.db.update_order_status_cas(
+                client_order_id=client_order_id,
+                status="failed",
+                broker_updated_at=datetime.now(UTC),
+                status_rank=status_rank_for("failed"),
+                source_priority=SOURCE_PRIORITY_MANUAL,
+                filled_qty=Decimal("0"),
+                filled_avg_price=None,
+                filled_at=None,
+                broker_order_id=None,
+                error_message=f"Broker connection error: {e}",
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
