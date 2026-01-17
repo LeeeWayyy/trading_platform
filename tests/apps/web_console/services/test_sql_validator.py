@@ -196,3 +196,69 @@ class TestExtractTables:
         """
         tables = validator.extract_tables(query)
         assert tables == ["crsp_daily"]
+
+
+class TestParseErrors:
+    """Test SQL parsing error handling."""
+
+    def test_invalid_sql_returns_parse_error(self, validator: SQLValidator) -> None:
+        """Malformed SQL should return parse error."""
+        valid, error = validator.validate("SELECT FROM WHERE", "crsp")
+        assert not valid
+        assert error is not None
+        assert "invalid sql" in error.lower()
+
+    def test_whitespace_only_query_rejected(self, validator: SQLValidator) -> None:
+        """Whitespace-only query is treated as empty."""
+        valid, error = validator.validate("   \n\t  ", "crsp")
+        assert not valid
+        assert "empty" in error.lower()
+
+
+class TestUnionQueries:
+    """Test UNION/INTERSECT/EXCEPT queries."""
+
+    def test_union_query_accepted(self, validator: SQLValidator) -> None:
+        """UNION queries should be allowed (SetOperation)."""
+        query = "SELECT * FROM crsp_daily UNION SELECT * FROM crsp_monthly"
+        valid, error = validator.validate(query, "crsp")
+        assert valid
+        assert error is None
+
+    def test_union_with_cte_accepted(self, validator: SQLValidator) -> None:
+        """WITH...UNION should be allowed."""
+        query = """
+        WITH temp AS (SELECT * FROM crsp_daily)
+        SELECT * FROM temp
+        UNION
+        SELECT * FROM crsp_monthly
+        """
+        valid, error = validator.validate(query, "crsp")
+        assert valid
+
+    def test_enforce_limit_on_non_select_raises(self, validator: SQLValidator) -> None:
+        """enforce_row_limit should reject non-SELECT statements."""
+        with pytest.raises(ValueError, match="Only SELECT"):
+            validator.enforce_row_limit("INSERT INTO foo VALUES (1)", max_rows=100)
+
+
+class TestWithQueries:
+    """Test WITH (CTE) queries."""
+
+    def test_with_select_accepted(self, validator: SQLValidator) -> None:
+        """WITH...SELECT should be allowed."""
+        query = """
+        WITH temp AS (SELECT * FROM crsp_daily)
+        SELECT * FROM temp
+        """
+        valid, error = validator.validate(query, "crsp")
+        assert valid
+
+    def test_enforce_limit_on_with_query(self, validator: SQLValidator) -> None:
+        """enforce_row_limit should handle WITH queries."""
+        query = """
+        WITH temp AS (SELECT * FROM crsp_daily)
+        SELECT * FROM temp
+        """
+        result = validator.enforce_row_limit(query, max_rows=100)
+        assert "LIMIT 100" in result.upper()

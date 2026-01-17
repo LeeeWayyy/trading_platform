@@ -12,7 +12,6 @@ Tests cover:
 Target: 85%+ branch coverage (baseline from 0%)
 """
 
-from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -87,7 +86,7 @@ class TestAuditLoggerInitialization:
 class TestMaybeTransaction:
     """Tests for _maybe_transaction context manager."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_maybe_transaction_with_transaction_method(self):
         """Test _maybe_transaction uses conn.transaction() when available."""
         mock_conn = Mock()
@@ -103,7 +102,7 @@ class TestMaybeTransaction:
         mock_txn.__aenter__.assert_called_once()
         mock_txn.__aexit__.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_maybe_transaction_without_transaction_method(self):
         """Test _maybe_transaction no-ops when transaction not available."""
         mock_conn = Mock(spec=[])
@@ -117,7 +116,7 @@ class TestMaybeTransaction:
 class TestAuditLoggerWrite:
     """Tests for AuditLogger._write() core write function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_write_success_with_all_fields(self, mock_acquire):
         """Test _write() successfully writes audit event."""
@@ -145,7 +144,7 @@ class TestAuditLoggerWrite:
         call_args = mock_conn.execute.call_args
         assert "INSERT INTO audit_log" in call_args[0][0]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.admin_action_total")
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_write_admin_event_increments_metric(self, mock_acquire, mock_metric):
@@ -169,7 +168,7 @@ class TestAuditLoggerWrite:
         mock_metric.labels.assert_called_once_with(action="disable_user")
         mock_metric.labels.return_value.inc.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_write_without_db_pool_logs_fallback(self, caplog):
         """Test _write() logs fallback when db_pool is None."""
         logger = AuditLogger(db_pool=None)
@@ -183,7 +182,7 @@ class TestAuditLoggerWrite:
 
         assert "audit_log_fallback" in caplog.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.audit_write_failures_total")
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_write_handles_exception(self, mock_acquire, mock_failure_metric, caplog):
@@ -206,7 +205,7 @@ class TestAuditLoggerWrite:
         mock_failure_metric.labels.return_value.inc.assert_called_once()
         assert "audit_log_write_failed" in caplog.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.audit_write_latency_seconds")
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_write_records_latency_metric(self, mock_acquire, mock_latency):
@@ -233,7 +232,7 @@ class TestAuditLoggerWrite:
         assert isinstance(observed_duration, float)
         assert observed_duration >= 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.audit_write_latency_seconds")
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_write_records_latency_on_exception(self, mock_acquire, mock_latency):
@@ -258,7 +257,7 @@ class TestAuditLoggerWrite:
 class TestAuditLoggerPublicMethods:
     """Tests for AuditLogger public logging methods."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch.object(AuditLogger, "_write")
     async def test_log_access(self, mock_write):
         """Test log_access() delegates to _write()."""
@@ -283,7 +282,7 @@ class TestAuditLoggerPublicMethods:
             details={"ip": "192.168.1.1"},
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch.object(AuditLogger, "_write")
     async def test_log_action(self, mock_write):
         """Test log_action() delegates to _write()."""
@@ -311,7 +310,7 @@ class TestAuditLoggerPublicMethods:
             amr_method="mfa",
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch.object(AuditLogger, "_write")
     async def test_log_auth_event(self, mock_write):
         """Test log_auth_event() delegates to _write()."""
@@ -337,7 +336,7 @@ class TestAuditLoggerPublicMethods:
             amr_method="otp",
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch.object(AuditLogger, "_write")
     async def test_log_admin_change(self, mock_write):
         """Test log_admin_change() delegates to _write()."""
@@ -361,7 +360,7 @@ class TestAuditLoggerPublicMethods:
             details={"reason": "violation"},
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch.object(AuditLogger, "_write")
     async def test_log_export(self, mock_write):
         """Test log_export() delegates to _write() with export details."""
@@ -383,7 +382,7 @@ class TestAuditLoggerPublicMethods:
         assert call_kwargs["details"]["row_count"] == 1000
         assert call_kwargs["details"]["metadata"]["date_range"] == "2025-01"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch.object(AuditLogger, "_write")
     async def test_log_export_without_metadata(self, mock_write):
         """Test log_export() works without optional metadata."""
@@ -406,7 +405,7 @@ class TestAuditLoggerPublicMethods:
 class TestAuditLoggerCleanup:
     """Tests for cleanup_old_events() retention management."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cleanup_old_events_without_db_pool(self):
         """Test cleanup_old_events() returns 0 when db_pool is None."""
         logger = AuditLogger(db_pool=None)
@@ -415,7 +414,7 @@ class TestAuditLoggerCleanup:
 
         assert deleted == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_cleanup_old_events_success(self, mock_acquire):
         """Test cleanup_old_events() deletes old events and returns rowcount."""
@@ -437,7 +436,7 @@ class TestAuditLoggerCleanup:
         call_args = mock_conn.execute.call_args
         assert "DELETE FROM audit_log" in call_args[0][0]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_cleanup_old_events_missing_rowcount(self, mock_acquire, caplog):
         """Test cleanup_old_events() handles missing rowcount gracefully."""
@@ -456,7 +455,7 @@ class TestAuditLoggerCleanup:
         assert deleted == 0
         assert "audit_log_cleanup_missing_rowcount" in caplog.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_cleanup_old_events_handles_exception(self, mock_acquire, caplog):
         """Test cleanup_old_events() handles Exception gracefully."""
@@ -471,7 +470,7 @@ class TestAuditLoggerCleanup:
         assert deleted == 0
         assert "audit_log_cleanup_failed" in caplog.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.web_console_auth.audit_logger.audit_cleanup_duration_seconds")
     @patch("libs.platform.web_console_auth.audit_logger.acquire_connection")
     async def test_cleanup_old_events_records_duration(self, mock_acquire, mock_duration):

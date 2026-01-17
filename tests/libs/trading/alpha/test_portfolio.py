@@ -112,6 +112,38 @@ class TestSignalToWeight:
             day_sum = weights.filter(pl.col("date") == d).select(pl.col("weight").sum()).item()
             assert abs(day_sum) < 1e-10
 
+    def test_all_valid_signals_with_no_nulls(self, sample_signals):
+        """Test that all valid signals are converted when no nulls present."""
+        converter = SignalToWeight(method="zscore")
+        weights = converter.convert(sample_signals)
+
+        assert weights.height == 5
+
+    def test_unknown_method_raises_error(self, sample_signals):
+        """Test that unknown conversion method raises ValueError."""
+        converter = SignalToWeight(method="unknown")
+
+        with pytest.raises(ValueError, match="Unknown method"):
+            converter.convert(sample_signals)
+
+    def test_quantile_long_only_weights(self, sample_signals):
+        """Test quantile method with long-only constraint."""
+        converter = SignalToWeight(method="quantile", n_quantiles=5, long_only=True)
+        weights = converter.convert(sample_signals)
+
+        # Bottom quantile should be 0 (not negative) for long_only
+        bottom = weights.filter(pl.col("permno") == 1).select("weight").item()
+        assert bottom == 0
+
+    def test_rank_long_only_weights(self, sample_signals):
+        """Test rank method with long-only constraint."""
+        converter = SignalToWeight(method="rank", long_only=True)
+        weights = converter.convert(sample_signals)
+
+        # All weights should be non-negative
+        min_weight = weights.select(pl.col("weight").min()).item()
+        assert min_weight >= 0
+
 
 class TestTurnoverCalculator:
     """Tests for TurnoverCalculator."""

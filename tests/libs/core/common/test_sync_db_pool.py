@@ -213,7 +213,7 @@ class TestJobQueueContextManager:
         mock_get_pool.return_value = mock_pool
         mock_queue_class.return_value = mock_queue
 
-        with get_job_queue() as queue:
+        with get_job_queue():
             pass
 
         # Verify pool.close() NOT called (singleton reuse)
@@ -236,7 +236,7 @@ class TestJobQueueContextManager:
 
         # Simulate exception within context
         with pytest.raises(ValueError, match="Test exception"):
-            with get_job_queue() as queue:
+            with get_job_queue():
                 raise ValueError("Test exception")
 
         # Verify cleanup still occurred (pool not closed)

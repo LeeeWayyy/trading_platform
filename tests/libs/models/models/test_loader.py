@@ -34,15 +34,14 @@ from libs.models.models.loader import (
     ProductionModelLoader,
 )
 from libs.models.models.serialization import ChecksumMismatchError
-from libs.models.models.types import EnvironmentMetadata, ModelMetadata, ModelStatus, ModelType
-
+from libs.models.models.types import EnvironmentMetadata, ModelMetadata, ModelType
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_env_metadata() -> EnvironmentMetadata:
     """Create mock environment metadata."""
     return EnvironmentMetadata(
@@ -55,7 +54,7 @@ def mock_env_metadata() -> EnvironmentMetadata:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_metadata(mock_env_metadata: EnvironmentMetadata) -> ModelMetadata:
     """Create mock model metadata."""
     return ModelMetadata(
@@ -71,7 +70,7 @@ def mock_metadata(mock_env_metadata: EnvironmentMetadata) -> ModelMetadata:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_registry() -> Mock:
     """Create mock registry."""
     registry = Mock()
@@ -82,7 +81,7 @@ def mock_registry() -> Mock:
     return registry
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_compatibility_checker() -> Mock:
     """Create mock compatibility checker."""
     checker = Mock(spec=VersionCompatibilityChecker)

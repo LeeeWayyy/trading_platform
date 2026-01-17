@@ -16,10 +16,9 @@ Target: 85%+ branch coverage (baseline from 0%)
 Phase 3 Step 4 - Zero Coverage Module Tests (oauth2_flow.py: 226 statements, 40 branches)
 """
 
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import jwt
@@ -36,7 +35,7 @@ from libs.platform.web_console_auth.oauth2_state import OAuth2State
 from libs.platform.web_console_auth.session_store import SessionData
 
 
-@pytest.fixture
+@pytest.fixture()
 def oauth2_config() -> OAuth2Config:
     """Create OAuth2 configuration for testing."""
     return OAuth2Config(
@@ -49,7 +48,7 @@ def oauth2_config() -> OAuth2Config:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_session_store() -> Mock:
     """Create mock Redis session store."""
     store = Mock()
@@ -63,7 +62,7 @@ def mock_session_store() -> Mock:
     return store
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_state_store() -> Mock:
     """Create mock OAuth2 state store."""
     store = Mock()
@@ -72,7 +71,7 @@ def mock_state_store() -> Mock:
     return store
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_jwks_validator() -> Mock:
     """Create mock JWKS validator."""
     validator = Mock()
@@ -80,13 +79,13 @@ def mock_jwks_validator() -> Mock:
     return validator
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db_pool() -> Mock:
     """Create mock database pool."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_audit_logger() -> Mock:
     """Create mock audit logger."""
     logger = Mock()
@@ -94,7 +93,7 @@ def mock_audit_logger() -> Mock:
     return logger
 
 
-@pytest.fixture
+@pytest.fixture()
 def oauth2_handler(
     oauth2_config: OAuth2Config,
     mock_session_store: Mock,
@@ -114,7 +113,7 @@ def oauth2_handler(
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_oauth_state() -> OAuth2State:
     """Create sample OAuth2 state for testing."""
     return OAuth2State(
@@ -127,7 +126,7 @@ def sample_oauth_state() -> OAuth2State:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_tokens() -> dict[str, Any]:
     """Create sample token response for testing."""
     return {
@@ -139,7 +138,7 @@ def sample_tokens() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_id_token_claims() -> dict[str, Any]:
     """Create sample ID token claims for testing."""
     return {
@@ -153,7 +152,7 @@ def sample_id_token_claims() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_session_data() -> SessionData:
     """Create sample session data for testing."""
     now = datetime.now(UTC)
@@ -242,7 +241,7 @@ class TestOAuth2FlowHandlerInit:
 class TestInitiateLogin:
     """Tests for initiate_login() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_initiate_login_success(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -294,7 +293,7 @@ class TestInitiateLogin:
 class TestHandleCallback:
     """Tests for handle_callback() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_success(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -375,7 +374,7 @@ class TestHandleCallback:
                 details={"strategies": ["strategy_1", "strategy_2"]},
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_invalid_state(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -399,7 +398,7 @@ class TestHandleCallback:
         assert call_args["action"] == "login"
         assert call_args["outcome"] == "denied"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_missing_tokens(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -432,7 +431,7 @@ class TestHandleCallback:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_http_error(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -463,7 +462,7 @@ class TestHandleCallback:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_network_error(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -487,7 +486,7 @@ class TestHandleCallback:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_invalid_id_token(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -520,7 +519,7 @@ class TestHandleCallback:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_user_not_provisioned(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -574,7 +573,7 @@ class TestHandleCallback:
             assert call_args["outcome"] == "denied"
             assert call_args["details"]["reason"] == "user_not_provisioned"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_callback_without_db_pool(
         self,
         mock_state_store: Mock,
@@ -627,7 +626,7 @@ class TestHandleCallback:
 class TestConsumeState:
     """Tests for _consume_state() internal method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_consume_state_success(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -642,7 +641,7 @@ class TestConsumeState:
         assert result == sample_oauth_state
         mock_state_store.get_and_delete_state.assert_called_once_with("test_state_123")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_consume_state_invalid(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -696,7 +695,7 @@ class TestAssertRequiredTokens:
 class TestLoadRBACData:
     """Tests for _load_rbac_data() internal method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_load_rbac_data_success(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -737,7 +736,7 @@ class TestLoadRBACData:
             assert role_data == {"role": "admin", "session_version": 2}
             assert strategies == ["s1", "s2"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_load_rbac_data_user_not_found(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -761,7 +760,7 @@ class TestLoadRBACData:
                     db_pool=mock_db_pool,
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_load_rbac_data_without_pool(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -858,7 +857,7 @@ class TestBuildSessionData:
 class TestRefreshTokens:
     """Tests for refresh_tokens() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_success(
         self,
         oauth2_config: OAuth2Config,
@@ -918,7 +917,7 @@ class TestRefreshTokens:
             # Verify session stored with remaining TTL
             assert mock_session_store.redis.setex.called
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_binding_required_missing_params(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -939,7 +938,7 @@ class TestRefreshTokens:
         assert call_args["action"] == "refresh"
         assert call_args["outcome"] == "denied"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_without_binding(
         self,
         oauth2_config: OAuth2Config,
@@ -988,7 +987,7 @@ class TestRefreshTokens:
                 update_activity=False,
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_session_not_found(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -1006,7 +1005,7 @@ class TestRefreshTokens:
                 enforce_binding=True,
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_http_error(
         self,
         oauth2_config: OAuth2Config,
@@ -1044,7 +1043,7 @@ class TestRefreshTokens:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_network_error(
         self,
         oauth2_config: OAuth2Config,
@@ -1076,7 +1075,7 @@ class TestRefreshTokens:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_missing_access_token(
         self,
         oauth2_config: OAuth2Config,
@@ -1112,7 +1111,7 @@ class TestRefreshTokens:
                     user_agent="Mozilla/5.0",
                 )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_with_new_id_token_valid(
         self,
         oauth2_config: OAuth2Config,
@@ -1159,7 +1158,7 @@ class TestRefreshTokens:
             # Verify ID token updated
             assert updated_session.id_token == "new_id_token"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_id_token_subject_mismatch(
         self,
         oauth2_config: OAuth2Config,
@@ -1208,7 +1207,7 @@ class TestRefreshTokens:
             assert mock_session_store.delete_session.called
             assert mock_session_store.delete_session.call_args[0][0] == "test_session"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_id_token_validation_fails(
         self,
         oauth2_config: OAuth2Config,
@@ -1258,7 +1257,7 @@ class TestRefreshTokens:
             # Verify session deleted
             mock_session_store.delete_session.assert_called_once_with("test_session")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_tokens_session_version_mismatch(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -1289,7 +1288,7 @@ class TestRefreshTokens:
 class TestHandleLogout:
     """Tests for handle_logout() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_logout_success(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -1330,7 +1329,7 @@ class TestHandleLogout:
             assert "client_id=test_client_id" in logout_url
             assert "returnTo=https%3A%2F%2Fexample.com%2F" in logout_url
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_logout_binding_failed(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -1351,7 +1350,7 @@ class TestHandleLogout:
         # Verify logout URL still returned
         assert logout_url.startswith("https://test.auth0.com/v2/logout?")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_logout_revocation_http_error(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -1382,7 +1381,7 @@ class TestHandleLogout:
             mock_session_store.delete_session.assert_called_once_with("test_session")
             assert logout_url is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_logout_revocation_network_error(
         self,
         oauth2_handler: OAuth2FlowHandler,
@@ -1412,7 +1411,7 @@ class TestHandleLogout:
 class TestRevokeRefreshToken:
     """Tests for _revoke_refresh_token() internal method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_revoke_refresh_token_success(self, oauth2_handler: OAuth2FlowHandler):
         """Test successful refresh token revocation."""
         mock_response = Mock()
@@ -1426,7 +1425,7 @@ class TestRevokeRefreshToken:
             # Should not raise
             await oauth2_handler._revoke_refresh_token("test_refresh_token")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_revoke_refresh_token_http_error(self, oauth2_handler: OAuth2FlowHandler):
         """Test revocation raises on HTTP error."""
         mock_response = Mock()
@@ -1446,7 +1445,7 @@ class TestRevokeRefreshToken:
 class TestFetchUserRoleData:
     """Tests for _fetch_user_role_data() standalone function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_user_role_data_dict_row(self, mock_db_pool: Mock):
         """Test fetching user role data when row is dict."""
         mock_cursor = Mock()
@@ -1464,7 +1463,7 @@ class TestFetchUserRoleData:
 
             assert result == {"role": "admin", "session_version": 5}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_user_role_data_tuple_row(self, mock_db_pool: Mock):
         """Test fetching user role data when row is tuple."""
         mock_cursor = Mock()
@@ -1482,7 +1481,7 @@ class TestFetchUserRoleData:
 
             assert result == {"role": "operator", "session_version": 3}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_user_role_data_not_found(self, mock_db_pool: Mock):
         """Test fetching user role data returns None when user not found."""
         mock_cursor = Mock()
@@ -1504,7 +1503,7 @@ class TestFetchUserRoleData:
 class TestFetchUserStrategies:
     """Tests for _fetch_user_strategies() standalone function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_user_strategies_dict_rows(self, mock_db_pool: Mock):
         """Test fetching user strategies when rows are dicts."""
         mock_cursor = Mock()
@@ -1528,7 +1527,7 @@ class TestFetchUserStrategies:
 
             assert result == ["strategy_1", "strategy_2", "strategy_3"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_user_strategies_tuple_rows(self, mock_db_pool: Mock):
         """Test fetching user strategies when rows are tuples."""
         mock_cursor = Mock()
@@ -1546,7 +1545,7 @@ class TestFetchUserStrategies:
 
             assert result == ["strat_a", "strat_b"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_user_strategies_empty(self, mock_db_pool: Mock):
         """Test fetching user strategies returns empty list when no strategies."""
         mock_cursor = Mock()

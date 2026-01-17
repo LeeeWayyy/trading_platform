@@ -18,7 +18,7 @@ Target: 85%+ branch coverage (baseline from 0%)
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import ANY, AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import redis
@@ -127,7 +127,7 @@ class TestHealthMonitorServiceInitialization:
 class TestGetAllServicesStatus:
     """Tests for get_all_services_status() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_all_services_status_delegates_to_health_client(self):
         """Test get_all_services_status() delegates to health_client.check_all()."""
         mock_health = AsyncMock()
@@ -150,7 +150,7 @@ class TestGetAllServicesStatus:
 class TestGetConnectivityCaching:
     """Tests for get_connectivity() caching behavior."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_connectivity_returns_fresh_cache(self):
         """Test get_connectivity() returns cached result within TTL."""
         mock_health = AsyncMock()
@@ -180,7 +180,7 @@ class TestGetConnectivityCaching:
         # Should not call health_check again
         mock_redis.health_check.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_connectivity_refreshes_expired_cache(self):
         """Test get_connectivity() refreshes cache after TTL expires."""
         mock_health = AsyncMock()
@@ -217,7 +217,7 @@ class TestGetConnectivityCaching:
 class TestGetConnectivityRedisChecks:
     """Tests for get_connectivity() Redis connectivity checks."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_connected_with_info(self):
         """Test get_connectivity() succeeds with Redis connected and INFO."""
         mock_health = AsyncMock()
@@ -240,7 +240,7 @@ class TestGetConnectivityRedisChecks:
         assert result.redis_info == {"version": "7.0.0", "uptime_in_seconds": 1000}
         assert result.redis_error is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_health_check_false_no_info(self):
         """Test get_connectivity() handles Redis health_check returning False."""
         mock_health = AsyncMock()
@@ -262,7 +262,7 @@ class TestGetConnectivityRedisChecks:
         assert result.redis_info is None
         assert result.redis_error is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_client_unavailable(self):
         """Test get_connectivity() handles Redis client None."""
         mock_health = AsyncMock()
@@ -282,7 +282,7 @@ class TestGetConnectivityRedisChecks:
         assert result.redis_info is None
         assert result.redis_error == "Redis client unavailable"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_connection_error(self):
         """Test get_connectivity() handles Redis ConnectionError."""
         mock_health = AsyncMock()
@@ -304,7 +304,7 @@ class TestGetConnectivityRedisChecks:
         assert result.redis_info is None
         assert "Connection refused" in result.redis_error
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_timeout_error(self):
         """Test get_connectivity() handles Redis TimeoutError."""
         mock_health = AsyncMock()
@@ -325,7 +325,7 @@ class TestGetConnectivityRedisChecks:
         assert result.redis_connected is False
         assert "Redis timeout" in result.redis_error
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_error(self):
         """Test get_connectivity() handles RedisError."""
         mock_health = AsyncMock()
@@ -350,7 +350,7 @@ class TestGetConnectivityRedisChecks:
 class TestGetConnectivityPostgresChecks:
     """Tests for get_connectivity() Postgres connectivity checks."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_postgres_connected_with_latency(self):
         """Test get_connectivity() succeeds with Postgres connected."""
         mock_health = AsyncMock()
@@ -381,7 +381,7 @@ class TestGetConnectivityPostgresChecks:
         assert result.postgres_latency_ms > 0
         assert result.postgres_error is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_postgres_pool_unavailable(self):
         """Test get_connectivity() handles db_pool None."""
         mock_health = AsyncMock()
@@ -400,7 +400,7 @@ class TestGetConnectivityPostgresChecks:
         assert result.postgres_latency_ms is None
         assert result.postgres_error == "No database pool configured"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_postgres_connection_error(self):
         """Test get_connectivity() handles Postgres ConnectionError."""
         mock_health = AsyncMock()
@@ -424,7 +424,7 @@ class TestGetConnectivityPostgresChecks:
         assert result.postgres_latency_ms is None
         assert "DB connection failed" in result.postgres_error
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_postgres_timeout_error(self):
         """Test get_connectivity() handles Postgres TimeoutError."""
         mock_health = AsyncMock()
@@ -452,7 +452,7 @@ class TestGetConnectivityPostgresChecks:
         assert result.postgres_connected is False
         assert "Query timeout" in result.postgres_error
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_postgres_oserror(self):
         """Test get_connectivity() handles Postgres OSError."""
         mock_health = AsyncMock()
@@ -475,7 +475,7 @@ class TestGetConnectivityPostgresChecks:
         assert result.postgres_connected is False
         assert "Network error" in result.postgres_error
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_postgres_unexpected_exception(self):
         """Test get_connectivity() handles Postgres unexpected Exception."""
         mock_health = AsyncMock()
@@ -507,7 +507,7 @@ class TestGetConnectivityPostgresChecks:
 class TestRedisInfoRedaction:
     """Tests for Redis INFO redaction in get_connectivity()."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_info_redacts_sensitive_fields(self):
         """Test get_connectivity() redacts sensitive Redis INFO fields."""
         mock_health = AsyncMock()
@@ -539,7 +539,7 @@ class TestRedisInfoRedaction:
         assert result.redis_info["version"] == "7.0.0"
         assert result.redis_info["uptime_in_seconds"] == 1000
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_info_redacts_replication_fields(self):
         """Test get_connectivity() redacts Redis replication/topology fields."""
         mock_health = AsyncMock()
@@ -571,7 +571,7 @@ class TestRedisInfoRedaction:
         assert "master_replid" not in result.redis_info
         assert result.redis_info["version"] == "7.0.0"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_redis_info_redacts_fields_by_prefix(self):
         """Test get_connectivity() redacts Redis fields by sensitive prefixes."""
         mock_health = AsyncMock()
@@ -607,7 +607,7 @@ class TestRedisInfoRedaction:
 class TestStaleCache:
     """Tests for stale cache fallback in get_connectivity()."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_both_checks_fail_uses_stale_cache(self):
         """Test get_connectivity() returns stale cache when both checks fail."""
         mock_health = AsyncMock()
@@ -638,7 +638,7 @@ class TestStaleCache:
         assert result2.is_stale is True
         assert result2.stale_age_seconds is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_both_checks_fail_no_cache_returns_error(self):
         """Test get_connectivity() returns error status when no cache available."""
         mock_health = AsyncMock()
@@ -665,7 +665,7 @@ class TestStaleCache:
         assert result.postgres_connected is False
         assert result.is_stale is False  # Not stale, just fresh failure
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_stale_cache_expires_after_2x_ttl(self):
         """Test _get_stale_connectivity_or_none() returns None after 2x TTL."""
         mock_health = AsyncMock()
@@ -697,7 +697,7 @@ class TestStaleCache:
 class TestGetConnectivityTimeout:
     """Tests for get_connectivity() timeout handling."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_checks_timeout_uses_stale_cache(self, caplog):
         """Test get_connectivity() uses stale cache on timeout."""
         mock_health = AsyncMock()
@@ -725,7 +725,7 @@ class TestGetConnectivityTimeout:
         assert result2.is_stale is True
         assert "Connectivity check timed out" in caplog.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_checks_timeout_no_cache_returns_error(self, caplog):
         """Test get_connectivity() returns error status on timeout with no cache."""
         mock_health = AsyncMock()
@@ -747,7 +747,7 @@ class TestGetConnectivityTimeout:
         assert "Timeout" in result.redis_error
         assert "Connectivity check timed out" in caplog.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_unexpected_exception_uses_stale_cache(self, caplog):
         """Test get_connectivity() uses stale cache on unexpected exception."""
         mock_health = AsyncMock()
@@ -778,7 +778,7 @@ class TestGetConnectivityTimeout:
 class TestGetLatencyMetrics:
     """Tests for get_latency_metrics() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_latency_metrics_delegates_to_prometheus(self):
         """Test get_latency_metrics() delegates to prometheus_client."""
         mock_health = AsyncMock()
@@ -803,7 +803,7 @@ class TestGetLatencyMetrics:
 class TestClose:
     """Tests for close() resource cleanup method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_close_calls_client_close_methods(self):
         """Test close() calls close() on health and prometheus clients."""
         mock_health = AsyncMock()

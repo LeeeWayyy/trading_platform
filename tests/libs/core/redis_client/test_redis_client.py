@@ -502,13 +502,9 @@ Missing branches from coverage report (69% → 95%):
 - Line 856: __repr__ method (not tested yet)
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-from redis.exceptions import ConnectionError as RedisConnectionError_Exception
-from redis.exceptions import RedisError
-
-from libs.core.redis_client import RedisClient
 
 
 class TestRedisClientMgetEdgeCases:

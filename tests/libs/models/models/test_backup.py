@@ -10,15 +10,12 @@ Test coverage:
 Target: 85%+ branch coverage (baseline from 0%)
 """
 
-import fcntl
 import json
 import shutil
 import subprocess
-import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, Mock, mock_open, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -26,19 +23,15 @@ from libs.models.models.backup import RegistryBackupManager, RegistryGC
 from libs.models.models.registry import RegistryLockError
 from libs.models.models.types import (
     BackupManifest,
-    GCReport,
     ModelStatus,
-    RestoreResult,
-    SyncResult,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def registry_dir(tmp_path: Path) -> Path:
     """Create temporary registry directory structure."""
     registry = tmp_path / "registry"
@@ -57,13 +50,13 @@ def registry_dir(tmp_path: Path) -> Path:
     return registry
 
 
-@pytest.fixture
+@pytest.fixture()
 def backup_manager(registry_dir: Path) -> RegistryBackupManager:
     """Create backup manager instance."""
     return RegistryBackupManager(registry_dir)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_registry() -> MagicMock:
     """Create mock ModelRegistry instance."""
     registry = MagicMock()
@@ -75,7 +68,7 @@ def mock_registry() -> MagicMock:
     return registry
 
 
-@pytest.fixture
+@pytest.fixture()
 def registry_gc(mock_registry: MagicMock) -> RegistryGC:
     """Create RegistryGC instance."""
     return RegistryGC(mock_registry)
@@ -420,7 +413,7 @@ class TestRestoreFromBackup:
         backup_path = Path(manifest.backup_path)
 
         # Corrupt backup manifest checksum
-        with open(backup_path / "backup_manifest.json", "r") as f:
+        with open(backup_path / "backup_manifest.json") as f:
             data = json.load(f)
         data["checksum"] = "invalid_checksum"
         with open(backup_path / "backup_manifest.json", "w") as f:
@@ -717,7 +710,7 @@ class TestHelperMethods:
         self, backup_manager: RegistryBackupManager
     ) -> None:
         """Test updating manifest with backup info."""
-        manifest = backup_manager.create_backup()
+        backup_manager.create_backup()  # Create a backup for update_manifest_backup_info to find
 
         mock_manifest_manager = MagicMock()
         backup_manager.update_manifest_backup_info(mock_manifest_manager)

@@ -23,8 +23,7 @@ Target: 85%+ branch coverage (baseline from 0%)
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-from typing import Any
+from datetime import date
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -103,7 +102,7 @@ class TestRiskServiceInitialization:
 class TestGetRiskDashboardData:
     """Tests for get_risk_dashboard_data() main flow."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_no_positions(self):
         """Test get_risk_dashboard_data() with no positions returns empty data."""
         mock_scoped_access = AsyncMock()
@@ -119,7 +118,7 @@ class TestGetRiskDashboardData:
         assert result.var_history == []
         assert result.is_placeholder is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_permission_error_propagates(self):
         """Test get_risk_dashboard_data() propagates PermissionError."""
         mock_scoped_access = AsyncMock()
@@ -133,7 +132,7 @@ class TestGetRiskDashboardData:
         with pytest.raises(PermissionError, match="No authorized strategies"):
             await service.get_risk_dashboard_data()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_db_error_returns_empty(self):
         """Test get_risk_dashboard_data() handles DB errors gracefully."""
         mock_scoped_access = AsyncMock()
@@ -149,7 +148,7 @@ class TestGetRiskDashboardData:
         assert result.stress_tests == []
         assert result.var_history == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_happy_path(self):
         """Test get_risk_dashboard_data() with positions returns formatted data."""
         mock_scoped_access = AsyncMock()
@@ -171,7 +170,7 @@ class TestGetRiskDashboardData:
         # Should be placeholder since risk model unavailable
         assert result.is_placeholder is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_zero_total_value_returns_empty(self):
         """Test get_risk_dashboard_data() with zero total value returns empty data."""
         mock_scoped_access = AsyncMock()
@@ -322,7 +321,7 @@ class TestBuildWeights:
 class TestComputeRiskMetrics:
     """Tests for _compute_risk_metrics() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_compute_risk_metrics_empty_weights_returns_none(self):
         """Test _compute_risk_metrics() returns None for empty weights."""
         mock_scoped_access = Mock()
@@ -332,7 +331,7 @@ class TestComputeRiskMetrics:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_compute_risk_metrics_model_unavailable_returns_none(self):
         """Test _compute_risk_metrics() returns None when risk model unavailable."""
         mock_scoped_access = Mock()
@@ -344,7 +343,7 @@ class TestComputeRiskMetrics:
         # Risk model always returns None in MVP
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_compute_risk_metrics_import_error_returns_none(self):
         """Test _compute_risk_metrics() handles ImportError gracefully."""
         mock_scoped_access = Mock()
@@ -357,7 +356,7 @@ class TestComputeRiskMetrics:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_compute_risk_metrics_attribute_error_returns_none(self):
         """Test _compute_risk_metrics() handles AttributeError gracefully."""
         mock_scoped_access = Mock()
@@ -370,7 +369,7 @@ class TestComputeRiskMetrics:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_compute_risk_metrics_key_error_returns_none(self):
         """Test _compute_risk_metrics() handles KeyError gracefully."""
         mock_scoped_access = Mock()
@@ -383,7 +382,7 @@ class TestComputeRiskMetrics:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_compute_risk_metrics_value_error_returns_none(self):
         """Test _compute_risk_metrics() handles ValueError gracefully."""
         mock_scoped_access = Mock()
@@ -400,7 +399,7 @@ class TestComputeRiskMetrics:
 class TestLoadRiskModel:
     """Tests for _load_risk_model() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_load_risk_model_returns_none_in_mvp(self):
         """Test _load_risk_model() always returns None in MVP."""
         mock_scoped_access = Mock()
@@ -415,7 +414,7 @@ class TestLoadRiskModel:
 class TestRunStressTests:
     """Tests for _run_stress_tests() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_run_stress_tests_empty_weights_returns_empty(self):
         """Test _run_stress_tests() returns empty list for empty weights."""
         mock_scoped_access = Mock()
@@ -426,7 +425,7 @@ class TestRunStressTests:
         assert results == []
         assert is_placeholder is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_run_stress_tests_model_unavailable_returns_placeholder(self):
         """Test _run_stress_tests() returns placeholder when model unavailable."""
         mock_scoped_access = Mock()
@@ -440,7 +439,7 @@ class TestRunStressTests:
         assert is_placeholder is True
         assert results[0]["scenario_name"] == "GFC_2008"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_run_stress_tests_import_error_returns_placeholder(self):
         """Test _run_stress_tests() handles ImportError and returns placeholder."""
         mock_scoped_access = Mock()
@@ -455,7 +454,7 @@ class TestRunStressTests:
         assert len(results) > 0
         assert is_placeholder is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_run_stress_tests_attribute_error_returns_empty(self):
         """Test _run_stress_tests() handles AttributeError and returns empty."""
         mock_scoped_access = Mock()
@@ -473,7 +472,7 @@ class TestRunStressTests:
         assert results == []
         assert is_placeholder is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_run_stress_tests_key_error_returns_empty(self):
         """Test _run_stress_tests() handles KeyError and returns empty."""
         mock_scoped_access = Mock()
@@ -489,7 +488,7 @@ class TestRunStressTests:
         assert results == []
         assert is_placeholder is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_run_stress_tests_value_error_returns_empty(self):
         """Test _run_stress_tests() handles ValueError and returns empty."""
         mock_scoped_access = Mock()
@@ -538,7 +537,7 @@ class TestGeneratePlaceholderStressTests:
 class TestGetVarHistory:
     """Tests for _get_var_history() method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_with_pnl_data(self):
         """Test _get_var_history() computes VaR from P&L data."""
         mock_scoped_access = AsyncMock()
@@ -559,7 +558,7 @@ class TestGetVarHistory:
         assert result[1]["var_95"] == pytest.approx(abs(-50) / 10000 * 1.65)
         assert result[0]["date"] == date(2025, 1, 1)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_empty_pnl_returns_empty(self):
         """Test _get_var_history() returns empty list when no P&L data."""
         mock_scoped_access = AsyncMock()
@@ -572,7 +571,7 @@ class TestGetVarHistory:
 
         assert result == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_permission_error_propagates(self):
         """Test _get_var_history() propagates PermissionError."""
         mock_scoped_access = AsyncMock()
@@ -587,7 +586,7 @@ class TestGetVarHistory:
         with pytest.raises(PermissionError, match="No access"):
             await service._get_var_history(days=30, portfolio_value=10000)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_runtime_error_returns_empty(self):
         """Test _get_var_history() handles RuntimeError gracefully."""
         mock_scoped_access = AsyncMock()
@@ -602,7 +601,7 @@ class TestGetVarHistory:
 
         assert result == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_attribute_error_returns_empty(self):
         """Test _get_var_history() handles AttributeError gracefully."""
         mock_scoped_access = AsyncMock()
@@ -617,7 +616,7 @@ class TestGetVarHistory:
 
         assert result == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_generic_exception_returns_empty(self):
         """Test _get_var_history() handles generic exceptions gracefully."""
         mock_scoped_access = AsyncMock()
@@ -632,7 +631,7 @@ class TestGetVarHistory:
 
         assert result == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_zero_portfolio_value_returns_zero_var(self):
         """Test _get_var_history() returns zero VaR when portfolio_value is zero."""
         mock_scoped_access = AsyncMock()
@@ -649,7 +648,7 @@ class TestGetVarHistory:
         assert len(result) == 1
         assert result[0]["var_95"] == 0.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_none_portfolio_value_returns_zero_var(self):
         """Test _get_var_history() returns zero VaR when portfolio_value is None."""
         mock_scoped_access = AsyncMock()
@@ -666,7 +665,7 @@ class TestGetVarHistory:
         assert len(result) == 1
         assert result[0]["var_95"] == 0.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_none_daily_pnl_treated_as_zero(self):
         """Test _get_var_history() treats None daily_pnl as zero."""
         mock_scoped_access = AsyncMock()
@@ -683,7 +682,7 @@ class TestGetVarHistory:
         assert len(result) == 1
         assert result[0]["var_95"] == 0.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_sorts_by_date_ascending(self):
         """Test _get_var_history() sorts results by date ascending."""
         mock_scoped_access = AsyncMock()
@@ -704,7 +703,7 @@ class TestGetVarHistory:
         assert result[1]["date"] == date(2025, 1, 2)
         assert result[2]["date"] == date(2025, 1, 3)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_handles_none_dates(self):
         """Test _get_var_history() handles None dates gracefully."""
         mock_scoped_access = AsyncMock()
@@ -723,7 +722,7 @@ class TestGetVarHistory:
         assert len(result) == 2
         assert result[0]["date"] is None or result[0]["date"] == date.min
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_calculates_limit_correctly(self):
         """Test _get_var_history() calculates query limit based on strategies."""
         mock_scoped_access = AsyncMock()
@@ -923,7 +922,7 @@ class TestFormatStressTests:
 class TestIntegrationFlow:
     """Integration-style tests that exercise full code paths."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_full_flow_with_positions_and_pnl(self):
         """Test full get_risk_dashboard_data flow with positions and P&L data."""
         mock_scoped_access = AsyncMock()
@@ -959,7 +958,7 @@ class TestIntegrationFlow:
         # Should be placeholder mode (no risk model)
         assert result.is_placeholder is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_full_flow_exercises_all_format_methods(self):
         """Test that all formatting methods are called in the flow."""
         mock_scoped_access = AsyncMock()

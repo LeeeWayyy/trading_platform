@@ -14,20 +14,15 @@ Coverage areas:
 from __future__ import annotations
 
 import base64
-import hashlib
-import json
 import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from libs.web_console_data.strategy_scoped_queries import (
-    BREAK_EVEN_EPSILON,
-    DEFAULT_STRATEGY_CACHE_DB,
-    STRATEGY_CACHE_DB_ENV,
     STRATEGY_CACHE_KEY_ENV,
     StrategyScopedDataAccess,
     _build_cache_client,
@@ -36,13 +31,12 @@ from libs.web_console_data.strategy_scoped_queries import (
     get_scoped_data_access,
 )
 
-
 # ============================================================================
 # Test Fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_user() -> dict[str, Any]:
     """Standard user fixture with strategy access."""
     return {
@@ -53,13 +47,13 @@ def mock_user() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db_pool() -> AsyncMock:
     """Mock database connection pool."""
     return AsyncMock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis_client() -> AsyncMock:
     """Mock Redis client for caching."""
     redis = AsyncMock()
@@ -68,7 +62,7 @@ def mock_redis_client() -> AsyncMock:
     return redis
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_strategies() -> list[str]:
     """Sample authorized strategies."""
     return ["strategy-alpha", "strategy-beta"]
@@ -261,7 +255,7 @@ class TestEncryptionMethods:
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="(Invalid|Decryption|base64|padding|Incorrect)"):
             access._decrypt_cache_data("not-valid-base64")
 
 
@@ -363,7 +357,7 @@ class TestStrategyFilterAndPermissions:
 class TestCacheMethods:
     """Tests for cache get/set operations."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
     async def test_get_cached_no_redis(
@@ -383,7 +377,7 @@ class TestCacheMethods:
         result = await access._get_cached("test:key")
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
     async def test_get_cached_no_cipher(
@@ -404,7 +398,7 @@ class TestCacheMethods:
         result = await access._get_cached("test:key")
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
     async def test_set_cached_no_redis(
@@ -424,7 +418,7 @@ class TestCacheMethods:
         # Should not raise
         await access._set_cached("test:key", [{"data": "test"}])
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
     async def test_set_cached_no_cipher(
@@ -616,7 +610,7 @@ class TestGetScopedDataAccessFactory:
 class TestGetPositions:
     """Tests for get_positions() query method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -646,7 +640,7 @@ class TestGetPositions:
         mock_acquire.assert_not_called()  # Should not hit DB
         access._get_cached.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -683,7 +677,7 @@ class TestGetPositions:
         # Should cache the result
         access._set_cached.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -725,7 +719,7 @@ class TestGetPositions:
 class TestGetOrders:
     """Tests for get_orders() query method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -761,7 +755,7 @@ class TestGetOrders:
         assert result == db_rows
         access._execute_fetchall.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -803,7 +797,7 @@ class TestGetOrders:
 class TestGetPnlSummary:
     """Tests for get_pnl_summary() query method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -852,7 +846,7 @@ class TestGetPnlSummary:
 class TestGetTrades:
     """Tests for get_trades() query method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -892,7 +886,7 @@ class TestGetTrades:
         query = call_args[0][1]
         assert "COALESCE(superseded, FALSE) = FALSE" in query
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -932,7 +926,7 @@ class TestGetTrades:
         assert "executed_at >=" in query
         assert "executed_at <" in query
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -973,7 +967,7 @@ class TestGetTrades:
 class TestGetTradeStats:
     """Tests for get_trade_stats() query method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -1021,7 +1015,7 @@ class TestGetTradeStats:
         assert result["total_realized_pnl"] == Decimal("15000.50")
         access._execute_fetchall.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
@@ -1078,7 +1072,7 @@ class TestGetTradeStats:
 class TestStreamTradesForExport:
     """Tests for stream_trades_for_export() async generator."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")

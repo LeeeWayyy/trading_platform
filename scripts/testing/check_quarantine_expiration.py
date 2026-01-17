@@ -25,7 +25,7 @@ def main():
             parts = [p.strip() for p in line.split("|")]
             if len(parts) < 3:
                 continue
-            test_path, added_date, expiration_date = parts[0], parts[1], parts[2]
+            test_path, _, expiration_date = parts[0], parts[1], parts[2]
             try:
                 exp_date = datetime.strptime(expiration_date, "%Y-%m-%d").date()
             except ValueError:

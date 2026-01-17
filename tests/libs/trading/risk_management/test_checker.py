@@ -543,15 +543,11 @@ Missing branches from coverage report (75% → 95%):
 - Lines 493-498: release_reservation method
 """
 
-from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
 
-from libs.trading.risk_management.breaker import CircuitBreaker, CircuitBreakerState
 from libs.trading.risk_management.checker import RiskChecker
-from libs.trading.risk_management.config import PositionLimits, PortfolioLimits, RiskConfig
-from libs.trading.risk_management.kill_switch import KillSwitch
 from libs.trading.risk_management.position_reservation import (
     PositionReservation,
     ReservationResult,

@@ -920,17 +920,8 @@ Missing branches from coverage report (89% → 95%):
 - Lines 765-768: update_history_with_reset WatchError retry
 """
 
-import json
-from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock
 
 import pytest
-from redis.exceptions import ConnectionError as RedisConnectionError
-from redis.exceptions import TimeoutError as RedisTimeoutError
-from redis.exceptions import WatchError
-
-from libs.core.redis_client import RedisClient
-from libs.trading.risk_management.breaker import CircuitBreaker, CircuitBreakerState
 
 
 class TestCircuitBreakerInitializeStateForce:

@@ -131,7 +131,7 @@ class StubDB:
         return self.positions
 
     def get_strategy_map_for_symbols(self, symbols: list[str]) -> dict[str, str | None]:
-        return {symbol: "s1" for symbol in symbols}
+        return dict.fromkeys(symbols, "s1")
 
     def get_recent_fills(
         self,

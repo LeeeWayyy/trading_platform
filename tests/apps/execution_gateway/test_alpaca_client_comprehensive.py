@@ -830,19 +830,9 @@ Missing branches from coverage report (66% → 95%):
 """
 
 import json
-from decimal import Decimal
-from unittest.mock import Mock, patch
 
 import httpx
 import pytest
-
-from apps.execution_gateway.alpaca_client import (
-    AlpacaConnectionError,
-    AlpacaExecutor,
-    AlpacaRejectionError,
-    AlpacaValidationError,
-)
-from apps.execution_gateway.schemas import OrderRequest
 
 
 class TestAlpacaExecutorNetworkErrors:

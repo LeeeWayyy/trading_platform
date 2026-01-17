@@ -442,3 +442,152 @@ class TestCircuitBreakerServiceRBAC:
 
         with pytest.raises(RBACViolation):
             cb_service.reset(reason, user, acknowledged=True)
+
+
+class TestCircuitBreakerServiceErrorHandling:
+    """Tests for error handling in reset method."""
+
+    @pytest.fixture()
+    def mock_redis(self) -> MagicMock:
+        """Create mock Redis client."""
+        return MagicMock()
+
+    @pytest.fixture()
+    def mock_db_pool(self) -> MagicMock:
+        """Create mock database pool."""
+        return MagicMock()
+
+    @pytest.fixture()
+    def cb_service_with_db(
+        self, mock_redis: MagicMock, mock_db_pool: MagicMock
+    ) -> CircuitBreakerService:
+        """Create service with mocked dependencies including db_pool."""
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
+            mock_breaker = MagicMock()
+            mock_breaker_class.return_value = mock_breaker
+            mock_breaker.get_status.return_value = {"state": "TRIPPED"}
+            service = CircuitBreakerService(mock_redis, db_pool=mock_db_pool)
+            service.breaker = mock_breaker
+            service.rate_limiter = MagicMock()
+            service.rate_limiter.check_global.return_value = True
+            return service
+
+    def test_reset_logs_redis_history_failure_but_succeeds(
+        self, cb_service_with_db: CircuitBreakerService
+    ) -> None:
+        """reset should log warning if history update fails but still succeed."""
+        import redis.exceptions
+
+        user = {"user_id": "test_user", "role": "operator"}
+        reason = "Conditions cleared, verified system health"
+
+        # Mock history update to fail with Redis error
+        cb_service_with_db.breaker.update_history_with_reset.side_effect = redis.exceptions.ConnectionError("Redis down")
+
+        # Reset should still succeed (history update is best-effort)
+        result = cb_service_with_db.reset(reason, user, acknowledged=True)
+
+        assert result is True
+        cb_service_with_db.breaker.reset.assert_called_once()
+
+    def test_reset_logs_audit_failure_but_succeeds(
+        self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock
+    ) -> None:
+        """reset should log warning if audit log fails but still succeed."""
+        user = {"user_id": "test_user", "role": "operator"}
+        reason = "Conditions cleared, verified system health"
+
+        # Mock audit log to fail with psycopg error
+        mock_db_pool.connection.side_effect = psycopg.Error("DB connection failed")
+
+        # Reset should still succeed (audit is best-effort)
+        result = cb_service_with_db.reset(reason, user, acknowledged=True)
+
+        assert result is True
+        cb_service_with_db.breaker.reset.assert_called_once()
+
+
+class TestCircuitBreakerServiceAuditFallbackEdgeCases:
+    """Tests for edge cases in audit log fallback."""
+
+    @pytest.fixture()
+    def mock_redis(self) -> MagicMock:
+        """Create mock Redis client."""
+        return MagicMock()
+
+    @pytest.fixture()
+    def mock_db_pool(self) -> MagicMock:
+        """Create mock database pool."""
+        return MagicMock()
+
+    @pytest.fixture()
+    def cb_service_with_db(
+        self, mock_redis: MagicMock, mock_db_pool: MagicMock
+    ) -> CircuitBreakerService:
+        """Create service with mocked dependencies including db_pool."""
+        with patch("libs.web_console_services.cb_service.CircuitBreaker") as mock_breaker_class:
+            mock_breaker = MagicMock()
+            mock_breaker_class.return_value = mock_breaker
+            service = CircuitBreakerService(mock_redis, db_pool=mock_db_pool)
+            service.breaker = mock_breaker
+            return service
+
+    def test_audit_fallback_handles_reset_without_pending_trip(
+        self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock
+    ) -> None:
+        """Fallback should ignore RESET without pending TRIP."""
+        cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
+
+        # Mock audit log with RESET but no TRIP (orphaned reset)
+        reset_timestamp = datetime(2025, 12, 18, 11, 0, 0, tzinfo=UTC)
+        mock_rows = [
+            (
+                reset_timestamp,
+                "CIRCUIT_BREAKER_RESET",
+                {"reason": "Conditions cleared"},
+                "operator",
+            )
+        ]
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = mock_rows
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_db_pool.connection.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db_pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = cb_service_with_db.get_history(limit=10)
+
+        # RESET without pending TRIP should be ignored
+        assert result == []
+
+    def test_audit_fallback_handles_json_parse_error(
+        self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock
+    ) -> None:
+        """Fallback should handle malformed JSON in details column."""
+        import json
+
+        cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
+
+        # Mock audit log with invalid JSON (string instead of dict)
+        trip_timestamp = datetime(2025, 12, 18, 10, 0, 0, tzinfo=UTC)
+        mock_rows = [
+            (
+                trip_timestamp,
+                "CIRCUIT_BREAKER_TRIP",
+                "invalid json {",  # Malformed JSON
+                "test_user",
+            )
+        ]
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = mock_rows
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_db_pool.connection.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_db_pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = cb_service_with_db.get_history(limit=10)
+
+        # JSON parse error should return empty list (graceful degradation)
+        assert result == []

@@ -531,3 +531,74 @@ async def test_on_cancel_order_succeeds_with_valid_client_order_id(
 
     mock_client.cancel_order.assert_awaited_once_with("valid-client-order-id", "user-1", role="admin")
     assert any("Cancel requested" in message for message, _ in dummy_ui)
+
+
+@pytest.mark.asyncio()
+async def test_update_orders_table_missing_all_ids_notifies_with_client_id_context(dummy_ui) -> None:
+    """Notification includes client_id suffix when provided."""
+    grid = orders_module.create_orders_table()
+    notified_missing_ids: set[str] = set()
+    synthetic_id_map: dict[str, str] = {}
+
+    orders = [
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "created_at": "2025-01-01T00:00:00Z",
+            "qty": 1,
+            "type": "market",
+            "status": "new",
+        }
+    ]
+
+    await orders_module.update_orders_table(
+        grid,
+        orders,
+        notified_missing_ids=notified_missing_ids,
+        synthetic_id_map=synthetic_id_map,
+        client_id="test-client-123456789",
+    )
+
+    notify_calls = dummy_ui
+    assert len(notify_calls) == 1
+    message = notify_calls[0][0]
+    assert "456789" in message  # Last 6 chars of client_id
+
+
+@pytest.mark.asyncio()
+async def test_update_orders_table_cleans_up_without_miss_tracking(dummy_ui) -> None:
+    """Synthetic ID map cleanup works without miss_counts (legacy behavior)."""
+    grid = orders_module.create_orders_table()
+    synthetic_id_map: dict[str, str] = {}
+
+    # First batch: order without ID
+    first_orders = [
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "created_at": "2025-01-01T00:00:00Z",
+            "qty": 1,
+            "type": "market",
+            "status": "new",
+        }
+    ]
+
+    current_ids = await orders_module.update_orders_table(
+        grid,
+        first_orders,
+        synthetic_id_map=synthetic_id_map,
+        synthetic_id_miss_counts=None,  # No miss tracking - legacy mode
+    )
+    assert len(synthetic_id_map) == 1
+
+    # Second batch: order is gone - should delete immediately (no miss tracking)
+    current_ids = await orders_module.update_orders_table(
+        grid,
+        [],
+        previous_order_ids=current_ids,
+        synthetic_id_map=synthetic_id_map,
+        synthetic_id_miss_counts=None,  # No miss tracking
+    )
+
+    # Should be cleaned up immediately (no 3-miss delay)
+    assert len(synthetic_id_map) == 0

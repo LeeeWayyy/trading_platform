@@ -289,14 +289,10 @@ Missing branches from coverage report (88% → 95%):
 - Lines 464-466: get_history() with empty history
 """
 
-import json
 from datetime import UTC, datetime
 from unittest.mock import Mock
 
 import pytest
-
-from libs.core.redis_client import RedisClient
-from libs.trading.risk_management.kill_switch import KillSwitch, KillSwitchState
 
 
 class TestKillSwitchExceptionHandling:

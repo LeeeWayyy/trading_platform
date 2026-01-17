@@ -32,7 +32,7 @@ from libs.platform.web_console_auth.step_up_callback import (
 class TestHandleStepUpCallbackErrorPaths:
     """Tests for handle_step_up_callback() error handling paths."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_session_not_found(self):
         """Test handle_step_up_callback() returns error when session missing."""
         mock_session_store = AsyncMock()
@@ -57,7 +57,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["outcome"] == "denied"
         assert audit_call["details"]["reason"] == "session_not_found"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_session_not_found_without_audit_logger(self):
         """Test handle_step_up_callback() handles missing audit_logger gracefully."""
         mock_session_store = AsyncMock()
@@ -75,7 +75,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert result["error"] == "session_not_found"
         # Should not raise exception with audit_logger=None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_db_pool_unavailable_fail_closed(self):
         """Test handle_step_up_callback() fails closed when db_pool unavailable."""
         mock_session_data = Mock()
@@ -105,7 +105,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["user_id"] == "user123"
         assert audit_call["details"]["reason"] == "db_pool_unavailable"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_session_version_mismatch(self):
         """Test handle_step_up_callback() invalidates session on version mismatch."""
         mock_session_data = Mock()
@@ -141,7 +141,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["action"] == "step_up_session_invalidated"
         assert audit_call["details"]["reason"] == "session_version_mismatch"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_step_up_timeout_exceeded(self):
         """Test handle_step_up_callback() times out after 300 seconds."""
         mock_session_data = Mock()
@@ -176,7 +176,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["action"] == "step_up_timeout"
         assert audit_call["details"]["elapsed_seconds"] > 300
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_step_up_within_timeout(self):
         """Test handle_step_up_callback() allows step-up within 300 seconds (no timeout)."""
         mock_session_data = Mock()
@@ -211,7 +211,7 @@ class TestHandleStepUpCallbackErrorPaths:
         # Should proceed past timeout check (failed on state validation instead)
         assert result["error"] == "invalid_state"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_validate_state_function(self):
         """Test handle_step_up_callback() requires validate_state function."""
         mock_session_data = Mock()
@@ -246,7 +246,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["details"]["reason"] == "missing_validator"
         assert audit_call["details"]["pending_action"] == "/alerts"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_invalid_state_fails_validation(self):
         """Test handle_step_up_callback() rejects invalid state parameter."""
         mock_session_data = Mock()
@@ -283,7 +283,7 @@ class TestHandleStepUpCallbackErrorPaths:
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
         assert audit_call["details"]["reason"] == "state_mismatch"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_exchange_code_function(self):
         """Test handle_step_up_callback() requires exchange_code function."""
         mock_session_data = Mock()
@@ -319,7 +319,7 @@ class TestHandleStepUpCallbackErrorPaths:
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
         assert audit_call["details"]["reason"] == "exchange_code_missing"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_jwks_validator(self):
         """Test handle_step_up_callback() requires JWKS validator."""
         mock_session_data = Mock()
@@ -357,7 +357,7 @@ class TestHandleStepUpCallbackErrorPaths:
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
         assert audit_call["details"]["reason"] == "jwks_validator_missing"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_expected_audience(self):
         """Test handle_step_up_callback() requires expected_audience."""
         mock_session_data = Mock()
@@ -399,7 +399,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["details"]["reason"] == "issuer_or_audience_missing"
         assert not audit_call["details"]["has_expected_audience"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_issuer_no_auth0_domain(self):
         """Test handle_step_up_callback() fails when issuer cannot be derived."""
         mock_session_data = Mock()
@@ -439,7 +439,7 @@ class TestHandleStepUpCallbackErrorPaths:
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
         assert not audit_call["details"]["has_issuer"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_missing_id_token_in_exchange_response(self):
         """Test handle_step_up_callback() fails when id_token missing from token exchange."""
         mock_session_data = Mock()
@@ -481,7 +481,7 @@ class TestHandleStepUpCallbackErrorPaths:
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
         assert audit_call["details"]["reason"] == "id_token_missing"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_id_token_validation_fails(self):
         """Test handle_step_up_callback() handles JWT validation failures."""
         mock_session_data = Mock()
@@ -527,7 +527,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["details"]["reason"] == "id_token_validation_failed"
         assert audit_call["details"]["error_type"] == "InvalidTokenError"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subject_mismatch(self):
         """Test handle_step_up_callback() detects subject mismatch (different user)."""
         mock_session_data = Mock()
@@ -576,7 +576,7 @@ class TestHandleStepUpCallbackErrorPaths:
         assert audit_call["details"]["expected"] == "user999"
         assert audit_call["details"]["received"] == "different_user"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_step_up_auth_verification_fails(self):
         """Test handle_step_up_callback() fails when MFA verification invalid."""
         mock_session_data = Mock()
@@ -630,7 +630,7 @@ class TestHandleStepUpCallbackErrorPaths:
 class TestHandleStepUpCallbackSuccess:
     """Tests for handle_step_up_callback() success path."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_step_up_success_with_pending_action(self):
         """Test handle_step_up_callback() succeeds and redirects to pending action."""
         mock_session_data = Mock()
@@ -688,7 +688,7 @@ class TestHandleStepUpCallbackSuccess:
         assert audit_call["action"] == "step_up_success"
         assert audit_call["outcome"] == "success"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_step_up_success_defaults_to_dashboard(self):
         """Test handle_step_up_callback() defaults to /dashboard when no pending action."""
         mock_session_data = Mock()
@@ -737,7 +737,7 @@ class TestHandleStepUpCallbackSuccess:
 
         assert result["redirect_to"] == "/dashboard"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_issuer_derived_from_jwks_validator(self):
         """Test handle_step_up_callback() derives issuer from jwks_validator.auth0_domain."""
         mock_session_data = Mock()
@@ -770,7 +770,7 @@ class TestHandleStepUpCallbackSuccess:
                 "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
                 return_value=(True, None),
             ):
-                result = await handle_step_up_callback(
+                await handle_step_up_callback(
                     code="valid_code",
                     state="valid_state",
                     session_store=mock_session_store,
@@ -793,7 +793,7 @@ class TestHandleStepUpCallbackSuccess:
 class TestClearStepUpState:
     """Tests for clear_step_up_state() wrapper function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_clear_step_up_state_wrapper(self):
         """Test clear_step_up_state() delegates to session_store."""
         mock_session_store = AsyncMock()

@@ -17,11 +17,10 @@ Target: 85%+ branch coverage (baseline from 0%)
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from unittest.mock import ANY, AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -29,7 +28,6 @@ import pytest
 from libs.core.common.exceptions import ConfigurationError
 from libs.platform.alerts.models import (
     AlertEvent,
-    AlertRule,
     ChannelConfig,
     ChannelType,
     DeliveryResult,
@@ -40,21 +38,19 @@ from libs.web_console_services.alert_service import (
     AlertConfigService,
     AlertRuleCreate,
     AlertRuleUpdate,
-    TestResult,
 )
-
 
 # Test fixtures
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db_pool() -> Mock:
     """Create mock database pool."""
     pool = Mock()
     return pool
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_audit_logger() -> Mock:
     """Create mock audit logger."""
     logger = Mock()
@@ -62,31 +58,31 @@ def mock_audit_logger() -> Mock:
     return logger
 
 
-@pytest.fixture
+@pytest.fixture()
 def alert_service(mock_db_pool: Mock, mock_audit_logger: Mock) -> AlertConfigService:
     """Create AlertConfigService instance."""
     return AlertConfigService(db_pool=mock_db_pool, audit_logger=mock_audit_logger)
 
 
-@pytest.fixture
+@pytest.fixture()
 def admin_user() -> dict[str, Any]:
     """Create admin user with all permissions."""
     return {"user_id": "admin-123", "role": "admin"}
 
 
-@pytest.fixture
+@pytest.fixture()
 def operator_user() -> dict[str, Any]:
     """Create operator user with standard permissions."""
     return {"user_id": "operator-456", "role": "operator"}
 
 
-@pytest.fixture
+@pytest.fixture()
 def viewer_user() -> dict[str, Any]:
     """Create viewer user with read-only permissions."""
     return {"user_id": "viewer-789", "role": "viewer"}
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_channel_config() -> ChannelConfig:
     """Create sample channel configuration."""
     return ChannelConfig(
@@ -96,7 +92,7 @@ def sample_channel_config() -> ChannelConfig:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_alert_rule_create(sample_channel_config: ChannelConfig) -> AlertRuleCreate:
     """Create sample AlertRuleCreate."""
     return AlertRuleCreate(
@@ -180,7 +176,7 @@ class TestAlertServiceInitialization:
 class TestGetRules:
     """Tests for get_rules method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_rules_returns_empty_list(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:
@@ -197,7 +193,7 @@ class TestGetRules:
 
             assert rules == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_rules_returns_single_rule(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:
@@ -238,7 +234,7 @@ class TestGetRules:
             assert len(rules[0].channels) == 1
             assert rules[0].channels[0].type == ChannelType.EMAIL
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_rules_with_null_channels(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:
@@ -278,7 +274,7 @@ class TestGetRules:
 class TestCreateRule:
     """Tests for create_rule method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_rule_success(
         self,
         alert_service: AlertConfigService,
@@ -319,7 +315,7 @@ class TestCreateRule:
             assert rule.name == "Test Alert"
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_rule_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -331,7 +327,7 @@ class TestCreateRule:
             with pytest.raises(PermissionError, match="Permission CREATE_ALERT_RULE required"):
                 await alert_service.create_rule(sample_alert_rule_create, viewer_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_rule_not_found_after_insert(
         self,
         alert_service: AlertConfigService,
@@ -351,7 +347,7 @@ class TestCreateRule:
             with pytest.raises(RuntimeError, match="not found after create"):
                 await alert_service.create_rule(sample_alert_rule_create, admin_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_rule_with_unknown_user_id(
         self,
         alert_service: AlertConfigService,
@@ -394,7 +390,7 @@ class TestCreateRule:
 class TestUpdateRule:
     """Tests for update_rule method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_rule_success(
         self,
         alert_service: AlertConfigService,
@@ -434,7 +430,7 @@ class TestUpdateRule:
             assert rule.enabled is False
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_rule_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -448,7 +444,7 @@ class TestUpdateRule:
             with pytest.raises(PermissionError, match="Permission UPDATE_ALERT_RULE required"):
                 await alert_service.update_rule(rule_id, update, viewer_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_rule_with_channels(
         self,
         alert_service: AlertConfigService,
@@ -492,7 +488,7 @@ class TestUpdateRule:
             # mask_for_logs uses last 4 chars: test@example.com -> ***.com
             assert details["changes"]["channels"][0]["recipient"] == "***.com"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_rule_not_found_after_update(
         self,
         alert_service: AlertConfigService,
@@ -518,7 +514,7 @@ class TestUpdateRule:
 class TestDeleteRule:
     """Tests for delete_rule method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_delete_rule_success(
         self,
         alert_service: AlertConfigService,
@@ -543,7 +539,7 @@ class TestDeleteRule:
                 outcome="success",
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_delete_rule_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -560,7 +556,7 @@ class TestDeleteRule:
 class TestAcknowledgeAlert:
     """Tests for acknowledge_alert method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_success(
         self,
         alert_service: AlertConfigService,
@@ -580,7 +576,7 @@ class TestAcknowledgeAlert:
 
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -594,7 +590,7 @@ class TestAcknowledgeAlert:
             with pytest.raises(PermissionError, match="Permission ACKNOWLEDGE_ALERT required"):
                 await alert_service.acknowledge_alert(alert_id, note, viewer_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_note_too_short(
         self,
         alert_service: AlertConfigService,
@@ -610,7 +606,7 @@ class TestAcknowledgeAlert:
             ):
                 await alert_service.acknowledge_alert(alert_id, note, operator_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_strips_whitespace_in_validation(
         self,
         alert_service: AlertConfigService,
@@ -628,7 +624,7 @@ class TestAcknowledgeAlert:
 class TestTestNotification:
     """Tests for test_notification method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_test_notification_success(
         self,
         alert_service: AlertConfigService,
@@ -651,7 +647,7 @@ class TestTestNotification:
             mock_handler.send.assert_called_once()
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_test_notification_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -663,7 +659,7 @@ class TestTestNotification:
             with pytest.raises(PermissionError, match="Permission TEST_NOTIFICATION required"):
                 await alert_service.test_notification(sample_channel_config, viewer_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_test_notification_handler_failure(
         self,
         alert_service: AlertConfigService,
@@ -685,7 +681,7 @@ class TestTestNotification:
             assert result.error == "SMTP connection failed"
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_test_notification_handler_exception(
         self,
         alert_service: AlertConfigService,
@@ -707,7 +703,7 @@ class TestTestNotification:
             call_args = alert_service.audit_logger.log_action.call_args
             assert call_args[1]["outcome"] == "failed"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_test_notification_unsupported_channel(
         self,
         alert_service: AlertConfigService,
@@ -727,7 +723,7 @@ class TestTestNotification:
 class TestAddChannel:
     """Tests for add_channel method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_add_channel_success(
         self,
         alert_service: AlertConfigService,
@@ -749,7 +745,7 @@ class TestAddChannel:
 
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_add_channel_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -763,7 +759,7 @@ class TestAddChannel:
             with pytest.raises(PermissionError, match="Permission UPDATE_ALERT_RULE required"):
                 await alert_service.add_channel(rule_id, sample_channel_config, viewer_user)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_add_channel_duplicate_type(
         self,
         alert_service: AlertConfigService,
@@ -788,7 +784,7 @@ class TestAddChannel:
 class TestUpdateChannel:
     """Tests for update_channel method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_channel_success(
         self,
         alert_service: AlertConfigService,
@@ -808,7 +804,7 @@ class TestUpdateChannel:
 
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_channel_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -826,7 +822,7 @@ class TestUpdateChannel:
 class TestRemoveChannel:
     """Tests for remove_channel method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_remove_channel_success(
         self,
         alert_service: AlertConfigService,
@@ -846,7 +842,7 @@ class TestRemoveChannel:
 
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_remove_channel_permission_denied(
         self,
         alert_service: AlertConfigService,
@@ -864,7 +860,7 @@ class TestRemoveChannel:
 class TestGetAlertEvents:
     """Tests for get_alert_events method."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_alert_events_with_default_limit(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:
@@ -884,7 +880,7 @@ class TestGetAlertEvents:
             call_args = mock_conn.execute.call_args
             assert call_args[0][1] == (DEFAULT_ALERT_EVENT_LIMIT,)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_alert_events_with_custom_limit(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:
@@ -904,7 +900,7 @@ class TestGetAlertEvents:
             call_args = mock_conn.execute.call_args
             assert call_args[0][1] == (50,)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_alert_events_returns_events(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:
@@ -947,7 +943,7 @@ class TestGetAlertEvents:
 class TestEdgeCases:
     """Tests for edge cases and error conditions."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_create_rule_with_multiple_channels(
         self,
         alert_service: AlertConfigService,
@@ -998,7 +994,7 @@ class TestEdgeCases:
 
             assert len(rule.channels) == 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_update_rule_with_none_values(
         self,
         alert_service: AlertConfigService,
@@ -1037,7 +1033,7 @@ class TestEdgeCases:
             # Rule should remain unchanged
             assert rule.name == "Original Name"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_with_exact_minimum_length(
         self,
         alert_service: AlertConfigService,
@@ -1058,7 +1054,7 @@ class TestEdgeCases:
 
             alert_service.audit_logger.log_action.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_alert_events_with_zero_limit(
         self, alert_service: AlertConfigService, mock_db_pool: Mock
     ) -> None:

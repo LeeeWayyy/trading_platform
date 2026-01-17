@@ -379,13 +379,11 @@ Missing branches from coverage report (71% → 95%):
 - Line 321: __repr__() method
 """
 
-import json
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-from redis.exceptions import RedisError
 
-from libs.core.redis_client import FeatureCache, RedisClient
+from libs.core.redis_client import RedisClient
 
 
 class TestFeatureCacheMget:

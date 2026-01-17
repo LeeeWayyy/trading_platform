@@ -241,7 +241,7 @@ class TestGetAmrMethod:
 class TestRequire2faForAction:
     """Tests for require_2fa_for_action() async validation function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_missing_session(self):
         """Test 2FA requirement fails when session missing."""
         valid, error = await require_2fa_for_action(None, "delete_strategy", None)
@@ -249,7 +249,7 @@ class TestRequire2faForAction:
         assert valid is False
         assert error == "session_missing"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_missing_step_up_claims_with_audit(self):
         """Test 2FA requirement fails when step_up_claims missing (with audit)."""
         session_data = Mock()
@@ -273,7 +273,7 @@ class TestRequire2faForAction:
         assert call_args[1]["outcome"] == "denied"
         assert call_args[1]["details"]["reason"] == "step_up_required"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_missing_step_up_claims_without_audit(self):
         """Test 2FA requirement fails when step_up_claims missing (no audit)."""
         session_data = Mock()
@@ -284,7 +284,7 @@ class TestRequire2faForAction:
         assert valid is False
         assert error == "step_up_required"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_invalid_claims_with_audit(self):
         """Test 2FA requirement fails with invalid claims (with audit)."""
         session_data = Mock()
@@ -310,7 +310,7 @@ class TestRequire2faForAction:
         assert call_args[1]["outcome"] == "denied"
         assert call_args[1]["details"]["reason"] == "auth_too_old"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_invalid_claims_without_audit(self):
         """Test 2FA requirement fails with invalid claims (no audit)."""
         session_data = Mock()
@@ -322,7 +322,7 @@ class TestRequire2faForAction:
         assert valid is False
         assert error == "missing_auth_time"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_success(self):
         """Test 2FA requirement passes with valid recent MFA."""
         session_data = Mock()
@@ -334,7 +334,7 @@ class TestRequire2faForAction:
         assert valid is True
         assert error is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_require_2fa_success_with_audit_logger(self):
         """Test 2FA requirement passes with valid MFA (audit logger present but not called)."""
         session_data = Mock()

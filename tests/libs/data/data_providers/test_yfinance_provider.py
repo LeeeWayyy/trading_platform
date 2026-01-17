@@ -20,9 +20,8 @@ Comprehensive test suite covering:
 from __future__ import annotations
 
 import json
-import os
 import time
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -1421,7 +1420,7 @@ class TestFetchAndCache:
                 "libs.data.data_providers.yfinance_provider.AtomicFileLock",
                 return_value=mock_lock,
             ):
-                with pytest.raises(Exception):
+                with pytest.raises(Exception, match="Download failed"):
                     provider.fetch_and_cache(
                         symbols=["SPY"],
                         start_date=date(2024, 1, 1),
@@ -1571,7 +1570,7 @@ class TestAtomicWrites:
 
         # Make rename fail
         with patch.object(Path, "rename", side_effect=OSError("Rename failed")):
-            with pytest.raises(OSError):
+            with pytest.raises(OSError, match="Rename failed"):
                 provider._atomic_write_parquet(mock_ohlcv_data, target_path)
 
         # Temp file should be cleaned up
@@ -1637,7 +1636,7 @@ class TestAtomicWrites:
         temp_path = provider._storage_path / "yfinance_manifest.json.tmp"
 
         with patch.object(Path, "rename", side_effect=OSError("Rename failed")):
-            with pytest.raises(OSError):
+            with pytest.raises(OSError, match="Rename failed"):
                 provider._atomic_write_manifest(manifest_data)
 
         # Temp file should be cleaned up

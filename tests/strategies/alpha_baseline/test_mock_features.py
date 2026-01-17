@@ -16,9 +16,8 @@ Target: 85%+ branch coverage (baseline from 0%)
 
 import shutil
 import tempfile
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
@@ -290,7 +289,7 @@ class TestGetMockAlpha158Features:
         start_date = date(2024, 1, 1)
         self._create_test_parquet("AAPL", start_date, 90)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="(Invalid|date|format|parse)"):
             get_mock_alpha158_features(
                 symbols=["AAPL"],
                 start_date="invalid-date",

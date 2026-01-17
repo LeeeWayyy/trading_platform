@@ -60,7 +60,7 @@ class TestAsyncRedisAdapter:
 
         assert adapter._db == 3  # Default
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_async_redis_adapter_get(self):
         """Test AsyncRedisAdapter.get() proxy method."""
         with patch("redis.asyncio.Redis.from_url") as mock_from_url:
@@ -76,7 +76,7 @@ class TestAsyncRedisAdapter:
             mock_client.get.assert_called_once_with("test_key")
             mock_client.aclose.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_async_redis_adapter_set(self):
         """Test AsyncRedisAdapter.set() proxy method."""
         with patch("redis.asyncio.Redis.from_url") as mock_from_url:
@@ -92,7 +92,7 @@ class TestAsyncRedisAdapter:
             mock_client.set.assert_called_once_with("test_key", "test_value", ex=60)
             mock_client.aclose.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_async_redis_adapter_setex(self):
         """Test AsyncRedisAdapter.setex() proxy method."""
         with patch("redis.asyncio.Redis.from_url") as mock_from_url:
@@ -108,7 +108,7 @@ class TestAsyncRedisAdapter:
             mock_client.setex.assert_called_once_with("test_key", 120, "test_value")
             mock_client.aclose.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_async_redis_adapter_delete(self):
         """Test AsyncRedisAdapter.delete() proxy method."""
         with patch("redis.asyncio.Redis.from_url") as mock_from_url:
@@ -124,7 +124,7 @@ class TestAsyncRedisAdapter:
             mock_client.delete.assert_called_once_with("key1", "key2")
             mock_client.aclose.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_async_redis_adapter_exists(self):
         """Test AsyncRedisAdapter.exists() proxy method."""
         with patch("redis.asyncio.Redis.from_url") as mock_from_url:

@@ -430,3 +430,191 @@ skip_if_no_model = pytest.mark.skipif(
 skip_if_no_t1_data = pytest.mark.skipif(
     not Path("data/adjusted").exists(), reason="Requires T1 adjusted data"
 )
+
+
+# ============================================================================
+# FastAPI Test Client Fixtures
+# ============================================================================
+
+
+@pytest.fixture()
+def client(monkeypatch, mock_settings, mock_model_registry, mock_signal_generator):
+    """
+    FastAPI test client for endpoint testing with mocked globals.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture
+        mock_settings: Mocked settings
+        mock_model_registry: Mocked model registry
+        mock_signal_generator: Mocked signal generator
+
+    Returns:
+        TestClient: Configured test client
+
+    Example:
+        def test_endpoint(client):
+            response = client.get("/health")
+            assert response.status_code == 200
+    """
+    from fastapi.testclient import TestClient
+    from apps.signal_service import main
+
+    # Patch all global variables
+    monkeypatch.setattr(main, "settings", mock_settings)
+    monkeypatch.setattr(main, "model_registry", mock_model_registry)
+    monkeypatch.setattr(main, "signal_generator", mock_signal_generator)
+    monkeypatch.setattr(main, "redis_client", None)
+    monkeypatch.setattr(main, "feature_cache", None)
+    monkeypatch.setattr(main, "event_publisher", None)
+    monkeypatch.setattr(main, "fallback_buffer", None)
+    monkeypatch.setattr(main, "shadow_validator", None)
+
+    return TestClient(main.app, raise_server_exceptions=False)
+
+
+@pytest.fixture()
+def mock_settings():
+    """
+    Mock Settings object for testing.
+
+    Returns:
+        Mock: Settings mock with default values
+
+    Example:
+        def test_with_settings(mock_settings):
+            mock_settings.redis_enabled = True
+            assert mock_settings.redis_enabled
+    """
+    from unittest.mock import Mock
+
+    settings = Mock()
+    settings.testing = False
+    settings.redis_enabled = True
+    settings.redis_host = "localhost"
+    settings.redis_port = 6379
+    settings.redis_db = 0
+    settings.redis_ttl = 3600
+    settings.default_strategy = "alpha_baseline"
+    settings.model_reload_interval_seconds = 300
+    settings.feature_hydration_enabled = True
+    settings.feature_hydration_timeout_seconds = 300
+    settings.shadow_validation_enabled = True
+    settings.skip_shadow_validation = False
+    settings.redis_fallback_replay_interval_seconds = 30
+    settings.redis_fallback_buffer_max_size = 1000
+    settings.redis_fallback_buffer_path = "/tmp/fallback_buffer.json"
+    settings.tradable_symbols = ["AAPL", "MSFT", "GOOGL"]
+    settings.shadow_sample_count = 100
+    settings.data_dir = "data/adjusted"
+    settings.top_n = 2
+    settings.bottom_n = 2
+
+    return settings
+
+
+@pytest.fixture()
+def mock_model_registry():
+    """
+    Mock ModelRegistry for testing.
+
+    Returns:
+        Mock: ModelRegistry mock with default behavior
+
+    Example:
+        def test_with_registry(mock_model_registry):
+            assert mock_model_registry.is_loaded
+    """
+    from unittest.mock import Mock
+    from datetime import UTC, datetime
+    from apps.signal_service.model_registry import ModelMetadata
+
+    registry = Mock()
+    registry.is_loaded = True
+    registry.pending_validation = False
+
+    # Create REAL metadata object (not Mock) for proper serialization
+    metadata = ModelMetadata(
+        id=1,
+        strategy_name="alpha_baseline",
+        version="v1.0.0",
+        mlflow_run_id="test_run_123",
+        mlflow_experiment_id="test_exp_456",
+        status="active",
+        model_path="/path/to/model.txt",
+        activated_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+        performance_metrics={"ic": 0.082, "sharpe": 1.45},
+        config={"learning_rate": 0.05},
+    )
+
+    registry.current_metadata = metadata
+    registry.pending_metadata = None
+
+    return registry
+
+
+@pytest.fixture()
+def mock_signal_generator():
+    """
+    Mock SignalGenerator for testing.
+
+    Returns:
+        Mock: SignalGenerator mock with default behavior
+
+    Example:
+        def test_with_generator(mock_signal_generator):
+            mock_signal_generator.generate_signals.return_value = pd.DataFrame(...)
+    """
+    from unittest.mock import Mock
+
+    generator = Mock()
+    generator.top_n = 2
+    generator.bottom_n = 2
+    generator.data_provider = Mock()
+    generator.data_provider.data_dir = "data/adjusted"
+
+    return generator
+
+
+@pytest.fixture()
+def mock_auth_context(monkeypatch):
+    """
+    Mock authentication and rate limiting for API endpoints.
+
+    This fixture patches both auth and rate limit dependencies to bypass them.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture
+
+    Example:
+        def test_protected_endpoint(client, mock_auth_context):
+            response = client.post("/api/v1/signals/generate", json={...})
+            # Auth and rate limiting are bypassed
+    """
+    from unittest.mock import Mock
+    from apps.signal_service.main import app, signal_generate_auth, signal_generate_rl
+
+    # Create mock auth context
+    auth_ctx = Mock()
+    auth_ctx.user_id = "test-service"
+    auth_ctx.service_id = "test-service"
+    auth_ctx.roles = set()
+    auth_ctx.permissions = set()
+
+    # Override auth dependency
+    def mock_auth_dependency():
+        return auth_ctx
+
+    # Override rate limit dependency (return remaining count)
+    def mock_rate_limit_dependency():
+        return 100  # Plenty remaining
+
+    # Patch the dependencies
+    app.dependency_overrides[signal_generate_auth] = mock_auth_dependency
+    app.dependency_overrides[signal_generate_rl] = mock_rate_limit_dependency
+
+    yield auth_ctx
+
+    # Cleanup
+    app.dependency_overrides.pop(signal_generate_auth, None)
+    app.dependency_overrides.pop(signal_generate_rl, None)

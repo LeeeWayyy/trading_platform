@@ -90,7 +90,7 @@ class TestAlertManagerInitialization:
         mock_get_secret.return_value = "test_secret"
 
         with patch("libs.platform.alerts.alert_manager.Queue"):
-            manager = AlertManager(
+            AlertManager(
                 db_pool=mock_db_pool,
                 redis_client=mock_redis_async,
                 delivery_job_func=mock_delivery_func,
@@ -149,7 +149,7 @@ class TestDeriveSyncRedis:
 class TestTriggerAlert:
     """Tests for trigger_alert() main alert creation flow."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def manager(self):
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
@@ -171,7 +171,7 @@ class TestTriggerAlert:
             )
         return manager
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.alert_queue_full_total")
     @patch("libs.platform.alerts.alert_manager.alert_dropped_total")
     async def test_trigger_alert_queue_full_raises_error(
@@ -192,7 +192,7 @@ class TestTriggerAlert:
         mock_dropped_metric.labels.assert_called_once_with(channel="all", reason="queue_full")
         mock_dropped_metric.labels.return_value.inc.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trigger_alert_no_channels_raises_error(self, manager):
         """Test trigger_alert() raises ValueError when rule has no enabled channels."""
         # Mock _fetch_rule to return rule with empty channels
@@ -205,7 +205,7 @@ class TestTriggerAlert:
                 triggered_at=datetime.now(UTC),
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trigger_alert_success_with_timezone_aware_timestamp(self, manager):
         """Test trigger_alert() successfully creates event with timezone-aware timestamp."""
         triggered_at = datetime.now(UTC)
@@ -255,7 +255,7 @@ class TestTriggerAlert:
         assert str(result.rule_id) == rule_id
         manager._enqueue_deliveries.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trigger_alert_success_with_naive_timestamp(self, manager):
         """Test trigger_alert() converts naive timestamp to UTC-aware."""
         triggered_at = datetime(2025, 1, 15, 10, 0, 0)  # Naive timestamp
@@ -304,7 +304,7 @@ class TestTriggerAlert:
         call_args = mock_cur.execute.call_args[0][1]
         assert call_args[2].tzinfo is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trigger_alert_no_event_row_returned_raises_error(self, manager):
         """Test trigger_alert() raises RuntimeError when INSERT fails to return row."""
         triggered_at = datetime.now(UTC)
@@ -336,7 +336,7 @@ class TestTriggerAlert:
 class TestAcknowledgeAlert:
     """Tests for acknowledge_alert() method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def manager(self):
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
@@ -354,7 +354,7 @@ class TestAcknowledgeAlert:
                     )
         return manager
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_success(self, manager):
         """Test acknowledge_alert() updates alert_events with acknowledgment."""
         mock_conn = AsyncMock()
@@ -382,7 +382,7 @@ class TestAcknowledgeAlert:
         assert call_args[1][3] == "alert123"
         mock_conn.commit.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acknowledge_alert_without_note(self, manager):
         """Test acknowledge_alert() works without optional note."""
         mock_conn = AsyncMock()
@@ -408,7 +408,7 @@ class TestAcknowledgeAlert:
 class TestFetchRule:
     """Tests for _fetch_rule() method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def manager(self):
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
@@ -426,7 +426,7 @@ class TestFetchRule:
                     )
         return manager
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_rule_success_with_enabled_channels(self, manager):
         """Test _fetch_rule() returns rule with enabled channels."""
         mock_conn = AsyncMock()
@@ -454,7 +454,7 @@ class TestFetchRule:
         assert result.channels[0].type == ChannelType.EMAIL
         assert result.channels[1].type == ChannelType.SLACK
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_rule_filters_disabled_channels(self, manager):
         """Test _fetch_rule() filters out disabled channels."""
         mock_conn = AsyncMock()
@@ -483,7 +483,7 @@ class TestFetchRule:
         assert result.channels[0].type == ChannelType.EMAIL
         assert result.channels[1].type == ChannelType.SMS
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_rule_not_found_raises_error(self, manager):
         """Test _fetch_rule() raises ValueError when rule not found."""
         mock_conn = AsyncMock()
@@ -499,7 +499,7 @@ class TestFetchRule:
         with pytest.raises(ValueError, match="not found or disabled"):
             await manager._fetch_rule("nonexistent_rule")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_rule_empty_channels_list(self, manager):
         """Test _fetch_rule() handles empty channels list."""
         mock_conn = AsyncMock()
@@ -522,7 +522,7 @@ class TestFetchRule:
         assert result.name == "No Channels Rule"
         assert len(result.channels) == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_rule_null_channels(self, manager):
         """Test _fetch_rule() handles null channels field."""
         mock_conn = AsyncMock()
@@ -549,7 +549,7 @@ class TestFetchRule:
 class TestCreateDeliveries:
     """Tests for _create_deliveries() method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def manager(self):
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
@@ -567,7 +567,7 @@ class TestCreateDeliveries:
                     )
         return manager
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.mask_recipient")
     @patch("libs.platform.alerts.alert_manager.compute_dedup_key")
     async def test_create_deliveries_success(self, mock_dedup, mock_mask, manager):
@@ -613,7 +613,7 @@ class TestCreateDeliveries:
         )
         mock_mask.assert_called_once_with("test@example.com", "email")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.mask_recipient")
     @patch("libs.platform.alerts.alert_manager.compute_dedup_key")
     async def test_create_deliveries_deduplication_conflict(self, mock_dedup, mock_mask, manager):
@@ -650,7 +650,7 @@ class TestCreateDeliveries:
         # No deliveries returned because of conflict
         assert len(result) == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.mask_recipient")
     @patch("libs.platform.alerts.alert_manager.compute_dedup_key")
     async def test_create_deliveries_multiple_channels(self, mock_dedup, mock_mask, manager):
@@ -701,7 +701,7 @@ class TestCreateDeliveries:
 class TestMarkDeliveryFailed:
     """Tests for _mark_delivery_failed() method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def manager(self):
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
@@ -719,7 +719,7 @@ class TestMarkDeliveryFailed:
                     )
         return manager
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_mark_delivery_failed_updates_status(self, manager):
         """Test _mark_delivery_failed() updates delivery status and error message."""
         mock_conn = AsyncMock()
@@ -747,7 +747,7 @@ class TestMarkDeliveryFailed:
 class TestEnqueueDeliveries:
     """Tests for _enqueue_deliveries() method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def manager(self):
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
@@ -769,7 +769,7 @@ class TestEnqueueDeliveries:
             )
         return manager
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.asyncio.to_thread")
     async def test_enqueue_deliveries_success_single_channel(self, mock_to_thread, manager):
         """Test _enqueue_deliveries() successfully enqueues single delivery."""
@@ -797,7 +797,7 @@ class TestEnqueueDeliveries:
         assert call_args[4] == "test@example.com"
         assert "Test Alert" in call_args[5]  # subject
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.alert_dropped_total")
     @patch("libs.platform.alerts.alert_manager.asyncio.to_thread")
     async def test_enqueue_deliveries_enqueue_failure(self, mock_to_thread, mock_dropped_metric, manager):
@@ -826,7 +826,7 @@ class TestEnqueueDeliveries:
             "delivery456", ANY  # Error message includes exception details
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.asyncio.to_thread")
     async def test_enqueue_deliveries_multiple_channels_mixed_results(self, mock_to_thread, manager):
         """Test _enqueue_deliveries() handles mixed success/failure results."""
@@ -858,7 +858,7 @@ class TestEnqueueDeliveries:
         # Verify only failed delivery marked
         manager._mark_delivery_failed.assert_called_once_with("delivery2", ANY)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_enqueue_deliveries_empty_list(self, manager):
         """Test _enqueue_deliveries() handles empty deliveries list."""
         await manager._enqueue_deliveries(
@@ -871,7 +871,7 @@ class TestEnqueueDeliveries:
         # Should not call increment or enqueue
         manager.queue_depth_manager.increment.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.asyncio.to_thread")
     async def test_enqueue_deliveries_null_trigger_value(self, mock_to_thread, manager):
         """Test _enqueue_deliveries() handles None trigger_value in message body."""
