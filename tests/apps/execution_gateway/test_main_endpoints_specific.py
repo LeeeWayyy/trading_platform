@@ -80,6 +80,8 @@ from starlette.requests import (
 
 # Use starlette directly to avoid fastapi import side-effects
 from apps.execution_gateway import main
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.services.auth_helpers import build_user_context
 
 
 def _make_user_context_override(user_ctx: dict) -> callable:
@@ -111,11 +113,11 @@ def test_get_daily_performance_happy_path(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(user_ctx)
 
     # Mock DB + Redis interactions
-    monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
-    monkeypatch.setattr(main, "redis_client", None)
+    monkeypatch.setattr(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    monkeypatch.setattr(main.app.state.context, "redis", None)
     fake_rows = [
         {
             "trade_date": date(2024, 1, 1),
@@ -123,8 +125,12 @@ def test_get_daily_performance_happy_path(monkeypatch, test_client):
             "closing_trade_count": 1,
         }
     ]
-    monkeypatch.setattr(main.db_client, "get_daily_pnl_history", lambda *a, **k: fake_rows)
-    monkeypatch.setattr(main.db_client, "get_data_availability_date", lambda: date(2024, 1, 1))
+    monkeypatch.setattr(
+        main.app.state.context.db, "get_daily_pnl_history", lambda *a, **k: fake_rows
+    )
+    monkeypatch.setattr(
+        main.app.state.context.db, "get_data_availability_date", lambda: date(2024, 1, 1)
+    )
 
     resp = test_client.get(
         "/api/v1/performance/daily",
@@ -147,9 +153,11 @@ def test_get_realtime_pnl_denies_without_strategy_access(monkeypatch, test_clien
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": [], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(user_ctx)
 
-    monkeypatch.setattr(main, "has_permission", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        "apps.execution_gateway.routes.positions.has_permission", lambda *_args, **_kwargs: False
+    )
 
     resp = test_client.get("/api/v1/positions/pnl/realtime")
     assert resp.status_code == 403
@@ -163,12 +171,16 @@ def test_get_realtime_pnl_allows_authorized_and_returns_zero(monkeypatch, test_c
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(user_ctx)
 
     # Authorize strategy access, no positions
-    monkeypatch.setattr(main, "has_permission", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
-        main.db_client, "get_positions_for_strategies", lambda *_args, **_kwargs: []
+        "apps.execution_gateway.routes.positions.has_permission", lambda *_args, **_kwargs: False
+    )
+    monkeypatch.setattr(
+        main.app.state.context.db,
+        "get_positions_for_strategies",
+        lambda *_args, **_kwargs: [],
     )
 
     resp = test_client.get("/api/v1/positions/pnl/realtime")
@@ -182,6 +194,6 @@ def test_build_user_context_accepts_obj_with_role(monkeypatch):
         state=SimpleNamespace(user=SimpleNamespace(role="viewer", strategies=["s1"], id="u1")),
         query_params=SimpleNamespace(getlist=lambda *_args, **_kwargs: []),
     )
-    ctx = main._build_user_context(req)
+    ctx = build_user_context(req)
     assert ctx["role"] == "viewer"
     assert ctx["user_id"] == "u1"

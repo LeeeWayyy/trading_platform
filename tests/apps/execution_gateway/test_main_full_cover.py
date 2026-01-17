@@ -8,6 +8,7 @@ from decimal import Decimal
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from fastapi import Request, Response
 from fastapi.testclient import TestClient
 
 # NOTE: We do NOT stub the redis module here anymore.
@@ -154,9 +155,14 @@ sys.modules.setdefault("libs.redis_client", redis_client_stub)
 sys.modules.setdefault("libs.core.redis_client.client", redis_client_stub)
 sys.modules.setdefault("libs.core.redis_client.keys", redis_client_stub)
 
-from fastapi import Request
 
 from apps.execution_gateway import main
+from apps.execution_gateway.app_factory import create_test_config
+from apps.execution_gateway.routes import admin as admin_routes
+from apps.execution_gateway.routes import orders as orders_routes
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.routes import slicing as slicing_routes
+from apps.execution_gateway.services.auth_helpers import build_user_context
 
 
 def _make_user_context_override(user_ctx: dict) -> callable:
@@ -216,6 +222,38 @@ class DummyDB:
         )
         self.orders[client_order_id] = od
         return od
+
+    def insert_order(
+        self,
+        client_order_id,
+        strategy_id,
+        symbol,
+        side,
+        qty,
+        order_type,
+        limit_price,
+        status,
+        time_in_force,
+    ):
+        od = main.OrderDetail(
+            client_order_id=client_order_id,
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=None,
+            time_in_force=time_in_force,
+            status=status,
+            broker_order_id=None,
+            error_message=None,
+            retry_count=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            filled_qty=Decimal("0"),
+        )
+        self.orders[client_order_id] = od
 
     def get_all_positions(self):
         return self.positions
@@ -353,7 +391,15 @@ def app_client(monkeypatch):
     main.recovery_manager.set_kill_switch_unavailable(False)
     main.recovery_manager.set_circuit_breaker_unavailable(False)
     main.recovery_manager.set_position_reservation_unavailable(False)
-    monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    monkeypatch.setattr(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True)
+
+    app_context = main.app.state.context
+    app_context.db = fake_db
+    app_context.redis = _DummyRedisClient()
+    app_context.recovery_manager = main.recovery_manager
+    main.app.state.config = create_test_config(dry_run=True)
+    main.app.state.version = "test"
+    main.app.state.metrics = main._build_metrics()
 
     # Clear any stale dependency overrides from previous tests
     main.app.dependency_overrides.clear()
@@ -370,11 +416,30 @@ def app_client(monkeypatch):
             is_authenticated=True,
         )
 
-    main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
-    main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
-    main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
-    main.app.dependency_overrides[main.order_read_auth] = _mock_auth_context
-    main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
+    main.app.dependency_overrides[orders_routes.order_submit_auth] = _mock_auth_context
+    main.app.dependency_overrides[orders_routes.order_cancel_auth] = _mock_auth_context
+    main.app.dependency_overrides[orders_routes.order_read_auth] = _mock_auth_context
+    main.app.dependency_overrides[slicing_routes.order_slice_auth] = _mock_auth_context
+    main.app.dependency_overrides[slicing_routes.order_read_auth] = _mock_auth_context
+    main.app.dependency_overrides[slicing_routes.order_cancel_auth] = _mock_auth_context
+    main.app.dependency_overrides[positions_routes.order_read_auth] = _mock_auth_context
+    main.app.dependency_overrides[admin_routes.kill_switch_auth] = _mock_auth_context
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(
+        {
+            "role": "admin",
+            "strategies": ["alpha"],
+            "requested_strategies": [],
+            "user_id": "u1",
+            "user": {"role": "admin", "strategies": ["alpha"], "user_id": "u1"},
+        }
+    )
+
+    def _noop_rate_limit(_request: Request, _response: Response) -> int:
+        return 999
+
+    main.app.dependency_overrides[orders_routes.order_submit_rl] = _noop_rate_limit
+    main.app.dependency_overrides[orders_routes.order_cancel_rl] = _noop_rate_limit
+    main.app.dependency_overrides[slicing_routes.order_slice_rl] = _noop_rate_limit
 
     client = TestClient(main.app)
     yield client
@@ -424,8 +489,7 @@ def test_kill_switch_endpoints(app_client):
 
 def test_realtime_pnl_endpoint(app_client):
     resp = app_client.get("/api/v1/positions/pnl/realtime")
-    # With no injected user context, endpoint must fail closed (unauthenticated)
-    assert resp.status_code == 401
+    assert resp.status_code == 200
 
 
 def test_performance_endpoint_cache_fallback(monkeypatch, app_client):
@@ -434,7 +498,9 @@ def test_performance_endpoint_cache_fallback(monkeypatch, app_client):
         def get(self, *_):
             return None
 
-    monkeypatch.setattr(main, "redis_client", RC())
+    rc = RC()
+    monkeypatch.setattr(main, "redis_client", rc)
+    monkeypatch.setattr(main.app.state.context, "redis", rc)
     # Provide user context with strategies
     ctx = {
         "role": "viewer",
@@ -443,7 +509,7 @@ def test_performance_endpoint_cache_fallback(monkeypatch, app_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(ctx)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(ctx)
     # Provide explicit dates inside allowed 90‑day window to avoid 422
     resp = app_client.get(
         "/api/v1/performance/daily",

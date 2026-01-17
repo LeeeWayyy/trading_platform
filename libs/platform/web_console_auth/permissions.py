@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import typing
 from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any
@@ -320,7 +321,22 @@ def require_permission(
 
             return func(*args, **kwargs)
 
-        return async_wrapper if is_coroutine else sync_wrapper
+        # Preserve resolved annotations for frameworks (e.g., FastAPI) that inspect
+        # wrapper signatures in a different module namespace.
+        try:
+            resolved_annotations = typing.get_type_hints(func, include_extras=True)
+        except Exception:  # pragma: no cover - best-effort for runtime safety
+            resolved_annotations = None
+
+        wrapper = async_wrapper if is_coroutine else sync_wrapper
+        # Ensure wrapper can resolve forward references from the original module.
+        wrapper_globals = getattr(wrapper, "__globals__", None)
+        if isinstance(wrapper_globals, dict):
+            wrapper_globals.update(func.__globals__)
+        if resolved_annotations is not None:
+            wrapper.__annotations__ = resolved_annotations
+
+        return wrapper
 
     return decorator
 

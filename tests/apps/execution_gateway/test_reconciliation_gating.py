@@ -1,72 +1,336 @@
-from unittest.mock import patch
+"""Tests for reconciliation gating logic.
+
+Per ADR-0020 (Startup Gating with Reduce-Only Mode):
+- During gating, compute effective_position from LIVE Alpaca data (not stale DB)
+- Allow risk-reducing orders (orders that decrease position exposure)
+- Reject all orders if broker API unavailable (fail closed)
+
+These tests verify the reconciliation gating behavior via the
+_require_reconciliation_ready_or_reduce_only function in routes/orders.py.
+"""
+
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
 
-from apps.execution_gateway.main import _enforce_reduce_only_order
+from apps.execution_gateway.routes.orders import (
+    _calculate_pending_order_qty,
+    _is_reduce_only_order,
+    _require_reconciliation_ready_or_reduce_only,
+)
 from apps.execution_gateway.schemas import OrderRequest
 
 
-class StubAlpaca:
-    def __init__(self, position_qty, open_orders):
-        self._position_qty = position_qty
-        self._open_orders = open_orders
+class TestIsReduceOnlyOrder:
+    """Tests for the _is_reduce_only_order helper function."""
 
-    def get_open_position(self, symbol):
-        if self._position_qty == 0:
-            return None
-        return {"symbol": symbol, "qty": self._position_qty}
+    def test_no_position_is_not_reduce_only(self):
+        """Any order with no position is position-increasing."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+        assert _is_reduce_only_order(order, None) is False
 
-    def get_orders(self, status, limit, after, symbols=None):
-        return self._open_orders
+    def test_flat_position_is_not_reduce_only(self):
+        """Any order with flat position (qty=0) is position-increasing."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+        assert _is_reduce_only_order(order, {"qty": 0}) is False
+
+    def test_long_position_sell_is_reduce_only(self):
+        """Sell order on long position is reduce-only."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+        assert _is_reduce_only_order(order, {"qty": 10}) is True
+
+    def test_long_position_buy_is_not_reduce_only(self):
+        """Buy order on long position increases exposure."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+        assert _is_reduce_only_order(order, {"qty": 10}) is False
+
+    def test_short_position_buy_is_reduce_only(self):
+        """Buy order on short position is reduce-only."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+        assert _is_reduce_only_order(order, {"qty": -10}) is True
+
+    def test_short_position_sell_is_not_reduce_only(self):
+        """Sell order on short position increases exposure."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+        assert _is_reduce_only_order(order, {"qty": -10}) is False
+
+    def test_sell_exceeding_position_is_not_reduce_only(self):
+        """Sell qty exceeding position would flip to short - not reduce-only."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=15, order_type="market")
+        # Position is 10, selling 15 would flip to -5 short
+        assert _is_reduce_only_order(order, {"qty": 10}) is False
+
+    def test_buy_exceeding_short_is_not_reduce_only(self):
+        """Buy qty exceeding short position would flip to long - not reduce-only."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=15, order_type="market")
+        # Position is -10, buying 15 would flip to +5 long
+        assert _is_reduce_only_order(order, {"qty": -10}) is False
 
 
-class StubLock:
-    def __init__(self):
-        self._locked = False
+class TestReduceOnlyWithPendingOrders:
+    """Tests for reduce-only check accounting for pending orders."""
 
-    def acquire(self, blocking=True):
-        self._locked = True
-        return True
+    def test_pending_sell_reduces_available_to_sell(self):
+        """Pending sells reduce the available position to sell."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+        position = {"qty": 10}
+        # Pending sell of 8 means only 2 available to sell
+        open_orders = [{"side": "sell", "qty": 8, "filled_qty": 0}]
+        assert _is_reduce_only_order(order, position, open_orders) is False
 
-    def release(self):
-        self._locked = False
+    def test_pending_sell_allows_remaining(self):
+        """Can still sell the remaining available position."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=2, order_type="market")
+        position = {"qty": 10}
+        # Pending sell of 8 means only 2 available to sell
+        open_orders = [{"side": "sell", "qty": 8, "filled_qty": 0}]
+        assert _is_reduce_only_order(order, position, open_orders) is True
 
-    def locked(self):
-        return self._locked
+    def test_pending_buy_reduces_available_to_cover(self):
+        """Pending buys reduce the available short to cover."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+        position = {"qty": -10}  # Short position
+        # Pending buy of 8 means only 2 available to cover
+        open_orders = [{"side": "buy", "qty": 8, "filled_qty": 0}]
+        assert _is_reduce_only_order(order, position, open_orders) is False
+
+    def test_partially_filled_orders_use_remaining_qty(self):
+        """Partially filled orders should use remaining qty, not total."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+        position = {"qty": 10}
+        # Pending sell of 8 with 5 filled means only 3 remaining
+        open_orders = [{"side": "sell", "qty": 8, "filled_qty": 5}]
+        # Available = 10 - 3 = 7, selling 5 is ok
+        assert _is_reduce_only_order(order, position, open_orders) is True
+
+    def test_multiple_pending_orders_summed(self):
+        """Multiple pending orders should be summed."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=3, order_type="market")
+        position = {"qty": 10}
+        # Two pending sells: 4 + 4 = 8 total pending
+        open_orders = [
+            {"side": "sell", "qty": 4, "filled_qty": 0},
+            {"side": "sell", "qty": 4, "filled_qty": 0},
+        ]
+        # Available = 10 - 8 = 2, selling 3 would flip
+        assert _is_reduce_only_order(order, position, open_orders) is False
 
 
-class StubRedis:
-    def lock(self, name, timeout, blocking_timeout=None):
-        return StubLock()
+class TestCalculatePendingOrderQty:
+    """Tests for the _calculate_pending_order_qty helper."""
+
+    def test_empty_orders_returns_zero(self):
+        """Empty order list returns zero."""
+        assert _calculate_pending_order_qty([], "sell") == 0
+
+    def test_filters_by_side(self):
+        """Only counts orders matching the specified side."""
+        orders = [
+            {"side": "sell", "qty": 10, "filled_qty": 0},
+            {"side": "buy", "qty": 5, "filled_qty": 0},
+        ]
+        assert _calculate_pending_order_qty(orders, "sell") == 10
+        assert _calculate_pending_order_qty(orders, "buy") == 5
+
+    def test_uses_remaining_qty(self):
+        """Uses remaining qty (qty - filled_qty)."""
+        orders = [{"side": "sell", "qty": 10, "filled_qty": 7}]
+        assert _calculate_pending_order_qty(orders, "sell") == 3
 
 
 @pytest.mark.asyncio()
-async def test_reduce_only_blocks_increasing_order():
-    alpaca = StubAlpaca(
-        position_qty=10,
-        open_orders=[],
-    )
+async def test_reconciliation_gate_blocks_position_increasing_during_startup():
+    """Verify position-increasing orders are blocked when reconciliation is not complete."""
     order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
 
-    with (
-        patch("apps.execution_gateway.main.alpaca_client", alpaca),
-        patch("apps.execution_gateway.main.redis_client", StubRedis()),
-    ):
-        with pytest.raises(HTTPException):
-            await _enforce_reduce_only_order(order)
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+    reconciliation_service.startup_elapsed_seconds.return_value = 10
+
+    # Mock Alpaca client - no position (flat)
+    alpaca_client = Mock()
+    alpaca_client.get_open_position.return_value = None
+    alpaca_client.get_orders.return_value = []
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
+    config = SimpleNamespace(dry_run=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _require_reconciliation_ready_or_reduce_only(
+            order, ctx, config, "test-order-id"
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "Reconciliation in progress" in exc_info.value.detail["error"]
 
 
 @pytest.mark.asyncio()
-async def test_reduce_only_allows_reducing_order():
-    alpaca = StubAlpaca(
-        position_qty=10,
-        open_orders=[],
-    )
+async def test_reconciliation_gate_allows_reduce_only_during_startup():
+    """Verify reduce-only orders are allowed during reconciliation per ADR-0020."""
+    # Sell order when long is reduce-only
     order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
 
-    with (
-        patch("apps.execution_gateway.main.alpaca_client", alpaca),
-        patch("apps.execution_gateway.main.redis_client", StubRedis()),
-    ):
-        await _enforce_reduce_only_order(order)
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+    reconciliation_service.startup_elapsed_seconds.return_value = 10
+
+    # Mock Alpaca client - long position with no pending orders
+    alpaca_client = Mock()
+    alpaca_client.get_open_position.return_value = {"qty": 100, "symbol": "AAPL"}
+    alpaca_client.get_orders.return_value = []
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should NOT raise because it's a reduce-only order
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_blocks_when_pending_orders_would_flip():
+    """Verify orders are blocked when pending orders would cause position flip."""
+    # Sell order when long with pending sell that almost covers position
+    order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+    reconciliation_service.startup_elapsed_seconds.return_value = 10
+
+    # Mock Alpaca client - long position of 10 with pending sell of 8
+    alpaca_client = Mock()
+    alpaca_client.get_open_position.return_value = {"qty": 10, "symbol": "AAPL"}
+    alpaca_client.get_orders.return_value = [
+        {"side": "sell", "qty": 8, "filled_qty": 0}
+    ]
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should raise because selling 5 more when only 2 available would flip position
+    with pytest.raises(HTTPException) as exc_info:
+        await _require_reconciliation_ready_or_reduce_only(
+            order, ctx, config, "test-order-id"
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "Reconciliation in progress" in exc_info.value.detail["error"]
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_blocks_when_broker_unavailable():
+    """Verify orders are blocked (fail-closed) when broker is unavailable."""
+    order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+    reconciliation_service.startup_elapsed_seconds.return_value = 10
+
+    # Mock Alpaca client that fails
+    alpaca_client = Mock()
+    alpaca_client.get_open_position.side_effect = Exception("Connection failed")
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
+    config = SimpleNamespace(dry_run=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _require_reconciliation_ready_or_reduce_only(
+            order, ctx, config, "test-order-id"
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "Broker unavailable" in exc_info.value.detail["error"]
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_blocks_when_alpaca_client_none():
+    """Verify orders are blocked (fail-closed) when Alpaca client is None."""
+    order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=None)
+    config = SimpleNamespace(dry_run=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _require_reconciliation_ready_or_reduce_only(
+            order, ctx, config, "test-order-id"
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "Broker unavailable" in exc_info.value.detail["error"]
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_allows_after_completion():
+    """Verify orders are allowed when reconciliation is complete."""
+    order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+
+    # Mock reconciliation service that IS complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = True
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should not raise
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_allows_in_dry_run():
+    """Verify orders are allowed in dry run mode regardless of reconciliation state."""
+    order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=True)  # Dry run mode
+
+    # Should not raise because dry_run=True
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_allows_with_override():
+    """Verify orders are allowed when reconciliation override is active."""
+    order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+
+    # Mock reconciliation service with override active
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = True
+    reconciliation_service.override_context.return_value = {"reason": "manual_override"}
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should not raise because override is active
+    await _require_reconciliation_ready_or_reduce_only(
+        order, ctx, config, "test-order-id"
+    )

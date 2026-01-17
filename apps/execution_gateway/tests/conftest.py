@@ -6,6 +6,9 @@ from monkeypatching module-level variables.
 
 from __future__ import annotations
 
+import os
+from unittest.mock import MagicMock
+
 import pytest
 
 # Import shared mock helpers from root conftest (DRY principle)
@@ -38,12 +41,89 @@ def _restore_main_globals():
     original_reconciliation_service = getattr(main, "reconciliation_service", None)
     original_reconciliation_task = getattr(main, "reconciliation_task", None)
     original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    original_context = getattr(main.app.state, "context", None)
+    original_metrics = getattr(main.app.state, "metrics", None)
+    original_config = getattr(main.app.state, "config", None)
+    original_version = getattr(main.app.state, "version", None)
+    original_env_dry_run = os.environ.get("DRY_RUN")
+    original_main_dry_run = getattr(main, "DRY_RUN", None)
 
-    # Set up default mocks for variables that are None (initialized in lifespan)
-    if main.db_client is None:
-        main.db_client = _create_mock_db_client()
-    if main.recovery_manager is None:
-        main.recovery_manager = _create_mock_recovery_manager()
+    # Set up default mocks for execution gateway globals to avoid cross-test pollution
+    main.db_client = _create_mock_db_client()
+    if main.redis_client is None:
+        main.redis_client = MagicMock()
+    main.recovery_manager = _create_mock_recovery_manager()
+
+    # Force DRY_RUN=true for these tests to stabilize metrics expectations
+    os.environ["DRY_RUN"] = "true"
+    try:
+        main.DRY_RUN = True
+    except Exception:
+        pass
+
+    try:
+        from apps.execution_gateway.app_factory import create_test_config
+
+        main.app.state.config = create_test_config(dry_run=True)
+    except Exception:
+        main.app.state.config = None
+
+    # Set up app.state.context with mock dependencies
+    # This is required since get_context no longer falls back to main.py globals
+    # Use a class with properties to delegate to main.* for tests that patch main.*
+    mock_redis = MagicMock()
+    mock_redis.health_check.return_value = True
+    mock_redis.mget.return_value = []
+    mock_alpaca = MagicMock()
+    mock_alpaca.get_open_position.return_value = None
+
+    class DelegatingContext:
+        """Context that delegates to main.* globals for test patching compatibility."""
+
+        @property
+        def db(self):
+            return main.db_client
+
+        @property
+        def redis(self):
+            return main.redis_client if main.redis_client else mock_redis
+
+        @property
+        def alpaca(self):
+            return mock_alpaca
+
+        @property
+        def recovery_manager(self):
+            return main.recovery_manager
+
+        liquidity_service = None
+        reconciliation_service = None
+        risk_config = None
+        fat_finger_validator = None
+        twap_slicer = None
+        webhook_secret = None
+
+    main.app.state.context = DelegatingContext()
+
+    # Set version if not set
+    if getattr(main.app.state, "version", None) is None:
+        main.app.state.version = "test"
+
+    # Reset metrics to default baseline values
+    try:
+        from apps.execution_gateway.metrics import (
+            alpaca_connection_status,
+            database_connection_status,
+            dry_run_mode,
+            redis_connection_status,
+        )
+
+        dry_run_mode.set(1 if getattr(main, "DRY_RUN", True) else 0)
+        database_connection_status.set(0)
+        redis_connection_status.set(0)
+        alpaca_connection_status.set(0)
+    except Exception:
+        pass
 
     yield
 
@@ -54,6 +134,16 @@ def _restore_main_globals():
     main.reconciliation_service = original_reconciliation_service
     main.reconciliation_task = original_reconciliation_task
     main.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag
+    main.app.state.context = original_context
+    main.app.state.metrics = original_metrics
+    main.app.state.config = original_config
+    main.app.state.version = original_version
+    if original_env_dry_run is None:
+        os.environ.pop("DRY_RUN", None)
+    else:
+        os.environ["DRY_RUN"] = original_env_dry_run
+    if original_main_dry_run is not None:
+        main.DRY_RUN = original_main_dry_run
 
     # Clear dependency overrides
     main.app.dependency_overrides.clear()

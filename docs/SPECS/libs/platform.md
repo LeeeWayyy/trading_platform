@@ -128,6 +128,6 @@ See [libs/web_console_services.md](./web_console_services.md) for detailed speci
 - [../services/web_console_ng.md](../services/web_console_ng.md) - Web console UI
 
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated:** 2026-01-16
 - **Source Files:** `libs/platform/` (group index)
 - **ADRs:** N/A

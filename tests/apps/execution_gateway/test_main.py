@@ -9,16 +9,43 @@ Tests cover:
 - Helper functions for price fetching and P&L calculation
 """
 
+import importlib
+import sys
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
+from starlette.requests import Request
 
 # Import app at module level (will use real clients initially)
 from apps.execution_gateway.main import app
 from apps.execution_gateway.schemas import OrderDetail, Position
+
+
+def _clear_registry() -> None:
+    collectors = list(REGISTRY._collector_to_names)  # type: ignore[attr-defined]
+    for collector in collectors:
+        REGISTRY.unregister(collector)
+
+
+@pytest.fixture()
+def clean_registry():
+    original_collectors = list(REGISTRY._collector_to_names)  # type: ignore[attr-defined]
+    _clear_registry()
+    yield
+    _clear_registry()
+    for collector in original_collectors:
+        REGISTRY.register(collector)
+
+
+def _reload_main(monkeypatch, clean_registry):  # noqa: ARG001 - fixture hook
+    if "apps.execution_gateway.main" in sys.modules:
+        return importlib.reload(sys.modules["apps.execution_gateway.main"])
+    return importlib.import_module("apps.execution_gateway.main")
 
 
 @pytest.fixture()
@@ -106,8 +133,8 @@ class TestHealthEndpoint:
         mock_recovery_manager.needs_recovery.return_value = False
 
         with (
-            patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.recovery_manager", mock_recovery_manager),
+            patch.object(app.state.context, "db", mock_db),
+            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
         ):
             response = test_client.get("/health")
 
@@ -124,8 +151,8 @@ class TestHealthEndpoint:
         mock_recovery_manager.needs_recovery.return_value = False
 
         with (
-            patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.recovery_manager", mock_recovery_manager),
+            patch.object(app.state.context, "db", mock_db),
+            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
         ):
             response = test_client.get("/health")
 
@@ -147,8 +174,7 @@ class TestSubmitOrderEndpoint:
         mock_position_reservation,
     ):
         """Test order submission in DRY_RUN mode logs order without broker submission."""
-        # Mock: Order doesn't exist yet
-        mock_db.get_order_by_client_id.return_value = None
+        # Mock: Order doesn't exist yet, then is retrievable after insert
 
         # Mock: Order creation
         created_order = OrderDetail(
@@ -172,7 +198,8 @@ class TestSubmitOrderEndpoint:
             filled_qty=Decimal("0"),
             filled_avg_price=None,
         )
-        mock_db.create_order.return_value = created_order
+        mock_db.insert_order.return_value = None
+        mock_db.get_order_by_client_id.side_effect = [None, created_order]
 
         # Create mock recovery_manager with proper state object
         from apps.execution_gateway.recovery_manager import RecoveryState
@@ -197,8 +224,8 @@ class TestSubmitOrderEndpoint:
         mock_recovery_manager.position_reservation = mock_position_reservation
 
         with (
-            patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.recovery_manager", mock_recovery_manager),
+            patch.object(app.state.context, "db", mock_db),
+            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
         ):
             response = test_client.post(
                 "/api/v1/orders",
@@ -269,8 +296,8 @@ class TestSubmitOrderEndpoint:
         mock_recovery_manager.position_reservation = mock_position_reservation
 
         with (
-            patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.recovery_manager", mock_recovery_manager),
+            patch.object(app.state.context, "db", mock_db),
+            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
         ):
             response = test_client.post(
                 "/api/v1/orders",
@@ -286,7 +313,7 @@ class TestSubmitOrderEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "pending_new"  # Existing order's status
-        assert "already submitted" in data["message"]
+        assert "already exists" in data["message"]
 
     def test_submit_order_validation_error(self, test_client):
         """Test order submission with invalid parameters returns 422."""
@@ -331,7 +358,7 @@ class TestGetOrderEndpoint:
         )
         mock_db.get_order_by_client_id.return_value = order
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with patch.object(app.state.context, "db", mock_db):
             response = test_client.get("/api/v1/orders/test123")
 
         assert response.status_code == 200
@@ -344,7 +371,7 @@ class TestGetOrderEndpoint:
         """Test retrieving non-existent order returns 404."""
         mock_db.get_order_by_client_id.return_value = None
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with patch.object(app.state.context, "db", mock_db):
             response = test_client.get("/api/v1/orders/nonexistent123")
 
         assert response.status_code == 404
@@ -377,7 +404,7 @@ class TestGetPositionsEndpoint:
         ]
         mock_db.get_all_positions.return_value = positions
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with patch.object(app.state.context, "db", mock_db):
             response = test_client.get("/api/v1/positions")
 
         assert response.status_code == 200
@@ -390,7 +417,7 @@ class TestGetPositionsEndpoint:
         """Test getting positions when none exist returns empty list."""
         mock_db.get_all_positions.return_value = []
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with patch.object(app.state.context, "db", mock_db):
             response = test_client.get("/api/v1/positions")
 
         assert response.status_code == 200
@@ -404,7 +431,9 @@ class TestBatchFetchRealtimePrices:
 
     def test_batch_fetch_with_valid_data(self, mock_redis):
         """Test batch fetching prices from Redis with valid data."""
-        from apps.execution_gateway.main import _batch_fetch_realtime_prices_from_redis
+        from apps.execution_gateway.services.order_helpers import (
+            batch_fetch_realtime_prices_from_redis,
+        )
 
         # Mock Redis MGET response (strings, not bytes, due to decode_responses=True)
         mock_redis.mget.return_value = [
@@ -412,7 +441,7 @@ class TestBatchFetchRealtimePrices:
             '{"mid": "295.00", "timestamp": "2024-10-19T12:00:00+00:00"}',
         ]
 
-        result = _batch_fetch_realtime_prices_from_redis(["AAPL", "MSFT"], mock_redis)
+        result = batch_fetch_realtime_prices_from_redis(["AAPL", "MSFT"], mock_redis)
 
         assert len(result) == 2
         assert result["AAPL"][0] == Decimal("152.50")
@@ -420,17 +449,21 @@ class TestBatchFetchRealtimePrices:
 
     def test_batch_fetch_redis_unavailable(self):
         """Test batch fetch returns dict with None values when Redis is unavailable."""
-        from apps.execution_gateway.main import _batch_fetch_realtime_prices_from_redis
+        from apps.execution_gateway.services.order_helpers import (
+            batch_fetch_realtime_prices_from_redis,
+        )
 
-        result = _batch_fetch_realtime_prices_from_redis(["AAPL"], None)
+        result = batch_fetch_realtime_prices_from_redis(["AAPL"], None)
 
         assert result == {"AAPL": (None, None)}
 
     def test_batch_fetch_empty_symbols(self, mock_redis):
         """Test batch fetch with empty symbol list returns empty dict."""
-        from apps.execution_gateway.main import _batch_fetch_realtime_prices_from_redis
+        from apps.execution_gateway.services.order_helpers import (
+            batch_fetch_realtime_prices_from_redis,
+        )
 
-        result = _batch_fetch_realtime_prices_from_redis([], mock_redis)
+        result = batch_fetch_realtime_prices_from_redis([], mock_redis)
 
         assert result == {}
 
@@ -440,7 +473,7 @@ class TestCalculatePositionPnL:
 
     def test_calculate_pnl_for_long_position_profit(self):
         """Test P&L calculation for profitable long position."""
-        from apps.execution_gateway.main import _calculate_position_pnl
+        from apps.execution_gateway.services.pnl_calculator import calculate_position_pnl
 
         position = Position(
             symbol="AAPL",
@@ -452,7 +485,7 @@ class TestCalculatePositionPnL:
             updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
         )
 
-        pnl = _calculate_position_pnl(
+        pnl = calculate_position_pnl(
             position,
             Decimal("155.00"),
             "real-time",
@@ -464,7 +497,7 @@ class TestCalculatePositionPnL:
 
     def test_calculate_pnl_for_short_position_profit(self):
         """Test P&L calculation for profitable short position."""
-        from apps.execution_gateway.main import _calculate_position_pnl
+        from apps.execution_gateway.services.pnl_calculator import calculate_position_pnl
 
         position = Position(
             symbol="MSFT",
@@ -476,13 +509,13 @@ class TestCalculatePositionPnL:
             updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
         )
 
-        pnl = _calculate_position_pnl(position, Decimal("295.00"), "database", None)
+        pnl = calculate_position_pnl(position, Decimal("295.00"), "database", None)
 
         assert pnl.unrealized_pl == Decimal("25.00")  # 5 shares * $5 profit (short)
 
     def test_calculate_pnl_for_long_position_loss(self):
         """Test P&L calculation for losing long position."""
-        from apps.execution_gateway.main import _calculate_position_pnl
+        from apps.execution_gateway.services.pnl_calculator import calculate_position_pnl
 
         position = Position(
             symbol="GOOGL",
@@ -494,7 +527,7 @@ class TestCalculatePositionPnL:
             updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
         )
 
-        pnl = _calculate_position_pnl(position, Decimal("2750.00"), "fallback", None)
+        pnl = calculate_position_pnl(position, Decimal("2750.00"), "fallback", None)
 
         assert pnl.unrealized_pl == Decimal("-100.00")  # 2 shares * -$50 loss
 
@@ -504,7 +537,7 @@ class TestResolveAndCalculatePnL:
 
     def test_uses_realtime_price_when_available(self):
         """Test uses real-time price when available in Redis."""
-        from apps.execution_gateway.main import _resolve_and_calculate_pnl
+        from apps.execution_gateway.services.pnl_calculator import resolve_and_calculate_pnl
 
         position = Position(
             symbol="AAPL",
@@ -522,14 +555,14 @@ class TestResolveAndCalculatePnL:
             datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
         )
 
-        pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         assert pnl.price_source == "real-time"
         assert is_realtime is True
 
     def test_falls_back_to_database_price(self):
         """Test falls back to database price when Redis unavailable."""
-        from apps.execution_gateway.main import _resolve_and_calculate_pnl
+        from apps.execution_gateway.services.pnl_calculator import resolve_and_calculate_pnl
 
         position = Position(
             symbol="MSFT",
@@ -544,14 +577,14 @@ class TestResolveAndCalculatePnL:
         # No real-time data (None, None tuple)
         realtime_price_data = (None, None)
 
-        pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         assert pnl.price_source == "database"
         assert is_realtime is False
 
     def test_falls_back_to_entry_price(self):
         """Test falls back to entry price when no current price available."""
-        from apps.execution_gateway.main import _resolve_and_calculate_pnl
+        from apps.execution_gateway.services.pnl_calculator import resolve_and_calculate_pnl
 
         position = Position(
             symbol="GOOGL",
@@ -566,7 +599,119 @@ class TestResolveAndCalculatePnL:
         # No real-time data (None, None tuple)
         realtime_price_data = (None, None)
 
-        pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         assert pnl.price_source == "fallback"
         assert is_realtime is False
+
+
+def test_env_helpers_cover_invalid_branches(monkeypatch):
+    from apps.execution_gateway import main
+
+    monkeypatch.setenv("BAD_FLOAT", "not-a-float")
+    monkeypatch.setenv("BAD_DEC", "not-a-decimal")
+    monkeypatch.setenv("MAX_SLICE_PCT_OF_ADV", "0.01")
+
+    assert main._get_float_env("NON_EXISTENT", 1.5) == 1.5
+    assert main._get_float_env("MAX_SLICE_PCT_OF_ADV", 0.1) == main.MAX_SLICE_PCT_OF_ADV
+    assert main._get_float_env("BAD_FLOAT", 2.0) == 2.0
+
+    assert main._get_decimal_env("NON_EXISTENT_DEC", Decimal("1.2")) == Decimal("1.2")
+    assert main._get_decimal_env("BAD_DEC", Decimal("3.4")) == Decimal("3.4")
+
+
+def test_module_level_validations(monkeypatch, caplog, clean_registry):
+    monkeypatch.setenv("MAX_SLICE_PCT_OF_ADV", "0")
+    monkeypatch.setenv("FAT_FINGER_MAX_NOTIONAL", "0")
+    monkeypatch.setenv("FAT_FINGER_MAX_QTY", "-1")
+    monkeypatch.setenv("FAT_FINGER_MAX_ADV_PCT", "2")
+    monkeypatch.setenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS", "0")
+
+    with caplog.at_level("WARNING"):
+        main = _reload_main(monkeypatch, clean_registry)
+
+    assert main.MAX_SLICE_PCT_OF_ADV == 0.01
+    assert main.FAT_FINGER_MAX_NOTIONAL is None
+    assert main.FAT_FINGER_MAX_QTY is None
+    assert main.FAT_FINGER_MAX_ADV_PCT is None
+    assert main.FAT_FINGER_MAX_PRICE_AGE_SECONDS == main.FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    assert "MAX_SLICE_PCT_OF_ADV must be > 0" in caplog.text
+
+
+def test_module_level_invalid_int_parsing(monkeypatch, clean_registry):
+    monkeypatch.setenv("FAT_FINGER_MAX_QTY", "bad")
+    monkeypatch.setenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS", "bad")
+
+    main = _reload_main(monkeypatch, clean_registry)
+    assert main.FAT_FINGER_MAX_QTY == main.FAT_FINGER_MAX_QTY_DEFAULT
+    assert main.FAT_FINGER_MAX_PRICE_AGE_SECONDS == main.FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+
+
+def test_build_metrics_contains_expected_keys():
+    from apps.execution_gateway import main
+
+    metrics = main._build_metrics()
+    assert "orders_total" in metrics
+    assert "pnl_dollars" in metrics
+    assert "alpaca_api_requests_total" in metrics
+
+
+@pytest.mark.asyncio()
+async def test_exception_handlers():
+    from apps.execution_gateway import main
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [],
+        "query_string": b"",
+        "server": ("test", 80),
+        "client": ("test", 123),
+        "scheme": "http",
+        "app": main.app,
+    }
+    request = Request(scope)
+
+    validation_resp = await main.validation_exception_handler(request, Exception("boom"))
+    assert validation_resp.status_code == 422
+
+    permission_resp = await main.permission_exception_handler(request, PermissionError("nope"))
+    assert permission_resp.status_code == 403
+
+    alpaca_validation = await main.alpaca_validation_handler(request, Exception("bad"))
+    assert alpaca_validation.status_code == 400
+
+    alpaca_rejection = await main.alpaca_rejection_handler(request, Exception("rejected"))
+    assert alpaca_rejection.status_code == 422
+
+    alpaca_connection = await main.alpaca_connection_handler(request, Exception("down"))
+    assert alpaca_connection.status_code == 503
+
+
+@pytest.mark.asyncio()
+async def test_lifespan_sets_globals(monkeypatch):
+    from apps.execution_gateway import main
+    from apps.execution_gateway.lifespan import LifespanResources
+
+    async def _fake_startup(app, settings, metrics):
+        return LifespanResources(
+            db_client=SimpleNamespace(name="db"),
+            redis_client=None,
+            alpaca_client=None,
+            webhook_secret="secret",
+            liquidity_service=None,
+            recovery_manager=SimpleNamespace(),
+            reconciliation_service=None,
+            reconciliation_task=None,
+        )
+
+    async def _fake_shutdown(resources):
+        return None
+
+    monkeypatch.setattr(main, "startup_execution_gateway", _fake_startup)
+    monkeypatch.setattr(main, "shutdown_execution_gateway", _fake_shutdown)
+
+    async with main.lifespan(main.app):
+        assert main.db_client.name == "db"
+        assert main.WEBHOOK_SECRET == "secret"

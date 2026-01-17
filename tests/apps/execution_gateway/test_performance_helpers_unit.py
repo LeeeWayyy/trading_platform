@@ -10,9 +10,14 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from apps.execution_gateway import main
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.schemas import Position
+from apps.execution_gateway.services.auth_helpers import build_user_context
+from apps.execution_gateway.services.performance_cache import (
+    create_performance_cache_key,
+    invalidate_performance_cache,
+    register_performance_cache,
+)
 
 
 class _DummyCursor:
@@ -84,10 +89,14 @@ def _make_db(rows: list[dict[str, Any]]) -> DatabaseClient:
 
 
 def test_performance_cache_key_scopes_user_and_strategies():
-    key = main._performance_cache_key(date(2024, 1, 1), date(2024, 1, 2), ("b", "a"), "user-1")
+    key = create_performance_cache_key(
+        date(2024, 1, 1), date(2024, 1, 2), ("b", "a"), "user-1"
+    )
     assert "user-1" in key
     # ordering of strategies should not affect hash
-    key2 = main._performance_cache_key(date(2024, 1, 1), date(2024, 1, 2), ("a", "b"), "user-1")
+    key2 = create_performance_cache_key(
+        date(2024, 1, 1), date(2024, 1, 2), ("a", "b"), "user-1"
+    )
     assert key == key2
 
 
@@ -95,7 +104,7 @@ def test_build_user_context_with_dict_user():
     scope = {"type": "http", "query_string": b"strategies=s1&strategies=s2"}
     request = Request(scope)
     request.state.user = {"role": "viewer", "strategies": ["s1"], "user_id": "u1"}
-    ctx = main._build_user_context(request)
+    ctx = build_user_context(request)
     assert ctx["role"] == "viewer"
     assert ctx["strategies"] == ["s1"]
     assert ctx["requested_strategies"] == ["s1", "s2"]
@@ -111,7 +120,7 @@ def test_build_user_context_from_object_id_attr():
 
     request = Request({"type": "http", "query_string": b""})
     request.state.user = UserObj()
-    ctx = main._build_user_context(request)
+    ctx = build_user_context(request)
     assert ctx["user_id"] == "obj-id"
     assert ctx["strategies"] == ["s3"]
 
@@ -125,26 +134,20 @@ def test_build_user_context_rejects_missing_role(user_state):
     if user_state is not None:
         request.state.user = user_state
     with pytest.raises(HTTPException):
-        main._build_user_context(request)
+        build_user_context(request)
 
 
-def test_performance_cache_register_and_invalidate(monkeypatch):
+def test_performance_cache_register_and_invalidate():
     fake_redis = _DummyRedis()
-    original = main.redis_client
-    monkeypatch.setattr(main, "redis_client", fake_redis)
-
     cache_key = "performance:daily:u1:2024-01-01:2024-01-03:abc"
-    main._register_performance_cache(cache_key, date(2024, 1, 1), date(2024, 1, 3))
+    register_performance_cache(fake_redis, cache_key, date(2024, 1, 1), date(2024, 1, 3), 300)
     # index should include all dates
     assert len(fake_redis.index) == 3
 
-    main._invalidate_performance_cache(date(2024, 1, 2))
+    invalidate_performance_cache(fake_redis, date(2024, 1, 2))
     # cache key and index entry removed
     assert cache_key in fake_redis.deleted
     assert any("2024-01-02" in key for key in fake_redis.deleted)
-
-    # restore to avoid side effects
-    monkeypatch.setattr(main, "redis_client", original)
 
 
 def test_get_data_availability_date_handles_none():

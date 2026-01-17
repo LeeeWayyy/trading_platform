@@ -3,9 +3,10 @@
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
-from apps.execution_gateway import main
+from apps.execution_gateway.app_factory import create_mock_context
 from apps.execution_gateway.order_id_generator import reconstruct_order_params_hash
 from apps.execution_gateway.order_slicer import TWAPSlicer
+from apps.execution_gateway.routes import slicing as slicing_routes
 from apps.execution_gateway.schemas import SlicingRequest
 
 
@@ -71,7 +72,7 @@ def _build_legacy_parent(
     return legacy_parent_id, parent, slices
 
 
-def test_legacy_hash_used_for_default_interval(monkeypatch):
+def test_legacy_hash_used_for_default_interval():
     """Legacy fallback should return stored plan when interval matches historical default."""
 
     trade_date = date(2025, 1, 2)
@@ -80,7 +81,7 @@ def test_legacy_hash_used_for_default_interval(monkeypatch):
         side="buy",
         qty=100,
         duration_minutes=5,
-        interval_seconds=main.LEGACY_TWAP_INTERVAL_SECONDS,
+        interval_seconds=slicing_routes.LEGACY_TWAP_INTERVAL_SECONDS,
         order_type="market",
         trade_date=trade_date,
     )
@@ -106,9 +107,9 @@ def test_legacy_hash_used_for_default_interval(monkeypatch):
         parent_lookup={legacy_parent_id: legacy_parent},
         slices_lookup={legacy_parent_id: legacy_slices},
     )
-    monkeypatch.setattr(main, "db_client", dummy_db)
+    ctx = create_mock_context(db=dummy_db)
 
-    existing_plan = main._find_existing_twap_plan(request, slicing_plan, trade_date)
+    existing_plan = slicing_routes._find_existing_twap_plan(request, slicing_plan, trade_date, ctx)
 
     assert existing_plan is not None
     assert existing_plan.parent_order_id == legacy_parent_id
@@ -118,7 +119,7 @@ def test_legacy_hash_used_for_default_interval(monkeypatch):
     assert dummy_db.calls == [new_parent_id, legacy_parent_id]
 
 
-def test_legacy_hash_skipped_for_custom_interval(monkeypatch):
+def test_legacy_hash_skipped_for_custom_interval():
     """Legacy fallback must not trigger when caller requests a non-default interval."""
 
     trade_date = date(2025, 1, 2)
@@ -152,9 +153,9 @@ def test_legacy_hash_skipped_for_custom_interval(monkeypatch):
         parent_lookup={legacy_parent_id: legacy_parent},
         slices_lookup={legacy_parent_id: legacy_slices},
     )
-    monkeypatch.setattr(main, "db_client", dummy_db)
+    ctx = create_mock_context(db=dummy_db)
 
-    existing_plan = main._find_existing_twap_plan(request, slicing_plan, trade_date)
+    existing_plan = slicing_routes._find_existing_twap_plan(request, slicing_plan, trade_date, ctx)
 
     assert existing_plan is None
     assert dummy_db.calls == [slicing_plan.parent_order_id]

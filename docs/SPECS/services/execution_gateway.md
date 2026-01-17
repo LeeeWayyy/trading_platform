@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-15 - Added noqa comment for intentional late import -->
+<!-- Last reviewed: 2026-01-17 - PR review fixes: reduce-only orders with pending order accounting, rate limiter, cleanup -->
 
 ## Identity
 - **Type:** Service
@@ -140,6 +140,7 @@
 - Kill-switch and circuit breaker checks run before order submission.
 - `DRY_RUN=true` never submits broker orders.
 - Webhook signatures are required when `WEBHOOK_SECRET` is configured.
+- During startup reconciliation gating, reduce-only orders are allowed (per ADR-0020).
 
 ## Data Flow
 ```
@@ -230,6 +231,9 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 | Kill-switch engaged | `POST /api/v1/orders` | 503 with safety failure. |
 | DRY_RUN enabled | `DRY_RUN=true` | Order recorded, no broker submit. |
 | Invalid order params | `qty<=0` or invalid `type` | 400/422 validation error. |
+| Reconciliation gating (reduce-only) | Sell when long, buy when short | Order allowed (per ADR-0020). |
+| Reconciliation gating (increase) | Buy when long, sell when short | 503, blocked until reconciliation completes. |
+| Reconciliation gating (broker unavailable) | Any order, Alpaca unreachable | 503, fail-closed. |
 
 ## Known Issues & TODO
 | Issue | Severity | Description | Tracking |
@@ -244,6 +248,35 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-14
-- **Source Files:** `apps/execution_gateway/main.py`, `apps/execution_gateway/alpaca_client.py`, `apps/execution_gateway/api/manual_controls.py`, `apps/execution_gateway/api/dependencies.py`, `apps/execution_gateway/database.py`, `apps/execution_gateway/reconciliation.py`, `apps/execution_gateway/schemas.py`, `apps/execution_gateway/webhook_security.py`, `config/settings.py`
+- **Last Updated:** 2026-01-17
+- **Source Files:**
+  - `apps/execution_gateway/main.py`
+  - `apps/execution_gateway/app_factory.py`
+  - `apps/execution_gateway/app_context.py`
+  - `apps/execution_gateway/config.py`
+  - `apps/execution_gateway/dependencies.py`
+  - `apps/execution_gateway/lifespan.py`
+  - `apps/execution_gateway/middleware.py`
+  - `apps/execution_gateway/metrics.py`
+  - `apps/execution_gateway/database.py`
+  - `apps/execution_gateway/reconciliation.py`
+  - `apps/execution_gateway/alpaca_client.py`
+  - `apps/execution_gateway/fat_finger_validator.py`
+  - `apps/execution_gateway/liquidity_service.py`
+  - `apps/execution_gateway/order_id_generator.py`
+  - `apps/execution_gateway/order_slicer.py`
+  - `apps/execution_gateway/slice_scheduler.py`
+  - `apps/execution_gateway/recovery_manager.py`
+  - `apps/execution_gateway/webhook_security.py`
+  - `apps/execution_gateway/routes/__init__.py`
+  - `apps/execution_gateway/routes/health.py`
+  - `apps/execution_gateway/routes/orders.py`
+  - `apps/execution_gateway/routes/positions.py`
+  - `apps/execution_gateway/routes/reconciliation.py`
+  - `apps/execution_gateway/routes/slicing.py`
+  - `apps/execution_gateway/routes/webhooks.py`
+  - `apps/execution_gateway/routes/admin.py`
+  - `apps/execution_gateway/schemas.py`
+  - `apps/execution_gateway/schemas_manual_controls.py`
+  - `config/settings.py`
 - **ADRs:** `docs/ADRs/0014-execution-gateway-architecture.md`

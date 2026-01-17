@@ -40,3 +40,6 @@ cryptography>=41.0.0
 polars>=1.0.0
 pandas>=2.2.0
 numpy>=1.26.0
+
+# Structured logging
+structlog>=24.0.0

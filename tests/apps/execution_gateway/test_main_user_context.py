@@ -94,7 +94,9 @@ sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 from fastapi import Request
 
-from apps.execution_gateway import main
+from apps.execution_gateway import main, middleware
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.services.auth_helpers import build_user_context
 
 
 def _make_user_context_override(user_ctx: dict) -> callable:
@@ -134,14 +136,14 @@ def test_client():
 def test_build_user_context_missing_user_fails_closed():
     req = _make_request(user=None)
     with pytest.raises(HTTPException) as exc:
-        main._build_user_context(req)
+        build_user_context(req)
     assert exc.value.status_code == 401
 
 
 def test_build_user_context_missing_role_denied():
     req = _make_request(user={"strategies": ["s1"], "user_id": "u1"})
     with pytest.raises(HTTPException) as exc:
-        main._build_user_context(req)
+        build_user_context(req)
     assert exc.value.status_code == 401
 
 
@@ -150,7 +152,7 @@ def test_build_user_context_extracts_requested_strategies():
         user={"role": "viewer", "strategies": ["s1"], "user_id": "u1"},
         strategies=["s1"],
     )
-    ctx = main._build_user_context(req)
+    ctx = build_user_context(req)
     assert ctx["role"] == "viewer"
     assert ctx["requested_strategies"] == ["s1"]
 
@@ -164,12 +166,10 @@ def test_daily_performance_invalid_strategy_subset(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["s1"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(req_user)
+    main.app.dependency_overrides[build_user_context] = _make_user_context_override(req_user)
 
-    with (monkeypatch.context() as m,):
-        m.setattr(main, "db_client", main.db_client)
-        m.setattr(main, "redis_client", main.redis_client)
-        m.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
+    with monkeypatch.context() as m:
+        m.setattr(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True)
         resp = test_client.get(
             "/api/v1/performance/daily",
             headers={"X-User-Role": "viewer", "X-User-Id": "u1"},
@@ -237,7 +237,7 @@ class TestInternalTokenValidation:
     def test_disabled_mode_always_passes(self):
         """When INTERNAL_TOKEN_REQUIRED=false, validation always passes."""
         settings = MockSettings(internal_token_required=False)
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=None,
             timestamp_str=None,
             user_id="user1",
@@ -262,7 +262,7 @@ class TestInternalTokenValidation:
             internal_token_secret=secret,
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=token,
             timestamp_str=str(timestamp),
             user_id=user_id,
@@ -287,7 +287,7 @@ class TestInternalTokenValidation:
             internal_token_secret=secret,
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=wrong_token,
             timestamp_str=str(timestamp),
             user_id=user_id,
@@ -313,7 +313,7 @@ class TestInternalTokenValidation:
             internal_token_secret=secret,
             internal_token_timestamp_tolerance_seconds=300,  # 5 minutes
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=token,
             timestamp_str=str(old_timestamp),
             user_id=user_id,
@@ -339,7 +339,7 @@ class TestInternalTokenValidation:
             internal_token_secret=secret,
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=token,
             timestamp_str=str(future_timestamp),
             user_id=user_id,
@@ -357,7 +357,7 @@ class TestInternalTokenValidation:
             internal_token_secret="secret",
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=None,
             timestamp_str=str(int(time.time())),
             user_id="user123",
@@ -375,7 +375,7 @@ class TestInternalTokenValidation:
             internal_token_secret="secret",
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token="some-token",
             timestamp_str=None,
             user_id="user123",
@@ -393,7 +393,7 @@ class TestInternalTokenValidation:
             internal_token_secret="secret",
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token="some-token",
             timestamp_str="not-a-number",
             user_id="user123",
@@ -411,7 +411,7 @@ class TestInternalTokenValidation:
             internal_token_secret="",  # Empty secret
             internal_token_timestamp_tolerance_seconds=300,
         )
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token="some-token",
             timestamp_str=str(int(time.time())),
             user_id="user123",
@@ -437,7 +437,7 @@ class TestInternalTokenValidation:
             internal_token_timestamp_tolerance_seconds=300,
         )
         # Test with uppercase token
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=token.upper(),
             timestamp_str=str(timestamp),
             user_id=user_id,
@@ -464,7 +464,7 @@ class TestInternalTokenValidation:
             internal_token_timestamp_tolerance_seconds=300,
         )
         # Verify with whitespace-padded values
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=token,
             timestamp_str=f" {timestamp} ",
             user_id=f" {user_id} ",
@@ -492,7 +492,7 @@ class TestInternalTokenValidation:
         )
         # Attempt to use token with different strategies (privilege escalation attempt)
         tampered_strategies = "s1,s2,admin_strategy"
-        is_valid, error = main._verify_internal_token(
+        is_valid, error = middleware._verify_internal_token(
             token=token,
             timestamp_str=str(timestamp),
             user_id=user_id,
@@ -515,7 +515,7 @@ class TestInternalTokenMiddleware:
             internal_token_timestamp_tolerance_seconds=300,
         )
 
-        with patch("apps.execution_gateway.main.get_settings", return_value=mock_settings):
+        with patch("config.settings.get_settings", return_value=mock_settings):
             resp = test_client.get(
                 "/health",
                 headers={
@@ -542,7 +542,7 @@ class TestInternalTokenMiddleware:
             internal_token_timestamp_tolerance_seconds=300,
         )
 
-        with patch("apps.execution_gateway.main.get_settings", return_value=mock_settings):
+        with patch("config.settings.get_settings", return_value=mock_settings):
             resp = test_client.get(
                 "/health",
                 headers={
@@ -564,7 +564,7 @@ class TestInternalTokenMiddleware:
             internal_token_timestamp_tolerance_seconds=300,
         )
 
-        with patch("apps.execution_gateway.main.get_settings", return_value=mock_settings):
+        with patch("config.settings.get_settings", return_value=mock_settings):
             resp = test_client.get(
                 "/health",
                 headers={
@@ -592,7 +592,7 @@ class TestInternalTokenMiddleware:
         )
 
         # Attempt to use token with different strategies (privilege escalation)
-        with patch("apps.execution_gateway.main.get_settings", return_value=mock_settings):
+        with patch("config.settings.get_settings", return_value=mock_settings):
             resp = test_client.get(
                 "/health",
                 headers={
