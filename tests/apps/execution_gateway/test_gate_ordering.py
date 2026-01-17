@@ -7,8 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from fastapi import Response
-
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.routes.orders import submit_order
 from apps.execution_gateway.schemas import OrderRequest
@@ -86,7 +84,6 @@ async def test_position_reservation_happens_before_idempotency() -> None:
 
     await submit_order(
         order=order,
-        response=Response(),
         _auth_context=Mock(),
         _rate_limit_remaining=1,
         ctx=ctx,

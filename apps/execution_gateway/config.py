@@ -288,19 +288,9 @@ def get_config() -> ExecutionGatewayConfig:
     )
     fat_finger_max_notional: Decimal | None = fat_finger_max_notional_init
 
-    fat_finger_max_qty_raw = os.getenv("FAT_FINGER_MAX_QTY")
-    if fat_finger_max_qty_raw is None:
-        fat_finger_max_qty: int | None = FAT_FINGER_MAX_QTY_DEFAULT
-    else:
-        try:
-            fat_finger_max_qty = int(fat_finger_max_qty_raw)
-        except ValueError:
-            logger.warning(
-                "Invalid int for FAT_FINGER_MAX_QTY=%s; using default=%s",
-                fat_finger_max_qty_raw,
-                FAT_FINGER_MAX_QTY_DEFAULT,
-            )
-            fat_finger_max_qty = FAT_FINGER_MAX_QTY_DEFAULT
+    fat_finger_max_qty: int | None = _get_int_env(
+        "FAT_FINGER_MAX_QTY", FAT_FINGER_MAX_QTY_DEFAULT
+    )
 
     fat_finger_max_adv_pct_init = _get_decimal_env(
         "FAT_FINGER_MAX_ADV_PCT", FAT_FINGER_MAX_ADV_PCT_DEFAULT
@@ -383,9 +373,9 @@ def get_config() -> ExecutionGatewayConfig:
         reduce_only_lock_timeout_seconds=_get_int_env("REDUCE_ONLY_LOCK_TIMEOUT_SECONDS", 30),
         reduce_only_lock_blocking_seconds=_get_int_env("REDUCE_ONLY_LOCK_BLOCKING_SECONDS", 10),
         strategy_activity_threshold_seconds=_get_int_env("STRATEGY_ACTIVITY_THRESHOLD_SECONDS", 86400),
-        # Reconciliation
-        fills_backfill_limit=_get_int_env("FILLS_BACKFILL_RATE_LIMIT", 2),
-        fills_backfill_window_seconds=_get_int_env("FILLS_BACKFILL_RATE_LIMIT_WINDOW_SECONDS", 300),
+        # Reconciliation (rate limiter settings for fills backfill endpoint)
+        fills_backfill_limit=_get_int_env("FILLS_BACKFILL_LIMIT", 2),
+        fills_backfill_window_seconds=_get_int_env("FILLS_BACKFILL_WINDOW_SECONDS", 300),
         # TWAP Legacy
         legacy_twap_interval_seconds=LEGACY_TWAP_INTERVAL_SECONDS,
     )

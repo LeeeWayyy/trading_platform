@@ -34,6 +34,7 @@ from pydantic import ValidationError
 
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.config import ExecutionGatewayConfig
+from apps.execution_gateway.database import status_rank_for
 from apps.execution_gateway.dependencies import get_config, get_context
 from apps.execution_gateway.metrics import webhook_received_total
 from apps.execution_gateway.reconciliation import SOURCE_PRIORITY_WEBHOOK
@@ -50,27 +51,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
 
 # Metrics are defined in apps.execution_gateway.metrics
-
-
-def status_rank_for(status_str: str) -> int:
-    """
-    Return numeric rank for order status for CAS comparison.
-    Higher rank = more authoritative.
-    """
-    rank_map = {
-        "pending_new": 1,
-        "accepted": 2,
-        "new": 3,
-        "pending_cancel": 4,
-        "pending_replace": 5,
-        "partially_filled": 6,
-        "filled": 7,
-        "canceled": 8,
-        "expired": 8,
-        "replaced": 8,
-        "rejected": 9,
-    }
-    return rank_map.get(status_str, 0)
+# status_rank_for imported from database.py (DRY - single source of truth)
 
 
 # =============================================================================

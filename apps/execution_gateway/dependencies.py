@@ -158,23 +158,13 @@ def get_version(request: Request) -> str:
     """
     version = getattr(request.app.state, "version", None)
     if version is None:
-        try:
-            from apps.execution_gateway import __version__, main
-
-            if request.app is not main.app:
-                raise RuntimeError(
-                    "Version not initialized in app.state. "
-                    "This should never happen in production - the lifespan context "
-                    "manager initializes version before routes are accessible."
-                )
-            version = __version__
-            request.app.state.version = version
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            raise RuntimeError(
-                "Version not initialized in app.state. "
-                "This should never happen in production - the lifespan context "
-                "manager initializes version before routes are accessible."
-            ) from exc
+        raise RuntimeError(
+            "Version not initialized in app.state. "
+            "This should never happen in production - the lifespan context "
+            "manager initializes version before routes are accessible. "
+            "If you see this error, check that app_factory.py or lifespan.py properly "
+            "initializes app.state.version during startup."
+        )
     return cast(str, version)
 
 

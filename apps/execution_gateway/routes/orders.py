@@ -45,7 +45,7 @@ from decimal import Decimal
 from typing import Any
 
 import redis.exceptions
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg.errors import UniqueViolation
 from redis.exceptions import RedisError
 
@@ -305,8 +305,8 @@ def _is_reduce_only_order(
     if current_qty > 0:
         if order_side != "sell":
             return False
-        # Available position = current - pending sells + pending buys
-        # (pending buys would increase position, pending sells reduce it)
+        # Available to sell = current position minus already-committed pending sells.
+        # (pending buys don't affect what we can sell now)
         available_to_sell = current_qty - pending_sells
         # Sell qty must not exceed available position (would flip to short)
         return order_qty <= available_to_sell
@@ -315,8 +315,8 @@ def _is_reduce_only_order(
     else:
         if order_side != "buy":
             return False
-        # Available position = abs(current) - pending buys + pending sells
-        # (pending buys would reduce short, pending sells would increase it)
+        # Available to cover = absolute short size minus already-committed pending buys.
+        # (pending sells don't affect what we can cover now)
         available_to_cover = abs(current_qty) - pending_buys
         # Buy qty must not exceed available position (would flip to long)
         return order_qty <= available_to_cover
@@ -455,7 +455,6 @@ async def _require_reconciliation_ready_or_reduce_only(
 @router.post("/orders", response_model=OrderResponse)
 async def submit_order(
     order: OrderRequest,
-    response: Response,
     # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
     _auth_context: AuthContext = Depends(order_submit_auth),
     _rate_limit_remaining: int = Depends(order_submit_rl),
@@ -1027,7 +1026,6 @@ async def submit_order(
 @router.post("/orders/{client_order_id}/cancel")
 async def cancel_order(
     client_order_id: str,
-    response: Response,
     # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
     _auth_context: AuthContext = Depends(order_cancel_auth),
     _rate_limit_remaining: int = Depends(order_cancel_rl),

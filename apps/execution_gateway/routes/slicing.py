@@ -31,13 +31,13 @@ from typing import Any
 
 import psycopg
 import redis.exceptions
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg.errors import UniqueViolation
 from redis.exceptions import RedisError
 
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.app_context import AppContext
-from apps.execution_gateway.config import ExecutionGatewayConfig
+from apps.execution_gateway.config import ExecutionGatewayConfig, _get_float_env
 from apps.execution_gateway.dependencies import get_config, get_context
 from apps.execution_gateway.order_id_generator import reconstruct_order_params_hash
 from apps.execution_gateway.schemas import (
@@ -63,16 +63,6 @@ router = APIRouter()
 
 # Constants (from environment)
 LEGACY_TWAP_INTERVAL_SECONDS = 60
-
-
-def _get_float_env(key: str, default: float) -> float:
-    """Get float environment variable with default."""
-    try:
-        return float(os.getenv(key, str(default)))
-    except (ValueError, TypeError):
-        logger.warning(f"Invalid float for {key}, using default: {default}")
-        return default
-
 
 LIQUIDITY_CHECK_ENABLED = os.getenv("LIQUIDITY_CHECK_ENABLED", "true").lower() in (
     "true",
@@ -603,7 +593,6 @@ def _schedule_slices_with_compensation(
 @router.post("/api/v1/orders/slice", response_model=SlicingPlan, tags=["Orders"])
 async def submit_sliced_order(
     request: SlicingRequest,
-    response: Response,
     _auth_context: AuthContext = Depends(order_slice_auth),
     _rate_limit_remaining: int = Depends(order_slice_rl),
     ctx: AppContext = Depends(get_context),
