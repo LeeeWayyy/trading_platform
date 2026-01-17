@@ -45,6 +45,7 @@ def _restore_main_globals():
     original_context_deps = getattr(main.app.state, "context_deps", None)
     original_metrics = getattr(main.app.state, "metrics", None)
     original_config = getattr(main.app.state, "config", None)
+    original_version = getattr(main.app.state, "version", None)
     original_env_dry_run = os.environ.get("DRY_RUN")
     original_main_dry_run = getattr(main, "DRY_RUN", None)
 
@@ -68,9 +69,47 @@ def _restore_main_globals():
     except Exception:
         main.app.state.config = None
 
-    # Reset app.state context to avoid cross-test pollution
-    main.app.state.context = None
+    # Set up app.state.context with mock dependencies
+    # This is required since get_context no longer falls back to main.py globals
+    # Use a class with properties to delegate to main.* for tests that patch main.*
+    mock_redis = MagicMock()
+    mock_redis.health_check.return_value = True
+    mock_redis.mget.return_value = []
+    mock_alpaca = MagicMock()
+    mock_alpaca.get_open_position.return_value = None
+
+    class DelegatingContext:
+        """Context that delegates to main.* globals for test patching compatibility."""
+
+        @property
+        def db(self):
+            return main.db_client
+
+        @property
+        def redis(self):
+            return main.redis_client if main.redis_client else mock_redis
+
+        @property
+        def alpaca(self):
+            return mock_alpaca
+
+        @property
+        def recovery_manager(self):
+            return main.recovery_manager
+
+        liquidity_service = None
+        reconciliation_service = None
+        risk_config = None
+        fat_finger_validator = None
+        twap_slicer = None
+        webhook_secret = None
+
+    main.app.state.context = DelegatingContext()
     main.app.state.context_deps = None
+
+    # Set version if not set
+    if getattr(main.app.state, "version", None) is None:
+        main.app.state.version = "test"
 
     # Reset metrics to default baseline values
     try:
@@ -101,6 +140,7 @@ def _restore_main_globals():
     main.app.state.context_deps = original_context_deps
     main.app.state.metrics = original_metrics
     main.app.state.config = original_config
+    main.app.state.version = original_version
     if original_env_dry_run is None:
         os.environ.pop("DRY_RUN", None)
     else:

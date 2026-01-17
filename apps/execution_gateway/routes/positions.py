@@ -477,12 +477,12 @@ async def get_market_prices(
     Returns:
         List of MarketPricePoint with current prices
     """
-    # user is already the user context dict from build_user_context
-    authorized_strategies = get_authorized_strategies(user)
-    if not authorized_strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
+    # user is the context dict from build_user_context, extract actual user object
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies and not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
 
-    if has_permission(user, Permission.VIEW_ALL_STRATEGIES):
+    if has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
         db_positions = ctx.db.get_all_positions()
     else:
         db_positions = ctx.db.get_positions_for_strategies(authorized_strategies)

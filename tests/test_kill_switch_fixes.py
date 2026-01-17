@@ -16,13 +16,106 @@ See Also:
 """
 
 from datetime import datetime
-from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
 from apps.execution_gateway import main
+from apps.execution_gateway.config import get_config as load_config
+from apps.execution_gateway.fat_finger_validator import FatFingerThresholds, FatFingerValidator
+from libs.trading.risk_management import RiskConfig
+
+
+def _create_mock_db_client() -> Mock:
+    """Create a mock database client for testing."""
+    mock_db = Mock()
+    mock_db.check_connection.return_value = True
+    mock_db.get_order_by_client_id.return_value = None
+    mock_db.create_order.return_value = Mock(
+        client_order_id="test-order-id",
+        broker_order_id=None,
+        symbol="AAPL",
+        side="buy",
+        qty=5,
+        order_type="market",
+        status="pending_new",
+    )
+    return mock_db
+
+
+def _create_mock_recovery_manager() -> Mock:
+    """Create a mock recovery manager for testing."""
+    mock_recovery = Mock()
+    mock_recovery.is_kill_switch_unavailable.return_value = False
+    mock_recovery.is_kill_switch_engaged.return_value = False
+    mock_recovery.is_circuit_breaker_unavailable.return_value = False
+    mock_recovery.is_circuit_breaker_tripped.return_value = False
+    mock_recovery.is_position_reservation_unavailable.return_value = False
+    mock_recovery.needs_recovery.return_value = False
+    return mock_recovery
+
+
+@pytest.fixture(autouse=True)
+def _setup_app_state():
+    """Set up app.state.context for all tests in this module."""
+    # Save original values
+    original_context = getattr(main.app.state, "context", None)
+    original_config = getattr(main.app.state, "config", None)
+    original_version = getattr(main.app.state, "version", None)
+    original_metrics = getattr(main.app.state, "metrics", None)
+    original_db_client = getattr(main, "db_client", None)
+    original_recovery_manager = getattr(main, "recovery_manager", None)
+
+    # Set up mocks
+    if main.db_client is None:
+        main.db_client = _create_mock_db_client()
+    if main.recovery_manager is None:
+        main.recovery_manager = _create_mock_recovery_manager()
+
+    # Set up app.state.context
+    mock_redis = MagicMock()
+    mock_redis.health_check.return_value = True
+    mock_alpaca = MagicMock()
+    mock_alpaca.get_open_position.return_value = None  # No position
+    fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+
+    mock_context = SimpleNamespace(
+        db=main.db_client,
+        redis=mock_redis,
+        alpaca=mock_alpaca,
+        liquidity_service=None,
+        reconciliation_service=None,
+        recovery_manager=main.recovery_manager,
+        risk_config=RiskConfig(),
+        fat_finger_validator=fat_finger_validator,
+        twap_slicer=None,
+        webhook_secret=None,
+    )
+    main.app.state.context = mock_context
+
+    # Set up config
+    if getattr(main.app.state, "config", None) is None:
+        main.app.state.config = load_config()
+
+    if getattr(main.app.state, "version", None) is None:
+        main.app.state.version = "test"
+
+    if getattr(main.app.state, "metrics", None) is None:
+        main.app.state.metrics = main._build_metrics()
+
+    yield
+
+    # Restore original values
+    main.app.state.context = original_context
+    main.app.state.config = original_config
+    main.app.state.version = original_version
+    main.app.state.metrics = original_metrics
+    main.db_client = original_db_client
+    main.recovery_manager = original_recovery_manager
+    main.app.dependency_overrides.clear()
 
 # Import after services are mocked
 # from apps.execution_gateway.main import app as execution_app

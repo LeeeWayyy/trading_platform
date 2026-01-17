@@ -295,6 +295,17 @@ class AlpacaClientProtocol(Protocol):
         """Get all open positions from Alpaca."""
         ...
 
+    def get_open_position(self, symbol: str) -> dict[str, Any] | None:
+        """Get open position for a specific symbol from Alpaca.
+
+        Args:
+            symbol: Stock symbol (e.g., "AAPL")
+
+        Returns:
+            Position dict with qty, side, etc., or None if flat (no position)
+        """
+        ...
+
     def get_order_by_client_id(self, client_order_id: str) -> dict[str, Any] | None:
         """Get order by client_order_id."""
         ...

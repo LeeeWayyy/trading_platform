@@ -237,26 +237,56 @@ def _is_reconciliation_ready(ctx: AppContext, config: ExecutionGatewayConfig) ->
     return ctx.reconciliation_service.is_startup_complete()
 
 
+def _is_reduce_only_order(order: OrderRequest, broker_position: dict[str, Any] | None) -> bool:
+    """Check if an order would reduce the current position.
+
+    Per ADR-0020, during startup gating we allow risk-reducing orders computed
+    from LIVE Alpaca data (not stale DB).
+
+    Args:
+        order: The order request
+        broker_position: Live position from Alpaca, or None if flat
+
+    Returns:
+        True if order reduces position, False if it increases position
+    """
+    if broker_position is None:
+        # No position means any order would increase exposure
+        return False
+
+    current_qty = Decimal(str(broker_position.get("qty", 0)))
+    if current_qty == 0:
+        # Flat position, any order increases exposure
+        return False
+
+    order_side = order.side.lower()
+
+    # Long position (positive qty): sell reduces, buy increases
+    # Short position (negative qty): buy reduces, sell increases
+    if current_qty > 0:
+        return order_side == "sell"
+    else:
+        return order_side == "buy"
+
+
 async def _require_reconciliation_ready_or_reduce_only(
     order: OrderRequest,
     ctx: AppContext,
     config: ExecutionGatewayConfig,
     client_order_id: str,
 ) -> None:
-    """Gate ALL order submissions until reconciliation completes.
+    """Gate order submissions during startup reconciliation, allowing reduce-only orders.
 
-    IMPORTANT: Despite the function name, this gate blocks ALL orders during
-    startup reconciliation, not just position-increasing orders. The reduce-only
-    logic was intentionally omitted for simplicity since it would require
-    broker position lookups which add complexity and latency.
-
-    This conservative approach ensures no orders can slip through during the
-    critical startup window when position state may be inconsistent.
+    Per ADR-0020 (Startup Gating with Reduce-Only Mode):
+    - During gating, compute effective_position from LIVE Alpaca data (not stale DB)
+    - Allow risk-reducing orders (orders that decrease position exposure)
+    - Reject all orders if broker API unavailable (fail closed)
 
     Allowed paths:
     - Override active (operator manually unlocked)
     - Reconciliation complete
     - Dry-run mode
+    - Reduce-only orders (computed from live broker position)
     """
     recon_service = ctx.reconciliation_service
     if recon_service and recon_service.override_active():
@@ -278,14 +308,62 @@ async def _require_reconciliation_ready_or_reduce_only(
             extra={"elapsed_seconds": recon_service.startup_elapsed_seconds()},
         )
 
-    # Block non-reduce-only orders during reconciliation gating
-    # For simplicity, block all orders during reconciliation (reduce-only logic
-    # requires broker position lookup which is complex)
+    # Per ADR-0020: Allow reduce-only orders during gating
+    # Fetch LIVE position from broker (fail closed if unavailable)
+    if ctx.alpaca is None:
+        logger.error(
+            "Alpaca client unavailable during reconciliation gate; blocking order (fail-closed)",
+            extra={"client_order_id": client_order_id, "symbol": order.symbol},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Broker unavailable during reconciliation",
+                "message": "Cannot verify position for reduce-only check; order blocked (fail-closed)",
+            },
+        )
+
+    try:
+        broker_position = ctx.alpaca.get_open_position(order.symbol)
+    except Exception as exc:
+        # Fail closed: if we can't determine position, block the order
+        logger.error(
+            "Failed to fetch broker position during reconciliation gate; blocking order (fail-closed)",
+            extra={
+                "client_order_id": client_order_id,
+                "symbol": order.symbol,
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Broker unavailable during reconciliation",
+                "message": "Cannot verify position for reduce-only check; order blocked (fail-closed)",
+            },
+        ) from exc
+
+    if _is_reduce_only_order(order, broker_position):
+        current_qty = broker_position.get("qty", 0) if broker_position else 0
+        logger.info(
+            "Allowing reduce-only order during reconciliation gating",
+            extra={
+                "client_order_id": client_order_id,
+                "symbol": order.symbol,
+                "side": order.side,
+                "order_qty": str(order.qty),
+                "current_position_qty": str(current_qty),
+            },
+        )
+        return
+
+    # Block position-increasing orders during reconciliation
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail={
             "error": "Reconciliation in progress",
-            "message": "Order submission blocked until startup reconciliation completes",
+            "message": "Position-increasing orders blocked until startup reconciliation completes. "
+            "Reduce-only orders are allowed.",
         },
     )
 

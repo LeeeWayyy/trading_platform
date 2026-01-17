@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-16 - Updated source map for refactored app/router layout -->
+<!-- Last reviewed: 2026-01-16 - PR review fixes: reduce-only orders, dependency cleanup, auth fix -->
 
 ## Identity
 - **Type:** Service
@@ -140,6 +140,7 @@
 - Kill-switch and circuit breaker checks run before order submission.
 - `DRY_RUN=true` never submits broker orders.
 - Webhook signatures are required when `WEBHOOK_SECRET` is configured.
+- During startup reconciliation gating, reduce-only orders are allowed (per ADR-0020).
 
 ## Data Flow
 ```
@@ -230,6 +231,9 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 | Kill-switch engaged | `POST /api/v1/orders` | 503 with safety failure. |
 | DRY_RUN enabled | `DRY_RUN=true` | Order recorded, no broker submit. |
 | Invalid order params | `qty<=0` or invalid `type` | 400/422 validation error. |
+| Reconciliation gating (reduce-only) | Sell when long, buy when short | Order allowed (per ADR-0020). |
+| Reconciliation gating (increase) | Buy when long, sell when short | 503, blocked until reconciliation completes. |
+| Reconciliation gating (broker unavailable) | Any order, Alpaca unreachable | 503, fail-closed. |
 
 ## Known Issues & TODO
 | Issue | Severity | Description | Tracking |
