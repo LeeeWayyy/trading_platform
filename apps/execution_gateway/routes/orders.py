@@ -237,17 +237,47 @@ def _is_reconciliation_ready(ctx: AppContext, config: ExecutionGatewayConfig) ->
     return ctx.reconciliation_service.is_startup_complete()
 
 
-def _is_reduce_only_order(order: OrderRequest, broker_position: dict[str, Any] | None) -> bool:
+def _calculate_pending_order_qty(
+    open_orders: list[dict[str, Any]], order_side: str
+) -> Decimal:
+    """Calculate total pending quantity for orders of a given side.
+
+    Args:
+        open_orders: List of open orders from Alpaca
+        order_side: "buy" or "sell" to filter orders
+
+    Returns:
+        Total pending quantity for the specified side
+    """
+    total = Decimal("0")
+    for order in open_orders:
+        side = str(order.get("side", "")).lower()
+        if side == order_side:
+            # Use remaining qty if available, otherwise use qty
+            qty = order.get("qty", 0)
+            filled_qty = order.get("filled_qty", 0)
+            remaining = Decimal(str(qty)) - Decimal(str(filled_qty))
+            if remaining > 0:
+                total += remaining
+    return total
+
+
+def _is_reduce_only_order(
+    order: OrderRequest,
+    broker_position: dict[str, Any] | None,
+    open_orders: list[dict[str, Any]] | None = None,
+) -> bool:
     """Check if an order would strictly reduce the current position without flipping.
 
     Per ADR-0020, during startup gating we allow risk-reducing orders computed
     from LIVE Alpaca data (not stale DB). An order is reduce-only if:
     1. The side is correct (sell for long, buy for short)
-    2. The quantity doesn't exceed current position (no flipping to opposite side)
+    2. The quantity doesn't exceed available position after accounting for pending orders
 
     Args:
         order: The order request
         broker_position: Live position from Alpaca, or None if flat
+        open_orders: List of open orders from Alpaca (used to compute effective exposure)
 
     Returns:
         True if order strictly reduces position, False otherwise
@@ -264,19 +294,32 @@ def _is_reduce_only_order(order: OrderRequest, broker_position: dict[str, Any] |
     order_side = order.side.lower()
     order_qty = Decimal(str(order.qty))
 
-    # Long position (positive qty): only sell that doesn't exceed position
+    # Calculate pending orders that affect available position
+    pending_sells = Decimal("0")
+    pending_buys = Decimal("0")
+    if open_orders:
+        pending_sells = _calculate_pending_order_qty(open_orders, "sell")
+        pending_buys = _calculate_pending_order_qty(open_orders, "buy")
+
+    # Long position (positive qty): only sell that doesn't exceed available position
     if current_qty > 0:
         if order_side != "sell":
             return False
-        # Sell qty must not exceed position (would flip to short)
-        return order_qty <= current_qty
+        # Available position = current - pending sells + pending buys
+        # (pending buys would increase position, pending sells reduce it)
+        available_to_sell = current_qty - pending_sells
+        # Sell qty must not exceed available position (would flip to short)
+        return order_qty <= available_to_sell
 
-    # Short position (negative qty): only buy that doesn't exceed position
+    # Short position (negative qty): only buy that doesn't exceed available position
     else:
         if order_side != "buy":
             return False
-        # Buy qty must not exceed abs(position) (would flip to long)
-        return order_qty <= abs(current_qty)
+        # Available position = abs(current) - pending buys + pending sells
+        # (pending buys would reduce short, pending sells would increase it)
+        available_to_cover = abs(current_qty) - pending_buys
+        # Buy qty must not exceed available position (would flip to long)
+        return order_qty <= available_to_cover
 
 
 async def _require_reconciliation_ready_or_reduce_only(
@@ -353,8 +396,33 @@ async def _require_reconciliation_ready_or_reduce_only(
             },
         ) from exc
 
-    if _is_reduce_only_order(order, broker_position):
+    # Fetch open orders for this symbol to account for pending exposure
+    # This prevents allowing multiple reduce-only orders that would collectively flip the position
+    open_orders: list[dict[str, Any]] = []
+    try:
+        open_orders = ctx.alpaca.get_orders(status="open", symbols=[order.symbol.upper()])
+    except Exception as exc:
+        # Log warning but continue with position-only check (fail-open for open orders)
+        # The position check is still valid, just less precise
+        logger.warning(
+            "Failed to fetch open orders during reconciliation gate; proceeding with position-only check",
+            extra={
+                "client_order_id": client_order_id,
+                "symbol": order.symbol,
+                "error": str(exc),
+            },
+        )
+
+    if _is_reduce_only_order(order, broker_position, open_orders):
         current_qty = broker_position.get("qty", 0) if broker_position else 0
+        pending_info = {}
+        if open_orders:
+            pending_sells = _calculate_pending_order_qty(open_orders, "sell")
+            pending_buys = _calculate_pending_order_qty(open_orders, "buy")
+            pending_info = {
+                "pending_sells": str(pending_sells),
+                "pending_buys": str(pending_buys),
+            }
         logger.info(
             "Allowing reduce-only order during reconciliation gating",
             extra={
@@ -363,6 +431,7 @@ async def _require_reconciliation_ready_or_reduce_only(
                 "side": order.side,
                 "order_qty": str(order.qty),
                 "current_position_qty": str(current_qty),
+                **pending_info,
             },
         )
         return

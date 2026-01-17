@@ -42,7 +42,6 @@ def _restore_main_globals():
     original_reconciliation_task = getattr(main, "reconciliation_task", None)
     original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
     original_context = getattr(main.app.state, "context", None)
-    original_context_deps = getattr(main.app.state, "context_deps", None)
     original_metrics = getattr(main.app.state, "metrics", None)
     original_config = getattr(main.app.state, "config", None)
     original_version = getattr(main.app.state, "version", None)
@@ -105,7 +104,6 @@ def _restore_main_globals():
         webhook_secret = None
 
     main.app.state.context = DelegatingContext()
-    main.app.state.context_deps = None
 
     # Set version if not set
     if getattr(main.app.state, "version", None) is None:
@@ -137,7 +135,6 @@ def _restore_main_globals():
     main.reconciliation_task = original_reconciliation_task
     main.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag
     main.app.state.context = original_context
-    main.app.state.context_deps = original_context_deps
     main.app.state.metrics = original_metrics
     main.app.state.config = original_config
     main.app.state.version = original_version

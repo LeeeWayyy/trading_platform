@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-16 - PR review fixes: reduce-only orders, dependency cleanup, auth fix -->
+<!-- Last reviewed: 2026-01-17 - PR review fixes: reduce-only orders with pending order accounting, rate limiter, cleanup -->
 
 ## Identity
 - **Type:** Service

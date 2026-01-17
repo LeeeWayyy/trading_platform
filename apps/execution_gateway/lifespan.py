@@ -384,18 +384,6 @@ async def startup_execution_gateway(
             twap_slicer=settings.twap_slicer,
             webhook_secret=webhook_secret,
         )
-        app.state.context_deps = {
-            "db": db_client,
-            "redis": redis_client,
-            "alpaca": alpaca_client,
-            "liquidity_service": liquidity_service,
-            "reconciliation_service": reconciliation_service,
-            "recovery_manager": recovery_manager,
-            "risk_config": settings.risk_config,
-            "fat_finger_validator": settings.fat_finger_validator,
-            "twap_slicer": settings.twap_slicer,
-            "webhook_secret": webhook_secret,
-        }
 
         # Store metrics (create dict for easy access via Depends())
         app.state.metrics = metrics

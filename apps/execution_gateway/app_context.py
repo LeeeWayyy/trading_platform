@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
@@ -308,6 +309,26 @@ class AlpacaClientProtocol(Protocol):
 
     def get_order_by_client_id(self, client_order_id: str) -> dict[str, Any] | None:
         """Get order by client_order_id."""
+        ...
+
+    def get_orders(
+        self,
+        status: str = "all",
+        limit: int = 500,
+        after: datetime | None = None,
+        symbols: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch orders with optional filtering.
+
+        Args:
+            status: Order status filter ("open", "closed", "all")
+            limit: Maximum number of orders to return
+            after: Return orders after this timestamp
+            symbols: Filter by symbols (e.g., ["AAPL", "MSFT"])
+
+        Returns:
+            List of order dicts with id, symbol, side, qty, status, etc.
+        """
         ...
 
     def get_account_info(self) -> dict[str, Any] | None:

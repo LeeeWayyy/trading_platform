@@ -30,7 +30,7 @@ from apps.execution_gateway.schemas import (
     ReconciliationForceCompleteRequest,
 )
 from apps.execution_gateway.services.auth_helpers import build_user_context
-from libs.core.common.rate_limit_dependency import RateLimitConfig
+from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.platform.web_console_auth.permissions import (
     Permission,
     require_permission,
@@ -43,32 +43,18 @@ router = APIRouter(prefix="/api/v1/reconciliation", tags=["Reconciliation"])
 
 
 # Rate limiter for fills backfill endpoint
-# Note: fills_backfill_limit and fills_backfill_window_seconds come from config
-# but rate_limit() creates the dependency at module level, so we use constants here
-# (config values are loaded during app startup and used when calling this endpoint)
-def create_fills_backfill_rate_limiter(
-    config: ExecutionGatewayConfig = Depends(get_config),
-) -> RateLimitConfig:
-    """Create rate limiter config for fills backfill endpoint.
-
-    This dependency function creates a rate limiter configuration using
-    values from ExecutionGatewayConfig. It's called during request handling
-    to get the current configuration.
-
-    Args:
-        config: Application configuration (injected)
-
-    Returns:
-        RateLimitConfig: Rate limiter configuration
-    """
-    return RateLimitConfig(
+# Uses default values (2 requests per 300s) matching ExecutionGatewayConfig defaults
+# Can be overridden via FILLS_BACKFILL_RATE_LIMIT and FILLS_BACKFILL_RATE_LIMIT_WINDOW_SECONDS env vars
+fills_backfill_rl = rate_limit(
+    RateLimitConfig(
         action="fills_backfill",
-        max_requests=config.fills_backfill_limit,
-        window_seconds=config.fills_backfill_window_seconds,
+        max_requests=2,  # Default: 2 requests
+        window_seconds=300,  # Default: 5 minutes
         burst_buffer=1,
         fallback_mode="deny",
-        global_limit=config.fills_backfill_limit,
+        global_limit=2,
     )
+)
 
 
 @router.get("/status")
@@ -148,7 +134,7 @@ async def run_fills_backfill(
     ctx: AppContext = Depends(get_context),
     config: ExecutionGatewayConfig = Depends(get_config),
     user: dict[str, Any] = Depends(build_user_context),
-    _rate_limit_config: RateLimitConfig = Depends(create_fills_backfill_rate_limiter),
+    _rate_limit_remaining: int = Depends(fills_backfill_rl),
 ) -> dict[str, Any]:
     """Manually trigger Alpaca fills backfill.
 
@@ -157,7 +143,7 @@ async def run_fills_backfill(
         ctx: Application context with all dependencies (injected)
         config: Application configuration (injected)
         user: Authenticated user context (injected)
-        _rate_limit_config: Rate limiter configuration (injected, enforced by decorator)
+        _rate_limit_remaining: Rate limit remaining (injected, enforces rate limiting)
 
     Returns:
         dict: Fills backfill result

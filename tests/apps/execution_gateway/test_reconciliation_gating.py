@@ -16,6 +16,7 @@ import pytest
 from fastapi import HTTPException
 
 from apps.execution_gateway.routes.orders import (
+    _calculate_pending_order_qty,
     _is_reduce_only_order,
     _require_reconciliation_ready_or_reduce_only,
 )
@@ -55,6 +56,89 @@ class TestIsReduceOnlyOrder:
         order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
         assert _is_reduce_only_order(order, {"qty": -10}) is False
 
+    def test_sell_exceeding_position_is_not_reduce_only(self):
+        """Sell qty exceeding position would flip to short - not reduce-only."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=15, order_type="market")
+        # Position is 10, selling 15 would flip to -5 short
+        assert _is_reduce_only_order(order, {"qty": 10}) is False
+
+    def test_buy_exceeding_short_is_not_reduce_only(self):
+        """Buy qty exceeding short position would flip to long - not reduce-only."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=15, order_type="market")
+        # Position is -10, buying 15 would flip to +5 long
+        assert _is_reduce_only_order(order, {"qty": -10}) is False
+
+
+class TestReduceOnlyWithPendingOrders:
+    """Tests for reduce-only check accounting for pending orders."""
+
+    def test_pending_sell_reduces_available_to_sell(self):
+        """Pending sells reduce the available position to sell."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+        position = {"qty": 10}
+        # Pending sell of 8 means only 2 available to sell
+        open_orders = [{"side": "sell", "qty": 8, "filled_qty": 0}]
+        assert _is_reduce_only_order(order, position, open_orders) is False
+
+    def test_pending_sell_allows_remaining(self):
+        """Can still sell the remaining available position."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=2, order_type="market")
+        position = {"qty": 10}
+        # Pending sell of 8 means only 2 available to sell
+        open_orders = [{"side": "sell", "qty": 8, "filled_qty": 0}]
+        assert _is_reduce_only_order(order, position, open_orders) is True
+
+    def test_pending_buy_reduces_available_to_cover(self):
+        """Pending buys reduce the available short to cover."""
+        order = OrderRequest(symbol="AAPL", side="buy", qty=5, order_type="market")
+        position = {"qty": -10}  # Short position
+        # Pending buy of 8 means only 2 available to cover
+        open_orders = [{"side": "buy", "qty": 8, "filled_qty": 0}]
+        assert _is_reduce_only_order(order, position, open_orders) is False
+
+    def test_partially_filled_orders_use_remaining_qty(self):
+        """Partially filled orders should use remaining qty, not total."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+        position = {"qty": 10}
+        # Pending sell of 8 with 5 filled means only 3 remaining
+        open_orders = [{"side": "sell", "qty": 8, "filled_qty": 5}]
+        # Available = 10 - 3 = 7, selling 5 is ok
+        assert _is_reduce_only_order(order, position, open_orders) is True
+
+    def test_multiple_pending_orders_summed(self):
+        """Multiple pending orders should be summed."""
+        order = OrderRequest(symbol="AAPL", side="sell", qty=3, order_type="market")
+        position = {"qty": 10}
+        # Two pending sells: 4 + 4 = 8 total pending
+        open_orders = [
+            {"side": "sell", "qty": 4, "filled_qty": 0},
+            {"side": "sell", "qty": 4, "filled_qty": 0},
+        ]
+        # Available = 10 - 8 = 2, selling 3 would flip
+        assert _is_reduce_only_order(order, position, open_orders) is False
+
+
+class TestCalculatePendingOrderQty:
+    """Tests for the _calculate_pending_order_qty helper."""
+
+    def test_empty_orders_returns_zero(self):
+        """Empty order list returns zero."""
+        assert _calculate_pending_order_qty([], "sell") == 0
+
+    def test_filters_by_side(self):
+        """Only counts orders matching the specified side."""
+        orders = [
+            {"side": "sell", "qty": 10, "filled_qty": 0},
+            {"side": "buy", "qty": 5, "filled_qty": 0},
+        ]
+        assert _calculate_pending_order_qty(orders, "sell") == 10
+        assert _calculate_pending_order_qty(orders, "buy") == 5
+
+    def test_uses_remaining_qty(self):
+        """Uses remaining qty (qty - filled_qty)."""
+        orders = [{"side": "sell", "qty": 10, "filled_qty": 7}]
+        assert _calculate_pending_order_qty(orders, "sell") == 3
+
 
 @pytest.mark.asyncio()
 async def test_reconciliation_gate_blocks_position_increasing_during_startup():
@@ -71,6 +155,7 @@ async def test_reconciliation_gate_blocks_position_increasing_during_startup():
     # Mock Alpaca client - no position (flat)
     alpaca_client = Mock()
     alpaca_client.get_open_position.return_value = None
+    alpaca_client.get_orders.return_value = []
 
     ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
     config = SimpleNamespace(dry_run=False)
@@ -97,9 +182,10 @@ async def test_reconciliation_gate_allows_reduce_only_during_startup():
     reconciliation_service.startup_timed_out.return_value = False
     reconciliation_service.startup_elapsed_seconds.return_value = 10
 
-    # Mock Alpaca client - long position
+    # Mock Alpaca client - long position with no pending orders
     alpaca_client = Mock()
     alpaca_client.get_open_position.return_value = {"qty": 100, "symbol": "AAPL"}
+    alpaca_client.get_orders.return_value = []
 
     ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
     config = SimpleNamespace(dry_run=False)
@@ -108,6 +194,39 @@ async def test_reconciliation_gate_allows_reduce_only_during_startup():
     await _require_reconciliation_ready_or_reduce_only(
         order, ctx, config, "test-order-id"
     )
+
+
+@pytest.mark.asyncio()
+async def test_reconciliation_gate_blocks_when_pending_orders_would_flip():
+    """Verify orders are blocked when pending orders would cause position flip."""
+    # Sell order when long with pending sell that almost covers position
+    order = OrderRequest(symbol="AAPL", side="sell", qty=5, order_type="market")
+
+    # Mock reconciliation service that is NOT complete
+    reconciliation_service = Mock()
+    reconciliation_service.is_startup_complete.return_value = False
+    reconciliation_service.override_active.return_value = False
+    reconciliation_service.startup_timed_out.return_value = False
+    reconciliation_service.startup_elapsed_seconds.return_value = 10
+
+    # Mock Alpaca client - long position of 10 with pending sell of 8
+    alpaca_client = Mock()
+    alpaca_client.get_open_position.return_value = {"qty": 10, "symbol": "AAPL"}
+    alpaca_client.get_orders.return_value = [
+        {"side": "sell", "qty": 8, "filled_qty": 0}
+    ]
+
+    ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
+    config = SimpleNamespace(dry_run=False)
+
+    # Should raise because selling 5 more when only 2 available would flip position
+    with pytest.raises(HTTPException) as exc_info:
+        await _require_reconciliation_ready_or_reduce_only(
+            order, ctx, config, "test-order-id"
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "Reconciliation in progress" in exc_info.value.detail["error"]
 
 
 @pytest.mark.asyncio()
