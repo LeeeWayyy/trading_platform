@@ -16,19 +16,24 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
 
-from apps.execution_gateway.main import _resolve_and_calculate_pnl, app
 from apps.execution_gateway.schemas import Position
+from apps.execution_gateway.services.auth_helpers import build_user_context
+from apps.execution_gateway.services.pnl_calculator import resolve_and_calculate_pnl
 
 
 @pytest.fixture()
 def test_client():
     """FastAPI test client."""
+    # Import here to avoid stale app references when main is reloaded elsewhere
+    from apps.execution_gateway.main import app
+
     return TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def _override_user_context():
     """Provide authenticated viewer context for all realtime P&L tests."""
+    from apps.execution_gateway.main import app
 
     def _ctx(
         request: Request,
@@ -44,11 +49,9 @@ def _override_user_context():
             "user": {"role": "viewer", "strategies": ["alpha_baseline"], "user_id": "u1"},
         }
 
-    from apps.execution_gateway import main
-
-    main.app.dependency_overrides[main._build_user_context] = _ctx
+    app.dependency_overrides[build_user_context] = _ctx
     yield
-    main.app.dependency_overrides.pop(main._build_user_context, None)
+    app.dependency_overrides.pop(build_user_context, None)
 
 
 @pytest.fixture()
@@ -566,7 +569,7 @@ class TestRealtimePnLEndpoint:
 
 
 class TestResolveAndCalculatePnL:
-    """Unit tests for _resolve_and_calculate_pnl helper function.
+    """Unit tests for resolve_and_calculate_pnl helper function.
 
     This tests the refactored helper function that resolves price sources
     and calculates P&L, addressing Gemini's MEDIUM priority review feedback
@@ -588,7 +591,7 @@ class TestResolveAndCalculatePnL:
         # Real-time price data from Redis
         realtime_price_data = (Decimal("152.50"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=UTC))
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # Should use real-time price (not database price)
         assert position_pnl.price_source == "real-time"
@@ -614,7 +617,7 @@ class TestResolveAndCalculatePnL:
         # No real-time price available
         realtime_price_data = (None, None)
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # Should use database price
         assert position_pnl.price_source == "database"
@@ -640,7 +643,7 @@ class TestResolveAndCalculatePnL:
         # No real-time price available
         realtime_price_data = (None, None)
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # Should use entry price as fallback
         assert position_pnl.price_source == "fallback"
@@ -666,7 +669,7 @@ class TestResolveAndCalculatePnL:
         # Price went down (profitable for short)
         realtime_price_data = (Decimal("140.00"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=UTC))
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # Should use real-time price
         assert position_pnl.price_source == "real-time"
@@ -694,7 +697,7 @@ class TestResolveAndCalculatePnL:
         # No real-time price
         realtime_price_data = (None, None)
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # Should use database price (Decimal('0') is valid, not fallback)
         assert position_pnl.price_source == "database"
@@ -719,7 +722,7 @@ class TestResolveAndCalculatePnL:
         # 10% gain
         realtime_price_data = (Decimal("110.00"), datetime.now(UTC))
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # P&L: (110 - 100) * 100 = 1000
         assert position_pnl.unrealized_pl == Decimal("1000.00")
@@ -742,7 +745,7 @@ class TestResolveAndCalculatePnL:
         # Explicitly (None, None) from .get() fallback
         realtime_price_data = (None, None)
 
-        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        position_pnl, is_realtime = resolve_and_calculate_pnl(position, realtime_price_data)
 
         # Should fall back to database price
         assert position_pnl.price_source == "database"

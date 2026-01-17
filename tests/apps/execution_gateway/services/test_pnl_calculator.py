@@ -13,24 +13,24 @@ Target: 90%+ coverage per Phase 1 requirements.
 See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 """
 
-import pytest
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from apps.execution_gateway.schemas import DailyPnL, Position, RealtimePositionPnL
+import pytest
+
+from apps.execution_gateway.schemas import Position
 from apps.execution_gateway.services.pnl_calculator import (
     calculate_position_pnl,
     compute_daily_performance,
     resolve_and_calculate_pnl,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_long_position() -> Position:
     """Sample long position for testing."""
     return Position(
@@ -43,7 +43,7 @@ def sample_long_position() -> Position:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_short_position() -> Position:
     """Sample short position for testing."""
     return Position(
@@ -56,7 +56,7 @@ def sample_short_position() -> Position:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_zero_position() -> Position:
     """Sample flat position (zero quantity)."""
     return Position(

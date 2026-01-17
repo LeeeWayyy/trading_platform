@@ -13,9 +13,10 @@ Target: 90%+ coverage per Phase 1 requirements.
 See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 """
 
-import pytest
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import MagicMock, call
+
+import pytest
 from redis.exceptions import RedisError
 
 from apps.execution_gateway.services.performance_cache import (
@@ -24,7 +25,6 @@ from apps.execution_gateway.services.performance_cache import (
     invalidate_performance_cache,
     register_performance_cache,
 )
-
 
 # ============================================================================
 # Test create_performance_cache_key

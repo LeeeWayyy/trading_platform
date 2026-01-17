@@ -43,7 +43,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
-    from config.settings import Settings
+    pass
 
 logger = logging.getLogger(__name__)
 

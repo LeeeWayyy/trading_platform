@@ -30,7 +30,7 @@ from apps.execution_gateway.schemas import (
     ReconciliationForceCompleteRequest,
 )
 from apps.execution_gateway.services.auth_helpers import build_user_context
-from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
+from libs.core.common.rate_limit_dependency import RateLimitConfig
 from libs.platform.web_console_auth.permissions import (
     Permission,
     require_permission,

@@ -4,10 +4,26 @@ from __future__ import annotations
 
 import importlib
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 import pytest
 from prometheus_client import REGISTRY
+
+
+@pytest.fixture(autouse=True)
+def _restore_metrics_module() -> Iterable[None]:
+    """Restore metrics module after tests that reload it.
+
+    Some tests delete and re-import apps.execution_gateway.metrics to verify
+    initialization behavior. We restore the original module afterward so the
+    module-level metrics align with the registry for subsequent tests.
+    """
+    original_module = sys.modules.get("apps.execution_gateway.metrics")
+    yield
+    if original_module is None:
+        sys.modules.pop("apps.execution_gateway.metrics", None)
+    else:
+        sys.modules["apps.execution_gateway.metrics"] = original_module
 
 
 def _clear_registry() -> None:
@@ -16,7 +32,7 @@ def _clear_registry() -> None:
         REGISTRY.unregister(collector)
 
 
-@pytest.fixture
+@pytest.fixture()
 def clean_prometheus_registry() -> Iterable[None]:
     original_collectors = list(REGISTRY._collector_to_names)  # type: ignore[attr-defined]
     _clear_registry()
@@ -45,4 +61,3 @@ def test_metric_registries_consistent(clean_prometheus_registry):
 
     metrics = importlib.import_module("apps.execution_gateway.metrics")
     assert set(metrics.METRIC_NAMES) == set(metrics.METRIC_LABELS.keys())
-

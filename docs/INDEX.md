@@ -530,6 +530,9 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2026-01-13, Task] [P6T17_TASK.md](./TASKS/P6T17_TASK.md) - P6T17: Documentation
 - [CURRENT, 2026-01-13, Task] [P6T18_TASK.md](./TASKS/P6T18_TASK.md) - P6T18: Performance Optimization
 
+**Test Improvement Tasks:**
+- [CURRENT, 2026-01-15, Task] [REFACTOR_EXECUTION_GATEWAY_TASK.md](./TASKS/REFACTOR_EXECUTION_GATEWAY_TASK.md) - Refactor Execution Gateway for Testability
+
 **Backlog Tasks (B0):**
 - [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./ARCHIVE/TASKS_HISTORY/B0T1_DONE.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
 - [CURRENT, 2025-12-28, Task] [P4T6_DONE.md](ARCHIVE/TASKS_HISTORY/P4T6_DONE.md) - P4T6: Data Management module for web console
@@ -679,6 +682,9 @@ Configuration files, templates, prompts, and tooling:
 **libs/ (Library-Level Documentation for Web Console):**
 - [CURRENT, 2026-01-15, Spec] [SPECS/libs/web_console_services.md](SPECS/libs/web_console_services.md) - Web console backend services (migrated from apps/web_console)
 - [CURRENT, 2026-01-15, Spec] [SPECS/libs/web_console_data.md](SPECS/libs/web_console_data.md) - Web console data access layer
+
+**apps/ (Service Documentation):**
+- [CURRENT, 2026-01-15, Guide] [apps/execution_gateway/routes/README_ADMIN.md](../apps/execution_gateway/routes/README_ADMIN.md) - Execution Gateway admin routes and operational notes
 
 **infra/ (Infrastructure Configuration):**
 - [CURRENT, 2025-11-27, Dashboard] [../infra/grafana/dashboards/oauth2-sessions-spec.md](../infra/grafana/dashboards/oauth2-sessions-spec.md) - OAuth2 session monitoring Grafana dashboard specification

@@ -41,6 +41,7 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import redis.exceptions
@@ -66,12 +67,12 @@ from apps.execution_gateway.order_id_generator import generate_client_order_id
 from apps.execution_gateway.reconciliation import (
     SOURCE_PRIORITY_MANUAL,
 )
-from apps.execution_gateway.services.order_helpers import resolve_fat_finger_context
 from apps.execution_gateway.schemas import (
     OrderDetail,
     OrderRequest,
     OrderResponse,
 )
+from apps.execution_gateway.services.order_helpers import resolve_fat_finger_context
 from libs.core.common.api_auth_dependency import (
     APIAuthConfig,
     AuthContext,
@@ -377,7 +378,11 @@ async def submit_order(
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Kill-switch state unavailable (fail-closed for safety)",
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state unknown (fail-closed for safety)",
+                "fail_closed": True,
+            },
         )
 
     # =========================================================================
@@ -507,6 +512,15 @@ async def submit_order(
 
     # Store token for release on error paths
     reservation_token = reservation_result.token
+    if reservation_token is None:
+        logger.error(
+            "Position reservation missing token after successful reservation",
+            extra={"client_order_id": client_order_id, "symbol": order.symbol},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Position reservation failed to return token",
+        )
     logger.debug(
         f"Position reserved: {order.symbol} {order.side} {order.qty}",
         extra={
@@ -601,16 +615,11 @@ async def submit_order(
 
     # Insert order into database
     try:
-        ctx.db.insert_order(
+        ctx.db.create_order(
             client_order_id=client_order_id,
             strategy_id=config.strategy_id,
-            symbol=order.symbol,
-            side=order.side,
-            qty=order.qty,
-            order_type=order.order_type,
-            limit_price=order.limit_price,
+            order_request=order,
             status="dry_run" if config.dry_run else "pending_new",
-            time_in_force=order.time_in_force or "day",
         )
     except UniqueViolation:
         # Race condition: another request inserted same order - release reservation
@@ -684,7 +693,7 @@ async def submit_order(
 
             # Update order with broker_order_id (best effort - reconciliation catches failures)
             try:
-                ctx.db.update_order_broker_id(
+                ctx.db.update_order_status(
                     client_order_id=client_order_id,
                     broker_order_id=broker_order_id,
                     status="pending_new",
@@ -717,7 +726,7 @@ async def submit_order(
                 broker_updated_at=datetime.now(UTC),
                 status_rank=status_rank_for("rejected"),
                 source_priority=SOURCE_PRIORITY_MANUAL,
-                filled_qty=0,
+                filled_qty=Decimal("0"),
                 filled_avg_price=None,
                 filled_at=None,
                 broker_order_id=None,
@@ -743,7 +752,7 @@ async def submit_order(
                 broker_updated_at=datetime.now(UTC),
                 status_rank=status_rank_for("rejected"),
                 source_priority=SOURCE_PRIORITY_MANUAL,
-                filled_qty=0,
+                filled_qty=Decimal("0"),
                 filled_avg_price=None,
                 filled_at=None,
                 broker_order_id=None,

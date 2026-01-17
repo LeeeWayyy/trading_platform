@@ -131,7 +131,7 @@ def test_test_context_override_sync_and_async():
     assert app.state.context == "original"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_context_override_async():
     app = FastAPI()
     ctx = _make_context()
@@ -154,7 +154,7 @@ def test_test_config_override_sync_and_async():
     assert app.state.config == "original"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_config_override_async():
     app = FastAPI()
     config = SimpleNamespace(dry_run=True)

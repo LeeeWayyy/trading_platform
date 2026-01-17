@@ -14,7 +14,6 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md for design decisions.
 import ast
 from pathlib import Path
 
-
 # ============================================================================
 # Contract Constants - These are the expected stable metric names and labels
 # Changing these will break dashboards and alerts!
@@ -238,7 +237,7 @@ def test_metric_labels_contract():
                 if isinstance(target, ast.Name) and target.id == "METRIC_LABELS":
                     if isinstance(node.value, ast.Dict):
                         metric_labels_value = {}
-                        for key, value in zip(node.value.keys, node.value.values):
+                        for key, value in zip(node.value.keys, node.value.values, strict=False):
                             if isinstance(key, ast.Constant) and isinstance(value, ast.List):
                                 labels = [
                                     elt.value for elt in value.elts

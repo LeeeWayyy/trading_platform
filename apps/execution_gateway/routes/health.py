@@ -16,17 +16,19 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends
 
 from apps.execution_gateway.alpaca_client import (
     AlpacaConnectionError,
+    AlpacaExecutor,
     AlpacaRejectionError,
     AlpacaValidationError,
 )
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.config import ExecutionGatewayConfig
+from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.dependencies import (
     get_config,
     get_context,
@@ -35,6 +37,7 @@ from apps.execution_gateway.dependencies import (
 )
 from apps.execution_gateway.schemas import HealthResponse
 from apps.execution_gateway.slice_scheduler import SliceScheduler
+from libs.core.redis_client import RedisClient
 from libs.trading.risk_management import CircuitBreaker, KillSwitch, PositionReservation
 
 logger = logging.getLogger(__name__)
@@ -117,14 +120,14 @@ async def health_check(
         if redis_connected:
             # Factories only called when components verified available by RecoveryManager
             ctx.recovery_manager.attempt_recovery(
-                kill_switch_factory=lambda: KillSwitch(redis_client=ctx.redis),
-                circuit_breaker_factory=lambda: CircuitBreaker(redis_client=ctx.redis),
-                position_reservation_factory=lambda: PositionReservation(redis=ctx.redis),
+                kill_switch_factory=lambda: KillSwitch(redis_client=cast(RedisClient, ctx.redis)),
+                circuit_breaker_factory=lambda: CircuitBreaker(redis_client=cast(RedisClient, ctx.redis)),
+                position_reservation_factory=lambda: PositionReservation(redis=cast(RedisClient, ctx.redis)),
                 slice_scheduler_factory=lambda: SliceScheduler(
-                    kill_switch=ctx.recovery_manager.kill_switch,  # type: ignore[arg-type]
-                    breaker=ctx.recovery_manager.circuit_breaker,  # type: ignore[arg-type]
-                    db_client=ctx.db,
-                    executor=ctx.alpaca,  # Can be None in DRY_RUN mode
+                    kill_switch=cast(KillSwitch, ctx.recovery_manager.kill_switch),
+                    breaker=cast(CircuitBreaker, ctx.recovery_manager.circuit_breaker),
+                    db_client=cast(DatabaseClient, ctx.db),
+                    executor=cast(AlpacaExecutor | None, ctx.alpaca),  # Can be None in DRY_RUN mode
                 ),
             )
 

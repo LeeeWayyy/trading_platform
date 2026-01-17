@@ -330,7 +330,9 @@ def require_permission(
 
         wrapper = async_wrapper if is_coroutine else sync_wrapper
         # Ensure wrapper can resolve forward references from the original module.
-        wrapper.__globals__.update(func.__globals__)
+        wrapper_globals = getattr(wrapper, "__globals__", None)
+        if isinstance(wrapper_globals, dict):
+            wrapper_globals.update(func.__globals__)
         if resolved_annotations is not None:
             wrapper.__annotations__ = resolved_annotations
 

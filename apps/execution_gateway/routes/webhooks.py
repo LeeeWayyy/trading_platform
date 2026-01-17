@@ -30,12 +30,12 @@ from decimal import Decimal, InvalidOperation
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from prometheus_client import Counter
 from pydantic import ValidationError
 
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.config import ExecutionGatewayConfig
 from apps.execution_gateway.dependencies import get_config, get_context
+from apps.execution_gateway.metrics import webhook_received_total
 from apps.execution_gateway.reconciliation import SOURCE_PRIORITY_WEBHOOK
 from apps.execution_gateway.services.order_helpers import parse_webhook_timestamp
 from apps.execution_gateway.services.performance_cache import invalidate_performance_cache
@@ -49,12 +49,7 @@ logger = logging.getLogger(__name__)
 # Router defined at module level (Phase 2B refactoring)
 router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
 
-# Metrics
-webhook_received_total = Counter(
-    "execution_gateway_webhook_received_total",
-    "Total webhook events received by type",
-    ["event_type"],
-)
+# Metrics are defined in apps.execution_gateway.metrics
 
 
 def status_rank_for(status_str: str) -> int:

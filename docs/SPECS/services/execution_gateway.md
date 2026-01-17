@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-15 - Added noqa comment for intentional late import -->
+<!-- Last reviewed: 2026-01-16 - Updated source map for refactored app/router layout -->
 
 ## Identity
 - **Type:** Service
@@ -244,6 +244,35 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-14
-- **Source Files:** `apps/execution_gateway/main.py`, `apps/execution_gateway/alpaca_client.py`, `apps/execution_gateway/api/manual_controls.py`, `apps/execution_gateway/api/dependencies.py`, `apps/execution_gateway/database.py`, `apps/execution_gateway/reconciliation.py`, `apps/execution_gateway/schemas.py`, `apps/execution_gateway/webhook_security.py`, `config/settings.py`
+- **Last Updated:** 2026-01-16
+- **Source Files:**
+  - `apps/execution_gateway/main.py`
+  - `apps/execution_gateway/app_factory.py`
+  - `apps/execution_gateway/app_context.py`
+  - `apps/execution_gateway/config.py`
+  - `apps/execution_gateway/dependencies.py`
+  - `apps/execution_gateway/lifespan.py`
+  - `apps/execution_gateway/middleware.py`
+  - `apps/execution_gateway/metrics.py`
+  - `apps/execution_gateway/database.py`
+  - `apps/execution_gateway/reconciliation.py`
+  - `apps/execution_gateway/alpaca_client.py`
+  - `apps/execution_gateway/fat_finger_validator.py`
+  - `apps/execution_gateway/liquidity_service.py`
+  - `apps/execution_gateway/order_id_generator.py`
+  - `apps/execution_gateway/order_slicer.py`
+  - `apps/execution_gateway/slice_scheduler.py`
+  - `apps/execution_gateway/recovery_manager.py`
+  - `apps/execution_gateway/webhook_security.py`
+  - `apps/execution_gateway/routes/__init__.py`
+  - `apps/execution_gateway/routes/health.py`
+  - `apps/execution_gateway/routes/orders.py`
+  - `apps/execution_gateway/routes/positions.py`
+  - `apps/execution_gateway/routes/reconciliation.py`
+  - `apps/execution_gateway/routes/slicing.py`
+  - `apps/execution_gateway/routes/webhooks.py`
+  - `apps/execution_gateway/routes/admin.py`
+  - `apps/execution_gateway/schemas.py`
+  - `apps/execution_gateway/schemas_manual_controls.py`
+  - `config/settings.py`
 - **ADRs:** `docs/ADRs/0014-execution-gateway-architecture.md`

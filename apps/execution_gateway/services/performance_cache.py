@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING
 from redis.exceptions import RedisError
 
 if TYPE_CHECKING:
-    from libs.core.redis_client import RedisClient
+    from apps.execution_gateway.app_context import RedisClientProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def create_performance_cache_index_key(trade_date: date) -> str:
 
 
 def register_performance_cache(
-    redis_client: RedisClient | None,
+    redis_client: RedisClientProtocol | None,
     cache_key: str,
     start_date: date,
     end_date: date,
@@ -179,7 +179,7 @@ def register_performance_cache(
 
 
 def invalidate_performance_cache(
-    redis_client: RedisClient | None,
+    redis_client: RedisClientProtocol | None,
     trade_date: date | None = None,
 ) -> None:
     """Invalidate cached performance ranges that include the given trade_date.

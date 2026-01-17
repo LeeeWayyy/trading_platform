@@ -43,9 +43,9 @@ from redis.exceptions import RedisError
 from libs.core.redis_client import RedisKeys
 
 if TYPE_CHECKING:
-    from libs.core.redis_client import RedisClient
-
+    from apps.execution_gateway.app_context import RedisClientProtocol
     from apps.execution_gateway.database import DatabaseClient
+    from apps.execution_gateway.fat_finger_validator import FatFingerValidator
     from apps.execution_gateway.liquidity_service import LiquidityService
     from apps.execution_gateway.schemas import (
         FatFingerThresholds,
@@ -53,7 +53,6 @@ if TYPE_CHECKING:
         OrderRequest,
         OrderResponse,
     )
-    from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +158,7 @@ def parse_webhook_timestamp(*timestamps: Any, default: datetime) -> datetime:
 async def resolve_fat_finger_context(
     order: OrderRequest,
     thresholds: FatFingerThresholds,
-    redis_client: RedisClient | None,
+    redis_client: RedisClientProtocol | None,
     liquidity_service: LiquidityService | None,
     max_price_age_seconds: int,
 ) -> tuple[Decimal | None, int | None]:
@@ -274,7 +273,7 @@ def create_fat_finger_thresholds_snapshot(
 
 
 def batch_fetch_realtime_prices_from_redis(
-    symbols: list[str], redis_client: RedisClient | None
+    symbols: list[str], redis_client: RedisClientProtocol | None
 ) -> dict[str, tuple[Decimal | None, datetime | None]]:
     """Batch fetch real-time prices from Redis for multiple symbols.
 

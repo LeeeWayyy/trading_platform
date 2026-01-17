@@ -14,13 +14,13 @@ Target: 90%+ coverage per Phase 1 requirements.
 See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 """
 
-import pytest
 import hashlib
 import hmac
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -29,13 +29,12 @@ from apps.execution_gateway.middleware import (
     populate_user_from_headers,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_settings_no_validation():
     """Settings with validation disabled."""
     settings = MagicMock()
@@ -43,7 +42,7 @@ def mock_settings_no_validation():
     return settings
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_settings_with_validation():
     """Settings with validation enabled."""
     settings = MagicMock()
@@ -263,7 +262,7 @@ def test_verify_token_strips_whitespace(mock_settings_with_validation):
 # ============================================================================
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_no_headers():
     """Test middleware with no user headers."""
     from types import SimpleNamespace
@@ -285,7 +284,7 @@ async def test_middleware_no_headers():
     assert not hasattr(request_mock.state, "user")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_validation_disabled():
     """Test middleware with validation disabled."""
     request_mock = MagicMock(spec=Request)
@@ -311,7 +310,7 @@ async def test_middleware_validation_disabled():
     }
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_validation_enabled_valid_token(mock_settings_with_validation):
     """Test middleware with validation enabled and valid token."""
     timestamp_str = str(int(time.time()))
@@ -346,7 +345,7 @@ async def test_middleware_validation_enabled_valid_token(mock_settings_with_vali
     }
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_validation_enabled_invalid_token(mock_settings_with_validation):
     """Test middleware with validation enabled and invalid token."""
     timestamp_str = str(int(time.time()))
@@ -374,7 +373,7 @@ async def test_middleware_validation_enabled_invalid_token(mock_settings_with_va
     call_next_mock.assert_not_called()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_empty_strategies():
     """Test middleware with empty strategies header."""
     request_mock = MagicMock(spec=Request)
@@ -390,7 +389,7 @@ async def test_middleware_empty_strategies():
     with patch("config.settings.get_settings") as mock_get_settings:
         mock_get_settings.return_value = MagicMock(internal_token_required=False)
 
-        response = await populate_user_from_headers(request_mock, call_next_mock)
+        await populate_user_from_headers(request_mock, call_next_mock)
 
     assert request_mock.state.user == {
         "role": "viewer",
@@ -399,7 +398,7 @@ async def test_middleware_empty_strategies():
     }
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_strategies_with_whitespace():
     """Test middleware strips whitespace from strategies."""
     request_mock = MagicMock(spec=Request)
@@ -415,7 +414,7 @@ async def test_middleware_strategies_with_whitespace():
     with patch("config.settings.get_settings") as mock_get_settings:
         mock_get_settings.return_value = MagicMock(internal_token_required=False)
 
-        response = await populate_user_from_headers(request_mock, call_next_mock)
+        await populate_user_from_headers(request_mock, call_next_mock)
 
     assert request_mock.state.user["strategies"] == ["alpha_baseline", "momentum"]
 
@@ -461,7 +460,7 @@ def test_verify_token_within_tolerance_boundary(mock_settings_with_validation):
     assert error == ""
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_missing_user_id_with_role():
     """Test middleware when role is present but user_id is missing."""
     request_mock = MagicMock(spec=Request)
@@ -484,7 +483,7 @@ async def test_middleware_missing_user_id_with_role():
     call_next_mock.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_missing_role_with_user_id():
     """Test middleware when user_id is present but role is missing."""
     request_mock = MagicMock(spec=Request)
@@ -507,7 +506,7 @@ async def test_middleware_missing_role_with_user_id():
     call_next_mock.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_missing_timestamp_with_validation(mock_settings_with_validation):
     """Test middleware returns 401 when timestamp is missing but validation enabled."""
     request_mock = MagicMock(spec=Request)
@@ -533,7 +532,7 @@ async def test_middleware_missing_timestamp_with_validation(mock_settings_with_v
     call_next_mock.assert_not_called()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_middleware_missing_signature_with_validation(mock_settings_with_validation):
     """Test middleware returns 401 when signature is missing but validation enabled."""
     timestamp_str = str(int(time.time()))

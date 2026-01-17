@@ -94,8 +94,8 @@ sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)  # type: ignore[ar
 sys.modules.setdefault("jwt.utils", jwt_stub.utils)  # type: ignore[arg-type]
 
 from apps.execution_gateway import main
-from apps.execution_gateway.services.auth_helpers import build_user_context
 from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.services.auth_helpers import build_user_context
 
 # ---------------------------------------------------------------------------
 # Test fixtures

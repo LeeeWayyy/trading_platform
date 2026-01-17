@@ -32,7 +32,7 @@ def _clear_registry() -> None:
         REGISTRY.unregister(collector)
 
 
-@pytest.fixture
+@pytest.fixture()
 def clean_registry():
     original_collectors = list(REGISTRY._collector_to_names)  # type: ignore[attr-defined]
     _clear_registry()
@@ -431,7 +431,9 @@ class TestBatchFetchRealtimePrices:
 
     def test_batch_fetch_with_valid_data(self, mock_redis):
         """Test batch fetching prices from Redis with valid data."""
-        from apps.execution_gateway.services.order_helpers import batch_fetch_realtime_prices_from_redis
+        from apps.execution_gateway.services.order_helpers import (
+            batch_fetch_realtime_prices_from_redis,
+        )
 
         # Mock Redis MGET response (strings, not bytes, due to decode_responses=True)
         mock_redis.mget.return_value = [
@@ -447,7 +449,9 @@ class TestBatchFetchRealtimePrices:
 
     def test_batch_fetch_redis_unavailable(self):
         """Test batch fetch returns dict with None values when Redis is unavailable."""
-        from apps.execution_gateway.services.order_helpers import batch_fetch_realtime_prices_from_redis
+        from apps.execution_gateway.services.order_helpers import (
+            batch_fetch_realtime_prices_from_redis,
+        )
 
         result = batch_fetch_realtime_prices_from_redis(["AAPL"], None)
 
@@ -455,7 +459,9 @@ class TestBatchFetchRealtimePrices:
 
     def test_batch_fetch_empty_symbols(self, mock_redis):
         """Test batch fetch with empty symbol list returns empty dict."""
-        from apps.execution_gateway.services.order_helpers import batch_fetch_realtime_prices_from_redis
+        from apps.execution_gateway.services.order_helpers import (
+            batch_fetch_realtime_prices_from_redis,
+        )
 
         result = batch_fetch_realtime_prices_from_redis([], mock_redis)
 
@@ -650,7 +656,7 @@ def test_build_metrics_contains_expected_keys():
     assert "alpaca_api_requests_total" in metrics
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_exception_handlers():
     from apps.execution_gateway import main
 
@@ -683,7 +689,7 @@ async def test_exception_handlers():
     assert alpaca_connection.status_code == 503
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_lifespan_sets_globals(monkeypatch):
     from apps.execution_gateway import main
     from apps.execution_gateway.lifespan import LifespanResources

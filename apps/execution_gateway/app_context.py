@@ -21,6 +21,7 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 0 for design decisions.
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -30,7 +31,12 @@ from apps.execution_gateway.order_slicer import TWAPSlicer
 from libs.trading.risk_management import RiskConfig
 
 if TYPE_CHECKING:
-    from apps.execution_gateway.schemas import OrderRequest
+    from datetime import date, datetime
+    from decimal import Decimal
+    from typing import Literal
+
+    from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position, SliceDetail
+    from libs.trading.risk_management.position_reservation import ReleaseResult, ReservationResult
 
 
 class DatabaseClientProtocol(Protocol):
@@ -40,12 +46,169 @@ class DatabaseClientProtocol(Protocol):
     without depending on the concrete DatabaseClient implementation.
     """
 
-    def execute(self, query: str, params: tuple[object, ...] | None = None) -> list[dict[str, object]]:
-        """Execute a query and return results."""
+    def transaction(self) -> AbstractContextManager[Any]:
+        """Start a database transaction context manager."""
         ...
 
-    def transaction(self) -> object:
-        """Start a database transaction context manager."""
+    def check_connection(self) -> bool:
+        """Check database connectivity."""
+        ...
+
+    def create_order(
+        self,
+        client_order_id: str,
+        strategy_id: str,
+        order_request: OrderRequest,
+        status: str,
+        broker_order_id: str | None = None,
+        error_message: str | None = None,
+    ) -> OrderDetail:
+        """Create a new order record."""
+        ...
+
+    def create_parent_order(
+        self,
+        client_order_id: str,
+        strategy_id: str,
+        order_request: OrderRequest,
+        total_slices: int,
+        status: str = "pending_new",
+        metadata: dict[str, Any] | None = None,
+        conn: Any | None = None,
+    ) -> OrderDetail:
+        """Create a TWAP parent order record."""
+        ...
+
+    def create_child_slice(
+        self,
+        client_order_id: str,
+        parent_order_id: str,
+        slice_num: int,
+        strategy_id: str,
+        order_request: OrderRequest,
+        scheduled_time: datetime,
+        status: str = "pending_new",
+        conn: Any | None = None,
+    ) -> OrderDetail:
+        """Create a TWAP child slice record."""
+        ...
+
+    def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
+        """Fetch an order by client_order_id."""
+        ...
+
+    def get_order_for_update(self, client_order_id: str, conn: Any) -> OrderDetail | None:
+        """Fetch order for update within a transaction."""
+        ...
+
+    def get_slices_by_parent_id(self, parent_order_id: str) -> list[OrderDetail]:
+        """Fetch all child slices for a parent order."""
+        ...
+
+    def get_all_positions(self) -> list[Position]:
+        """Fetch all positions."""
+        ...
+
+    def get_positions_for_strategies(self, strategy_ids: list[str]) -> list[Position]:
+        """Fetch positions filtered by strategy IDs."""
+        ...
+
+    def get_position_by_symbol(self, symbol: str) -> int:
+        """Get current position quantity for a symbol."""
+        ...
+
+    def get_position_for_update(self, symbol: str, conn: Any) -> Position | None:
+        """Fetch position for update within a transaction."""
+        ...
+
+    def get_daily_pnl_history(
+        self, start_date: date, end_date: date, strategy_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Fetch daily realized P&L history."""
+        ...
+
+    def get_data_availability_date(self) -> date | None:
+        """Get earliest date with available P&L data."""
+        ...
+
+    def get_all_strategy_ids(self, filter_ids: list[str] | None = None) -> list[str]:
+        """Fetch all strategy IDs."""
+        ...
+
+    def get_bulk_strategy_status(self, strategy_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Fetch status metadata for multiple strategies."""
+        ...
+
+    def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
+        """Fetch status metadata for a strategy."""
+        ...
+
+    def update_order_status(
+        self,
+        client_order_id: str,
+        status: str,
+        broker_order_id: str | None = None,
+        filled_qty: Decimal | None = None,
+        filled_avg_price: Decimal | None = None,
+        error_message: str | None = None,
+    ) -> OrderDetail | None:
+        """Update order status."""
+        ...
+
+    def update_order_status_cas(
+        self,
+        client_order_id: str,
+        status: str,
+        broker_updated_at: datetime,
+        status_rank: int,
+        source_priority: int,
+        filled_qty: Decimal | None = None,
+        filled_avg_price: Decimal | None = None,
+        filled_at: datetime | None = None,
+        broker_order_id: str | None = None,
+        broker_event_id: str | None = None,
+        error_message: str | None = None,
+        conn: Any | None = None,
+    ) -> OrderDetail | None:
+        """Update order status with conflict resolution."""
+        ...
+
+    def update_order_status_with_conn(
+        self,
+        client_order_id: str,
+        status: str,
+        filled_qty: Decimal | None,
+        filled_avg_price: Decimal,
+        filled_at: datetime | None,
+        conn: Any,
+        broker_order_id: str | None = None,
+        broker_updated_at: datetime | None = None,
+        status_rank: int | None = None,
+        source_priority: int | None = None,
+        broker_event_id: str | None = None,
+    ) -> OrderDetail | None:
+        """Update order status using an existing transaction connection."""
+        ...
+
+    def update_position_on_fill_with_conn(
+        self,
+        symbol: str,
+        fill_qty: int,
+        fill_price: Decimal,
+        side: str,
+        conn: Any,
+    ) -> Position:
+        """Update position in a transaction after a fill."""
+        ...
+
+    def append_fill_to_order_metadata(
+        self, client_order_id: str, fill_data: dict[str, Any], conn: Any
+    ) -> OrderDetail | None:
+        """Append fill metadata to an order."""
+        ...
+
+    def cancel_pending_slices(self, parent_order_id: str) -> int:
+        """Cancel pending slice orders for a parent."""
         ...
 
 
@@ -56,12 +219,38 @@ class RedisClientProtocol(Protocol):
     without depending on the concrete RedisClient implementation.
     """
 
-    def get(self, key: str) -> bytes | None:
+    def get(self, key: str) -> str | None:
         """Get value for key."""
         ...
 
-    def set(self, key: str, value: str | bytes, ex: int | None = None) -> bool:
+    def set(
+        self,
+        key: str,
+        value: str,
+        ttl: int | None = None,
+        ex: int | None = None,
+    ) -> None:
         """Set key to value with optional expiration."""
+        ...
+
+    def mget(self, keys: list[str]) -> list[str | None]:
+        """Get multiple values for keys."""
+        ...
+
+    def health_check(self) -> bool:
+        """Check Redis connectivity."""
+        ...
+
+    def pipeline(self) -> Any:
+        """Create Redis pipeline."""
+        ...
+
+    def sscan_iter(self, key: str) -> Any:
+        """Iterate set members without blocking."""
+        ...
+
+    def delete(self, *keys: str) -> int:
+        """Delete keys."""
         ...
 
 
@@ -110,6 +299,10 @@ class AlpacaClientProtocol(Protocol):
         """Get order by client_order_id."""
         ...
 
+    def get_account_info(self) -> dict[str, Any] | None:
+        """Get Alpaca account info."""
+        ...
+
     def check_connection(self) -> bool:
         """Check if connection to Alpaca is healthy."""
         ...
@@ -146,12 +339,13 @@ class ReconciliationServiceProtocol(Protocol):
         """Mark startup reconciliation as complete (operator override)."""
         ...
 
-    async def run_reconciliation_once(self, trigger: str) -> dict[str, object]:
+    async def run_reconciliation_once(self, trigger: str) -> None:
         """Run reconciliation once."""
         ...
 
     async def run_fills_backfill_once(
         self,
+        *,
         lookback_hours: int | None = None,
         recalc_all_trades: bool = False,
     ) -> dict[str, object]:
@@ -167,26 +361,23 @@ class RecoveryManagerProtocol(Protocol):
     """
 
     @property
-    def kill_switch(self) -> object | None:
+    def kill_switch(self) -> KillSwitchProtocol | None:
         """Get the kill switch instance."""
         ...
 
     @property
-    def circuit_breaker(self) -> object | None:
+    def circuit_breaker(self) -> CircuitBreakerProtocol | None:
         """Get the circuit breaker instance."""
         ...
 
     @property
-    def position_reservation(self) -> object | None:
+    def position_reservation(self) -> PositionReservationProtocol | None:
         """Get the position reservation instance."""
         ...
 
-    def kill_switch_engaged(self) -> bool:
-        """Check if kill switch is engaged."""
-        ...
-
-    def circuit_breaker_tripped(self) -> bool:
-        """Check if circuit breaker is tripped."""
+    @property
+    def slice_scheduler(self) -> SliceSchedulerProtocol | None:
+        """Get the slice scheduler instance."""
         ...
 
     def is_kill_switch_unavailable(self) -> bool:
@@ -219,12 +410,89 @@ class RecoveryManagerProtocol(Protocol):
 
     def attempt_recovery(
         self,
-        kill_switch_factory: object | None = None,
-        circuit_breaker_factory: object | None = None,
-        position_reservation_factory: object | None = None,
-        slice_scheduler_factory: object | None = None,
-    ) -> None:
+        kill_switch_factory: Any | None = None,
+        circuit_breaker_factory: Any | None = None,
+        position_reservation_factory: Any | None = None,
+        slice_scheduler_factory: Any | None = None,
+    ) -> dict[str, bool]:
         """Attempt to recover unavailable safety components."""
+        ...
+
+
+class KillSwitchProtocol(Protocol):
+    """Protocol for kill switch operations used by routes."""
+
+    def is_engaged(self) -> bool:
+        """Return whether trading is halted."""
+        ...
+
+    def engage(self, reason: str, operator: str, details: dict[str, Any] | None = None) -> None:
+        """Engage the kill switch."""
+        ...
+
+    def disengage(self, operator: str, notes: str | None = None) -> None:
+        """Disengage the kill switch."""
+        ...
+
+    def get_status(self) -> dict[str, Any]:
+        """Get kill switch status."""
+        ...
+
+
+class CircuitBreakerProtocol(Protocol):
+    """Protocol for circuit breaker operations used by routes."""
+
+    def is_tripped(self) -> bool:
+        """Return whether the circuit breaker is tripped."""
+        ...
+
+    def get_status(self) -> dict[str, Any]:
+        """Get circuit breaker status."""
+        ...
+
+
+class PositionReservationProtocol(Protocol):
+    """Protocol for position reservation operations used by routes."""
+
+    def reserve(
+        self,
+        symbol: str,
+        side: str,
+        qty: int,
+        max_limit: int,
+        current_position: int = 0,
+    ) -> ReservationResult:
+        """Reserve a position delta."""
+        ...
+
+    def release(self, symbol: str, token: str) -> ReleaseResult:
+        """Release a reservation."""
+        ...
+
+    def confirm(self, symbol: str, token: str) -> ReleaseResult:
+        """Confirm a reservation."""
+        ...
+
+
+class SliceSchedulerProtocol(Protocol):
+    """Protocol for slice scheduler operations used by routes."""
+
+    def schedule_slices(
+        self,
+        parent_order_id: str,
+        slices: list[SliceDetail],
+        symbol: str,
+        side: Literal["buy", "sell"],
+        order_type: Literal["market", "limit", "stop", "stop_limit"],
+        limit_price: Decimal | None,
+        stop_price: Decimal | None,
+        time_in_force: Literal["day", "gtc", "ioc", "fok"],
+    ) -> list[str]:
+        """Schedule slice execution jobs."""
+        ...
+
+    def cancel_remaining_slices(self, parent_order_id: str) -> tuple[int, int]:
+        """Cancel remaining slices and return scheduler/db counts."""
         ...
 
 

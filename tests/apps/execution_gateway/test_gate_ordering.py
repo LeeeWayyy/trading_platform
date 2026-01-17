@@ -14,7 +14,7 @@ from apps.execution_gateway.routes.orders import submit_order
 from apps.execution_gateway.schemas import OrderRequest
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_position_reservation_happens_before_idempotency() -> None:
     """Verify reservation is executed before the idempotency check."""
     call_order: list[str] = []

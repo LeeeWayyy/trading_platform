@@ -94,8 +94,7 @@ sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 from fastapi import Request
 
-from apps.execution_gateway import main
-from apps.execution_gateway import middleware
+from apps.execution_gateway import main, middleware
 from apps.execution_gateway.routes import positions as positions_routes
 from apps.execution_gateway.services.auth_helpers import build_user_context
 

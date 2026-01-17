@@ -26,7 +26,7 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 0 for design decisions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import Depends, Request
 
@@ -75,14 +75,104 @@ def get_context(request: Request) -> AppContext:
     from apps.execution_gateway.app_context import AppContext as AppContextType
 
     ctx = getattr(request.app.state, "context", None)
+    context_deps = getattr(request.app.state, "context_deps", None)
     if ctx is None:
-        raise RuntimeError(
-            "AppContext not initialized in app.state. "
-            "This should never happen in production - the lifespan context "
-            "manager initializes AppContext before routes are accessible. "
-            "If you see this error, check that app_factory.py properly "
-            "initializes app.state.context during startup."
-        )
+        try:
+            from apps.execution_gateway import main
+
+            if request.app is not main.app:
+                raise RuntimeError(
+                    "AppContext not initialized in app.state. "
+                    "This should never happen in production - the lifespan context "
+                    "manager initializes AppContext before routes are accessible. "
+                    "If you see this error, check that app_factory.py properly "
+                    "initializes app.state.context during startup."
+                )
+            ctx = AppContextType(
+                db=main.db_client,
+                redis=main.redis_client,
+                alpaca=main.alpaca_client,
+                liquidity_service=main.liquidity_service,
+                reconciliation_service=main.reconciliation_service,
+                recovery_manager=main.recovery_manager,
+                risk_config=main.risk_config,
+                fat_finger_validator=main.fat_finger_validator,
+                twap_slicer=main.twap_slicer,
+                webhook_secret=main.WEBHOOK_SECRET,
+            )
+            request.app.state.context = ctx
+            request.app.state.context_deps = {
+                "db": main.db_client,
+                "redis": main.redis_client,
+                "alpaca": main.alpaca_client,
+                "liquidity_service": main.liquidity_service,
+                "reconciliation_service": main.reconciliation_service,
+                "recovery_manager": main.recovery_manager,
+                "risk_config": main.risk_config,
+                "fat_finger_validator": main.fat_finger_validator,
+                "twap_slicer": main.twap_slicer,
+                "webhook_secret": main.WEBHOOK_SECRET,
+            }
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            raise RuntimeError(
+                "AppContext not initialized in app.state. "
+                "This should never happen in production - the lifespan context "
+                "manager initializes AppContext before routes are accessible. "
+                "If you see this error, check that app_factory.py properly "
+                "initializes app.state.context during startup."
+            ) from exc
+    elif context_deps:
+        try:
+            from apps.execution_gateway import main
+
+            if request.app is main.app:
+                needs_refresh = (
+                    context_deps.get("db") is not main.db_client
+                    or context_deps.get("redis") is not main.redis_client
+                    or context_deps.get("alpaca") is not main.alpaca_client
+                    or context_deps.get("liquidity_service") is not main.liquidity_service
+                    or context_deps.get("reconciliation_service")
+                    is not main.reconciliation_service
+                    or context_deps.get("recovery_manager") is not main.recovery_manager
+                    or context_deps.get("risk_config") is not main.risk_config
+                    or context_deps.get("fat_finger_validator") is not main.fat_finger_validator
+                    or context_deps.get("twap_slicer") is not main.twap_slicer
+                    or context_deps.get("webhook_secret") != main.WEBHOOK_SECRET
+                )
+                if needs_refresh:
+                    ctx = AppContextType(
+                        db=main.db_client,
+                        redis=main.redis_client,
+                        alpaca=main.alpaca_client,
+                        liquidity_service=main.liquidity_service,
+                        reconciliation_service=main.reconciliation_service,
+                        recovery_manager=main.recovery_manager,
+                        risk_config=main.risk_config,
+                        fat_finger_validator=main.fat_finger_validator,
+                        twap_slicer=main.twap_slicer,
+                        webhook_secret=main.WEBHOOK_SECRET,
+                    )
+                    request.app.state.context = ctx
+                    request.app.state.context_deps = {
+                        "db": main.db_client,
+                        "redis": main.redis_client,
+                        "alpaca": main.alpaca_client,
+                        "liquidity_service": main.liquidity_service,
+                        "reconciliation_service": main.reconciliation_service,
+                        "recovery_manager": main.recovery_manager,
+                        "risk_config": main.risk_config,
+                        "fat_finger_validator": main.fat_finger_validator,
+                        "twap_slicer": main.twap_slicer,
+                        "webhook_secret": main.WEBHOOK_SECRET,
+                    }
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            raise RuntimeError(
+                "AppContext not initialized in app.state. "
+                "This should never happen in production - the lifespan context "
+                "manager initializes AppContext before routes are accessible. "
+                "If you see this error, check that app_factory.py properly "
+                "initializes app.state.context during startup."
+            ) from exc
     return cast(AppContextType, ctx)
 
 
@@ -118,13 +208,28 @@ def get_config(request: Request) -> ExecutionGatewayConfig:
 
     config = getattr(request.app.state, "config", None)
     if config is None:
-        raise RuntimeError(
-            "ExecutionGatewayConfig not initialized in app.state. "
-            "This should never happen in production - the lifespan context "
-            "manager initializes config before routes are accessible. "
-            "If you see this error, check that app_factory.py properly "
-            "initializes app.state.config during startup."
-        )
+        try:
+            from apps.execution_gateway import main
+            from apps.execution_gateway.config import get_config as load_config
+
+            if request.app is not main.app:
+                raise RuntimeError(
+                    "ExecutionGatewayConfig not initialized in app.state. "
+                    "This should never happen in production - the lifespan context "
+                    "manager initializes config before routes are accessible. "
+                    "If you see this error, check that app_factory.py properly "
+                    "initializes app.state.config during startup."
+                )
+            config = load_config()
+            request.app.state.config = config
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            raise RuntimeError(
+                "ExecutionGatewayConfig not initialized in app.state. "
+                "This should never happen in production - the lifespan context "
+                "manager initializes config before routes are accessible. "
+                "If you see this error, check that app_factory.py properly "
+                "initializes app.state.config during startup."
+            ) from exc
     return cast(ConfigType, config)
 
 
@@ -155,11 +260,23 @@ def get_version(request: Request) -> str:
     """
     version = getattr(request.app.state, "version", None)
     if version is None:
-        raise RuntimeError(
-            "Version not initialized in app.state. "
-            "This should never happen in production - the lifespan context "
-            "manager initializes version before routes are accessible."
-        )
+        try:
+            from apps.execution_gateway import __version__, main
+
+            if request.app is not main.app:
+                raise RuntimeError(
+                    "Version not initialized in app.state. "
+                    "This should never happen in production - the lifespan context "
+                    "manager initializes version before routes are accessible."
+                )
+            version = __version__
+            request.app.state.version = version
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            raise RuntimeError(
+                "Version not initialized in app.state. "
+                "This should never happen in production - the lifespan context "
+                "manager initializes version before routes are accessible."
+            ) from exc
     return cast(str, version)
 
 
@@ -180,7 +297,6 @@ def get_db_client(ctx: AppContext = Depends(get_context)) -> DatabaseClientProto
     Returns:
         DatabaseClient: Database client for persistent storage
     """
-    from apps.execution_gateway.app_context import DatabaseClientProtocol
 
     return ctx.db
 
@@ -194,7 +310,6 @@ def get_redis_client(ctx: AppContext = Depends(get_context)) -> RedisClientProto
     Returns:
         RedisClient or None: Redis client for caching (None if unavailable)
     """
-    from apps.execution_gateway.app_context import RedisClientProtocol
 
     return ctx.redis
 
@@ -208,7 +323,6 @@ def get_alpaca_client(ctx: AppContext = Depends(get_context)) -> AlpacaClientPro
     Returns:
         AlpacaExecutor or None: Alpaca broker client (None in dry-run)
     """
-    from apps.execution_gateway.app_context import AlpacaClientProtocol
 
     return ctx.alpaca
 
@@ -222,7 +336,6 @@ def get_recovery_manager(ctx: AppContext = Depends(get_context)) -> RecoveryMana
     Returns:
         RecoveryManager: Coordinator for safety components
     """
-    from apps.execution_gateway.app_context import RecoveryManagerProtocol
 
     return ctx.recovery_manager
 
@@ -238,7 +351,6 @@ def get_reconciliation_service(
     Returns:
         ReconciliationService or None: Broker state sync service (None if unavailable)
     """
-    from apps.execution_gateway.app_context import ReconciliationServiceProtocol
 
     return ctx.reconciliation_service
 
@@ -307,11 +419,23 @@ def get_metrics(request: Request) -> dict[str, object]:
     """
     metrics = getattr(request.app.state, "metrics", None)
     if metrics is None:
-        raise RuntimeError(
-            "Metrics not initialized in app.state. "
-            "This should never happen in production - the lifespan context "
-            "manager initializes metrics before routes are accessible."
-        )
+        try:
+            from apps.execution_gateway import main
+
+            if request.app is not main.app:
+                raise RuntimeError(
+                    "Metrics not initialized in app.state. "
+                    "This should never happen in production - the lifespan context "
+                    "manager initializes metrics before routes are accessible."
+                )
+            metrics = main._build_metrics()
+            request.app.state.metrics = metrics
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            raise RuntimeError(
+                "Metrics not initialized in app.state. "
+                "This should never happen in production - the lifespan context "
+                "manager initializes metrics before routes are accessible."
+            ) from exc
     return cast(dict[str, object], metrics)
 
 

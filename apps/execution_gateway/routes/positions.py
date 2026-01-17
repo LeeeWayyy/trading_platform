@@ -39,13 +39,13 @@ from typing import Any, cast
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
-from prometheus_client import Gauge
 from redis.exceptions import RedisError
 
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.config import ExecutionGatewayConfig
 from apps.execution_gateway.dependencies import get_config, get_context
+from apps.execution_gateway.metrics import pnl_dollars, positions_current
 from apps.execution_gateway.schemas import (
     AccountInfoResponse,
     DailyPerformanceResponse,
@@ -89,18 +89,7 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
     "yes",
 )
 
-# Metrics defined at module level
-positions_current = Gauge(
-    "execution_gateway_positions_current",
-    "Current open positions by symbol",
-    ["symbol"],
-)
-
-pnl_dollars = Gauge(
-    "execution_gateway_pnl_dollars",
-    "P&L in dollars",
-    ["type"],  # Label values: realized, unrealized, total
-)
+# Metrics are defined in apps.execution_gateway.metrics
 
 # Auth dependency (module level)
 order_read_auth = api_auth(
@@ -272,7 +261,13 @@ async def get_daily_performance(
     if ctx.redis:
         try:
             ctx.redis.set(cache_key, response.model_dump_json(), ttl=PERFORMANCE_CACHE_TTL)
-            register_performance_cache(cache_key, perf_request.start_date, perf_request.end_date)
+            register_performance_cache(
+                ctx.redis,
+                cache_key,
+                perf_request.start_date,
+                perf_request.end_date,
+                PERFORMANCE_CACHE_TTL,
+            )
         except RedisError as e:
             logger.warning(
                 "Performance cache write failed - Redis error",

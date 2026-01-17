@@ -13,12 +13,12 @@ Target: 90%+ coverage per Phase 1 requirements.
 See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 """
 
-import pytest
-from fastapi import HTTPException, Request
 from unittest.mock import MagicMock
 
-from apps.execution_gateway.services.auth_helpers import build_user_context
+import pytest
+from fastapi import HTTPException, Request
 
+from apps.execution_gateway.services.auth_helpers import build_user_context
 
 # ============================================================================
 # Test build_user_context

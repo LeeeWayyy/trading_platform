@@ -13,11 +13,11 @@ Target: 90%+ coverage per Phase 1 requirements.
 See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import HTTPException
 from redis.exceptions import RedisError
 
@@ -28,7 +28,6 @@ from apps.execution_gateway.services.order_helpers import (
     parse_webhook_timestamp,
     resolve_fat_finger_context,
 )
-
 
 # ============================================================================
 # Test handle_idempotency_race
@@ -149,7 +148,7 @@ def test_parse_webhook_timestamp_returns_default() -> None:
 # ============================================================================
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_uses_limit_price() -> None:
     """Test that limit_price is preferred for fat-finger validation."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -171,7 +170,7 @@ async def test_resolve_fat_finger_context_uses_limit_price() -> None:
     assert adv is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_uses_stop_price() -> None:
     """Test that stop_price is used when limit_price not available."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -193,7 +192,7 @@ async def test_resolve_fat_finger_context_uses_stop_price() -> None:
     assert adv is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_fetches_realtime_price() -> None:
     """Test that real-time price is fetched from Redis when order price unavailable."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -220,7 +219,7 @@ async def test_resolve_fat_finger_context_fetches_realtime_price() -> None:
         assert adv is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_rejects_stale_price() -> None:
     """Test that stale prices are rejected."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -247,7 +246,7 @@ async def test_resolve_fat_finger_context_rejects_stale_price() -> None:
         assert price is None  # Stale price rejected
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_rejects_missing_timestamp() -> None:
     """Test that prices without timestamps are rejected."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -273,7 +272,7 @@ async def test_resolve_fat_finger_context_rejects_missing_timestamp() -> None:
         assert price is None  # Missing timestamp rejected
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_fetches_adv() -> None:
     """Test that ADV is fetched from liquidity service."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -301,7 +300,7 @@ async def test_resolve_fat_finger_context_fetches_adv() -> None:
     assert adv == 1000000
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_no_validation_needed() -> None:
     """Test that (None, None) returned when no validation needed."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -460,7 +459,7 @@ def test_batch_fetch_handles_invalid_timestamp_format() -> None:
     assert result["TSLA"][0] == Decimal("200.50")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_fresh_price() -> None:
     """Test that fresh prices within tolerance are accepted."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -487,7 +486,7 @@ async def test_resolve_fat_finger_context_fresh_price() -> None:
         assert price == Decimal("152.50")  # Fresh price accepted
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_naive_timestamp_handling() -> None:
     """Test that naive timestamps are made timezone-aware."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -516,7 +515,7 @@ async def test_resolve_fat_finger_context_naive_timestamp_handling() -> None:
         assert price is not None or price is None  # Either case is valid depending on actual time
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_resolve_fat_finger_context_no_redis_client() -> None:
     """Test handling when redis_client is None for market order."""
     from apps.execution_gateway.schemas import FatFingerThresholds, OrderRequest
@@ -554,7 +553,6 @@ def test_handle_idempotency_race_logs_info(caplog: pytest.LogCaptureFixture) -> 
     """Test that idempotency race condition is logged."""
     import logging
 
-    from apps.execution_gateway.schemas import OrderResponse
 
     db_client_mock = MagicMock()
     existing_order_mock = MagicMock()

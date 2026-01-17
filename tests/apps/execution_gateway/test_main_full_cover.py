@@ -155,7 +155,6 @@ sys.modules.setdefault("libs.redis_client", redis_client_stub)
 sys.modules.setdefault("libs.core.redis_client.client", redis_client_stub)
 sys.modules.setdefault("libs.core.redis_client.keys", redis_client_stub)
 
-from fastapi import Request
 
 from apps.execution_gateway import main
 from apps.execution_gateway.app_factory import create_test_config

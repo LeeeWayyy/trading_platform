@@ -19,9 +19,6 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import Request, Response
 
-# Import shared mock helpers from root conftest (DRY principle)
-from tests.conftest import _create_mock_db_client, _create_mock_recovery_manager
-
 from apps.execution_gateway import main
 from apps.execution_gateway.app_factory import create_mock_context, create_test_config
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
@@ -32,6 +29,9 @@ from apps.execution_gateway.routes import slicing as slicing_routes
 from apps.execution_gateway.schemas import FatFingerThresholds
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.trading.risk_management import RiskConfig
+
+# Import shared mock helpers from root conftest (DRY principle)
+from tests.conftest import _create_mock_db_client, _create_mock_recovery_manager
 
 # Test environment defaults - use setdefault to allow explicit overrides
 # These MUST be set before importing main.py to ensure correct initialization

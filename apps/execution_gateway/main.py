@@ -5,19 +5,17 @@ See ADR-0014 for architecture decisions.
 """
 
 import asyncio
-import json
 import logging
 import os
-import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, cast
+from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
+from prometheus_client import make_asgi_app
 from pydantic import ValidationError
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -29,35 +27,68 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaValidationError,
 )
 from apps.execution_gateway.api.manual_controls import router as manual_controls_router
+
+# Re-exports for external consumers
+from apps.execution_gateway.app_context import AppContext  # noqa: F401
+from apps.execution_gateway.app_factory import create_app  # noqa: F401
+from apps.execution_gateway.config import ExecutionGatewayConfig, get_config  # noqa: F401
 from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests)
     TERMINAL_STATUSES,
     DatabaseClient,
     calculate_position_update,
     status_rank_for,
 )
+from apps.execution_gateway.dependencies import get_config as get_config_dependency  # noqa: F401
 from apps.execution_gateway.fat_finger_validator import (
     FatFingerValidator,
-    iter_breach_types,
 )
-from apps.execution_gateway.liquidity_service import LiquidityService
 from apps.execution_gateway.lifespan import (
     LifespanResources,
     LifespanSettings,
     shutdown_execution_gateway,
     startup_execution_gateway,
 )
-from apps.execution_gateway.order_id_generator import (
-    generate_client_order_id,
-    reconstruct_order_params_hash,
+from apps.execution_gateway.liquidity_service import LiquidityService
+from apps.execution_gateway.metrics import (
+    alpaca_api_requests_total,
+    alpaca_connection_status,
+    database_connection_status,
+    dry_run_mode,
+    fat_finger_rejections_total,
+    fat_finger_warnings_total,
+    order_placement_duration,
+    order_placement_duration_seconds,
+    orders_total,
+    pnl_dollars,
+    positions_current,
+    redis_connection_status,
+    webhook_received_total,
+)
+from apps.execution_gateway.middleware import (
+    populate_user_from_headers as populate_user_from_headers_middleware,
 )
 from apps.execution_gateway.order_slicer import TWAPSlicer
 from apps.execution_gateway.reconciliation import (
-    SOURCE_PRIORITY_MANUAL,
-    SOURCE_PRIORITY_WEBHOOK,
     ReconciliationService,
 )
 from apps.execution_gateway.recovery_manager import RecoveryManager
-from apps.execution_gateway.schemas import (
+
+# Route modules
+from apps.execution_gateway.routes import admin as admin_routes
+from apps.execution_gateway.routes import health as health_routes
+from apps.execution_gateway.routes import orders as orders_routes
+from apps.execution_gateway.routes import positions as positions_routes
+from apps.execution_gateway.routes import reconciliation as reconciliation_routes
+from apps.execution_gateway.routes import slicing as slicing_routes
+from apps.execution_gateway.routes import webhooks as webhooks_routes
+from apps.execution_gateway.routes.admin import kill_switch_auth  # noqa: F401
+from apps.execution_gateway.routes.orders import (  # noqa: F401
+    order_cancel_auth,
+    order_read_auth,
+    order_submit_auth,
+)
+from apps.execution_gateway.routes.slicing import order_slice_auth  # noqa: F401
+from apps.execution_gateway.schemas import (  # noqa: F401
     AccountInfoResponse,
     CircuitBreakerStatusResponse,
     ConfigResponse,
@@ -87,51 +118,12 @@ from apps.execution_gateway.schemas import (
     StrategiesListResponse,
     StrategyStatusResponse,
 )
-from apps.execution_gateway.slice_scheduler import SliceScheduler
-from apps.execution_gateway.webhook_security import (
+from apps.execution_gateway.webhook_security import (  # noqa: F401
     extract_signature_from_header,
     verify_webhook_signature,
 )
-
-# Re-exports for external consumers
-from apps.execution_gateway.app_context import AppContext  # noqa: F401
-from apps.execution_gateway.app_factory import create_app  # noqa: F401
-from apps.execution_gateway.config import ExecutionGatewayConfig, get_config  # noqa: F401
-from apps.execution_gateway.dependencies import get_config as get_config_dependency, get_context  # noqa: F401
-
-from apps.execution_gateway.middleware import (
-    populate_user_from_headers as populate_user_from_headers_middleware,
-)
-from apps.execution_gateway.services.auth_helpers import build_user_context
-from apps.execution_gateway.services.order_helpers import (
-    batch_fetch_realtime_prices_from_redis,
-    create_fat_finger_thresholds_snapshot,
-    handle_idempotency_race,
-    parse_webhook_timestamp,
-    resolve_fat_finger_context,
-)
-from apps.execution_gateway.services.performance_cache import (
-    create_performance_cache_index_key,
-    create_performance_cache_key,
-    invalidate_performance_cache,
-    register_performance_cache,
-)
-from apps.execution_gateway.services.pnl_calculator import (
-    calculate_position_pnl,
-    compute_daily_performance,
-    resolve_and_calculate_pnl,
-)
-
 from libs.core.redis_client import RedisClient
-from libs.trading.risk_management import CircuitBreaker, KillSwitch, PositionReservation, RiskConfig
-
-# Route modules
-from apps.execution_gateway.routes import admin as admin_routes
-from apps.execution_gateway.routes import orders as orders_routes
-from apps.execution_gateway.routes import positions as positions_routes
-from apps.execution_gateway.routes import slicing as slicing_routes
-from apps.execution_gateway.routes import webhooks as webhooks_routes
-
+from libs.trading.risk_management import RiskConfig
 
 # =============================================================================
 # Configuration
@@ -373,10 +365,6 @@ app = FastAPI(
 # =============================================================================
 # Router Mounting
 # =============================================================================
-
-from apps.execution_gateway.routes import health as health_routes
-from apps.execution_gateway.routes import reconciliation as reconciliation_routes
-
 app.include_router(health_routes.router)
 app.include_router(reconciliation_routes.router)
 app.include_router(admin_routes.router)
@@ -398,64 +386,6 @@ app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Contr
 # Prometheus Metrics
 # =============================================================================
 
-orders_total = Counter(
-    "execution_gateway_orders_total",
-    "Total number of orders submitted",
-    ["symbol", "side", "status"],  # status: success, failed, rejected, blocked
-)
-
-order_placement_duration = Histogram(
-    "execution_gateway_order_placement_duration_seconds",
-    "Time taken to place an order",
-    ["symbol", "side"],
-)
-
-# Latency histogram for shared health dashboard (no service prefix)
-order_placement_duration_seconds = Histogram(
-    "order_placement_duration_seconds",
-    "Time taken to place an order",
-)
-
-fat_finger_warnings_total = Counter(
-    "execution_gateway_fat_finger_warnings_total",
-    "Total fat-finger threshold warnings",
-    ["threshold_type"],
-)
-
-fat_finger_rejections_total = Counter(
-    "execution_gateway_fat_finger_rejections_total",
-    "Total fat-finger threshold rejections",
-    ["threshold_type"],
-)
-
-database_connection_status = Gauge(
-    "execution_gateway_database_connection_status",
-    "Database connection status (1=up, 0=down)",
-)
-
-redis_connection_status = Gauge(
-    "execution_gateway_redis_connection_status",
-    "Redis connection status (1=up, 0=down)",
-)
-
-alpaca_connection_status = Gauge(
-    "execution_gateway_alpaca_connection_status",
-    "Alpaca connection status (1=up, 0=down)",
-)
-
-alpaca_api_requests_total = Counter(
-    "execution_gateway_alpaca_api_requests_total",
-    "Total Alpaca API requests",
-    ["operation", "status"],
-)
-
-from apps.execution_gateway.routes.webhooks import webhook_received_total  # noqa: E402
-
-dry_run_mode = Gauge(
-    "execution_gateway_dry_run_mode",
-    "DRY_RUN mode status (1=enabled, 0=disabled)",
-)
-
 dry_run_mode.set(1 if DRY_RUN else 0)
 database_connection_status.set(0)
 redis_connection_status.set(0)
@@ -473,8 +403,8 @@ def _build_metrics() -> dict[str, Any]:
         "order_placement_duration_seconds": order_placement_duration_seconds,
         "fat_finger_warnings_total": fat_finger_warnings_total,
         "fat_finger_rejections_total": fat_finger_rejections_total,
-        "positions_current": positions_routes.positions_current,
-        "pnl_dollars": positions_routes.pnl_dollars,
+        "positions_current": positions_current,
+        "pnl_dollars": pnl_dollars,
         "database_connection_status": database_connection_status,
         "redis_connection_status": redis_connection_status,
         "alpaca_connection_status": alpaca_connection_status,

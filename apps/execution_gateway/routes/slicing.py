@@ -243,7 +243,11 @@ def _check_twap_prerequisites(ctx: AppContext) -> None:
         logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TWAP order service unavailable (kill-switch state unknown)",
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state unknown (fail-closed for safety)",
+                "fail_closed": True,
+            },
         )
 
     # Check kill-switch status

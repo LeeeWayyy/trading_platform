@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 
+from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaValidationError
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 from apps.execution_gateway.lifespan import (
     LifespanResources,
@@ -19,9 +20,8 @@ from apps.execution_gateway.lifespan import (
     startup_execution_gateway,
 )
 from apps.execution_gateway.schemas import FatFingerThresholds
-from libs.trading.risk_management import RiskConfig
 from libs.core.redis_client import RedisConnectionError
-from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaValidationError
+from libs.trading.risk_management import RiskConfig
 
 
 class DummyDBClient:
@@ -134,7 +134,7 @@ def test_is_reconciliation_ready():
     assert _is_reconciliation_ready(settings, resources) is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_recover_zombie_slices_skips_without_recovery_manager(caplog):
     settings = _make_settings()
     resources = LifespanResources(
@@ -152,7 +152,7 @@ async def test_recover_zombie_slices_skips_without_recovery_manager(caplog):
     assert "Recovery manager unavailable" in caplog.text
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_recover_zombie_slices_timed_out(monkeypatch):
     settings = _make_settings(dry_run=False)
     reconciliation_service = MagicMock()
@@ -180,7 +180,7 @@ async def test_recover_zombie_slices_timed_out(monkeypatch):
     slice_scheduler.recover_zombie_slices.assert_not_called()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_recover_zombie_slices_runs(monkeypatch):
     settings = _make_settings(dry_run=False)
     reconciliation_service = MagicMock()
@@ -207,7 +207,7 @@ async def test_recover_zombie_slices_runs(monkeypatch):
     slice_scheduler.recover_zombie_slices.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_recover_zombie_slices_waits_for_reconciliation(monkeypatch):
     settings = _make_settings(dry_run=False)
 
@@ -249,7 +249,7 @@ async def test_recover_zombie_slices_waits_for_reconciliation(monkeypatch):
     slice_scheduler.recover_zombie_slices.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_recover_zombie_slices_skips_without_scheduler(caplog):
     settings = _make_settings(dry_run=True)
     recovery_manager = SimpleNamespace(slice_scheduler=None)
@@ -268,7 +268,7 @@ async def test_recover_zombie_slices_skips_without_scheduler(caplog):
     assert "Slice scheduler unavailable" in caplog.text
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_recover_zombie_slices_requires_reconciliation(caplog):
     settings = _make_settings(dry_run=False)
     slice_scheduler = MagicMock()
@@ -288,7 +288,7 @@ async def test_recover_zombie_slices_requires_reconciliation(caplog):
     assert "Reconciliation service unavailable" in caplog.text
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_dry_run(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -344,7 +344,7 @@ async def test_startup_execution_gateway_dry_run(monkeypatch):
         await resources.zombie_recovery_task
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_requires_redis_password(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -359,7 +359,7 @@ async def test_startup_execution_gateway_requires_redis_password(monkeypatch):
         await startup_execution_gateway(app, settings, {})
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -490,7 +490,7 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
     assert resources.redis_client is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_requires_webhook_secret(monkeypatch):
     settings = _make_settings(dry_run=True)
     settings.environment = "prod"
@@ -511,7 +511,7 @@ async def test_startup_execution_gateway_requires_webhook_secret(monkeypatch):
         await startup_execution_gateway(app, settings, {})
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_alpaca_errors(monkeypatch):
     settings = _make_settings(dry_run=False)
     app = FastAPI()
@@ -576,7 +576,7 @@ async def test_startup_execution_gateway_alpaca_errors(monkeypatch):
     assert resources.alpaca_client is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_alpaca_validation_error(monkeypatch):
     settings = _make_settings(dry_run=False)
     app = FastAPI()
@@ -615,7 +615,7 @@ async def test_startup_execution_gateway_alpaca_validation_error(monkeypatch):
     assert resources.alpaca_client is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_alpaca_type_error(monkeypatch):
     settings = _make_settings(dry_run=False)
     app = FastAPI()
@@ -654,7 +654,7 @@ async def test_startup_execution_gateway_alpaca_type_error(monkeypatch):
     assert resources.alpaca_client is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_alpaca_and_reconciliation(monkeypatch):
     settings = _make_settings(dry_run=False)
     settings.liquidity_check_enabled = True
@@ -722,7 +722,7 @@ async def test_startup_execution_gateway_alpaca_and_reconciliation(monkeypatch):
     assert resources.reconciliation_service is not None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_missing_safety_components(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -782,7 +782,7 @@ async def test_startup_execution_gateway_missing_safety_components(monkeypatch):
     assert resources.recovery_manager.slice_scheduler is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_slice_scheduler_error(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -825,7 +825,7 @@ async def test_startup_execution_gateway_slice_scheduler_error(monkeypatch):
     assert resources.recovery_manager.slice_scheduler is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_slice_scheduler_value_error(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -863,7 +863,7 @@ async def test_startup_execution_gateway_slice_scheduler_value_error(monkeypatch
     assert resources.recovery_manager.slice_scheduler is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_slice_scheduler_attribute_error(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -901,7 +901,7 @@ async def test_startup_execution_gateway_slice_scheduler_attribute_error(monkeyp
     assert resources.recovery_manager.slice_scheduler is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_db_and_alpaca_checks(monkeypatch):
     settings = _make_settings(dry_run=False)
     app = FastAPI()
@@ -966,7 +966,7 @@ async def test_startup_execution_gateway_db_and_alpaca_checks(monkeypatch):
     assert resources.alpaca_client is dummy_alpaca
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_slice_scheduler_running(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -1007,7 +1007,7 @@ async def test_startup_execution_gateway_slice_scheduler_running(monkeypatch):
     assert resources.recovery_manager.slice_scheduler is not None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_startup_execution_gateway_shutdown_on_exception(monkeypatch):
     settings = _make_settings(dry_run=True)
     app = FastAPI()
@@ -1047,7 +1047,7 @@ async def test_startup_execution_gateway_shutdown_on_exception(monkeypatch):
     assert shutdown_called["value"] is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_shutdown_execution_gateway_pool_close_errors(monkeypatch):
     from psycopg import OperationalError
 
@@ -1079,7 +1079,7 @@ async def test_shutdown_execution_gateway_pool_close_errors(monkeypatch):
     await shutdown_execution_gateway(resources)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_shutdown_execution_gateway_pool_state_error(monkeypatch):
     class BadPool:
         pass
@@ -1106,7 +1106,7 @@ async def test_shutdown_execution_gateway_pool_state_error(monkeypatch):
     await shutdown_execution_gateway(resources)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_shutdown_execution_gateway(monkeypatch):
     pool = DummyPool()
 

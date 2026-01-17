@@ -15,13 +15,13 @@ Target: Verify execution order with integration tests.
 See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
 
 from apps.execution_gateway.middleware import populate_user_from_headers
-
 
 # ============================================================================
 # Test Middleware Ordering

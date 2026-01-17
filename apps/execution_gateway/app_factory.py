@@ -272,7 +272,7 @@ def create_mock_context(**overrides: Any) -> AppContext:
     from apps.execution_gateway.app_context import AppContext
 
     # Create mock dependencies
-    defaults = {
+    defaults: dict[str, Any] = {
         "db": MagicMock(),
         "redis": MagicMock(),
         "alpaca": MagicMock(),
