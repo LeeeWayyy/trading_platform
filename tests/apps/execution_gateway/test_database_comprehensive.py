@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from psycopg import DatabaseError, IntegrityError, OperationalError
+from psycopg.errors import AdminShutdown
 
 from apps.execution_gateway.database import (
     PENDING_STATUSES,
@@ -438,8 +439,10 @@ class TestGetPendingOrders:
         mock_pool, _, mock_cursor = mock_connection
 
         # First call raises AdminShutdown, second succeeds
+        # Must use actual AdminShutdown exception (not OperationalError with message)
+        # because code checks: "AdminShutdown" in type(exc).__name__
         mock_cursor.execute.side_effect = [
-            OperationalError("AdminShutdown"),
+            AdminShutdown("terminating connection due to administrator command"),
             None,
             None,
         ]

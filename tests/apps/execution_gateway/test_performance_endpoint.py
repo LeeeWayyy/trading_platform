@@ -85,7 +85,9 @@ sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)
 sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 from apps.execution_gateway import main
+from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.routes import positions as positions_routes
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from apps.execution_gateway.services.performance_cache import (
@@ -97,13 +99,6 @@ from apps.execution_gateway.services.pnl_calculator import compute_daily_perform
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def test_client():
-    """FastAPI test client bound to execution gateway app."""
-
-    return TestClient(main.app)
 
 
 @pytest.fixture()
@@ -124,22 +119,52 @@ def mock_redis():
     redis.get.return_value = None
     redis.set.return_value = True
     redis.delete.return_value = True
+    redis.mget.return_value = []
+    redis.health_check.return_value = True
     # expose underlying client for scan
     redis._client = MagicMock()
     redis._client.scan.return_value = (0, [])
     return redis
 
 
+@pytest.fixture()
+def mock_context(mock_db: MagicMock, mock_redis: MagicMock) -> MagicMock:
+    """Create a mock AppContext for dependency injection."""
+    ctx = MagicMock(spec=AppContext)
+    ctx.db = mock_db
+    ctx.redis = mock_redis
+    ctx.alpaca = None
+    ctx.recovery_manager = MagicMock()
+    ctx.recovery_manager.needs_recovery.return_value = False
+    ctx.reconciliation_service = MagicMock()
+    ctx.reconciliation_service.is_startup_complete.return_value = True
+    ctx.risk_config = MagicMock()
+    ctx.fat_finger_validator = MagicMock()
+    ctx.twap_slicer = MagicMock()
+    ctx.webhook_secret = None  # Disable signature verification in tests
+    # Add transaction context manager support for webhook tests
+    ctx.db.transaction.return_value.__enter__ = MagicMock(return_value=MagicMock())
+    ctx.db.transaction.return_value.__exit__ = MagicMock(return_value=False)
+    return ctx
+
+
+@pytest.fixture()
+def test_client(mock_context: MagicMock) -> TestClient:
+    """FastAPI test client with mock context injected via dependency override."""
+
+    def override_context() -> MagicMock:
+        return mock_context
+
+    main.app.dependency_overrides[get_context] = override_context
+    yield TestClient(main.app)
+    main.app.dependency_overrides.pop(get_context, None)
+
+
 @pytest.fixture(autouse=True)
 def override_user_context():
     """Default user context providing viewer access to alpha_baseline."""
 
-    def override_ctx(
-        request: Request,
-        role: str | None = None,
-        strategies: list[str] | None = None,
-        user_id: str | None = None,
-    ) -> dict[str, Any]:
+    def override_ctx(request: Request) -> dict[str, Any]:
         return {
             "role": "viewer",
             "strategies": ["alpha_baseline"],
@@ -156,12 +181,7 @@ def override_user_context():
 def restore_default_user_context():
     """Helper to restore default override when a test removes it."""
 
-    def _ctx(
-        request: Request,
-        role: str | None = None,
-        strategies: list[str] | None = None,
-        user_id: str | None = None,
-    ) -> dict[str, Any]:
+    def _ctx(request: Request) -> dict[str, Any]:
         return {
             "role": "viewer",
             "strategies": ["alpha_baseline"],
@@ -174,14 +194,9 @@ def restore_default_user_context():
 
 
 def make_override(user_ctx: dict[str, Any]) -> Callable[..., dict[str, Any]]:
-    """Create dependency override matching _build_user_context signature."""
+    """Create dependency override matching build_user_context signature."""
 
-    def _ctx(
-        request: Request,
-        role: str | None = None,
-        strategies: list[str] | None = None,
-        user_id: str | None = None,
-    ) -> dict[str, Any]:
+    def _ctx(request: Request) -> dict[str, Any]:
         return user_ctx
 
     return _ctx
@@ -231,11 +246,7 @@ class TestDailyPerformanceEndpoint:
     def test_default_range_returns_data(self, test_client, mock_db, mock_redis):
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 headers={
@@ -256,11 +267,7 @@ class TestDailyPerformanceEndpoint:
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
         params = {"start_date": "2024-01-01", "end_date": "2024-01-02"}
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 params={**params, "strategies": ["alpha_baseline"]},
@@ -279,11 +286,7 @@ class TestDailyPerformanceEndpoint:
     def test_no_orders_returns_empty(self, test_client, mock_db, mock_redis):
         mock_db.get_daily_pnl_history.return_value = []
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 headers={
@@ -326,11 +329,7 @@ class TestDailyPerformanceEndpoint:
             cached_payload
         ).model_dump_json()
 
-        with (
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 params={"strategies": ["alpha_baseline"]},
@@ -356,11 +355,7 @@ class TestDailyPerformanceEndpoint:
                 "user": {"role": "viewer", "strategies": ["s1", "s2"], "user_id": "u1"},
             }
         )
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             test_client.get(
                 "/api/v1/performance/daily",
                 headers={
@@ -389,11 +384,7 @@ class TestDailyPerformanceEndpoint:
             }
         )
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 headers={
@@ -413,11 +404,7 @@ class TestDailyPerformanceEndpoint:
         # Remove override to simulate absence of request.state.user
         main.app.dependency_overrides.pop(build_user_context, None)
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 params={"strategies": ["alpha_baseline"]},
@@ -431,11 +418,7 @@ class TestDailyPerformanceEndpoint:
     def test_feature_flag_disabled_returns_404(self, test_client, mock_db, mock_redis):
         mock_db.get_daily_pnl_history.return_value = _sample_daily_rows()
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", False),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", False):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 params={"strategies": ["alpha_baseline"]},
@@ -458,11 +441,7 @@ class TestDailyPerformanceEndpoint:
             }
         )
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 headers={"X-User-Role": "viewer"},
@@ -485,11 +464,7 @@ class TestDailyPerformanceEndpoint:
             }
         )
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True),
-        ):
+        with patch.object(positions_routes, "FEATURE_PERFORMANCE_DASHBOARD", True):
             resp = test_client.get(
                 "/api/v1/performance/daily",
                 headers={
@@ -501,7 +476,7 @@ class TestDailyPerformanceEndpoint:
 
         assert resp.status_code == 403
 
-    def test_cache_invalidated_on_fill(self, test_client, mock_db, mock_redis):
+    def test_cache_invalidated_on_fill(self, test_client, mock_db, mock_redis, mock_context):
         """Ensure performance cache is cleared after a fill webhook."""
 
         # Prepare cached entry and index membership
@@ -532,27 +507,23 @@ class TestDailyPerformanceEndpoint:
         mock_db.append_fill_to_order_metadata.return_value = None
         mock_db.update_order_status_with_conn.return_value = None
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", mock_redis),
-            patch.object(main.app.state.context, "webhook_secret", ""),
-        ):
-            resp = test_client.post(
-                "/api/v1/webhooks/orders",
-                json={
-                    "event": "fill",
-                    "timestamp": "2024-01-01T10:00:00Z",
-                    "order": {
-                        "client_order_id": "abc123",
-                        "status": "filled",
-                        "filled_qty": 10,
-                        "filled_avg_price": "10",
-                        "symbol": "AAPL",
-                        "side": "buy",
-                    },
-                    "price": "10",
+        # webhook_secret=None in mock_context disables signature verification
+        resp = test_client.post(
+            "/api/v1/webhooks/orders",
+            json={
+                "event": "fill",
+                "timestamp": "2024-01-01T10:00:00Z",
+                "order": {
+                    "client_order_id": "abc123",
+                    "status": "filled",
+                    "filled_qty": 10,
+                    "filled_avg_price": "10",
+                    "symbol": "AAPL",
+                    "side": "buy",
                 },
-            )
+                "price": "10",
+            },
+        )
 
         assert resp.status_code == 200
         mock_redis.sscan_iter.assert_called_once_with(index_key)
@@ -649,51 +620,50 @@ class TestDatabaseClientNewMethods:
 
 
 class TestWebhookSecurity:
-    def test_invalid_signature_rejected(self, test_client):
-        with (
-            patch.object(main.app.state.context, "webhook_secret", "shh"),
-            patch("apps.execution_gateway.main.verify_webhook_signature", return_value=False),
-        ):
+    def test_invalid_signature_rejected(self, test_client, mock_context):
+        # Set webhook_secret to enable signature verification
+        mock_context.webhook_secret = "shh"
+        with patch("apps.execution_gateway.routes.webhooks.verify_webhook_signature", return_value=False):
             resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
 
         assert resp.status_code == 401
 
-    def test_missing_signature_rejected(self, test_client):
-        with patch.object(main.app.state.context, "webhook_secret", "shh"):
-            resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
+    def test_missing_signature_rejected(self, test_client, mock_context):
+        # Set webhook_secret to enable signature verification
+        mock_context.webhook_secret = "shh"
+        resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
 
         assert resp.status_code == 401
 
 
 class TestOutOfOrderWebhooks:
-    def test_duplicate_fill_updates_status_but_no_position(self, test_client):
+    def test_duplicate_fill_updates_status_but_no_position(self, test_client, mock_db, mock_context):
         """Test duplicate fill (no incremental qty) updates order status but skips position update."""
-        mock_db = MagicMock()
-        ctx = MagicMock()
-        ctx.__enter__.return_value = MagicMock()
-        ctx.__exit__.return_value = False
-        mock_db.transaction.return_value = ctx
+        # Setup transaction context manager
+        tx_ctx = MagicMock()
+        tx_ctx.__enter__.return_value = MagicMock()
+        tx_ctx.__exit__.return_value = False
+        mock_db.transaction.return_value = tx_ctx
         mock_order = SimpleNamespace(filled_qty=Decimal("100"), symbol="AAPL", side="buy")
         mock_db.get_order_for_update.return_value = mock_order
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", None),
-            patch.object(main.app.state.context, "webhook_secret", ""),
-        ):
-            resp = test_client.post(
-                "/api/v1/webhooks/orders",
-                json={
-                    "event": "fill",
-                    "order": {
-                        "client_order_id": "abc",
-                        "status": "filled",
-                        "filled_qty": 100,
-                        "filled_avg_price": "10",
-                    },
-                    "price": "10",
+        # webhook_secret=None in mock_context disables signature verification
+        # mock_context.redis is already set via fixture
+        mock_context.redis = None  # Override to None for this test
+
+        resp = test_client.post(
+            "/api/v1/webhooks/orders",
+            json={
+                "event": "fill",
+                "order": {
+                    "client_order_id": "abc",
+                    "status": "filled",
+                    "filled_qty": 100,
+                    "filled_avg_price": "10",
                 },
-            )
+                "price": "10",
+            },
+        )
 
         assert resp.status_code == 200
         # Duplicate fills still return "ok" but don't update position
@@ -716,8 +686,7 @@ class TestRealtimePnlRbac:
                 "user": {"role": "viewer", "strategies": [], "user_id": "u1"},
             }
         )
-        with patch.object(main.app.state.context, "db", mock_db):
-            resp = test_client.get("/api/v1/positions/pnl/realtime")
+        resp = test_client.get("/api/v1/positions/pnl/realtime")
         assert resp.status_code == 403
 
     def test_realtime_pnl_allows_authorized_viewer(self, test_client, mock_db):
@@ -731,8 +700,7 @@ class TestRealtimePnlRbac:
             }
         )
         mock_db.get_positions_for_strategies.return_value = []
-        with patch.object(main.app.state.context, "db", mock_db):
-            resp = test_client.get("/api/v1/positions/pnl/realtime")
+        resp = test_client.get("/api/v1/positions/pnl/realtime")
         assert resp.status_code == 200
 
 
@@ -781,12 +749,12 @@ class TestCalculatePositionUpdate:
 
 
 class TestBrokerTimestamps:
-    def test_broker_timestamp_used(self, test_client):
-        mock_db = MagicMock()
-        ctx = MagicMock()
-        ctx.__enter__.return_value = MagicMock()
-        ctx.__exit__.return_value = False
-        mock_db.transaction.return_value = ctx
+    def test_broker_timestamp_used(self, test_client, mock_db, mock_context):
+        # Setup transaction context manager
+        tx_ctx = MagicMock()
+        tx_ctx.__enter__.return_value = MagicMock()
+        tx_ctx.__exit__.return_value = False
+        mock_db.transaction.return_value = tx_ctx
         mock_order = SimpleNamespace(filled_qty=Decimal("0"), symbol="AAPL", side="buy")
         mock_db.get_order_for_update.return_value = mock_order
         mock_db.get_position_for_update.return_value = None
@@ -802,39 +770,37 @@ class TestBrokerTimestamps:
 
         mock_db.append_fill_to_order_metadata.side_effect = _capture_fill
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", None),
-            patch.object(main.app.state.context, "webhook_secret", ""),
-        ):
-            resp = test_client.post(
-                "/api/v1/webhooks/orders",
-                json={
-                    "event": "fill",
-                    "timestamp": "2024-01-01T10:00:00Z",
-                    "order": {
-                        "client_order_id": "abc",
-                        "status": "filled",
-                        "filled_qty": 10,
-                        "filled_avg_price": "10",
-                        "symbol": "AAPL",
-                        "side": "buy",
-                    },
-                    "price": "10",
+        # webhook_secret=None disables signature verification, redis=None for no cache
+        mock_context.redis = None
+
+        resp = test_client.post(
+            "/api/v1/webhooks/orders",
+            json={
+                "event": "fill",
+                "timestamp": "2024-01-01T10:00:00Z",
+                "order": {
+                    "client_order_id": "abc",
+                    "status": "filled",
+                    "filled_qty": 10,
+                    "filled_avg_price": "10",
+                    "symbol": "AAPL",
+                    "side": "buy",
                 },
-            )
+                "price": "10",
+            },
+        )
 
         assert resp.status_code == 200
         assert captured_fill["timestamp"] == "2024-01-01T10:00:00+00:00"
 
 
 class TestConcurrentWebhooks:
-    def test_transactional_flow(self, test_client):
-        mock_db = MagicMock()
-        ctx = MagicMock()
-        ctx.__enter__.return_value = MagicMock()
-        ctx.__exit__.return_value = False
-        mock_db.transaction.return_value = ctx
+    def test_transactional_flow(self, test_client, mock_db, mock_context):
+        # Setup transaction context manager
+        tx_ctx = MagicMock()
+        tx_ctx.__enter__.return_value = MagicMock()
+        tx_ctx.__exit__.return_value = False
+        mock_db.transaction.return_value = tx_ctx
 
         # Order before any fills
         order = SimpleNamespace(filled_qty=Decimal("0"), symbol="AAPL", side="sell")
@@ -844,36 +810,33 @@ class TestConcurrentWebhooks:
             realized_pl=Decimal("5")
         )
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", None),
-            patch.object(main.app.state.context, "webhook_secret", ""),
-        ):
-            resp = test_client.post(
-                "/api/v1/webhooks/orders",
-                json={
-                    "event": "fill",
-                    "order": {
-                        "client_order_id": "abc",
-                        "status": "filled",
-                        "filled_qty": 10,
-                        "filled_avg_price": "10",
-                        "symbol": "AAPL",
-                        "side": "sell",
-                    },
-                    "price": "10",
+        # webhook_secret=None disables signature verification, redis=None for no cache
+        mock_context.redis = None
+
+        resp = test_client.post(
+            "/api/v1/webhooks/orders",
+            json={
+                "event": "fill",
+                "order": {
+                    "client_order_id": "abc",
+                    "status": "filled",
+                    "filled_qty": 10,
+                    "filled_avg_price": "10",
+                    "symbol": "AAPL",
+                    "side": "sell",
                 },
-            )
+                "price": "10",
+            },
+        )
 
         assert resp.status_code == 200
         mock_db.get_order_for_update.assert_called_once()
         mock_db.get_position_for_update.assert_called_once()
         mock_db.append_fill_to_order_metadata.assert_called_once()
 
-    def test_concurrent_new_symbol_position_creation_serialized(self, test_client):
+    def test_concurrent_new_symbol_position_creation_serialized(self, test_client, mock_db, mock_context):
         # Simulate two concurrent fills for a new symbol; advisory lock should
         # serialize updates even when the position row does not yet exist.
-        mock_db = MagicMock()
 
         # Shared mutable state to detect lost updates
         position_state = {"qty": 0, "realized_pl": Decimal("0")}
@@ -886,10 +849,11 @@ class TestConcurrentWebhooks:
             position_state["realized_pl"] += Decimal("1")  # marker to ensure both commits applied
             return SimpleNamespace(**position_state)
 
-        ctx = MagicMock()
-        ctx.__enter__.return_value = MagicMock()
-        ctx.__exit__.return_value = False
-        mock_db.transaction.return_value = ctx
+        # Setup transaction context manager
+        tx_ctx = MagicMock()
+        tx_ctx.__enter__.return_value = MagicMock()
+        tx_ctx.__exit__.return_value = False
+        mock_db.transaction.return_value = tx_ctx
         mock_db.get_order_for_update.return_value = SimpleNamespace(
             filled_qty=Decimal("0"), symbol="NEW", side="buy"
         )
@@ -898,42 +862,40 @@ class TestConcurrentWebhooks:
         mock_db.append_fill_to_order_metadata.return_value = None
         mock_db.update_order_status_with_conn.return_value = None
 
-        with (
-            patch.object(main.app.state.context, "db", mock_db),
-            patch.object(main.app.state.context, "redis", None),
-            patch.object(main.app.state.context, "webhook_secret", ""),
-        ):
-            resp1 = test_client.post(
-                "/api/v1/webhooks/orders",
-                json={
-                    "event": "fill",
-                    "order": {
-                        "client_order_id": "fill1",
-                        "status": "partially_filled",
-                        "filled_qty": 10,
-                        "filled_avg_price": "10",
-                        "symbol": "NEW",
-                        "side": "buy",
-                    },
-                    "price": "10",
-                },
-            )
+        # webhook_secret=None disables signature verification, redis=None for no cache
+        mock_context.redis = None
 
-            resp2 = test_client.post(
-                "/api/v1/webhooks/orders",
-                json={
-                    "event": "fill",
-                    "order": {
-                        "client_order_id": "fill2",
-                        "status": "filled",
-                        "filled_qty": 20,
-                        "filled_avg_price": "10",
-                        "symbol": "NEW",
-                        "side": "buy",
-                    },
-                    "price": "10",
+        resp1 = test_client.post(
+            "/api/v1/webhooks/orders",
+            json={
+                "event": "fill",
+                "order": {
+                    "client_order_id": "fill1",
+                    "status": "partially_filled",
+                    "filled_qty": 10,
+                    "filled_avg_price": "10",
+                    "symbol": "NEW",
+                    "side": "buy",
                 },
-            )
+                "price": "10",
+            },
+        )
+
+        resp2 = test_client.post(
+            "/api/v1/webhooks/orders",
+            json={
+                "event": "fill",
+                "order": {
+                    "client_order_id": "fill2",
+                    "status": "filled",
+                    "filled_qty": 20,
+                    "filled_avg_price": "10",
+                    "symbol": "NEW",
+                    "side": "buy",
+                },
+                "price": "10",
+            },
+        )
 
         assert resp1.status_code == 200
         assert resp2.status_code == 200

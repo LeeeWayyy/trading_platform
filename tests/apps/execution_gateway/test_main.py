@@ -9,12 +9,14 @@ Tests cover:
 - Helper functions for price fetching and P&L calculation
 """
 
+import asyncio
 import importlib
 import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from typing import Any, Generator
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +26,14 @@ from starlette.requests import Request
 # Import app at module level (will use real clients initially)
 from apps.execution_gateway.main import app
 from apps.execution_gateway.schemas import OrderDetail, Position
+from apps.execution_gateway.dependencies import get_context, get_config, get_metrics
+from apps.execution_gateway.app_context import AppContext
+from apps.execution_gateway.config import ExecutionGatewayConfig
+from apps.execution_gateway.routes.orders import order_submit_auth, order_read_auth
+from apps.execution_gateway.routes.positions import order_read_auth as positions_read_auth
+from libs.core.common.api_auth_dependency import AuthContext
+from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
+from libs.platform.web_console_auth.permissions import Role
 
 
 def _clear_registry() -> None:
@@ -55,6 +65,185 @@ def test_client():
 
 
 @pytest.fixture()
+def mock_auth_context():
+    """Create a mock AuthContext for dependency injection."""
+    user = AuthenticatedUser(
+        user_id="test-user",
+        role=Role.OPERATOR,
+        strategies=["alpha_baseline"],
+        session_version=1,
+        request_id="test-request-id",
+    )
+    return AuthContext(
+        user=user,
+        internal_claims=None,
+        auth_type="jwt",
+        is_authenticated=True,
+    )
+
+
+@pytest.fixture()
+def mock_context(mock_db, mock_redis, mock_kill_switch, mock_circuit_breaker, mock_position_reservation):
+    """Create a mock AppContext for dependency injection."""
+    from decimal import Decimal
+
+    from apps.execution_gateway.fat_finger_validator import FatFingerResult
+    from apps.execution_gateway.schemas import FatFingerThresholds
+    from libs.trading.risk_management import RiskConfig
+
+    mock_recovery_manager = Mock()
+    mock_recovery_manager.needs_recovery.return_value = False
+    mock_recovery_manager.kill_switch = mock_kill_switch
+    mock_recovery_manager.circuit_breaker = mock_circuit_breaker
+    mock_recovery_manager.position_reservation = mock_position_reservation
+    mock_recovery_manager.is_kill_switch_unavailable.return_value = False
+    mock_recovery_manager.is_circuit_breaker_unavailable.return_value = False
+    mock_recovery_manager.is_position_reservation_unavailable.return_value = False
+
+    # Mock reconciliation service
+    mock_reconciliation_service = Mock()
+    mock_reconciliation_service.is_startup_complete.return_value = True
+    mock_reconciliation_service.startup_timed_out.return_value = False
+    mock_reconciliation_service.override_active.return_value = False
+
+    # Mock fat finger validator with a passing result
+    mock_fat_finger_validator = Mock()
+    thresholds = FatFingerThresholds(
+        max_notional=Decimal("100000"),
+        max_qty=10000,
+        max_adv_pct=Decimal("0.05"),
+    )
+    mock_fat_finger_validator.validate.return_value = FatFingerResult(
+        breached=False,
+        breaches=(),
+        thresholds=thresholds,
+        notional=Decimal("1500"),  # 10 * 150
+        adv=1000000,
+        adv_pct=Decimal("0.00001"),
+        price=Decimal("150"),
+    )
+    mock_twap_slicer = Mock()
+
+    ctx = Mock(spec=AppContext)
+    ctx.db = mock_db
+    ctx.redis = mock_redis
+    ctx.alpaca = None  # DRY_RUN mode
+    ctx.recovery_manager = mock_recovery_manager
+    ctx.reconciliation_service = mock_reconciliation_service
+    ctx.liquidity_service = None
+    ctx.risk_config = RiskConfig()
+    ctx.fat_finger_validator = mock_fat_finger_validator
+    ctx.twap_slicer = mock_twap_slicer
+    ctx.webhook_secret = "test-webhook-secret"
+    ctx.metrics = _create_mock_metrics()
+    # Add position tracking attributes needed by get_positions endpoint
+    ctx.position_metrics_lock = asyncio.Lock()
+    ctx.tracked_position_symbols = set()
+    return ctx
+
+
+def _create_mock_metrics() -> dict[str, Any]:
+    """Create mock Prometheus metrics."""
+    mock_counter = Mock()
+    mock_counter.labels.return_value = mock_counter
+    mock_gauge = Mock()
+    return {
+        "orders_total": mock_counter,
+        "orders_submitted_total": mock_counter,
+        "order_errors_total": mock_counter,
+        "order_latency_seconds": mock_counter,
+        "database_connection_status": mock_gauge,
+        "redis_connection_status": mock_gauge,
+        "alpaca_connection_status": mock_gauge,
+        "alpaca_api_requests_total": mock_counter,
+    }
+
+
+@pytest.fixture()
+def mock_config():
+    """Create a mock ExecutionGatewayConfig."""
+    from decimal import Decimal
+
+    config = Mock(spec=ExecutionGatewayConfig)
+    config.dry_run = True
+    config.environment = "test"
+    config.strategy_id = "alpha_baseline"
+    config.circuit_breaker_enabled = True
+    config.liquidity_check_enabled = True
+    config.alpaca_base_url = "https://paper-api.alpaca.markets"
+    config.alpaca_paper = True
+    config.alpaca_data_feed = None
+    # Fat finger validation settings
+    config.fat_finger_max_notional = Decimal("100000")
+    config.fat_finger_max_qty = 10000
+    config.fat_finger_max_adv_pct = Decimal("0.05")
+    config.fat_finger_max_price_age_seconds = 30
+    config.max_slice_pct_of_adv = 0.01
+    # Redis settings
+    config.redis_host = "localhost"
+    config.redis_port = 6379
+    config.redis_db = 0
+    # Performance settings
+    config.performance_cache_ttl = 300
+    config.max_performance_days = 90
+    config.feature_performance_dashboard = False
+    return config
+
+
+@pytest.fixture()
+def test_client_with_context(mock_context, mock_config) -> Generator[TestClient, None, None]:
+    """Create test client with mocked dependencies."""
+    def override_context():
+        return mock_context
+
+    def override_config():
+        return mock_config
+
+    def override_metrics():
+        return mock_context.metrics
+
+    app.dependency_overrides[get_context] = override_context
+    app.dependency_overrides[get_config] = override_config
+    app.dependency_overrides[get_metrics] = override_metrics
+
+    yield TestClient(app)
+
+    # Cleanup
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def test_client_with_auth(
+    mock_context, mock_config, mock_auth_context
+) -> Generator[TestClient, None, None]:
+    """Create test client with mocked dependencies and auth bypass."""
+    def override_context():
+        return mock_context
+
+    def override_config():
+        return mock_config
+
+    def override_metrics():
+        return mock_context.metrics
+
+    def override_auth():
+        return mock_auth_context
+
+    app.dependency_overrides[get_context] = override_context
+    app.dependency_overrides[get_config] = override_config
+    app.dependency_overrides[get_metrics] = override_metrics
+    # Override auth for orders and positions
+    app.dependency_overrides[order_submit_auth] = override_auth
+    app.dependency_overrides[order_read_auth] = override_auth
+    app.dependency_overrides[positions_read_auth] = override_auth
+
+    yield TestClient(app)
+
+    # Cleanup
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
 def mock_db():
     """Create a mock DatabaseClient."""
     return Mock()
@@ -63,7 +252,13 @@ def mock_db():
 @pytest.fixture()
 def mock_redis():
     """Create a mock RedisClient."""
-    return Mock()
+    mock = Mock()
+    # mget should return a list (even if empty)
+    mock.mget.return_value = []
+    # get should return None by default
+    mock.get.return_value = None
+    mock.health_check.return_value = True
+    return mock
 
 
 @pytest.fixture()
@@ -126,17 +321,13 @@ class TestRootEndpoint:
 class TestHealthEndpoint:
     """Tests for health check endpoint."""
 
-    def test_health_check_healthy_in_dry_run(self, test_client, mock_db):
+    def test_health_check_healthy_in_dry_run(
+        self, test_client_with_context, mock_context
+    ):
         """Test health check returns healthy when database is up (DRY_RUN mode)."""
-        mock_db.check_connection.return_value = True
-        mock_recovery_manager = Mock()
-        mock_recovery_manager.needs_recovery.return_value = False
+        mock_context.db.check_connection.return_value = True
 
-        with (
-            patch.object(app.state.context, "db", mock_db),
-            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
-        ):
-            response = test_client.get("/health")
+        response = test_client_with_context.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -144,17 +335,13 @@ class TestHealthEndpoint:
         assert data["database_connected"] is True
         assert data["dry_run"] is True
 
-    def test_health_check_unhealthy_when_db_down(self, test_client, mock_db):
+    def test_health_check_unhealthy_when_db_down(
+        self, test_client_with_context, mock_context
+    ):
         """Test health check returns unhealthy when database is down."""
-        mock_db.check_connection.return_value = False
-        mock_recovery_manager = Mock()
-        mock_recovery_manager.needs_recovery.return_value = False
+        mock_context.db.check_connection.return_value = False
 
-        with (
-            patch.object(app.state.context, "db", mock_db),
-            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
-        ):
-            response = test_client.get("/health")
+        response = test_client_with_context.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -167,15 +354,13 @@ class TestSubmitOrderEndpoint:
 
     def test_submit_order_dry_run_mode(
         self,
-        test_client,
-        mock_db,
+        test_client_with_auth,
+        mock_context,
         mock_kill_switch,
         mock_circuit_breaker,
         mock_position_reservation,
     ):
         """Test order submission in DRY_RUN mode logs order without broker submission."""
-        # Mock: Order doesn't exist yet, then is retrievable after insert
-
         # Mock: Order creation
         created_order = OrderDetail(
             client_order_id="test123",
@@ -198,39 +383,20 @@ class TestSubmitOrderEndpoint:
             filled_qty=Decimal("0"),
             filled_avg_price=None,
         )
-        mock_db.insert_order.return_value = None
-        mock_db.get_order_by_client_id.side_effect = [None, created_order]
 
-        # Create mock recovery_manager with proper state object
-        from apps.execution_gateway.recovery_manager import RecoveryState
+        # Mock: Order doesn't exist yet, then is retrievable after insert
+        mock_context.db.insert_order.return_value = None
+        mock_context.db.get_order_by_client_id.side_effect = [None, created_order]
 
-        mock_state = RecoveryState()
-        mock_state.kill_switch = mock_kill_switch
-        mock_state.circuit_breaker = mock_circuit_breaker
-        mock_state.position_reservation = mock_position_reservation
-        mock_state.kill_switch_unavailable = False
-        mock_state.circuit_breaker_unavailable = False
-        mock_state.position_reservation_unavailable = False
+        # Configure recovery manager for the test
+        mock_context.recovery_manager.is_kill_switch_unavailable.return_value = False
+        mock_context.recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        mock_context.recovery_manager.is_position_reservation_unavailable.return_value = False
 
-        mock_recovery_manager = Mock()
-        mock_recovery_manager.needs_recovery.return_value = False
-        mock_recovery_manager.is_kill_switch_unavailable.return_value = False
-        mock_recovery_manager.is_circuit_breaker_unavailable.return_value = False
-        mock_recovery_manager.is_position_reservation_unavailable.return_value = False
-        mock_recovery_manager._state = mock_state
-        # Also set property accessors directly on the mock
-        mock_recovery_manager.kill_switch = mock_kill_switch
-        mock_recovery_manager.circuit_breaker = mock_circuit_breaker
-        mock_recovery_manager.position_reservation = mock_position_reservation
-
-        with (
-            patch.object(app.state.context, "db", mock_db),
-            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
-        ):
-            response = test_client.post(
-                "/api/v1/orders",
-                json={"symbol": "AAPL", "side": "buy", "qty": 10, "order_type": "market"},
-            )
+        response = test_client_with_auth.post(
+            "/api/v1/orders",
+            json={"symbol": "AAPL", "side": "buy", "qty": 10, "order_type": "market"},
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -242,8 +408,8 @@ class TestSubmitOrderEndpoint:
 
     def test_submit_order_idempotent_returns_existing(
         self,
-        test_client,
-        mock_db,
+        test_client_with_auth,
+        mock_context,
         mock_kill_switch,
         mock_circuit_breaker,
         mock_position_reservation,
@@ -271,44 +437,23 @@ class TestSubmitOrderEndpoint:
             filled_qty=Decimal("0"),
             filled_avg_price=None,
         )
-        mock_db.get_order_by_client_id.return_value = existing_order
+        mock_context.db.get_order_by_client_id.return_value = existing_order
 
-        # Create mock recovery_manager with proper state object
-        from apps.execution_gateway.recovery_manager import RecoveryState
+        # Configure recovery manager for the test
+        mock_context.recovery_manager.is_kill_switch_unavailable.return_value = False
+        mock_context.recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        mock_context.recovery_manager.is_position_reservation_unavailable.return_value = False
 
-        mock_state = RecoveryState()
-        mock_state.kill_switch = mock_kill_switch
-        mock_state.circuit_breaker = mock_circuit_breaker
-        mock_state.position_reservation = mock_position_reservation
-        mock_state.kill_switch_unavailable = False
-        mock_state.circuit_breaker_unavailable = False
-        mock_state.position_reservation_unavailable = False
-
-        mock_recovery_manager = Mock()
-        mock_recovery_manager.needs_recovery.return_value = False
-        mock_recovery_manager.is_kill_switch_unavailable.return_value = False
-        mock_recovery_manager.is_circuit_breaker_unavailable.return_value = False
-        mock_recovery_manager.is_position_reservation_unavailable.return_value = False
-        mock_recovery_manager._state = mock_state
-        # Also set property accessors directly on the mock
-        mock_recovery_manager.kill_switch = mock_kill_switch
-        mock_recovery_manager.circuit_breaker = mock_circuit_breaker
-        mock_recovery_manager.position_reservation = mock_position_reservation
-
-        with (
-            patch.object(app.state.context, "db", mock_db),
-            patch.object(app.state.context, "recovery_manager", mock_recovery_manager),
-        ):
-            response = test_client.post(
-                "/api/v1/orders",
-                json={
-                    "symbol": "MSFT",
-                    "side": "sell",
-                    "qty": 5,
-                    "order_type": "limit",
-                    "limit_price": 300.50,
-                },
-            )
+        response = test_client_with_auth.post(
+            "/api/v1/orders",
+            json={
+                "symbol": "MSFT",
+                "side": "sell",
+                "qty": 5,
+                "order_type": "limit",
+                "limit_price": 300.50,
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -333,7 +478,7 @@ class TestSubmitOrderEndpoint:
 class TestGetOrderEndpoint:
     """Tests for get order endpoint."""
 
-    def test_get_order_found(self, test_client, mock_db):
+    def test_get_order_found(self, test_client_with_auth, mock_context):
         """Test retrieving an existing order returns order details."""
         order = OrderDetail(
             client_order_id="test123",
@@ -356,10 +501,9 @@ class TestGetOrderEndpoint:
             filled_qty=Decimal("10"),
             filled_avg_price=Decimal("150.25"),
         )
-        mock_db.get_order_by_client_id.return_value = order
+        mock_context.db.get_order_by_client_id.return_value = order
 
-        with patch.object(app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/orders/test123")
+        response = test_client_with_auth.get("/api/v1/orders/test123")
 
         assert response.status_code == 200
         data = response.json()
@@ -367,12 +511,11 @@ class TestGetOrderEndpoint:
         assert data["symbol"] == "AAPL"
         assert data["status"] == "filled"
 
-    def test_get_order_not_found(self, test_client, mock_db):
+    def test_get_order_not_found(self, test_client_with_auth, mock_context):
         """Test retrieving non-existent order returns 404."""
-        mock_db.get_order_by_client_id.return_value = None
+        mock_context.db.get_order_by_client_id.return_value = None
 
-        with patch.object(app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/orders/nonexistent123")
+        response = test_client_with_auth.get("/api/v1/orders/nonexistent123")
 
         assert response.status_code == 404
 
@@ -380,7 +523,7 @@ class TestGetOrderEndpoint:
 class TestGetPositionsEndpoint:
     """Tests for get positions endpoint."""
 
-    def test_get_positions_returns_list(self, test_client, mock_db):
+    def test_get_positions_returns_list(self, test_client_with_auth, mock_context):
         """Test getting positions returns list of positions."""
         positions = [
             Position(
@@ -402,10 +545,9 @@ class TestGetPositionsEndpoint:
                 updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
             ),
         ]
-        mock_db.get_all_positions.return_value = positions
+        mock_context.db.get_all_positions.return_value = positions
 
-        with patch.object(app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/positions")
+        response = test_client_with_auth.get("/api/v1/positions")
 
         assert response.status_code == 200
         data = response.json()
@@ -413,12 +555,11 @@ class TestGetPositionsEndpoint:
         assert data["total_positions"] == 2
         assert Decimal(data["total_unrealized_pl"]) == Decimal("45.00")
 
-    def test_get_positions_empty(self, test_client, mock_db):
+    def test_get_positions_empty(self, test_client_with_auth, mock_context):
         """Test getting positions when none exist returns empty list."""
-        mock_db.get_all_positions.return_value = []
+        mock_context.db.get_all_positions.return_value = []
 
-        with patch.object(app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/positions")
+        response = test_client_with_auth.get("/api/v1/positions")
 
         assert response.status_code == 200
         data = response.json()
