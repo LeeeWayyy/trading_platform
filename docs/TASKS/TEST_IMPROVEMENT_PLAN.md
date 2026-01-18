@@ -2,8 +2,22 @@
 
 **Branch:** `feature/test-improvement-coverage-parallel`
 **Created:** 2026-01-15
-**Status:** Phase 2 - P0 Critical Coverage (COMPLETE)
+**Status:** Phase 3 - Coverage Foundation (IN PROGRESS)
 **Last Updated:** 2026-01-17
+
+---
+
+## 📋 Quick Status Summary
+
+| Item | Status | Details |
+|------|--------|---------|
+| **Phase 0: Test Consolidation** | ✅ DONE | All 34 tests migrated |
+| **Phase 1: CI Parallelization** | ✅ DONE | Workflows + scripts deployed |
+| **Phase 2: P0 Critical Coverage** | ✅ DONE | P0 modules at 85-100% |
+| **Phase 3: Coverage Foundation** | 🔄 IN PROGRESS | 139 files added, 18% coverage |
+| **Phase 4: Optimization** | ⏳ NOT STARTED | Pending Phase 3 completion |
+
+**Current Coverage:** ~18% overall | **Target:** 85% | **Gap:** 67%
 
 ---
 
@@ -43,13 +57,60 @@
 - [x] Add tests for `alpaca_client.py` (67% → 83%) ✅
 - [x] Add tests for `reconciliation/service.py` (42% → 85%) ✅
 
-### Phase 3 Tasks (🔄 In Progress - Major Progress)
-- [x] Expand coverage to remaining modules with 0% coverage
+### Phase 3 Tasks (🔄 In Progress)
+
+**✅ COMPLETED:**
 - [x] Add tests for `reconciliation/fills.py` (90% → 95%)
 - [x] Batches 1-4: 91 new test files via parallel Codex agents
 - [x] Batch 5: 44 new test files (web_console_ng pages, auth, components, core, UI)
 - [x] Batch 6: 4 new test files (web_console_services modules)
-- [ ] Target: 85% overall branch coverage (currently at ~18%)
+- [x] Create comprehensive coverage analysis report (`TEST_COVERAGE_ANALYSIS_2026-01-17.md`)
+
+**❌ NOT YET DONE:**
+- [ ] Reach 85% overall branch coverage (currently at ~18% - GAP: 67%)
+- [ ] Cover remaining 8 modules at 0% coverage
+- [ ] Fix 6 test collection errors (import issues)
+- [ ] Fix 99 failing tests
+- [ ] Cover 150 modules at 1-19% coverage (critical priority)
+- [ ] Cover 128 modules at 20-49% coverage (needs work)
+
+### ❌ Modules at 0% Coverage (Immediate Priority)
+
+| Module | Impact | Risk Level |
+|--------|--------|------------|
+| `apps/execution_gateway/reconciliation.py` | Legacy reconciliation | HIGH |
+| `apps/market_data_service/main.py` | Service entrypoint | HIGH |
+| `apps/market_data_service/config.py` | Configuration | MEDIUM |
+| `apps/web_console_ng/main.py` | App entrypoint | HIGH |
+| `apps/web_console_ng/metrics.py` | Observability | MEDIUM |
+| `apps/web_console_ng/auth/logout.py` | Authentication | HIGH |
+| `apps/backtest_worker/entrypoint.py` | Worker entry | MEDIUM |
+| `apps/web_console_ng/spike_c01.py` | Spike/prototype | LOW |
+
+### ❌ Test Collection Errors (6 files)
+
+| Test File | Error Type |
+|-----------|------------|
+| `tests/apps/web_console_ng/auth/test_logout.py` | Import error |
+| `tests/apps/web_console_ng/core/test_audit.py` | Import error |
+| `tests/apps/web_console_ng/core/test_metrics.py` | Import error |
+| `tests/apps/web_console_ng/pages/test_health.py` | Import error |
+| `tests/libs/web_console_services/schemas/test_data_management.py` | Import error |
+| `tests/libs/web_console_services/test_config.py` | Import error |
+
+### ❌ Large Modules with Low Coverage (High Impact)
+
+| Module | Lines | Coverage | Gap (Lines) | Priority |
+|--------|-------|----------|-------------|----------|
+| `libs/data/data_quality/versioning.py` | 759 | 15% | 645 | **CRITICAL** |
+| `libs/platform/analytics/event_study.py` | 733 | 17% | 608 | **CRITICAL** |
+| `apps/execution_gateway/database.py` | 729 | 8% | 671 | **CRITICAL** |
+| `apps/web_console_ng/pages/backtest.py` | 671 | 6% | 631 | HIGH |
+| `apps/signal_service/main.py` | 645 | 17% | 535 | HIGH |
+| `libs/data/data_providers/yfinance_provider.py` | 536 | 8% | 493 | HIGH |
+| `libs/trading/risk/portfolio_optimizer.py` | 524 | 19% | 425 | HIGH |
+
+**Total uncovered lines in top 7 modules: ~4,008 lines**
 
 ### Phase 3 New Test Files Created (139 total)
 **libs/core/common:** test_async_utils.py, test_exceptions.py, test_hash_utils.py, test_db.py, test_network_utils.py, test_schemas.py, test_file_utils.py
@@ -90,22 +151,47 @@
 | Other reconciliation modules | **99-100%** | 95% | ✅ EXCEEDS |
 
 ### Key Findings
-- **Test Collection:** 5,644 tests collected successfully using `.venv` (was 1,847 with wrong Python)
-- **Environment Issue:** Must use `.venv/bin/pytest`, not `/opt/homebrew/bin/pytest`
-- **P0 Status:** 9/12 core P0 modules at or exceed 95% target (75% complete)
-- **Phase 2 Accomplishments:**
-  - kill_switch.py: 88% → 100% (+12%)
-  - alpaca_client.py: 67% → 83% (+16%)
-  - reconciliation/service.py: 42% → 85% (+43%)
-- **Phase 3 Accomplishments:**
-  - Created 139 new test files via parallel Codex agents (6 batches)
-  - Overall coverage improved from 7% to ~18% (+11%)
-  - Batches 1-4: 91 files (libs/core, libs/platform, libs/data, apps/execution_gateway, apps/orchestrator, apps/auth_service)
-  - Batch 5: 44 files (web_console_ng pages, auth, components, core, UI, DuckDB catalog, SMS channel)
-  - Batch 6: 4 files (web_console_services: cb_metrics, cb_rate_limiter, duckdb_connection, data_management schemas)
-  - New modules at 100%: cb_rate_limiter, duckdb_connection, data_management schemas, hash_utils, pkce, session_store
-  - 477 total test files in repository
-- **Remaining Work:** Continue expanding coverage to reach 85% target
+
+**✅ Current Test Suite Status (2026-01-17):**
+- **Tests Collected:** 6,778 tests
+- **Tests Passing:** 6,570 (96.9%)
+- **Tests Failing:** 99 (see failing tests section below)
+- **Tests Skipped:** 73
+- **Collection Errors:** 38 (6 import errors in test files)
+- **Total Test Files:** 481
+- **Total Source Files:** 333
+- **Total Lines of Code:** 135,645
+
+**✅ Coverage Distribution:**
+| Coverage Range | Modules | Status |
+|----------------|---------|--------|
+| 100% | 76 | ✅ Excellent |
+| 80-99% | 11 | ✅ Good |
+| 50-79% | 21 | ⚠️ Acceptable |
+| 20-49% | 128 | ❌ Needs Work |
+| 1-19% | 150 | ❌ Critical |
+| 0% | 8 | ❌ Missing |
+
+**✅ Phase 2 Accomplishments:**
+- kill_switch.py: 88% → 100% (+12%)
+- alpaca_client.py: 67% → 83% (+16%)
+- reconciliation/service.py: 42% → 85% (+43%)
+
+**✅ Phase 3 Accomplishments:**
+- Created 139 new test files via parallel Codex agents (6 batches)
+- Overall coverage improved from 7% to ~18% (+11%)
+- Batches 1-4: 91 files (libs/core, libs/platform, libs/data, apps/execution_gateway, apps/orchestrator, apps/auth_service)
+- Batch 5: 44 files (web_console_ng pages, auth, components, core, UI, DuckDB catalog, SMS channel)
+- Batch 6: 4 files (web_console_services: cb_metrics, cb_rate_limiter, duckdb_connection, data_management schemas)
+- New modules at 100%: cb_rate_limiter, duckdb_connection, data_management schemas, hash_utils, pkce, session_store
+
+**❌ Remaining Work (Phase 3 - NOT DONE):**
+- Gap to target: 67% more coverage needed (18% → 85%)
+- Modules at 0% (8 files requiring immediate attention)
+- Modules at 1-19% (150 files - highest priority)
+- Modules at 20-49% (128 files - medium priority)
+- Test failures: 99 tests need fixing
+- Collection errors: 6 files with import issues
 
 ---
 
@@ -120,14 +206,23 @@ This plan addresses three critical test infrastructure goals:
 
 ## Current State Analysis
 
-### Coverage Metrics
-- **Current overall coverage:** 19% (target: 85%)
-- **Current branch coverage:** Unknown (target: 95% for P0)
-- **Coverage threshold in CI:** 50% (was meant to be 80%)
-- **Total test files:** 255 (in `tests/`) + 37 (collocated) = 292 total
-- **Total tests:** 4,736
-- **Integration tests:** 8 files
-- **E2E tests:** 4 files
+### Coverage Metrics (Updated 2026-01-17)
+
+**✅ CURRENT STATE:**
+- **Current overall coverage:** ~18% (target: 85%) - **GAP: 67%**
+- **Current branch coverage:** ~55% for tested modules
+- **Total test files:** 481
+- **Total tests collected:** 6,778
+- **Tests passing:** 6,570 (96.9%)
+- **Tests failing:** 99
+- **Collection errors:** 38
+
+**❌ GAPS TO ADDRESS:**
+- 8 modules at 0% coverage (critical)
+- 150 modules at 1-19% coverage (high priority)
+- 128 modules at 20-49% coverage (medium priority)
+- 6 test files with import errors
+- 99 test failures to fix
 
 ### Collocated Test Problem
 
@@ -1565,15 +1660,25 @@ If 85% overall is not achievable by week 6:
 - [x] Coverage ratchet baseline updated (version 4) to reflect new coverage
 - **Sign-off:** Completed - 75 new tests added across 3 test files
 
-### Phase 3: Coverage Foundation (Week 5-6)
-1. Expand coverage to remaining modules
-2. Add tests for 0% coverage modules
-3. **Fix ALL bugs discovered**
-4. Target: 85% overall branch coverage
+### Phase 3: Coverage Foundation (Week 5-6) - 🔄 IN PROGRESS
+
+**✅ COMPLETED:**
+1. ✅ Created 139 new test files (6 batches)
+2. ✅ Improved coverage from 7% to 18%
+3. ✅ Generated comprehensive coverage analysis report
+
+**❌ NOT YET DONE:**
+1. ❌ Expand coverage to reach 85% target (currently 18%)
+2. ❌ Cover remaining 8 modules at 0% coverage
+3. ❌ Fix 99 failing tests
+4. ❌ Fix 6 test collection errors
+5. ❌ Cover 150 modules at 1-19%
+6. ❌ Cover 128 modules at 20-49%
 
 **Exit Criteria (Phase 3):**
-- [ ] Overall branch coverage ≥85% (or fallback target if plateau)
-- [ ] All modules have >0% coverage
+- [ ] Overall branch coverage ≥85% (currently 18% - **GAP: 67%**)
+- [ ] All modules have >0% coverage (currently 8 at 0% - **NOT MET**)
+- [ ] All tests passing (currently 99 failing - **NOT MET**)
 - [ ] All discovered bugs triaged and addressed per severity
 - [ ] Coverage ratchet baseline finalized
 - **Sign-off:** Tech Lead
@@ -1641,15 +1746,18 @@ pytest-timeout = "^2.2"         # Timeout enforcement (optional but recommended)
 
 ## Success Criteria
 
-| Metric | Current | Target | Timeline |
-|--------|---------|--------|----------|
-| Test locations | 2 | 1 | 1 week |
-| P0 branch coverage | TBD | 90% → 95% | 4 weeks |
-| Overall branch coverage | ~15% | 85% | 6 weeks |
-| CI time (remote) | ~20 min | ~10 min | 1 week |
-| CI time (local) | ~5 min | ~3 min | 1 week |
-| P0/P1 bugs found & fixed | N/A | 100% | Ongoing |
-| Flaky tests quarantined | N/A | <10 | Ongoing |
+| Metric | Current | Target | Status |
+|--------|---------|--------|--------|
+| Test locations | 1 | 1 | ✅ DONE |
+| P0 branch coverage | 85-100% | 95% | ✅ DONE (9/12 at target) |
+| Overall branch coverage | ~18% | 85% | ❌ GAP: 67% |
+| CI time (remote) | ~13 min | ~10 min | ⚠️ CLOSE |
+| CI time (local) | ~5 min | ~3 min | ⚠️ IN PROGRESS |
+| P0/P1 bugs found & fixed | N/A | 100% | ✅ ONGOING |
+| Flaky tests quarantined | N/A | <10 | ✅ DONE |
+| Tests passing | 6,570 | 6,778 | ❌ 99 FAILING |
+| Modules at 100% | 76 | 300+ | ❌ GAP: 224+ |
+| Modules at 0% | 8 | 0 | ❌ 8 REMAINING |
 
 ---
 
