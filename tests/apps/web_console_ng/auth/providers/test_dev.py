@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from apps.web_console_ng import config
 import apps.web_console_ng.auth.providers.dev as dev_module
+from apps.web_console_ng import config
 
 
 def _set_dev_config(monkeypatch: pytest.MonkeyPatch, auth_type: str = "dev") -> None:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from apps.web_console_ng.ui import trading_layout as layout_module
@@ -15,11 +13,11 @@ class _DummyElement:
         self.text = text
         self.class_calls: list[str] = []
 
-    def classes(self, classes: str) -> "_DummyElement":
+    def classes(self, classes: str) -> _DummyElement:
         self.class_calls.append(classes)
         return self
 
-    def __enter__(self) -> "_DummyElement":
+    def __enter__(self) -> _DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:

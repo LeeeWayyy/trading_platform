@@ -11,9 +11,8 @@ from redis.exceptions import RedisError
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.session_store import SessionValidationError
-from apps.web_console_ng.core import admission
+from apps.web_console_ng.core import admission, health
 from apps.web_console_ng.core.admission import AdmissionControlMiddleware
-from apps.web_console_ng.core import health
 
 
 class DummySemaphore:

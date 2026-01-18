@@ -5,7 +5,12 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from apps.web_console_ng.auth import csrf
-from apps.web_console_ng.auth.csrf import CSRF_COOKIE_NAME, CSRF_EXEMPT_PATHS, CSRF_HEADER_NAME, verify_csrf_token
+from apps.web_console_ng.auth.csrf import (
+    CSRF_COOKIE_NAME,
+    CSRF_EXEMPT_PATHS,
+    CSRF_HEADER_NAME,
+    verify_csrf_token,
+)
 
 
 def _build_request(

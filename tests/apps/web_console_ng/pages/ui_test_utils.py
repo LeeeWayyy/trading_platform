@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 
 class DummyElement:
@@ -22,25 +23,25 @@ class DummyElement:
         self.classes_args: list[str] = []
         self.props_args: list[str] = []
 
-    def __enter__(self) -> "DummyElement":
+    def __enter__(self) -> DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    def classes(self, classes: str) -> "DummyElement":
+    def classes(self, classes: str) -> DummyElement:
         self.classes_args.append(classes)
         return self
 
-    def props(self, props: str) -> "DummyElement":
+    def props(self, props: str) -> DummyElement:
         self.props_args.append(props)
         return self
 
-    def on_click(self, cb: Callable[..., Any]) -> "DummyElement":
+    def on_click(self, cb: Callable[..., Any]) -> DummyElement:
         self.on_click_cb = cb
         return self
 
-    def on_value_change(self, cb: Callable[..., Any]) -> "DummyElement":
+    def on_value_change(self, cb: Callable[..., Any]) -> DummyElement:
         self.on_value_change_cb = cb
         return self
 

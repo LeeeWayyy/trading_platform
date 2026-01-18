@@ -74,7 +74,7 @@ def test_run_etl_pipeline_builds_ca_df_for_outlier_detection(monkeypatch: pytest
     ca_df = captured.get("ca_df")
     assert isinstance(ca_df, pl.DataFrame)
     assert set(ca_df.columns) == {"symbol", "date"}
-    assert set(tuple(row) for row in ca_df.rows()) == {
+    assert {tuple(row) for row in ca_df.rows()} == {
         ("AAPL", date(2024, 1, 11)),
         ("MSFT", date(2024, 1, 12)),
     }

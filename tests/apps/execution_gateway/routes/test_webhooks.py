@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

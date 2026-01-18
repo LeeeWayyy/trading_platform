@@ -11,18 +11,16 @@ Tests coverage for:
 - Request validators (lines 1252-1262)
 """
 
-import pytest
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from fastapi import HTTPException
+from unittest.mock import Mock, patch
+
+import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-import pandas as pd
-
 from apps.signal_service.main import (
     SignalRequest,
-    app,
     get_settings,
 )
 
@@ -539,9 +537,9 @@ class TestGetModelInfoEndpoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test get_model_info returns model metadata."""
+
         from apps.signal_service import main
         from apps.signal_service.model_registry import ModelMetadata
-        from datetime import UTC, datetime
 
         mock_registry = Mock()
         mock_registry.is_loaded = True
@@ -618,9 +616,9 @@ class TestReloadModelEndpoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test reload_model when model version changed."""
+
         from apps.signal_service import main
         from apps.signal_service.model_registry import ModelMetadata
-        from datetime import UTC, datetime
 
         mock_registry = Mock()
         mock_registry.reload_if_changed.return_value = True
@@ -657,9 +655,9 @@ class TestReloadModelEndpoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test reload_model when no changes detected."""
+
         from apps.signal_service import main
         from apps.signal_service.model_registry import ModelMetadata
-        from datetime import UTC, datetime
 
         mock_registry = Mock()
         mock_registry.reload_if_changed.return_value = False
@@ -695,9 +693,9 @@ class TestReloadModelEndpoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test reload_model during shadow validation."""
+
         from apps.signal_service import main
         from apps.signal_service.model_registry import ModelMetadata
-        from datetime import UTC, datetime
 
         mock_registry = Mock()
         mock_registry.reload_if_changed.return_value = False

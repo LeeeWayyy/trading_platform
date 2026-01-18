@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -26,11 +26,8 @@ from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 from apps.execution_gateway.routes import admin
 from apps.execution_gateway.routes.admin import _determine_strategy_status
 from apps.execution_gateway.schemas import (
-    ConfigResponse,
     FatFingerThresholds,
     FatFingerThresholdsResponse,
-    StrategiesListResponse,
-    StrategyStatusResponse,
 )
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.core.common.api_auth_dependency import AuthContext
@@ -154,7 +151,7 @@ class TestConfigEndpoint:
 class TestFatFingerThresholdsEndpoints:
     """Tests for fat-finger threshold endpoints."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_fat_finger_validator(self) -> MagicMock:
         """Create mock fat-finger validator."""
         validator = MagicMock(spec=FatFingerValidator)
@@ -166,14 +163,14 @@ class TestFatFingerThresholdsEndpoints:
         validator.get_symbol_overrides.return_value = {}
         return validator
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_recovery_manager(self) -> MagicMock:
         """Create mock recovery manager."""
         manager = MagicMock()
         manager.needs_recovery.return_value = False
         return manager
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_db(self) -> MagicMock:
         """Create mock database client."""
         db = MagicMock()
@@ -321,14 +318,14 @@ class TestFatFingerThresholdsEndpoints:
 class TestStrategyStatusEndpoints:
     """Tests for strategy status endpoints."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_recovery_manager(self) -> MagicMock:
         """Create mock recovery manager."""
         manager = MagicMock()
         manager.needs_recovery.return_value = False
         return manager
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_db(self) -> MagicMock:
         """Create mock database client."""
         db = MagicMock()
@@ -651,7 +648,7 @@ class TestDetermineStrategyStatus:
 class TestKillSwitchEndpoints:
     """Tests for kill-switch endpoints."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_kill_switch(self) -> MagicMock:
         """Create mock kill switch."""
         kill_switch = MagicMock()
@@ -663,7 +660,7 @@ class TestKillSwitchEndpoints:
         }
         return kill_switch
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_recovery_manager(self, mock_kill_switch: MagicMock) -> MagicMock:
         """Create mock recovery manager with kill switch."""
         manager = MagicMock()
@@ -672,7 +669,7 @@ class TestKillSwitchEndpoints:
         manager.needs_recovery.return_value = False
         return manager
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_db(self) -> MagicMock:
         """Create mock database client."""
         db = MagicMock()

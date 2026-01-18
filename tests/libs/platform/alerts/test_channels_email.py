@@ -194,7 +194,7 @@ async def test_send_smtp_sender_refused_not_retryable(email_channel: EmailChanne
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    "code, expected_retryable",
+    ("code", "expected_retryable"),
     [
         (421, True),
         (450, True),
@@ -308,7 +308,7 @@ async def test_send_sendgrid_request_error(email_channel: EmailChannel) -> None:
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    "status, expected_retryable",
+    ("status", "expected_retryable"),
     [
         (429, True),
         (500, True),

@@ -14,7 +14,7 @@ from libs.platform.web_console_auth.session_invalidation import (
 )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_maybe_transaction_uses_transaction_when_available() -> None:
     mock_conn = Mock()
     txn_cm = AsyncMock()
@@ -30,7 +30,7 @@ async def test_maybe_transaction_uses_transaction_when_available() -> None:
     txn_cm.__aexit__.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_maybe_transaction_noop_without_transaction_method() -> None:
     mock_conn = Mock(spec=[])
 
@@ -38,7 +38,7 @@ async def test_maybe_transaction_noop_without_transaction_method() -> None:
         pass
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_invalidation.acquire_connection")
 async def test_invalidate_user_sessions_success_with_audit_log(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -63,7 +63,7 @@ async def test_invalidate_user_sessions_success_with_audit_log(mock_acquire: Moc
     audit_logger.log_admin_change.assert_awaited_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_invalidation.acquire_connection")
 async def test_invalidate_user_sessions_missing_row_raises(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -78,7 +78,7 @@ async def test_invalidate_user_sessions_missing_row_raises(mock_acquire: Mock) -
         await invalidate_user_sessions("user-1", db_pool=Mock())
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_invalidation.acquire_connection")
 async def test_validate_session_version_matches_tuple(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -92,7 +92,7 @@ async def test_validate_session_version_matches_tuple(mock_acquire: Mock) -> Non
     assert await validate_session_version("user-1", 2, db_pool=Mock()) is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_invalidation.acquire_connection")
 async def test_validate_session_version_no_row_returns_false(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()

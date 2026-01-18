@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from apps.web_console_ng import config
 import apps.web_console_ng.auth.providers.mtls as mtls_module
+from apps.web_console_ng import config
 
 
 class _DummyRequest:

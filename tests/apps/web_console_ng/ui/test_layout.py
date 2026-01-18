@@ -17,17 +17,17 @@ class _DummyElement:
         self.tooltip_text: str | None = None
         self.disabled = False
 
-    def __enter__(self) -> "_DummyElement":
+    def __enter__(self) -> _DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
 
-    def classes(self, value: str | None = None, **kwargs: Any) -> "_DummyElement":
+    def classes(self, value: str | None = None, **kwargs: Any) -> _DummyElement:
         self.classes_calls.append({"value": value, **kwargs})
         return self
 
-    def props(self, *_args: Any, **_kwargs: Any) -> "_DummyElement":
+    def props(self, *_args: Any, **_kwargs: Any) -> _DummyElement:
         return self
 
     def tooltip(self, text: str) -> None:

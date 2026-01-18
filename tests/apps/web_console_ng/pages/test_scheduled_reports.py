@@ -18,16 +18,16 @@ class DummyElement:
         self.on_click_cb = None
         self.on_value_change_cb = None
 
-    def __enter__(self) -> "DummyElement":
+    def __enter__(self) -> DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    def classes(self, *args, **kwargs) -> "DummyElement":
+    def classes(self, *args, **kwargs) -> DummyElement:
         return self
 
-    def props(self, *args, **kwargs) -> "DummyElement":
+    def props(self, *args, **kwargs) -> DummyElement:
         return self
 
     def set_visibility(self, value: bool) -> None:

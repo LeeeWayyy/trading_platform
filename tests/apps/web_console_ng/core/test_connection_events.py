@@ -7,8 +7,7 @@ from typing import Any
 import pytest
 
 from apps.web_console_ng import config
-from apps.web_console_ng.core import connection_events
-from apps.web_console_ng.core import health
+from apps.web_console_ng.core import connection_events, health
 
 
 class DummyApp:

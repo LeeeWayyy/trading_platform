@@ -68,19 +68,19 @@ from apps.execution_gateway.alpaca_client import (
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_trading_client():
     """Create mock TradingClient."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_data_client():
     """Create mock StockHistoricalDataClient."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def executor(mock_trading_client, mock_data_client):
     """Create AlpacaExecutor with mock clients."""
     with patch("apps.execution_gateway.alpaca_client.TradingClient", return_value=mock_trading_client):

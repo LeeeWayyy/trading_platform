@@ -15,7 +15,7 @@ class DummyCounter:
         self.labels_calls: list[dict[str, str]] = []
         self.inc_calls = 0
 
-    def labels(self, **kwargs: str) -> "DummyCounter":
+    def labels(self, **kwargs: str) -> DummyCounter:
         self.labels_calls.append(kwargs)
         return self
 
@@ -28,7 +28,7 @@ class DummyGauge:
         self.labels_calls: list[dict[str, str]] = []
         self.set_calls: list[int] = []
 
-    def labels(self, **kwargs: str) -> "DummyGauge":
+    def labels(self, **kwargs: str) -> DummyGauge:
         self.labels_calls.append(kwargs)
         return self
 
@@ -41,7 +41,7 @@ class DummyHistogram:
         self.labels_calls: list[dict[str, str]] = []
         self.observe_calls: list[float] = []
 
-    def labels(self, **kwargs: str) -> "DummyHistogram":
+    def labels(self, **kwargs: str) -> DummyHistogram:
         self.labels_calls.append(kwargs)
         return self
 
@@ -148,7 +148,7 @@ async def test_time_api_call_records_latency_on_error(monkeypatch: pytest.Monkey
     async def fail() -> None:
         raise ValueError("boom")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="boom"):
         await fail()
 
     assert dummy.labels_calls == [{"pod": "pod-4", "endpoint": "/endpoint"}]

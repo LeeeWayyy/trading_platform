@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import psycopg
 import pytest
 
 from apps.web_console_ng.pages import admin as admin_module
-from libs.platform.web_console_auth.permissions import Permission
 
 
 class DummyElement:
-    def __init__(self, ui: "DummyUI", kind: str, **kwargs: Any) -> None:
+    def __init__(self, ui: DummyUI, kind: str, **kwargs: Any) -> None:
         self.ui = ui
         self.kind = kind
         self.kwargs = kwargs
@@ -24,23 +24,23 @@ class DummyElement:
         self._on_click: Callable[..., Any] | None = None
         self._on_value_change: Callable[..., Any] | None = None
 
-    def __enter__(self) -> "DummyElement":
+    def __enter__(self) -> DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    def classes(self, *_: Any, **__: Any) -> "DummyElement":
+    def classes(self, *_: Any, **__: Any) -> DummyElement:
         return self
 
-    def props(self, *_: Any, **__: Any) -> "DummyElement":
+    def props(self, *_: Any, **__: Any) -> DummyElement:
         return self
 
-    def on_click(self, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on_click(self, fn: Callable[..., Any] | None) -> DummyElement:
         self._on_click = fn
         return self
 
-    def on_value_change(self, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on_value_change(self, fn: Callable[..., Any] | None) -> DummyElement:
         self._on_value_change = fn
         return self
 

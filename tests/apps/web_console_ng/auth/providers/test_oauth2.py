@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import time
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
-from apps.web_console_ng import config
 import apps.web_console_ng.auth.providers.oauth2 as oauth2_module
+from apps.web_console_ng import config
 
 
 class _MockAsyncResponse:
@@ -28,7 +27,7 @@ class _MockAsyncClient:
         self.post_calls: list[tuple[str, dict[str, object]]] = []
         self.get_calls: list[tuple[str, dict[str, object]]] = []
 
-    async def __aenter__(self) -> "_MockAsyncClient":
+    async def __aenter__(self) -> _MockAsyncClient:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

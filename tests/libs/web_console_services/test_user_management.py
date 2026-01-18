@@ -4,7 +4,6 @@ Unit tests for libs.web_console_services.user_management.
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest

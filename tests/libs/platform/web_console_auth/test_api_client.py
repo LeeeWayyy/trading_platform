@@ -27,14 +27,14 @@ class FakeSessionStore:
 
 
 class FakeAsyncClient:
-    last_instance: "FakeAsyncClient | None" = None
+    last_instance: FakeAsyncClient | None = None
 
     def __init__(self, timeout: float) -> None:
         self.timeout = timeout
         self.request_calls: list[tuple[str, str, dict]] = []
         FakeAsyncClient.last_instance = self
 
-    async def __aenter__(self) -> "FakeAsyncClient":
+    async def __aenter__(self) -> FakeAsyncClient:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
@@ -46,7 +46,7 @@ class FakeAsyncClient:
         return httpx.Response(200, request=request)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_access_token_from_redis_returns_token() -> None:
     session_data = SimpleNamespace(access_token="token")
     store = FakeSessionStore(session_data)
@@ -62,7 +62,7 @@ async def test_get_access_token_from_redis_returns_token() -> None:
     assert store.calls == [("session-1", "203.0.113.1", "Mozilla/5.0", False)]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_access_token_from_redis_returns_none_on_missing_session() -> None:
     store = FakeSessionStore(None)
 
@@ -76,13 +76,13 @@ async def test_get_access_token_from_redis_returns_none_on_missing_session() -> 
     assert token is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_call_api_with_auth_requires_parameters() -> None:
     with pytest.raises(ValueError, match="Missing required parameters"):
         await api_client.call_api_with_auth(url="https://example.com")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_call_api_with_auth_rejects_invalid_session(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_get_access_token(*args, **kwargs):
         return None
@@ -99,7 +99,7 @@ async def test_call_api_with_auth_rejects_invalid_session(monkeypatch: pytest.Mo
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_call_api_with_auth_adds_bearer_header(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_get_access_token(*args, **kwargs):
         return "access-123"

@@ -53,7 +53,7 @@ def _patch_client(monkeypatch: pytest.MonkeyPatch, response=None, exc=None) -> N
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_health_success(monkeypatch: pytest.MonkeyPatch) -> None:
     domain = "auth.example.com"
     response = _DummyResponse(
@@ -75,7 +75,7 @@ async def test_check_health_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert status.fallback_mode is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_health_missing_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     domain = "auth.example.com"
     response = _DummyResponse(json_data={"issuer": f"https://{domain}/"})
@@ -89,7 +89,7 @@ async def test_check_health_missing_fields(monkeypatch: pytest.MonkeyPatch) -> N
     assert status.error is not None
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_health_issuer_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     domain = "auth.example.com"
     response = _DummyResponse(
@@ -111,7 +111,7 @@ async def test_check_health_issuer_mismatch(monkeypatch: pytest.MonkeyPatch) -> 
     assert status.fallback_mode is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_health_enters_fallback_after_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -126,7 +126,7 @@ async def test_check_health_enters_fallback_after_failures(
     assert checker.should_fallback_to_mtls() is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_health_exits_fallback_after_stability(monkeypatch: pytest.MonkeyPatch) -> None:
     domain = "auth.example.com"
     response = _DummyResponse(

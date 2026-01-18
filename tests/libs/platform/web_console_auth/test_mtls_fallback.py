@@ -93,7 +93,7 @@ def test_get_crl_url_default(monkeypatch: pytest.MonkeyPatch) -> None:
     assert mtls_fallback.get_crl_url().endswith("/crl/admin-ca.crl")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_crl_cache_fetches_and_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     fake_crl = _FakeCRL(last_update=now.replace(tzinfo=None), next_update=now, revoked=[])
@@ -112,7 +112,7 @@ async def test_crl_cache_fetches_and_caches(monkeypatch: pytest.MonkeyPatch) -> 
     assert client.get_calls == 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_crl_cache_rejects_stale_crl(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     stale = now - timedelta(days=2)
@@ -124,11 +124,11 @@ async def test_crl_cache_rejects_stale_crl(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(mtls_fallback.x509, "load_der_x509_crl", lambda _: fake_crl)
 
     cache = mtls_fallback.CRLCache("http://example/crl", max_crl_age_seconds=60)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="CRL too old"):
         await cache.fetch_crl()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_crl_cache_is_revoked(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     cert, _ = _make_cert("admin", now - timedelta(days=1), now + timedelta(days=1), serial=123)
@@ -148,7 +148,7 @@ async def test_crl_cache_is_revoked(monkeypatch: pytest.MonkeyPatch) -> None:
     assert await cache.is_revoked(cert) is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_certificate_success(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     _, pem = _make_cert("admin", now - timedelta(days=1), now + timedelta(days=1))
@@ -166,7 +166,7 @@ async def test_validate_certificate_success(monkeypatch: pytest.MonkeyPatch) -> 
     assert info.crl_status == "valid"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_certificate_fails_nginx_verification() -> None:
     validator = mtls_fallback.MtlsFallbackValidator(["admin"], "http://example/crl")
     info = await validator.validate_certificate("not-used", {"X-SSL-Client-Verify": "FAILED"})
@@ -174,7 +174,7 @@ async def test_validate_certificate_fails_nginx_verification() -> None:
     assert "Client verification failed" in info.error
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_certificate_fails_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     _, pem = _make_cert("intruder", now - timedelta(days=1), now + timedelta(days=1))
@@ -190,7 +190,7 @@ async def test_validate_certificate_fails_allowlist(monkeypatch: pytest.MonkeyPa
     assert "not in admin allowlist" in info.error
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_certificate_fails_lifetime_too_long(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     _, pem = _make_cert("admin", now - timedelta(days=1), now + timedelta(days=10))
@@ -206,7 +206,7 @@ async def test_validate_certificate_fails_lifetime_too_long(monkeypatch: pytest.
     assert "exceeds maximum" in info.error
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_certificate_revoked(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     _, pem = _make_cert("admin", now - timedelta(days=1), now + timedelta(days=1))
@@ -222,7 +222,7 @@ async def test_validate_certificate_revoked(monkeypatch: pytest.MonkeyPatch) -> 
     assert info.crl_status == "revoked"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_certificate_crl_error(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     _, pem = _make_cert("admin", now - timedelta(days=1), now + timedelta(days=1))

@@ -15,7 +15,7 @@ from libs.platform.web_console_auth.session_validation import (
 )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_maybe_transaction_uses_transaction_when_available() -> None:
     mock_conn = Mock()
     txn_cm = AsyncMock()
@@ -31,7 +31,7 @@ async def test_maybe_transaction_uses_transaction_when_available() -> None:
     txn_cm.__aexit__.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_maybe_transaction_noop_without_transaction_method() -> None:
     mock_conn = Mock(spec=[])
 
@@ -39,7 +39,7 @@ async def test_maybe_transaction_noop_without_transaction_method() -> None:
         pass
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_invalidate_user_sessions_success_with_audit_log(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -64,7 +64,7 @@ async def test_invalidate_user_sessions_success_with_audit_log(mock_acquire: Moc
     audit_logger.log_admin_change.assert_awaited_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_invalidate_user_sessions_missing_row_raises(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -79,7 +79,7 @@ async def test_invalidate_user_sessions_missing_row_raises(mock_acquire: Mock) -
         await invalidate_user_sessions("user-1", db_pool=Mock())
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_invalidate_user_sessions_re_raises_operational_error(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -92,7 +92,7 @@ async def test_invalidate_user_sessions_re_raises_operational_error(mock_acquire
         await invalidate_user_sessions("user-1", db_pool=Mock())
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_invalidate_user_sessions_audit_log_failure_does_not_raise(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -116,7 +116,7 @@ async def test_invalidate_user_sessions_audit_log_failure_does_not_raise(mock_ac
     assert new_version == 5
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_validate_session_version_matches_row_dict(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -130,7 +130,7 @@ async def test_validate_session_version_matches_row_dict(mock_acquire: Mock) -> 
     assert await validate_session_version("user-1", 2, db_pool=Mock()) is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_validate_session_version_mismatch_returns_false(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()
@@ -144,7 +144,7 @@ async def test_validate_session_version_mismatch_returns_false(mock_acquire: Moc
     assert await validate_session_version("user-1", 4, db_pool=Mock()) is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
 async def test_validate_session_version_returns_false_on_db_error(mock_acquire: Mock) -> None:
     mock_conn = AsyncMock()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import Mock, patch
 
 import polars as pl
@@ -53,7 +53,7 @@ def _build_metadata(
         model_id=model_id,
         model_type=ModelType.alpha_weights,
         version="v1.0.0",
-        created_at=created_at or datetime(2025, 1, 1, tzinfo=timezone.utc),
+        created_at=created_at or datetime(2025, 1, 1, tzinfo=UTC),
         dataset_version_ids={"crsp": "v1.0.0"},
         snapshot_id="snapshot-1",
         factor_list=[],

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from pydantic import BaseModel
 
@@ -12,7 +12,7 @@ class ExampleResponse(TimestampSerializerMixin, BaseModel):
 
 
 def test_timestamp_offer_z_suffix_for_utc() -> None:
-    model = ExampleResponse(timestamp=datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc))
+    model = ExampleResponse(timestamp=datetime(2024, 1, 1, 0, 0, tzinfo=UTC))
 
     assert model.model_dump(mode="json")["timestamp"] == "2024-01-01T00:00:00Z"
 

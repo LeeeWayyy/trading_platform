@@ -2,8 +2,8 @@
 
 import pytest
 
-from apps.signal_service.config import Settings
 from apps.signal_service import main
+from apps.signal_service.config import Settings
 
 
 class TestFormatDatabaseUrlForLogging:

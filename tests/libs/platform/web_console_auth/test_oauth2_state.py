@@ -10,11 +10,11 @@ from libs.platform.web_console_auth.oauth2_state import OAuth2State, OAuth2State
 
 
 class _Pipeline:
-    def __init__(self, redis_client: "FakeRedis") -> None:
+    def __init__(self, redis_client: FakeRedis) -> None:
         self._redis = redis_client
         self._ops: list[tuple[str, str]] = []
 
-    async def __aenter__(self) -> "_Pipeline":
+    async def __aenter__(self) -> _Pipeline:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -70,7 +70,7 @@ def _sample_state() -> OAuth2State:
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_store_state_persists_payload_and_ttl() -> None:
     redis_client = FakeRedis()
     store = OAuth2StateStore(redis_client, ttl_seconds=321)
@@ -87,7 +87,7 @@ async def test_store_state_persists_payload_and_ttl() -> None:
     assert loaded == state
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_and_delete_state_returns_and_clears_entry() -> None:
     redis_client = FakeRedis()
     store = OAuth2StateStore(redis_client)
@@ -101,7 +101,7 @@ async def test_get_and_delete_state_returns_and_clears_entry() -> None:
     assert "oauth_state:state-123" not in redis_client.store
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_and_delete_state_missing_returns_none() -> None:
     redis_client = FakeRedis()
     store = OAuth2StateStore(redis_client)

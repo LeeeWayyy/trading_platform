@@ -159,7 +159,7 @@ async def test_send_timeout_returns_retryable(sms_channel: SMSChannel) -> None:
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    "status, expected_retryable",
+    ("status", "expected_retryable"),
     [
         (429, True),
         (500, True),

@@ -565,7 +565,6 @@ class TestCircuitBreakerServiceAuditFallbackEdgeCases:
         self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock
     ) -> None:
         """Fallback should handle malformed JSON in details column."""
-        import json
 
         cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
 

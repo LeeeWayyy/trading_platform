@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
 import math
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
 from apps.web_console_ng.components import factor_exposure_chart as factor_chart_module

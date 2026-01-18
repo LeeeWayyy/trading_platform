@@ -10,30 +10,29 @@ Tests coverage for:
 """
 
 import asyncio
-import pytest
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from unittest.mock import Mock, patch
 
-from libs.core.redis_client import RedisConnectionError, SignalEvent
+import pytest
 
 from apps.signal_service.main import (
-    model_reload_task,
-    feature_hydration_task,
     _attempt_redis_reconnect,
-    redis_fallback_replay_task,
-    _should_hydrate_features,
-    _record_shadow_validation,
-    _record_shadow_skip_if_bypassed,
+    _buffer_signal_payload,
     _on_model_activated,
+    _publish_signal_event_with_fallback,
+    _record_fallback_buffer_metrics,
+    _record_shadow_skip_if_bypassed,
+    _record_shadow_validation,
     _schedule_shadow_validation,
     _shadow_validate,
-    _record_fallback_buffer_metrics,
-    _buffer_signal_payload,
-    _publish_signal_event_with_fallback,
+    _should_hydrate_features,
+    feature_hydration_task,
+    model_reload_task,
+    redis_fallback_replay_task,
 )
 from apps.signal_service.model_registry import ModelMetadata
 from apps.signal_service.shadow_validator import ShadowValidationResult
-
+from libs.core.redis_client import RedisConnectionError, SignalEvent
 
 pytestmark = pytest.mark.asyncio
 
@@ -401,7 +400,7 @@ class TestRedFallbackReplayTask:
         with patch("apps.signal_service.main.settings", mock_settings):
             with patch("apps.signal_service.main.fallback_buffer", mock_fallback):
                 with patch("apps.signal_service.main.redis_client", mock_redis):
-                    with patch("apps.signal_service.main.signals_replayed_total") as mock_metric:
+                    with patch("apps.signal_service.main.signals_replayed_total"):
                         with patch("apps.signal_service.main.redis_fallback_buffer_size"):
                             task = asyncio.create_task(redis_fallback_replay_task())
                             await asyncio.sleep(0.05)
@@ -481,7 +480,7 @@ class TestShadowValidationHelpers:
         )
 
         with patch("apps.signal_service.main.shadow_validation_total") as mock_counter:
-            with patch("apps.signal_service.main.shadow_validation_correlation") as mock_gauge:
+            with patch("apps.signal_service.main.shadow_validation_correlation"):
                 _record_shadow_validation(result, "passed")
 
                 mock_counter.labels.assert_called_with(status="passed")
@@ -531,9 +530,9 @@ class TestShadowValidationHelpers:
             config={},
         )
 
-        with patch("apps.signal_service.main.model_version_info") as mock_info:
+        with patch("apps.signal_service.main.model_version_info"):
             with patch("apps.signal_service.main.model_loaded_status") as mock_status:
-                with patch("apps.signal_service.main.model_reload_total") as mock_reload:
+                with patch("apps.signal_service.main.model_reload_total"):
                     _on_model_activated(metadata)
 
                     mock_status.set.assert_called_with(1)
@@ -575,7 +574,7 @@ class TestShadowValidationHelpers:
 
         with patch("apps.signal_service.main.shadow_validator", mock_validator):
             with patch("apps.signal_service.main._record_shadow_validation"):
-                with pytest.raises(ValueError):
+                with pytest.raises(ValueError, match="Invalid data"):
                     _shadow_validate(old_model=Mock(), new_model=Mock())
 
     def test_shadow_validate_file_not_found(self) -> None:

@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import psycopg
-import pytest
 
 from apps.orchestrator.database import OrchestrationDatabaseClient
 from apps.orchestrator.schemas import OrchestrationResult, SignalOrderMapping

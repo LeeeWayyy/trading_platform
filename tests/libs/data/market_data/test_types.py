@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -17,7 +17,7 @@ def quote() -> QuoteData:
         ask_price=Decimal("100.10"),
         bid_size=10,
         ask_size=12,
-        timestamp=datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc),
+        timestamp=datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
         exchange="NASDAQ",
     )
 
@@ -38,7 +38,7 @@ def test_quote_spread_bps_zero_mid() -> None:
         ask_price=Decimal("0"),
         bid_size=0,
         ask_size=0,
-        timestamp=datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc),
+        timestamp=datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
         exchange=None,
     )
     assert quote.spread_bps == Decimal("0")
@@ -52,7 +52,7 @@ def test_quote_crossed_market_validation() -> None:
             ask_price=Decimal("100"),
             bid_size=1,
             ask_size=1,
-            timestamp=datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
             exchange=None,
         )
     assert "crossed market" in str(excinfo.value)

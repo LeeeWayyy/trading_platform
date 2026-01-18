@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import date
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -11,7 +12,7 @@ from apps.web_console_ng.pages import performance as perf_module
 
 
 class DummyElement:
-    def __init__(self, ui: "DummyUI", kind: str, **kwargs: Any) -> None:
+    def __init__(self, ui: DummyUI, kind: str, **kwargs: Any) -> None:
         self.ui = ui
         self.kind = kind
         self.kwargs = kwargs
@@ -22,23 +23,23 @@ class DummyElement:
         self._on_click: Callable[..., Any] | None = None
         self._on_value_change: Callable[..., Any] | None = None
 
-    def __enter__(self) -> "DummyElement":
+    def __enter__(self) -> DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    def classes(self, *_: Any, **__: Any) -> "DummyElement":
+    def classes(self, *_: Any, **__: Any) -> DummyElement:
         return self
 
-    def props(self, *_: Any, **__: Any) -> "DummyElement":
+    def props(self, *_: Any, **__: Any) -> DummyElement:
         return self
 
-    def on_click(self, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on_click(self, fn: Callable[..., Any] | None) -> DummyElement:
         self._on_click = fn
         return self
 
-    def on_value_change(self, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on_value_change(self, fn: Callable[..., Any] | None) -> DummyElement:
         self._on_value_change = fn
         return self
 
@@ -184,4 +185,4 @@ def test_render_historical_performance_invalid_range(dummy_ui: DummyUI) -> None:
     start = date(2026, 1, 10)
     end = date(2026, 1, 1)
     perf_module._render_historical_performance(start, end, ["alpha1"])
-    assert any("End date must be after start date" in l.text for l in dummy_ui.labels)
+    assert any("End date must be after start date" in label.text for label in dummy_ui.labels)

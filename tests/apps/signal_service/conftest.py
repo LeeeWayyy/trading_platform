@@ -457,6 +457,7 @@ def client(monkeypatch, mock_settings, mock_model_registry, mock_signal_generato
             assert response.status_code == 200
     """
     from fastapi.testclient import TestClient
+
     from apps.signal_service import main
 
     # Patch all global variables
@@ -524,8 +525,9 @@ def mock_model_registry():
         def test_with_registry(mock_model_registry):
             assert mock_model_registry.is_loaded
     """
-    from unittest.mock import Mock
     from datetime import UTC, datetime
+    from unittest.mock import Mock
+
     from apps.signal_service.model_registry import ModelMetadata
 
     registry = Mock()
@@ -592,6 +594,7 @@ def mock_auth_context(monkeypatch):
             # Auth and rate limiting are bypassed
     """
     from unittest.mock import Mock
+
     from apps.signal_service.main import app, signal_generate_auth, signal_generate_rl
 
     # Create mock auth context

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -89,7 +89,7 @@ def test_fat_finger_thresholds_response_serializes_updated_at() -> None:
     serialized = response.model_dump(mode="json")
     assert serialized["updated_at"].endswith("Z")
 
-    utc_dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    utc_dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
     response = FatFingerThresholdsResponse(
         default_thresholds=thresholds,
         symbol_overrides={},
@@ -112,7 +112,7 @@ def test_webhook_event_alias_population() -> None:
     data = OrderEventData(
         event="new",
         order={},
-        timestamp=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        timestamp=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
     )
     event = WebhookEvent(event="order_update", data=data)
     assert event.event_type == "order_update"
@@ -121,7 +121,7 @@ def test_webhook_event_alias_population() -> None:
 
 
 def test_health_response_serializes_timestamp() -> None:
-    ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
     response = HealthResponse(
         status="healthy",
         version="0.1.0",

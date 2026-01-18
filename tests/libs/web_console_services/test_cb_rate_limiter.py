@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from libs.web_console_services.cb_rate_limiter import CBRateLimiter, _INCR_WITH_EXPIRE_LUA
+from libs.web_console_services.cb_rate_limiter import _INCR_WITH_EXPIRE_LUA, CBRateLimiter
 
 
 @pytest.fixture()

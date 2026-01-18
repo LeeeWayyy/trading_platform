@@ -34,7 +34,7 @@ class _DummyElement:
     def __init__(self, text: str | None = None) -> None:
         self.text = text
 
-    def classes(self, _classes: str) -> "_DummyElement":
+    def classes(self, _classes: str) -> _DummyElement:
         return self
 
 

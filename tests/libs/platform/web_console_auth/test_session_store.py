@@ -78,13 +78,13 @@ def _freeze_time(monkeypatch: pytest.MonkeyPatch, now: datetime) -> None:
 
 def test_init_rejects_invalid_key_lengths() -> None:
     redis_client = FakeRedis()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Encryption key must be exactly 32 bytes"):
         RedisSessionStore(redis_client, encryption_key=b"short")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Secondary key must be exactly 32 bytes"):
         RedisSessionStore(redis_client, encryption_key=b"a" * 32, secondary_key=b"short")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_create_and_get_session_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -104,7 +104,7 @@ async def test_create_and_get_session_round_trip(monkeypatch: pytest.MonkeyPatch
     assert redis_client.ttl["session:sess1"] == int(store.absolute_timeout.total_seconds())
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_session_updates_activity_with_remaining_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -127,7 +127,7 @@ async def test_get_session_updates_activity_with_remaining_ttl(monkeypatch: pyte
     assert redis_client.setex_calls[-1][1] == expected_remaining
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_session_rejects_ip_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -145,7 +145,7 @@ async def test_get_session_rejects_ip_mismatch(monkeypatch: pytest.MonkeyPatch) 
     assert "session:sess3" not in redis_client.store
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_session_rejects_user_agent_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -163,7 +163,7 @@ async def test_get_session_rejects_user_agent_mismatch(monkeypatch: pytest.Monke
     assert "session:sess4" not in redis_client.store
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_session_enforces_idle_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -184,7 +184,7 @@ async def test_get_session_enforces_idle_timeout(monkeypatch: pytest.MonkeyPatch
     assert "session:sess5" not in redis_client.store
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_get_session_enforces_absolute_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -205,7 +205,7 @@ async def test_get_session_enforces_absolute_timeout(monkeypatch: pytest.MonkeyP
     assert "session:sess6" not in redis_client.store
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_update_session_fields_persists_changes(monkeypatch: pytest.MonkeyPatch) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -225,7 +225,7 @@ async def test_update_session_fields_persists_changes(monkeypatch: pytest.Monkey
     assert session.role == "admin"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_update_session_fields_fails_closed_on_missing_session() -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
@@ -255,7 +255,7 @@ def test_decrypt_falls_back_to_secondary_key() -> None:
         store.cipher_primary.decrypt = original_primary_decrypt
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_cleanup_all_sessions_deletes_matching_prefix() -> None:
     redis_client = FakeRedis()
     key = b"k" * 32

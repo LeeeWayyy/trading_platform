@@ -21,12 +21,11 @@ See Also:
     - test_main_background_tasks.py for background task tests
 """
 
-import pytest
 from datetime import UTC, datetime
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pandas as pd
+import pytest
 
 from apps.signal_service.signal_generator import SignalGenerator
 

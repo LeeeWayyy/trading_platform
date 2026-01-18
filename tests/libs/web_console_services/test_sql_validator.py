@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sqlglot
 import pytest
+import sqlglot
 
 from libs.web_console_services.sql_validator import SQLValidator
 

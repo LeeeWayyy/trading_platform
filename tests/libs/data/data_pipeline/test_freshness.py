@@ -141,5 +141,5 @@ def test_check_freshness_safe_handles_value_error_by_default() -> None:
 
 def test_check_freshness_safe_reraises_when_configured() -> None:
     df = pl.DataFrame({"symbol": ["AAPL"]})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="'timestamp' column"):
         freshness.check_freshness_safe(df, default_to_stale=False)

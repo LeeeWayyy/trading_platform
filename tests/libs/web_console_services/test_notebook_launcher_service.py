@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import signal
 from datetime import UTC, date, datetime
 from pathlib import Path
-import signal
 from unittest.mock import Mock, patch
 
 import pytest

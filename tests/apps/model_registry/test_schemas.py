@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from apps.model_registry.schemas import (
     ERROR_CHECKSUM_MISMATCH,
@@ -78,7 +78,7 @@ def test_model_metadata_response_includes_nested_env() -> None:
         run_id=None,
         dataset_uri=None,
         qlib_version=None,
-        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
         promoted_at=None,
     )
 
@@ -136,7 +136,7 @@ def test_model_list_response_counts_models() -> None:
         run_id=None,
         dataset_uri=None,
         qlib_version=None,
-        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
         promoted_at=None,
     )
 

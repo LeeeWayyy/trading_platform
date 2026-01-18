@@ -152,7 +152,7 @@ async def test_enforce_max_state_size_streaming_sets_body() -> None:
     await workspace_api.enforce_max_state_size(request)
 
     assert request._body == body
-    assert getattr(request, "_stream_consumed") is True
+    assert request._stream_consumed is True
 
 
 @pytest.mark.asyncio()

@@ -114,7 +114,7 @@ async def test_send_timeout_is_retryable(webhook_url):
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    "status_code,expected_retryable",
+    ("status_code", "expected_retryable"),
     [
         (500, True),
         (429, True),

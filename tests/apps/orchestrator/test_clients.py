@@ -6,7 +6,6 @@ import hashlib
 import hmac
 import json
 from datetime import date
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 

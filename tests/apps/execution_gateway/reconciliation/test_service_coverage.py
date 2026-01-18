@@ -11,9 +11,8 @@ Coverage gaps addressed (42% → 95%):
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import psycopg
 import pytest
@@ -22,7 +21,7 @@ from apps.execution_gateway.alpaca_client import AlpacaConnectionError
 from apps.execution_gateway.reconciliation.service import ReconciliationService
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db_client():
     """Create mock database client."""
     client = Mock()
@@ -33,7 +32,7 @@ def mock_db_client():
     return client
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_alpaca_client():
     """Create mock Alpaca client."""
     client = Mock()
@@ -41,7 +40,7 @@ def mock_alpaca_client():
     return client
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis_client():
     """Create mock Redis client."""
     return Mock()
@@ -252,7 +251,7 @@ class TestLifecycleMethods:
 class TestStartupReconciliation:
     """Tests for run_startup_reconciliation."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dry_run_returns_true(self, mock_db_client, mock_alpaca_client):
         """Test dry_run mode returns True immediately."""
         service = ReconciliationService(
@@ -266,7 +265,7 @@ class TestStartupReconciliation:
 
         assert result is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_success_returns_true(self, mock_db_client, mock_alpaca_client):
         """Test successful reconciliation returns True."""
         service = ReconciliationService(
@@ -283,7 +282,7 @@ class TestStartupReconciliation:
         assert result is True
         assert service.is_startup_complete() is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_alpaca_error_returns_false(self, mock_db_client, mock_alpaca_client):
         """Test AlpacaConnectionError returns False."""
         service = ReconciliationService(
@@ -299,7 +298,7 @@ class TestStartupReconciliation:
 
         assert result is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_database_error_returns_false(self, mock_db_client, mock_alpaca_client):
         """Test database error returns False."""
         service = ReconciliationService(
@@ -315,7 +314,7 @@ class TestStartupReconciliation:
 
         assert result is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_integrity_error_returns_false(self, mock_db_client, mock_alpaca_client):
         """Test IntegrityError returns False."""
         service = ReconciliationService(
@@ -331,7 +330,7 @@ class TestStartupReconciliation:
 
         assert result is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_value_error_returns_false(self, mock_db_client, mock_alpaca_client):
         """Test ValueError returns False."""
         service = ReconciliationService(
@@ -351,7 +350,7 @@ class TestStartupReconciliation:
 class TestRunReconciliationOnce:
     """Tests for run_reconciliation_once."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dry_run_skips_reconciliation(self, mock_db_client, mock_alpaca_client):
         """Test dry_run mode skips reconciliation."""
         service = ReconciliationService(
@@ -371,7 +370,7 @@ class TestRunReconciliationOnce:
 class TestRunFillsBackfillOnce:
     """Tests for run_fills_backfill_once."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dry_run_returns_skipped(self, mock_db_client, mock_alpaca_client):
         """Test dry_run mode returns skipped status."""
         service = ReconciliationService(
@@ -386,7 +385,7 @@ class TestRunFillsBackfillOnce:
         assert result["status"] == "skipped"
         assert "DRY_RUN" in result["message"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_normal_mode_calls_backfill(self, mock_db_client, mock_alpaca_client):
         """Test normal mode calls _backfill_alpaca_fills."""
         service = ReconciliationService(

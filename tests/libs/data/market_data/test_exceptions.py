@@ -1,3 +1,5 @@
+import pytest
+
 from libs.data.market_data.exceptions import (
     ConnectionError,
     MarketDataError,
@@ -13,8 +15,6 @@ def test_exception_hierarchy() -> None:
 
 
 def test_exceptions_can_be_raised() -> None:
-    try:
+    with pytest.raises(MarketDataError, match="no connection") as exc_info:
         raise ConnectionError("no connection")
-    except MarketDataError as exc:
-        assert isinstance(exc, ConnectionError)
-        assert str(exc) == "no connection"
+    assert isinstance(exc_info.value, ConnectionError)

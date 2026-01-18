@@ -6,7 +6,6 @@ import pytest
 
 from apps.signal_service.config import Settings
 
-
 _ENV_KEYS = [
     "HOST",
     "PORT",

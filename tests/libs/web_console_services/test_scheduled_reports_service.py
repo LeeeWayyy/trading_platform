@@ -316,7 +316,8 @@ class TestTradingDataFetch:
         positions, fills, errors = await service._fetch_trading_data("u", None, None)
         assert positions == {}
         assert fills == {}
-        assert errors and "Failed to fetch trading data" in errors[0]
+        assert errors
+        assert "Failed to fetch trading data" in errors[0]
 
 
 class TestRunNow:

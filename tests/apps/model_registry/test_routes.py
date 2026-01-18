@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,7 +39,7 @@ def _build_metadata(version: str = "v1.0.0") -> ModelMetadata:
         model_id=f"model-{version}",
         model_type=ModelType.risk_model,
         version=version,
-        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
         dataset_version_ids={"crsp": "v1.2.3"},
         snapshot_id="snapshot-1",
         factor_list=["factor-a"],
@@ -135,7 +135,7 @@ def test_get_model_metadata_success() -> None:
     registry.get_model_info.return_value = {
         "status": "production",
         "artifact_path": "/tmp/artifact",
-        "promoted_at": datetime(2024, 2, 1, tzinfo=timezone.utc),
+        "promoted_at": datetime(2024, 2, 1, tzinfo=UTC),
     }
     client = _client_with_registry(registry)
 
@@ -232,7 +232,7 @@ def test_list_models_success() -> None:
         "v1.0.1": {
             "status": ModelStatus.production.value,
             "artifact_path": "/tmp/b",
-            "promoted_at": datetime(2024, 2, 1, tzinfo=timezone.utc),
+            "promoted_at": datetime(2024, 2, 1, tzinfo=UTC),
         },
     }
     client = _client_with_registry(registry)

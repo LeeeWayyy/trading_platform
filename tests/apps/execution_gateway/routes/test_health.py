@@ -12,21 +12,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from apps.execution_gateway import main
 from apps.execution_gateway.alpaca_client import (
     AlpacaConnectionError,
     AlpacaRejectionError,
     AlpacaValidationError,
 )
-from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.app_factory import create_mock_context, create_test_config
-from apps.execution_gateway.config import ExecutionGatewayConfig
 from apps.execution_gateway.dependencies import get_config, get_context, get_metrics, get_version
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 from apps.execution_gateway.routes import health
@@ -81,7 +78,7 @@ class TestRootEndpoint:
 class TestHealthCheckEndpoint:
     """Tests for the health check endpoint (/health)."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_metrics(self) -> dict[str, Any]:
         """Create mock Prometheus metrics."""
         return {
@@ -91,7 +88,7 @@ class TestHealthCheckEndpoint:
             "alpaca_api_requests_total": MagicMock(),
         }
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_recovery_manager(self) -> MagicMock:
         """Create mock recovery manager."""
         manager = MagicMock()
@@ -101,21 +98,21 @@ class TestHealthCheckEndpoint:
         manager.position_reservation = MagicMock()
         return manager
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_db(self) -> MagicMock:
         """Create mock database client."""
         db = MagicMock()
         db.check_connection.return_value = True
         return db
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self) -> MagicMock:
         """Create mock Redis client."""
         redis_client = MagicMock()
         redis_client.health_check.return_value = True
         return redis_client
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_alpaca(self) -> MagicMock:
         """Create mock Alpaca client."""
         alpaca = MagicMock()
@@ -400,7 +397,7 @@ class TestHealthCheckEndpoint:
 class TestAlpacaConnectionErrors:
     """Tests for Alpaca connection error handling in health check."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_metrics(self) -> dict[str, Any]:
         """Create mock Prometheus metrics."""
         return {
@@ -410,21 +407,21 @@ class TestAlpacaConnectionErrors:
             "alpaca_api_requests_total": MagicMock(),
         }
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_recovery_manager(self) -> MagicMock:
         """Create mock recovery manager."""
         manager = MagicMock()
         manager.needs_recovery.return_value = False
         return manager
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_db(self) -> MagicMock:
         """Create mock database client."""
         db = MagicMock()
         db.check_connection.return_value = True
         return db
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self) -> MagicMock:
         """Create mock Redis client."""
         redis_client = MagicMock()

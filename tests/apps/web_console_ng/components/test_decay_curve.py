@@ -18,7 +18,7 @@ class DummyElement:
         self.fig = fig
         self.class_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
-    def classes(self, *args: Any, **kwargs: Any) -> "DummyElement":
+    def classes(self, *args: Any, **kwargs: Any) -> DummyElement:
         self.class_calls.append((args, kwargs))
         return self
 

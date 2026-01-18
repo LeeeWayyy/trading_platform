@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
@@ -173,7 +173,7 @@ async def test_handle_quote_validation_error_is_swallowed(
         "symbol": "AAPL",
         "bid_price": "101.00",
         "ask_price": "100.00",
-        "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc),
+        "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
     }
 
     await stream._handle_quote(quote)

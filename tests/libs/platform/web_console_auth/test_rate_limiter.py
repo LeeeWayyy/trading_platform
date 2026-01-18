@@ -10,7 +10,7 @@ import redis.exceptions
 from libs.platform.web_console_auth.rate_limiter import RateLimiter
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_rate_limit_allows_and_remaining() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(return_value=3)
@@ -35,7 +35,7 @@ async def test_check_rate_limit_allows_and_remaining() -> None:
     assert args[6] == "user1:999"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_rate_limit_blocks_when_exceeded() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(return_value=10)
@@ -52,7 +52,7 @@ async def test_check_rate_limit_blocks_when_exceeded() -> None:
     assert remaining == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_rate_limit_fallback_deny_on_connection_error() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(side_effect=redis.exceptions.ConnectionError("down"))
@@ -69,7 +69,7 @@ async def test_check_rate_limit_fallback_deny_on_connection_error() -> None:
     assert remaining == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_rate_limit_fallback_allow_on_timeout() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(side_effect=redis.exceptions.TimeoutError("timeout"))
@@ -86,7 +86,7 @@ async def test_check_rate_limit_fallback_allow_on_timeout() -> None:
     assert remaining == 7
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_alert_rate_limit_allows_when_under_limit() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(return_value=2)
@@ -97,7 +97,7 @@ async def test_check_alert_rate_limit_allows_when_under_limit() -> None:
     assert allowed is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_alert_rate_limit_blocks_when_exceeded() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(return_value=4)
@@ -108,7 +108,7 @@ async def test_check_alert_rate_limit_blocks_when_exceeded() -> None:
     assert allowed is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_alert_rate_limit_fallback_allow_on_redis_error() -> None:
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(side_effect=redis.exceptions.ConnectionError("down"))
@@ -119,16 +119,16 @@ async def test_check_alert_rate_limit_fallback_allow_on_redis_error() -> None:
     assert allowed is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_check_channel_rate_limit_invalid_channel() -> None:
     redis_client = AsyncMock()
     limiter = RateLimiter(redis_client, fallback_mode="deny")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unknown channel"):
         await limiter.check_channel_rate_limit("fax")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_health_check_success_and_failure() -> None:
     redis_client = AsyncMock()
     redis_client.ping = AsyncMock(return_value=True)
@@ -140,10 +140,10 @@ async def test_health_check_success_and_failure() -> None:
     assert await limiter.health_check() is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_is_allowed_requires_defaults() -> None:
     redis_client = AsyncMock()
     limiter = RateLimiter(redis_client)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Default max_requests and window_seconds must be set"):
         await limiter.is_allowed("any")

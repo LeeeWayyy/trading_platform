@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from apps.web_console_ng import config
 import apps.web_console_ng.auth.providers.basic as basic_module
+from apps.web_console_ng import config
 
 
 @pytest.fixture()

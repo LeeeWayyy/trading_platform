@@ -93,10 +93,8 @@ class TestDataQualityError:
 
     def test_data_quality_error_caught_by_base_class(self):
         """Test DataQualityError can be caught as TradingPlatformError."""
-        try:
+        with pytest.raises(TradingPlatformError, match="data issue"):
             raise DataQualityError("data issue")
-        except TradingPlatformError as e:
-            assert str(e) == "data issue"
 
 
 class TestStalenessError:
@@ -123,17 +121,13 @@ class TestStalenessError:
 
     def test_staleness_error_caught_by_data_quality_error(self):
         """Test StalenessError can be caught as DataQualityError."""
-        try:
+        with pytest.raises(DataQualityError, match="stale data"):
             raise StalenessError("stale data")
-        except DataQualityError as e:
-            assert str(e) == "stale data"
 
     def test_staleness_error_caught_by_base_class(self):
         """Test StalenessError can be caught as TradingPlatformError."""
-        try:
+        with pytest.raises(TradingPlatformError, match="stale"):
             raise StalenessError("stale")
-        except TradingPlatformError as e:
-            assert str(e) == "stale"
 
 
 class TestOutlierError:
@@ -160,17 +154,13 @@ class TestOutlierError:
 
     def test_outlier_error_caught_by_data_quality_error(self):
         """Test OutlierError can be caught as DataQualityError."""
-        try:
+        with pytest.raises(DataQualityError, match="outlier detected"):
             raise OutlierError("outlier detected")
-        except DataQualityError as e:
-            assert str(e) == "outlier detected"
 
     def test_outlier_error_caught_by_base_class(self):
         """Test OutlierError can be caught as TradingPlatformError."""
-        try:
+        with pytest.raises(TradingPlatformError, match="outlier"):
             raise OutlierError("outlier")
-        except TradingPlatformError as e:
-            assert str(e) == "outlier"
 
 
 class TestConfigurationError:
@@ -202,10 +192,8 @@ class TestConfigurationError:
 
     def test_configuration_error_caught_by_base_class(self):
         """Test ConfigurationError can be caught as TradingPlatformError."""
-        try:
+        with pytest.raises(TradingPlatformError, match="missing config"):
             raise ConfigurationError("missing config")
-        except TradingPlatformError as e:
-            assert str(e) == "missing config"
 
 
 class TestExceptionHierarchy:
@@ -296,10 +284,8 @@ class TestExceptionCatchingBehavior:
         ]
 
         for exc, expected_msg in exceptions_and_messages:
-            try:
+            with pytest.raises(TradingPlatformError, match=expected_msg):
                 raise exc
-            except TradingPlatformError as e:
-                assert str(e) == expected_msg
 
     def test_standard_exception_does_not_catch_platform_errors(self):
         """Test standard exceptions (like ValueError) don't catch platform errors."""

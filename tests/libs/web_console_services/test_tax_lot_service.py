@@ -39,7 +39,7 @@ def _mock_cursor_conn(mock_cursor: AsyncMock) -> AsyncMock:
 
 class TestToDecimal:
     def test_to_decimal_invalid(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid decimal value"):
             _to_decimal("not-a-number")
 
 

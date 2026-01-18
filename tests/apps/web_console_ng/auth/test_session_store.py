@@ -3,9 +3,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+import redis.asyncio as redis
 from cryptography.fernet import Fernet
 from fakeredis.aioredis import FakeRedis
-import redis.asyncio as redis
 
 from apps.web_console_ng.auth.session_store import (
     ServerSessionStore,
@@ -96,8 +96,8 @@ async def test_check_rate_limit_fallback_when_eval_missing(
 async def test_validate_session_redis_error_raises(session_store: ServerSessionStore) -> None:
     session_store.redis.get = AsyncMock(side_effect=redis.RedisError("boom"))
 
+    cookie_value = session_store._build_cookie_value("session-xyz")
     with pytest.raises(SessionValidationError):
-        cookie_value = session_store._build_cookie_value("session-xyz")
         await session_store.validate_session(cookie_value, "10.0.0.1", "ua")
 
 

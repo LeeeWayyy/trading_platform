@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import importlib
 import sys
+from collections.abc import Callable
 from types import ModuleType, SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 from starlette.requests import Request
@@ -104,7 +105,7 @@ class _DummyAuditLogger:
         self.stopped = True
 
     @classmethod
-    def get(cls, **_kwargs: Any) -> "_DummyAuditLogger":
+    def get(cls, **_kwargs: Any) -> _DummyAuditLogger:
         return cls()
 
 
@@ -313,3 +314,215 @@ async def test_socket_io_redirect_payload(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert response["error"] == "socket.io path changed"
     assert "new_path" in response
+
+
+@pytest.mark.asyncio()
+async def test_socket_io_redirect_with_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test socket.io redirect handler with path parameter."""
+    module = _import_main(monkeypatch)
+
+    response = await module.socket_io_redirect(path="transport=polling")
+
+    assert response["error"] == "socket.io path changed"
+    assert response["message"] == "Please refresh your browser (Ctrl+Shift+R) to clear cache"
+    assert response["new_path"] == "/_nicegui_ws/socket.io/"
+
+
+def test_socket_io_routes_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify both GET and POST routes are registered for socket.io redirect."""
+    module = _import_main(monkeypatch)
+
+    assert ("GET", "/socket.io/{path:path}") in module.app.routes
+    assert ("POST", "/socket.io/{path:path}") in module.app.routes
+
+
+def test_exception_handler_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify exception handler is registered for all exceptions."""
+    module = _import_main(monkeypatch)
+
+    assert Exception in module.app.exception_handlers
+    assert module.app.exception_handlers[Exception] == module.log_unhandled_exception
+
+
+def test_head_html_injection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify AG Grid renderer script is injected into head."""
+    module = _import_main(monkeypatch)
+
+    assert len(module.ui.head_html) == 1
+    assert '<script src="/static/js/aggrid_renderers.js"></script>' in module.ui.head_html[0]
+
+
+def test_startup_and_shutdown_handlers_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify startup and shutdown handlers are registered."""
+    module = _import_main(monkeypatch)
+
+    assert len(module.app.startup_handlers) == 1
+    assert len(module.app.shutdown_handlers) == 1
+    assert module.startup in module.app.startup_handlers
+    assert module.shutdown in module.app.shutdown_handlers
+
+
+def test_session_middleware_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify SessionMiddleware is configured with correct parameters."""
+    module = _import_main(monkeypatch)
+
+    session_middleware = next(
+        (entry for entry in module.app.middlewares if entry[0].__name__ == "SessionMiddleware"),
+        None,
+    )
+
+    assert session_middleware is not None
+    _, kwargs = session_middleware
+    assert "session_store" in kwargs
+    assert kwargs["session_store"] == "session-store"
+    assert "trusted_proxies" in kwargs
+
+
+def test_trusted_host_middleware_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify TrustedHostMiddleware is configured with allowed hosts."""
+    module = _import_main(monkeypatch)
+
+    trusted_host = next(
+        (entry for entry in module.app.middlewares if entry[0].__name__ == "TrustedHostMiddleware"),
+        None,
+    )
+
+    assert trusted_host is not None
+    _, kwargs = trusted_host
+    assert "allowed_hosts" in kwargs
+
+
+@pytest.mark.asyncio()
+async def test_startup_with_none_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test startup when db_pool is None (gracefully skips pool.open())."""
+    dummy_app, dummy_ui = _install_dummy_modules(monkeypatch)
+
+    database_module = ModuleType("apps.web_console_ng.core.database")
+
+    def _init_db_pool() -> None:
+        return None
+
+    async def _close_db_pool() -> None:
+        return None
+
+    database_module.init_db_pool = _init_db_pool
+    database_module.close_db_pool = _close_db_pool
+    monkeypatch.setitem(sys.modules, "apps.web_console_ng.core.database", database_module)
+
+    if "apps.web_console_ng.main" in sys.modules:
+        del sys.modules["apps.web_console_ng.main"]
+    module = importlib.import_module("apps.web_console_ng.main")
+
+    await module.startup()
+
+    assert module.db_pool is None
+    assert module.trading_client.started is True
+    assert module.audit_logger.started is True
+
+
+@pytest.mark.asyncio()
+async def test_shutdown_redis_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test shutdown handles Redis ConnectionError gracefully."""
+    module = _import_main(monkeypatch)
+
+    redis_module = ModuleType("apps.web_console_ng.core.redis_ha")
+
+    class _FailingRedis:
+        async def close(self) -> None:
+            raise ConnectionError("Connection lost")
+
+    redis_module.get_redis_store = lambda: _FailingRedis()
+    monkeypatch.setitem(sys.modules, "apps.web_console_ng.core.redis_ha", redis_module)
+
+    if "apps.web_console_ng.main" in sys.modules:
+        del sys.modules["apps.web_console_ng.main"]
+    module = importlib.import_module("apps.web_console_ng.main")
+
+    await module.shutdown()
+
+
+@pytest.mark.asyncio()
+async def test_shutdown_redis_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test shutdown handles Redis OSError gracefully."""
+    module = _import_main(monkeypatch)
+
+    redis_module = ModuleType("apps.web_console_ng.core.redis_ha")
+
+    class _FailingRedis:
+        async def close(self) -> None:
+            raise OSError("Socket error")
+
+    redis_module.get_redis_store = lambda: _FailingRedis()
+    monkeypatch.setitem(sys.modules, "apps.web_console_ng.core.redis_ha", redis_module)
+
+    if "apps.web_console_ng.main" in sys.modules:
+        del sys.modules["apps.web_console_ng.main"]
+    module = importlib.import_module("apps.web_console_ng.main")
+
+    await module.shutdown()
+
+
+@pytest.mark.asyncio()
+async def test_log_unhandled_exception_logs_traceback(monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
+    """Test exception handler logs with full details."""
+    import logging
+
+    module = _import_main(monkeypatch)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/test",
+            "headers": [],
+        }
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = await module.log_unhandled_exception(request, ValueError("Test error"))
+
+    assert response.status_code == 500
+    assert any("unhandled_exception" in record.message for record in caplog.records)
+    assert any("ValueError" in record.message for record in caplog.records)
+
+
+def test_app_config_prod_js_when_not_debug(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test prod_js is True when DEBUG is False."""
+    # Install all dummy modules first
+    dummy_app, dummy_ui = _install_dummy_modules(monkeypatch)
+
+    # Override config after installation
+    config_module = sys.modules["apps.web_console_ng.config"]
+    monkeypatch.setattr(config_module, "DEBUG", False)
+
+    if "apps.web_console_ng.main" in sys.modules:
+        del sys.modules["apps.web_console_ng.main"]
+    module = importlib.import_module("apps.web_console_ng.main")
+
+    assert module.app.config.prod_js is True
+
+
+@pytest.mark.asyncio()
+async def test_disconnect_overlay_injection_called(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify inject_disconnect_overlay is called during startup."""
+    disconnect_called_tracker = {"called": False}
+
+    # Install all dummy modules first
+    dummy_app, dummy_ui = _install_dummy_modules(monkeypatch)
+
+    # Override the disconnect overlay module after installation
+    disconnect_module = ModuleType("apps.web_console_ng.ui.disconnect_overlay")
+
+    def _inject_disconnect_overlay() -> None:
+        disconnect_called_tracker["called"] = True
+
+    disconnect_module.inject_disconnect_overlay = _inject_disconnect_overlay
+    monkeypatch.setitem(sys.modules, "apps.web_console_ng.ui.disconnect_overlay", disconnect_module)
+
+    if "apps.web_console_ng.main" in sys.modules:
+        del sys.modules["apps.web_console_ng.main"]
+    module = importlib.import_module("apps.web_console_ng.main")
+
+    await module.startup()
+
+    assert disconnect_called_tracker["called"] is True

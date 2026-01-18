@@ -7,7 +7,7 @@ import pytest
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth import audit as audit_module
-from apps.web_console_ng.auth.audit import AuthAuditLogger, _AUDIT_REQUEST_ID_NAMESPACE
+from apps.web_console_ng.auth.audit import _AUDIT_REQUEST_ID_NAMESPACE, AuthAuditLogger
 
 
 class _AcquireContext:
@@ -39,7 +39,8 @@ def _build_logger(db_pool: object | None = object()) -> AuthAuditLogger:
     return logger
 
 
-def test_log_event_invalid_request_id_includes_raw(_audit_sink_db):
+@pytest.mark.usefixtures("_audit_sink_db")
+def test_log_event_invalid_request_id_includes_raw():
     logger = _build_logger()
 
     request_id = "not-a-uuid"
@@ -69,7 +70,8 @@ def test_log_event_invalid_request_id_includes_raw(_audit_sink_db):
 
 
 @pytest.mark.asyncio()
-async def test_flush_to_db_writes_payloads(monkeypatch, _audit_sink_db):
+@pytest.mark.usefixtures("_audit_sink_db")
+async def test_flush_to_db_writes_payloads(monkeypatch):
     conn = AsyncMock()
     conn.executemany = AsyncMock()
 
@@ -96,7 +98,8 @@ async def test_flush_to_db_writes_payloads(monkeypatch, _audit_sink_db):
 
 
 @pytest.mark.asyncio()
-async def test_flush_to_db_failure_dead_letters(monkeypatch, _audit_sink_db):
+@pytest.mark.usefixtures("_audit_sink_db")
+async def test_flush_to_db_failure_dead_letters(monkeypatch):
     def fake_acquire(_pool):
         return _AcquireContext(None, enter_exc=RuntimeError("boom"))
 
@@ -123,7 +126,8 @@ async def test_flush_to_db_failure_dead_letters(monkeypatch, _audit_sink_db):
 
 
 @pytest.mark.asyncio()
-async def test_start_disables_db_without_pool(caplog, _audit_sink_db):
+@pytest.mark.usefixtures("_audit_sink_db")
+async def test_start_disables_db_without_pool(caplog):
     logger = _build_logger(db_pool=None)
 
     with caplog.at_level(logging.WARNING, logger="audit.auth"):

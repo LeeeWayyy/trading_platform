@@ -7,7 +7,6 @@ import sys
 
 import pytest
 
-
 _ENV_KEYS = [
     "WEB_CONSOLE_DEV_STRATEGIES",
     "STRATEGY_ID",

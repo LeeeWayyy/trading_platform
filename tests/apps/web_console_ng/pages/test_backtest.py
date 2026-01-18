@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -11,7 +12,7 @@ from apps.web_console_ng.pages import backtest as backtest_module
 
 
 class DummyElement:
-    def __init__(self, ui: "DummyUI", kind: str, **kwargs: Any) -> None:
+    def __init__(self, ui: DummyUI, kind: str, **kwargs: Any) -> None:
         self.ui = ui
         self.kind = kind
         self.kwargs = kwargs
@@ -24,27 +25,27 @@ class DummyElement:
         self._on_value_change: Callable[..., Any] | None = None
         self._on_event: tuple[str, Callable[..., Any]] | None = None
 
-    def __enter__(self) -> "DummyElement":
+    def __enter__(self) -> DummyElement:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    def classes(self, *_: Any, **__: Any) -> "DummyElement":
+    def classes(self, *_: Any, **__: Any) -> DummyElement:
         return self
 
-    def props(self, *_: Any, **__: Any) -> "DummyElement":
+    def props(self, *_: Any, **__: Any) -> DummyElement:
         return self
 
-    def on_click(self, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on_click(self, fn: Callable[..., Any] | None) -> DummyElement:
         self._on_click = fn
         return self
 
-    def on_value_change(self, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on_value_change(self, fn: Callable[..., Any] | None) -> DummyElement:
         self._on_value_change = fn
         return self
 
-    def on(self, event: str, fn: Callable[..., Any] | None) -> "DummyElement":
+    def on(self, event: str, fn: Callable[..., Any] | None) -> DummyElement:
         if fn is not None:
             self._on_event = (event, fn)
         return self
@@ -178,7 +179,7 @@ def test_get_user_jobs_sync_parses_progress() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             self.calls += 1
 
-        def __enter__(self) -> "FakeCursor":
+        def __enter__(self) -> FakeCursor:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
@@ -243,7 +244,7 @@ def test_get_user_jobs_sync_parses_progress() -> None:
         def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
             return FakeCursor()
 
-        def __enter__(self) -> "FakeConn":
+        def __enter__(self) -> FakeConn:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
