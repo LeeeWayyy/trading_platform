@@ -531,9 +531,7 @@ class TestApplyBrokerUpdateEdgeCases:
         backfill_callback.assert_not_called()
 
     @patch("apps.execution_gateway.reconciliation.orders.reconciliation_mismatches_total")
-    def test_increments_mismatch_counter_on_success(
-        self, mock_counter: MagicMock
-    ) -> None:
+    def test_increments_mismatch_counter_on_success(self, mock_counter: MagicMock) -> None:
         """Increments mismatch counter when update succeeds."""
         db_client = MagicMock()
         db_client.update_order_status_cas.return_value = MagicMock()
@@ -548,9 +546,7 @@ class TestApplyBrokerUpdateEdgeCases:
         mock_counter.labels.return_value.inc.assert_called_once()
 
     @patch("apps.execution_gateway.reconciliation.orders.reconciliation_conflicts_skipped_total")
-    def test_increments_conflict_counter_on_cas_failure(
-        self, mock_counter: MagicMock
-    ) -> None:
+    def test_increments_conflict_counter_on_cas_failure(self, mock_counter: MagicMock) -> None:
         """Increments conflict counter when CAS fails."""
         db_client = MagicMock()
         db_client.update_order_status_cas.return_value = None  # CAS conflict

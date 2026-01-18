@@ -26,7 +26,9 @@ def _raw_data(now: datetime) -> pl.DataFrame:
     )
 
 
-def test_run_etl_pipeline_builds_ca_df_for_outlier_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_etl_pipeline_builds_ca_df_for_outlier_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     now = datetime.now(UTC)
     raw_data = _raw_data(now)
 

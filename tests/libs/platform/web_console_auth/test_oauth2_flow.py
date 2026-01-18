@@ -248,13 +248,13 @@ class TestInitiateLogin:
         mock_state_store: Mock,
     ):
         """Test login initiation generates valid authorization URL and stores state."""
-        with patch(
-            "libs.platform.web_console_auth.oauth2_flow.generate_pkce_challenge"
-        ) as mock_pkce, patch(
-            "libs.platform.web_console_auth.oauth2_flow.generate_state"
-        ) as mock_state, patch(
-            "libs.platform.web_console_auth.oauth2_flow.generate_nonce"
-        ) as mock_nonce:
+        with (
+            patch(
+                "libs.platform.web_console_auth.oauth2_flow.generate_pkce_challenge"
+            ) as mock_pkce,
+            patch("libs.platform.web_console_auth.oauth2_flow.generate_state") as mock_state,
+            patch("libs.platform.web_console_auth.oauth2_flow.generate_nonce") as mock_nonce,
+        ):
             # Setup mocks
             mock_pkce.return_value = Mock(
                 code_verifier="test_verifier", code_challenge="test_challenge"
@@ -318,9 +318,7 @@ class TestHandleCallback:
 
         # Mock database queries
         mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(
-            return_value={"role": "operator", "session_version": 1}
-        )
+        mock_cursor.fetchone = AsyncMock(return_value={"role": "operator", "session_version": 1})
         mock_cursor.fetchall = AsyncMock(
             return_value=[{"strategy_id": "strategy_1"}, {"strategy_id": "strategy_2"}]
         )
@@ -330,9 +328,10 @@ class TestHandleCallback:
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=None)
 
-        with patch(
-            "libs.platform.web_console_auth.oauth2_flow.acquire_connection"
-        ) as mock_acquire, patch("httpx.AsyncClient") as mock_http_client:
+        with (
+            patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire,
+            patch("httpx.AsyncClient") as mock_http_client,
+        ):
             mock_acquire.return_value = mock_conn
             mock_http_client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=mock_response
@@ -548,9 +547,10 @@ class TestHandleCallback:
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=None)
 
-        with patch(
-            "libs.platform.web_console_auth.oauth2_flow.acquire_connection"
-        ) as mock_acquire, patch("httpx.AsyncClient") as mock_http_client:
+        with (
+            patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire,
+            patch("httpx.AsyncClient") as mock_http_client,
+        ):
             mock_acquire.return_value = mock_conn
             mock_http_client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=mock_response
@@ -668,9 +668,7 @@ class TestAssertRequiredTokens:
         # Should not raise
         oauth2_handler._assert_required_tokens(tokens)
 
-    def test_assert_required_tokens_missing_access_token(
-        self, oauth2_handler: OAuth2FlowHandler
-    ):
+    def test_assert_required_tokens_missing_access_token(self, oauth2_handler: OAuth2FlowHandler):
         """Test token assertion fails when access_token missing."""
         tokens = {
             "refresh_token": "test_refresh",
@@ -680,9 +678,7 @@ class TestAssertRequiredTokens:
         with pytest.raises(ValueError, match="missing \\['access_token'\\]"):
             oauth2_handler._assert_required_tokens(tokens)
 
-    def test_assert_required_tokens_missing_multiple(
-        self, oauth2_handler: OAuth2FlowHandler
-    ):
+    def test_assert_required_tokens_missing_multiple(self, oauth2_handler: OAuth2FlowHandler):
         """Test token assertion fails when multiple tokens missing."""
         tokens = {
             "access_token": "test_access",
@@ -704,9 +700,7 @@ class TestLoadRBACData:
         """Test RBAC data loading returns role and strategies."""
         # Mock database queries
         mock_cursor_role = Mock()
-        mock_cursor_role.fetchone = AsyncMock(
-            return_value={"role": "admin", "session_version": 2}
-        )
+        mock_cursor_role.fetchone = AsyncMock(return_value={"role": "admin", "session_version": 2})
 
         mock_cursor_strategies = Mock()
         mock_cursor_strategies.fetchall = AsyncMock(

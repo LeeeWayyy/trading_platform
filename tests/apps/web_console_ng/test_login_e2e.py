@@ -91,7 +91,9 @@ class TestLoginE2EFlow:
                 )
 
                 # Should redirect after successful login
-                assert response.status_code == 303, f"Expected 303, got {response.status_code}: {response.text}"
+                assert (
+                    response.status_code == 303
+                ), f"Expected 303, got {response.status_code}: {response.text}"
                 assert response.headers.get("location") == "/"
 
                 # Check cookies are set
@@ -100,7 +102,9 @@ class TestLoginE2EFlow:
                 has_session_cookie = (
                     "nicegui_session" in cookies or "__Host-nicegui_session" in cookies
                 )
-                assert has_session_cookie, f"Session cookie not set. Cookies: {list(cookies.keys())}"
+                assert (
+                    has_session_cookie
+                ), f"Session cookie not set. Cookies: {list(cookies.keys())}"
                 assert "ng_csrf" in cookies, f"CSRF cookie not set. Cookies: {list(cookies.keys())}"
 
     @pytest.mark.asyncio()
@@ -140,12 +144,10 @@ class TestLoginE2EFlow:
                 follow_redirects=False,
             ) as client:
                 # Step 1: Try accessing protected page without cookies
-                unauth_response = await client.get(
-                    "/", headers={"Accept": "text/html"}
-                )
-                assert unauth_response.status_code == 302, (
-                    f"Expected redirect to login, got {unauth_response.status_code}"
-                )
+                unauth_response = await client.get("/", headers={"Accept": "text/html"})
+                assert (
+                    unauth_response.status_code == 302
+                ), f"Expected redirect to login, got {unauth_response.status_code}"
                 assert "/login" in unauth_response.headers.get("location", "")
 
                 # Step 2: POST login credentials
@@ -168,7 +170,9 @@ class TestLoginE2EFlow:
                     if cookie_name in login_response.cookies:
                         cookies[cookie_name] = login_response.cookies[cookie_name]
 
-                assert len(cookies) >= 1, f"No cookies set. Response cookies: {list(login_response.cookies.keys())}"
+                assert (
+                    len(cookies) >= 1
+                ), f"No cookies set. Response cookies: {list(login_response.cookies.keys())}"
 
                 # Step 4: Access protected page WITH cookies
                 dashboard_response = await client.get(
@@ -195,15 +199,15 @@ class TestCookieConfiguration:
         cookie_cfg = CookieConfig.from_env()
 
         # In DEBUG mode (set in conftest), secure should be False
-        assert cookie_cfg.secure is False, (
-            "DEBUG mode should disable Secure cookies for localhost development"
-        )
+        assert (
+            cookie_cfg.secure is False
+        ), "DEBUG mode should disable Secure cookies for localhost development"
 
         # Cookie name should NOT have __Host- prefix
         cookie_name = cookie_cfg.get_cookie_name()
-        assert not cookie_name.startswith("__Host-"), (
-            f"Cookie name '{cookie_name}' should not use __Host- prefix in DEBUG mode"
-        )
+        assert not cookie_name.startswith(
+            "__Host-"
+        ), f"Cookie name '{cookie_name}' should not use __Host- prefix in DEBUG mode"
 
     def test_cookie_flags_for_localhost(self) -> None:
         """Test cookie flags are compatible with localhost development."""
@@ -216,9 +220,10 @@ class TestCookieConfiguration:
         assert flags["secure"] is False, "Secure flag must be False for HTTP localhost"
 
         # SameSite should be 'lax' for localhost (most compatible)
-        assert flags["samesite"] in ("lax", "strict"), (
-            f"SameSite={flags['samesite']} may cause issues on localhost"
-        )
+        assert flags["samesite"] in (
+            "lax",
+            "strict",
+        ), f"SameSite={flags['samesite']} may cause issues on localhost"
 
 
 class TestSecureCookieIssue:
@@ -244,9 +249,9 @@ class TestSecureCookieIssue:
         assert config.DEBUG is True, "Tests must run with DEBUG=true"
 
         # Verify Secure is disabled in DEBUG mode
-        assert config.SESSION_COOKIE_SECURE is False, (
-            "SESSION_COOKIE_SECURE should be False in DEBUG mode"
-        )
+        assert (
+            config.SESSION_COOKIE_SECURE is False
+        ), "SESSION_COOKIE_SECURE should be False in DEBUG mode"
 
         # Verify cookie config reflects this
         cookie_cfg = CookieConfig.from_env()
@@ -254,6 +259,6 @@ class TestSecureCookieIssue:
 
         # Verify cookie name doesn't use __Host- prefix
         cookie_name = cookie_cfg.get_cookie_name()
-        assert cookie_name == "nicegui_session", (
-            f"Expected 'nicegui_session' but got '{cookie_name}'"
-        )
+        assert (
+            cookie_name == "nicegui_session"
+        ), f"Expected 'nicegui_session' but got '{cookie_name}'"

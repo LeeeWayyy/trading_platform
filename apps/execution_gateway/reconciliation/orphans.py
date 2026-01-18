@@ -285,9 +285,7 @@ def detect_orphans(
         client_id = order.get("client_order_id")
         if client_id and client_id in db_known_ids:
             continue
-        if handle_orphan_order(
-            order, db_client, redis_client, resolve_terminal=False
-        ):
+        if handle_orphan_order(order, db_client, redis_client, resolve_terminal=False):
             orphan_count += 1
 
     # Check recent orders (auto-resolve if terminal)
@@ -295,9 +293,7 @@ def detect_orphans(
         client_id = order.get("client_order_id")
         if client_id and client_id in db_known_ids:
             continue
-        if handle_orphan_order(
-            order, db_client, redis_client, resolve_terminal=True
-        ):
+        if handle_orphan_order(order, db_client, redis_client, resolve_terminal=True):
             orphan_count += 1
 
     return orphan_count

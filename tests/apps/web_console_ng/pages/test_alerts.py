@@ -65,19 +65,31 @@ class DummyUI:
         self.labels.append(el)
         return el
 
-    def button(self, label: str, on_click: Callable[..., Any] | None = None, color: str | None = None) -> DummyElement:
+    def button(
+        self, label: str, on_click: Callable[..., Any] | None = None, color: str | None = None
+    ) -> DummyElement:
         el = DummyElement(self, "button", label=label, color=color)
         el.on_click(on_click)
         self.buttons.append(el)
         return el
 
-    def input(self, label: str | None = None, placeholder: str | None = None, value: Any = None) -> DummyElement:
+    def input(
+        self, label: str | None = None, placeholder: str | None = None, value: Any = None
+    ) -> DummyElement:
         el = DummyElement(self, "input", label=label, placeholder=placeholder, value=value)
         self.inputs.append(el)
         return el
 
-    def select(self, label: str | None = None, options: list[str] | dict[str, Any] | None = None, value: Any = None, multiple: bool = False) -> DummyElement:
-        el = DummyElement(self, "select", label=label, options=options, value=value, multiple=multiple)
+    def select(
+        self,
+        label: str | None = None,
+        options: list[str] | dict[str, Any] | None = None,
+        value: Any = None,
+        multiple: bool = False,
+    ) -> DummyElement:
+        el = DummyElement(
+            self, "select", label=label, options=options, value=value, multiple=multiple
+        )
         self.selects.append(el)
         return el
 
@@ -86,7 +98,9 @@ class DummyUI:
         self.checkboxes.append(el)
         return el
 
-    def number(self, label: str | None = None, value: Any = None, format: str | None = None) -> DummyElement:
+    def number(
+        self, label: str | None = None, value: Any = None, format: str | None = None
+    ) -> DummyElement:
         el = DummyElement(self, "number", label=label, value=value, format=format)
         self.inputs.append(el)
         return el
@@ -145,7 +159,9 @@ class DummyUI:
 
 
 class FakeAlertService:
-    def __init__(self, rules: list[AlertRule] | None = None, events: list[AlertEvent] | None = None) -> None:
+    def __init__(
+        self, rules: list[AlertRule] | None = None, events: list[AlertEvent] | None = None
+    ) -> None:
         self.rules = rules or []
         self.events = events or []
         self.created: list[Any] = []
@@ -199,7 +215,9 @@ async def test_render_alert_rules_create_validations(
 
     name_input.value = "ab"
     await _call(create_button._on_click)
-    assert any("Rule name must be at least 3 characters" in n["text"] for n in dummy_ui.notifications)
+    assert any(
+        "Rule name must be at least 3 characters" in n["text"] for n in dummy_ui.notifications
+    )
 
     name_input.value = "Valid Rule"
     email_input.value = ""
@@ -251,7 +269,9 @@ async def test_render_channels_masks_recipient(dummy_ui: DummyUI) -> None:
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="alerts@example.com", enabled=True)],
+        channels=[
+            ChannelConfig(type=ChannelType.EMAIL, recipient="alerts@example.com", enabled=True)
+        ],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),

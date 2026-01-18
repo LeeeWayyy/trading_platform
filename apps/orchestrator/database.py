@@ -102,11 +102,14 @@ class OrchestrationDatabaseClient:
         self.database_url = database_url
 
         # H2 Fix: Connection pooling for 10x performance
+        # open=False avoids eager connections during tests/startup.
+        # Connections open lazily on first .connection() call.
         self._pool = ConnectionPool(
             database_url,
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
+            open=False,
         )
 
         logger.info(

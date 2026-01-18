@@ -336,12 +336,14 @@ async def health_page() -> None:
             p95 = getattr(metrics, "p95_ms", None)
             p99 = getattr(metrics, "p99_ms", None)
 
-            rows.append({
-                "service": service_name,
-                "p50": f"{p50:.1f}" if p50 else "-",
-                "p95": f"{p95:.1f}" if p95 else "-",
-                "p99": f"{p99:.1f}" if p99 else "-",
-            })
+            rows.append(
+                {
+                    "service": service_name,
+                    "p50": f"{p50:.1f}" if p50 else "-",
+                    "p95": f"{p95:.1f}" if p95 else "-",
+                    "p99": f"{p99:.1f}" if p99 else "-",
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 

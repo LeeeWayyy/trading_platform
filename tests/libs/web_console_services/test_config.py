@@ -30,7 +30,9 @@ def _reload_config(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> obje
     return importlib.reload(sys.modules[module_name])
 
 
-def test_safe_float_returns_default_on_invalid(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_safe_float_returns_default_on_invalid(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     monkeypatch.setenv("TEST_FLOAT", "not-a-number")
     config = _reload_config(monkeypatch, {"ENVIRONMENT": "dev"})
     with caplog.at_level("WARNING"):

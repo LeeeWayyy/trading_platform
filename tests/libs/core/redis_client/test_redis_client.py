@@ -477,6 +477,8 @@ class TestRedisClientListOperations:
         mock_redis.rpush.assert_called_once()
         mock_redis.ltrim.assert_called_once()
         mock_redis.lrange.assert_called_once()
+
+
 """
 P0 Coverage Tests for RedisClient - Additional branch coverage to reach 95%+ target.
 
@@ -556,9 +558,7 @@ class TestRedisClientLock:
 
             # Verify lock was created with correct parameters
             assert lock == mock_lock
-            mock_client.lock.assert_called_once_with(
-                "mylock", timeout=30, blocking_timeout=10.0
-            )
+            mock_client.lock.assert_called_once_with("mylock", timeout=30, blocking_timeout=10.0)
 
     def test_lock_without_blocking_timeout(self):
         """Test lock() with blocking_timeout=None (wait forever)."""
@@ -574,9 +574,7 @@ class TestRedisClientLock:
 
             # Verify lock was created with None blocking timeout
             assert lock == mock_lock
-            mock_client.lock.assert_called_once_with(
-                "mylock", timeout=60, blocking_timeout=None
-            )
+            mock_client.lock.assert_called_once_with("mylock", timeout=60, blocking_timeout=None)
 
 
 class TestRedisClientSetIfNotExists:

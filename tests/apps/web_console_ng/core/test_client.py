@@ -58,9 +58,7 @@ def test_get_auth_headers_signature(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("time.time", lambda: 1700000000)
 
     client = AsyncTradingClient.get()
-    headers = client._get_auth_headers(
-        user_id="user-1", role="trader", strategies=["b", "a"]
-    )
+    headers = client._get_auth_headers(user_id="user-1", role="trader", strategies=["b", "a"])
 
     payload_data = {
         "uid": "user-1",
@@ -69,9 +67,7 @@ def test_get_auth_headers_signature(monkeypatch: pytest.MonkeyPatch) -> None:
         "ts": "1700000000",
     }
     payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
-    expected_sig = hmac.new(
-        b"secret", payload.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
+    expected_sig = hmac.new(b"secret", payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
     assert headers["X-User-Strategies"] == "a,b"
     assert headers["X-Request-Timestamp"] == "1700000000"

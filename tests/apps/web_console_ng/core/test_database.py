@@ -29,7 +29,9 @@ def reset_pool() -> None:
     database.set_db_pool(None)
 
 
-def test_init_db_pool_no_dsn(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_init_db_pool_no_dsn(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     caplog.set_level(logging.INFO, logger=database.logger.name)
 
@@ -40,7 +42,9 @@ def test_init_db_pool_no_dsn(monkeypatch: pytest.MonkeyPatch, caplog: pytest.Log
     assert any("DATABASE_URL not set" in record.message for record in caplog.records)
 
 
-def test_init_db_pool_missing_dependency(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_init_db_pool_missing_dependency(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
     fake_module = types.ModuleType("psycopg_pool")
     monkeypatch.setitem(sys.modules, "psycopg_pool", fake_module)

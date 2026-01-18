@@ -224,7 +224,9 @@ async def test_send_falls_back_to_sendgrid(email_channel: EmailChannel) -> None:
     smtp_result = DeliveryResult(success=False, error="smtp failed", retryable=True)
     sendgrid_result = DeliveryResult(success=True, message_id="sg-123")
 
-    with patch.object(email_channel, "_send_smtp", AsyncMock(return_value=smtp_result)) as mock_smtp:
+    with patch.object(
+        email_channel, "_send_smtp", AsyncMock(return_value=smtp_result)
+    ) as mock_smtp:
         with patch.object(
             email_channel, "_send_sendgrid", AsyncMock(return_value=sendgrid_result)
         ) as mock_sendgrid:

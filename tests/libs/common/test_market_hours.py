@@ -35,7 +35,9 @@ class FakeCalendar:
 def fake_calendar(monkeypatch: pytest.MonkeyPatch) -> FakeCalendar:
     session_date = date(2026, 1, 16)
     cal = FakeCalendar(session_date)
-    monkeypatch.setattr(market_hours_module.MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
+    monkeypatch.setattr(
+        market_hours_module.MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
+    )
     return cal
 
 

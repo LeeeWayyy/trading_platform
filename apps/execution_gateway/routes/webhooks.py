@@ -191,9 +191,7 @@ async def handle_order_webhook(
                 broker_event_id=payload.get("execution_id"),
             )
             if not updated_order:
-                logger.warning(
-                    f"Order not found for webhook or CAS skipped: {client_order_id}"
-                )
+                logger.warning(f"Order not found for webhook or CAS skipped: {client_order_id}")
                 return {"status": "ignored", "reason": "order_not_found"}
             return {"status": "ok", "client_order_id": client_order_id}
 

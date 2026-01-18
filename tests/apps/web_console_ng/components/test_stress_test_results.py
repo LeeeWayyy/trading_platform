@@ -44,7 +44,9 @@ class DummyUI:
         self.labels.append(element)
         return element
 
-    def table(self, columns: list[dict[str, Any]], rows: list[dict[str, Any]], row_key: str) -> DummyElement:
+    def table(
+        self, columns: list[dict[str, Any]], rows: list[dict[str, Any]], row_key: str
+    ) -> DummyElement:
         element = DummyElement()
         element.columns = columns
         element.rows = rows
@@ -69,7 +71,9 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:
 
 
 @pytest.fixture()
-def passthrough_validate(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[dict[str, Any]]], list[dict[str, Any]]]:
+def passthrough_validate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[list[dict[str, Any]]], list[dict[str, Any]]]:
     def _passthrough(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return values
 
@@ -137,7 +141,7 @@ def test_render_scenario_table_orders_and_formats(
     assert custom_row["type"] == "Unknown"
 
     # data-testid prop for E2E
-    assert any("data-testid=\"stress-results-table\"" in prop for prop in table.props_calls)
+    assert any('data-testid="stress-results-table"' in prop for prop in table.props_calls)
 
 
 def test_render_factor_waterfall_invalid_format_shows_warning(dummy_ui: DummyUI) -> None:

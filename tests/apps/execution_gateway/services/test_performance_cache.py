@@ -383,7 +383,9 @@ def test_invalidate_cache_attribute_error(caplog: pytest.LogCaptureFixture) -> N
     """Test error handling for invalid data types."""
     redis_mock = MagicMock()
     # Make sscan_iter raise AttributeError
-    redis_mock.sscan_iter.side_effect = AttributeError("'NoneType' object has no attribute 'sscan_iter'")
+    redis_mock.sscan_iter.side_effect = AttributeError(
+        "'NoneType' object has no attribute 'sscan_iter'"
+    )
 
     invalidate_performance_cache(redis_mock, date(2024, 1, 15))
 

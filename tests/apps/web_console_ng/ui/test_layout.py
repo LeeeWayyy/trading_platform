@@ -203,22 +203,31 @@ class _DummyClient:
         return {"state": "OPEN"}
 
 
-async def _run_layout(monkeypatch: pytest.MonkeyPatch, *, current_path: str) -> tuple[_DummyUI, _DummyLifecycleManager]:
+async def _run_layout(
+    monkeypatch: pytest.MonkeyPatch, *, current_path: str
+) -> tuple[_DummyUI, _DummyLifecycleManager]:
     dummy_ui = _DummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path)))
+        storage=SimpleNamespace(
+            user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
+        )
     )
     lifecycle_manager = _DummyLifecycleManager()
 
     monkeypatch.setattr(layout_module, "ui", dummy_ui)
     monkeypatch.setattr(layout_module, "app", dummy_app)
     monkeypatch.setattr(layout_module, "enable_dark_mode", lambda: None)
-    monkeypatch.setattr(layout_module, "get_current_user", lambda: {"role": "admin", "username": "user", "user_id": "u1", "strategies": []})
+    monkeypatch.setattr(
+        layout_module,
+        "get_current_user",
+        lambda: {"role": "admin", "username": "user", "user_id": "u1", "strategies": []},
+    )
     monkeypatch.setattr(layout_module, "MarketClock", _DummyMarketClock)
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
     monkeypatch.setattr(layout_module, "ConnectionMonitor", _DummyConnectionMonitor)
+
     class _LifecycleWrapper:
         @classmethod
         def get(cls) -> _DummyLifecycleManager:
@@ -227,7 +236,9 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, *, current_path: str) -> 
     monkeypatch.setattr(layout_module, "ClientLifecycleManager", _LifecycleWrapper)
     monkeypatch.setattr(layout_module, "get_or_create_client_id", lambda: "client-1")
     monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
-    monkeypatch.setattr(layout_module.AsyncTradingClient, "get", classmethod(lambda cls: _DummyClient()))
+    monkeypatch.setattr(
+        layout_module.AsyncTradingClient, "get", classmethod(lambda cls: _DummyClient())
+    )
 
     async def _page() -> None:
         return None

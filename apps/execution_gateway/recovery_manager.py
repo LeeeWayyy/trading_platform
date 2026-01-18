@@ -385,7 +385,9 @@ class RecoveryManager:
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "component": "kill_switch",
-                    "recovery_stage": "validation" if self._state.kill_switch is not None else "initialization",
+                    "recovery_stage": (
+                        "validation" if self._state.kill_switch is not None else "initialization"
+                    ),
                 },
                 exc_info=True,
             )
@@ -433,7 +435,11 @@ class RecoveryManager:
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "component": "circuit_breaker",
-                    "recovery_stage": "validation" if self._state.circuit_breaker is not None else "initialization",
+                    "recovery_stage": (
+                        "validation"
+                        if self._state.circuit_breaker is not None
+                        else "initialization"
+                    ),
                 },
                 exc_info=True,
             )
@@ -483,7 +489,11 @@ class RecoveryManager:
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "component": "position_reservation",
-                    "recovery_stage": "validation" if self._state.position_reservation is not None else "initialization",
+                    "recovery_stage": (
+                        "validation"
+                        if self._state.position_reservation is not None
+                        else "initialization"
+                    ),
                 },
                 exc_info=True,
             )
@@ -584,7 +594,9 @@ class RecoveryManager:
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "component": "slice_scheduler",
-                    "recovery_stage": "restart" if self._state.slice_scheduler is not None else "initialization",
+                    "recovery_stage": (
+                        "restart" if self._state.slice_scheduler is not None else "initialization"
+                    ),
                 },
                 exc_info=True,
             )

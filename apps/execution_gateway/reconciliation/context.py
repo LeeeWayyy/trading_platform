@@ -108,9 +108,7 @@ class ReconciliationConfig:
             submitted_unconfirmed_grace_seconds=int(
                 os.getenv("RECONCILIATION_SUBMITTED_UNCONFIRMED_GRACE_SECONDS", "300")
             ),
-            fills_backfill_enabled=_parse_bool(
-                os.getenv("ALPACA_FILLS_BACKFILL_ENABLED", "false")
-            ),
+            fills_backfill_enabled=_parse_bool(os.getenv("ALPACA_FILLS_BACKFILL_ENABLED", "false")),
             fills_backfill_initial_lookback_hours=int(
                 os.getenv("ALPACA_FILLS_BACKFILL_INITIAL_LOOKBACK_HOURS", "24")
             ),

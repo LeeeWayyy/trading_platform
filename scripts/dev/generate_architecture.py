@@ -28,7 +28,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # scripts/dev/generate_architecture.py → scripts/ → repo_root
+REPO_ROOT = (
+    Path(__file__).resolve().parents[2]
+)  # scripts/dev/generate_architecture.py → scripts/ → repo_root
 ARCH_DIR = REPO_ROOT / "docs" / "ARCHITECTURE"
 CONFIG_PATH = ARCH_DIR / "system_map.config.json"
 
@@ -221,13 +223,15 @@ def discover_components(config: Config) -> tuple[list[Component], list[str]]:
                 layer = comp_config.get("layer", "domain")
                 spec = comp_config.get("spec", "")
 
-            components.append(Component(
-                category=category,
-                name=child.name,
-                path=child,
-                layer=layer,
-                spec=spec,
-            ))
+            components.append(
+                Component(
+                    category=category,
+                    name=child.name,
+                    path=child,
+                    layer=layer,
+                    spec=spec,
+                )
+            )
 
     return components, unmapped
 
@@ -268,7 +272,7 @@ def resolve_relative_import(module_name: str, level: int, module: str | None) ->
     parts = module_name.split(".")
     if level > len(parts):
         return None
-    prefix = parts[: -level]
+    prefix = parts[:-level]
     if module:
         prefix.extend(module.split("."))
     if not prefix:
@@ -304,9 +308,7 @@ def build_dependency_graph(
     components: list[Component],
     config: Config,
 ) -> set[tuple[str, str]]:
-    prefix_to_component: dict[str, Component] = {
-        comp.module_prefix: comp for comp in components
-    }
+    prefix_to_component: dict[str, Component] = {comp.module_prefix: comp for comp in components}
     edges: set[tuple[str, str]] = set()
 
     filtering = config.filtering
@@ -320,7 +322,11 @@ def build_dependency_graph(
             for imported in extract_imports(path, module_name):
                 if not imported:
                     continue
-                if not (imported.startswith("apps.") or imported.startswith("libs.") or imported.startswith("strategies.")):
+                if not (
+                    imported.startswith("apps.")
+                    or imported.startswith("libs.")
+                    or imported.startswith("strategies.")
+                ):
                     continue
                 parts = imported.split(".")
                 if len(parts) < 2:
@@ -344,7 +350,9 @@ def build_dependency_graph(
     return edges
 
 
-def resolve_virtual_edge_id(edge_ref: str, components: list[Component], external_nodes: list[ExternalNode]) -> str | None:
+def resolve_virtual_edge_id(
+    edge_ref: str, components: list[Component], external_nodes: list[ExternalNode]
+) -> str | None:
     """Resolve a config reference (apps/signal_service or ext_alpaca) to a node ID."""
     # Check if it's an external node - validate it exists
     if edge_ref.startswith("ext_"):
@@ -365,8 +373,8 @@ def resolve_virtual_edge_id(edge_ref: str, components: list[Component], external
 # Obsidian Canvas color mapping for edge types
 EDGE_TYPE_COLORS: dict[str, str] = {
     "data_flow": "4",  # Green
-    "control": "5",    # Blue
-    "event": "6",      # Pink
+    "control": "5",  # Blue
+    "event": "6",  # Pink
 }
 
 
@@ -401,13 +409,13 @@ def render_mermaid_flow(
         if not layer_comps and not layer_externals:
             continue
 
-        lines.append(f"  subgraph {layer_id}[\"{layer_label}\"]")
+        lines.append(f'  subgraph {layer_id}["{layer_label}"]')
 
         for comp in layer_comps:
-            lines.append(f"    {comp.node_id}[\"{comp.label}\"]")
+            lines.append(f'    {comp.node_id}["{comp.label}"]')
 
         for ext in layer_externals:
-            lines.append(f"    {ext.id}[(\"{ext.label}\")]")
+            lines.append(f'    {ext.id}[("{ext.label}")]')
 
         lines.append("  end")
 
@@ -431,11 +439,11 @@ def render_mermaid_flow(
     lines.append("  %% Click links to documentation")
     for comp in components:
         if comp.spec:
-            lines.append(f"  click {comp.node_id} \"{comp.spec}\"")
+            lines.append(f'  click {comp.node_id} "{comp.spec}"')
 
     for ext in config.external_nodes:
         if ext.spec:
-            lines.append(f"  click {ext.id} \"{ext.spec}\"")
+            lines.append(f'  click {ext.id} "{ext.spec}"')
 
     # Add legend
     lines.append("")
@@ -482,9 +490,9 @@ def render_mermaid_deps(
         if not layer_comps:
             continue
 
-        lines.append(f"  subgraph {layer_id}[\"{layer_label}\"]")
+        lines.append(f'  subgraph {layer_id}["{layer_label}"]')
         for comp in layer_comps:
-            lines.append(f"    {comp.node_id}[\"{comp.label}\"]")
+            lines.append(f'    {comp.node_id}["{comp.label}"]')
         lines.append("  end")
 
     # Add dependency edges (dashed style)
@@ -497,14 +505,16 @@ def render_mermaid_deps(
     lines.append("  %% Click links to documentation")
     for comp in components:
         if comp.spec:
-            lines.append(f"  click {comp.node_id} \"{comp.spec}\"")
+            lines.append(f'  click {comp.node_id} "{comp.spec}"')
 
     lines.append("```")
     lines.append("")
     lines.append("## Legend")
     lines.append("")
     lines.append("- **Dashed arrows**: Code dependencies (imports)")
-    lines.append("- Edges to common infrastructure libs (common, secrets, health) are hidden for clarity")
+    lines.append(
+        "- Edges to common infrastructure libs (common, secrets, health) are hidden for clarity"
+    )
     lines.append("- Click any node to view its specification")
     lines.append("")
 
@@ -593,18 +603,23 @@ def render_canvas(
                     node_x = subgroup_x + SUBGROUP_PADDING + item_idx * (NODE_WIDTH + NODE_GAP)
                     node_y = y_cursor + GROUP_PADDING + SUBGROUP_PADDING
 
-                    node_positions[comp.node_id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
+                    node_positions[comp.node_id] = (
+                        node_x + NODE_WIDTH // 2,
+                        node_y + NODE_HEIGHT // 2,
+                    )
 
                     text = f"[[{comp.spec}|{comp.label}]]" if comp.spec else comp.label
-                    nodes.append({
-                        "id": comp.node_id,
-                        "type": "text",
-                        "text": text,
-                        "x": node_x,
-                        "y": node_y,
-                        "width": NODE_WIDTH,
-                        "height": NODE_HEIGHT,
-                    })
+                    nodes.append(
+                        {
+                            "id": comp.node_id,
+                            "type": "text",
+                            "text": text,
+                            "x": node_x,
+                            "y": node_y,
+                            "width": NODE_WIDTH,
+                            "height": NODE_HEIGHT,
+                        }
+                    )
                     item_idx += 1
 
                 # Place external nodes horizontally
@@ -615,28 +630,32 @@ def render_canvas(
                     node_positions[ext.id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
 
                     text = f"[[{ext.spec}|{ext.label}]]" if ext.spec else ext.label
-                    nodes.append({
-                        "id": ext.id,
-                        "type": "text",
-                        "text": text,
-                        "x": node_x,
-                        "y": node_y,
-                        "width": NODE_WIDTH,
-                        "height": NODE_HEIGHT,
-                        "color": "6",  # Pink for external
-                    })
+                    nodes.append(
+                        {
+                            "id": ext.id,
+                            "type": "text",
+                            "text": text,
+                            "x": node_x,
+                            "y": node_y,
+                            "width": NODE_WIDTH,
+                            "height": NODE_HEIGHT,
+                            "color": "6",  # Pink for external
+                        }
+                    )
                     item_idx += 1
 
                 # Add subgroup
-                subgroup_nodes_list.append({
-                    "id": sg_group_id,
-                    "type": "group",
-                    "label": sg.label,
-                    "x": subgroup_x,
-                    "y": y_cursor + GROUP_PADDING,
-                    "width": sg_width,
-                    "height": sg_height,
-                })
+                subgroup_nodes_list.append(
+                    {
+                        "id": sg_group_id,
+                        "type": "group",
+                        "label": sg.label,
+                        "x": subgroup_x,
+                        "y": y_cursor + GROUP_PADDING,
+                        "width": sg_width,
+                        "height": sg_height,
+                    }
+                )
 
                 subgroup_x += sg_width + SUBGROUP_GAP
                 max_subgroup_height = max(max_subgroup_height, sg_height)
@@ -648,15 +667,17 @@ def render_canvas(
             layer_width = subgroup_x - SUBGROUP_GAP + GROUP_PADDING
             layer_height = GROUP_PADDING * 2 + max_subgroup_height
 
-            group_nodes.append({
-                "id": f"group_{layer_id}",
-                "type": "group",
-                "label": layer_label,
-                "x": 0,
-                "y": y_cursor,
-                "width": layer_width,
-                "height": layer_height,
-            })
+            group_nodes.append(
+                {
+                    "id": f"group_{layer_id}",
+                    "type": "group",
+                    "label": layer_label,
+                    "x": 0,
+                    "y": y_cursor,
+                    "width": layer_width,
+                    "height": layer_height,
+                }
+            )
 
             y_cursor += layer_height + LAYER_GAP
 
@@ -687,15 +708,17 @@ def render_canvas(
                 node_positions[comp.node_id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
 
                 text = f"[[{comp.spec}|{comp.label}]]" if comp.spec else comp.label
-                nodes.append({
-                    "id": comp.node_id,
-                    "type": "text",
-                    "text": text,
-                    "x": node_x,
-                    "y": node_y,
-                    "width": NODE_WIDTH,
-                    "height": NODE_HEIGHT,
-                })
+                nodes.append(
+                    {
+                        "id": comp.node_id,
+                        "type": "text",
+                        "text": text,
+                        "x": node_x,
+                        "y": node_y,
+                        "width": NODE_WIDTH,
+                        "height": NODE_HEIGHT,
+                    }
+                )
                 item_idx += 1
 
             for ext in layer_externals:
@@ -705,27 +728,31 @@ def render_canvas(
                 node_positions[ext.id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
 
                 text = f"[[{ext.spec}|{ext.label}]]" if ext.spec else ext.label
-                nodes.append({
-                    "id": ext.id,
-                    "type": "text",
-                    "text": text,
-                    "x": node_x,
-                    "y": node_y,
-                    "width": NODE_WIDTH,
-                    "height": NODE_HEIGHT,
-                    "color": "6",
-                })
+                nodes.append(
+                    {
+                        "id": ext.id,
+                        "type": "text",
+                        "text": text,
+                        "x": node_x,
+                        "y": node_y,
+                        "width": NODE_WIDTH,
+                        "height": NODE_HEIGHT,
+                        "color": "6",
+                    }
+                )
                 item_idx += 1
 
-            group_nodes.append({
-                "id": f"group_{layer_id}",
-                "type": "group",
-                "label": layer_label,
-                "x": 0,
-                "y": y_cursor,
-                "width": group_width,
-                "height": group_height,
-            })
+            group_nodes.append(
+                {
+                    "id": f"group_{layer_id}",
+                    "type": "group",
+                    "label": layer_label,
+                    "x": 0,
+                    "y": y_cursor,
+                    "width": group_width,
+                    "height": group_height,
+                }
+            )
 
             y_cursor += group_height + LAYER_GAP
 
@@ -743,15 +770,17 @@ def render_canvas(
                 node_positions[to_id],
             )
             edge_color = EDGE_TYPE_COLORS.get(vedge.edge_type, "4")
-            edge_nodes.append({
-                "id": f"edge_{edge_idx}",
-                "fromNode": from_id,
-                "toNode": to_id,
-                "fromSide": from_side,
-                "toSide": to_side,
-                "label": vedge.label,
-                "color": edge_color,
-            })
+            edge_nodes.append(
+                {
+                    "id": f"edge_{edge_idx}",
+                    "fromNode": from_id,
+                    "toNode": to_id,
+                    "fromSide": from_side,
+                    "toSide": to_side,
+                    "label": vedge.label,
+                    "color": edge_color,
+                }
+            )
             edge_idx += 1
 
     # AST edges (top/bottom routing, no color = default)
@@ -761,13 +790,15 @@ def render_canvas(
                 node_positions[src],
                 node_positions[dst],
             )
-            edge_nodes.append({
-                "id": f"edge_{edge_idx}",
-                "fromNode": src,
-                "toNode": dst,
-                "fromSide": from_side,
-                "toSide": to_side,
-            })
+            edge_nodes.append(
+                {
+                    "id": f"edge_{edge_idx}",
+                    "fromNode": src,
+                    "toNode": dst,
+                    "fromSide": from_side,
+                    "toSide": to_side,
+                }
+            )
             edge_idx += 1
 
     canvas = {
@@ -797,7 +828,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate architecture visualization artifacts.")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--generate", action="store_true", help="Write architecture artifacts")
-    mode.add_argument("--check", action="store_true", help="Verify architecture artifacts are up to date")
+    mode.add_argument(
+        "--check", action="store_true", help="Verify architecture artifacts are up to date"
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -827,8 +860,12 @@ def main() -> int:
     edges = build_dependency_graph(components, config)
 
     # Generate outputs
-    flow_path = ARCH_DIR / config.rendering.get("flow_diagram", {}).get("output", "system_map_flow.md")
-    deps_path = ARCH_DIR / config.rendering.get("deps_diagram", {}).get("output", "system_map_deps.md")
+    flow_path = ARCH_DIR / config.rendering.get("flow_diagram", {}).get(
+        "output", "system_map_flow.md"
+    )
+    deps_path = ARCH_DIR / config.rendering.get("deps_diagram", {}).get(
+        "output", "system_map_deps.md"
+    )
     canvas_path = ARCH_DIR / config.rendering.get("canvas", {}).get("output", "system_map.canvas")
 
     flow_content = render_mermaid_flow(components, config)

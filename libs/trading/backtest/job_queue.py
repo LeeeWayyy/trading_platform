@@ -55,9 +55,7 @@ class DataProvider(str, Enum):
             return cls(normalized)
         except ValueError as e:
             valid = [p.value for p in cls]
-            raise ValueError(
-                f"Invalid data provider: '{value}'. Must be one of: {valid}"
-            ) from e
+            raise ValueError(f"Invalid data provider: '{value}'. Must be one of: {valid}") from e
 
 
 def _resolve_rq_finished_status(job: Job) -> tuple[str, str | None]:
@@ -135,9 +133,7 @@ class BacktestJobConfig:
         start_date = date.fromisoformat(data["start_date"])
         end_date = date.fromisoformat(data["end_date"])
         if end_date <= start_date:
-            raise ValueError(
-                f"end_date ({end_date}) must be after start_date ({start_date})"
-            )
+            raise ValueError(f"end_date ({end_date}) must be after start_date ({start_date})")
 
         return cls(
             alpha_name=data["alpha_name"],

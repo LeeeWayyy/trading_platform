@@ -50,8 +50,8 @@ MIN_BACKTEST_PERIOD_DAYS = 30
 
 # Polling intervals (progressive backoff) in seconds
 POLL_INTERVALS = {
-    30: 2.0,    # < 30s: 2s
-    60: 5.0,    # < 60s: 5s
+    30: 2.0,  # < 30s: 2s
+    60: 5.0,  # < 60s: 5s
     300: 10.0,  # < 5min: 10s
     None: 30.0,  # > 5min: 30s
 }
@@ -312,7 +312,8 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                         status_label.set_text(status_text)
                         safe_classes(
                             status_label,
-                            replace="text-xs " + ("text-green-600" if crsp_available else "text-red-600"),
+                            replace="text-xs "
+                            + ("text-green-600" if crsp_available else "text-red-600"),
                         )
                         provider_help.set_text(
                             "CRSP is required for point-in-time backtests and universe filtering. "
@@ -335,7 +336,8 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     return str(data_provider_select.value)
 
                 data_provider_select.on(
-                    "update:model-value", lambda e: _update_provider_status(_provider_event_value(e))
+                    "update:model-value",
+                    lambda e: _update_provider_status(_provider_event_value(e)),
                 )
                 _update_provider_status(data_provider_select.value)
 
@@ -394,9 +396,7 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             ui.notify("Submitting backtest...", type="info")
             selected_provider = data_provider_select.value
             data_provider = (
-                DataProvider.CRSP
-                if selected_provider.startswith("CRSP")
-                else DataProvider.YFINANCE
+                DataProvider.CRSP if selected_provider.startswith("CRSP") else DataProvider.YFINANCE
             )
 
             universe: list[str] | None = None
@@ -415,7 +415,9 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     invalid_symbols = [s for s in universe if not SYMBOL_PATTERN.match(s)]
                     if invalid_symbols:
                         # Sanitize for display/logging to prevent log injection
-                        sanitized = [s.replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]]
+                        sanitized = [
+                            s.replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]
+                        ]
                         ui.notify(
                             f"Invalid symbols: {', '.join(sanitized)}. "
                             "Symbols must start with a letter, be 1-10 characters (alphanumeric/dots/hyphens).",
@@ -436,7 +438,10 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                 return
 
             if (end_dt - start_dt).days < MIN_BACKTEST_PERIOD_DAYS:
-                ui.notify(f"Backtest period must be at least {MIN_BACKTEST_PERIOD_DAYS} days", type="negative")
+                ui.notify(
+                    f"Backtest period must be at least {MIN_BACKTEST_PERIOD_DAYS} days",
+                    type="negative",
+                )
                 return
 
             # Validate reasonable date bounds
@@ -475,6 +480,7 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
 
             # Submit job (sync operation)
             try:
+
                 def submit_sync() -> Any:
                     queue = _get_job_queue()
                     logger.info(
@@ -497,14 +503,22 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             except (ConnectionError, OSError) as e:
                 logger.error(
                     "backtest_submit_db_connection_failed",
-                    extra={"user_id": user_id, "alpha_name": job_config.alpha_name, "error": str(e)},
+                    extra={
+                        "user_id": user_id,
+                        "alpha_name": job_config.alpha_name,
+                        "error": str(e),
+                    },
                     exc_info=True,
                 )
                 ui.notify("Failed to submit backtest: Database connection error", type="negative")
             except (ValueError, TypeError) as e:
                 logger.error(
                     "backtest_submit_data_error",
-                    extra={"user_id": user_id, "alpha_name": job_config.alpha_name, "error": str(e)},
+                    extra={
+                        "user_id": user_id,
+                        "alpha_name": job_config.alpha_name,
+                        "error": str(e),
+                    },
                     exc_info=True,
                 )
                 ui.notify("Failed to submit backtest: Invalid configuration", type="negative")
@@ -549,7 +563,9 @@ async def _render_running_jobs(
                     # Job info
                     with ui.column().classes("flex-1"):
                         status_icon = "sync" if job["status"] == "running" else "hourglass_empty"
-                        icon_class = "text-blue-600" if job["status"] == "running" else "text-gray-500"
+                        icon_class = (
+                            "text-blue-600" if job["status"] == "running" else "text-gray-500"
+                        )
                         with ui.row().classes("items-center gap-2"):
                             ui.icon(status_icon).classes(f"text-xl {icon_class}")
                             ui.label(job["alpha_name"]).classes("font-semibold")
@@ -590,7 +606,9 @@ async def _render_running_jobs(
                                 extra={"job_id": job_id, "error": str(e)},
                                 exc_info=True,
                             )
-                            ui.notify("Failed to cancel job: Database connection error", type="negative")
+                            ui.notify(
+                                "Failed to cancel job: Database connection error", type="negative"
+                            )
                         except (ValueError, TypeError) as e:
                             logger.error(
                                 "job_cancel_data_error",
@@ -706,7 +724,9 @@ async def _render_backtest_results(
                     ui.notify("Select at least 2 backtests to compare", type="warning")
                     return
                 if len(select.value) > MAX_COMPARISON_SELECTIONS:
-                    ui.notify(f"Maximum {MAX_COMPARISON_SELECTIONS} selections allowed", type="warning")
+                    ui.notify(
+                        f"Maximum {MAX_COMPARISON_SELECTIONS} selections allowed", type="warning"
+                    )
                     return
 
                 # SECURITY: Verify ownership for all selected jobs
@@ -737,7 +757,9 @@ async def _render_backtest_results(
                             extra={"job_id": job_id, "error": str(e)},
                             exc_info=True,
                         )
-                        ui.notify("Failed to load result: Database connection error", type="negative")
+                        ui.notify(
+                            "Failed to load result: Database connection error", type="negative"
+                        )
                     except (ValueError, KeyError, TypeError) as e:
                         logger.error(
                             "result_load_data_error",
@@ -755,14 +777,14 @@ async def _render_backtest_results(
             # Single result view
             for job in jobs_data:
                 status_icon = (
-                    "check_circle" if job["status"] == "completed"
-                    else "cancel" if job["status"] == "failed"
-                    else "warning"
+                    "check_circle"
+                    if job["status"] == "completed"
+                    else "cancel" if job["status"] == "failed" else "warning"
                 )
                 status_color = (
-                    "text-green-600" if job["status"] == "completed"
-                    else "text-red-600" if job["status"] == "failed"
-                    else "text-yellow-600"
+                    "text-green-600"
+                    if job["status"] == "completed"
+                    else "text-red-600" if job["status"] == "failed" else "text-yellow-600"
                 )
 
                 with ui.expansion(
@@ -807,14 +829,19 @@ async def _render_backtest_results(
                                     extra={"job_id": job_id, "error": str(e)},
                                     exc_info=True,
                                 )
-                                ui.notify("Failed to load result: Database connection error", type="negative")
+                                ui.notify(
+                                    "Failed to load result: Database connection error",
+                                    type="negative",
+                                )
                             except (ValueError, KeyError, TypeError) as e:
                                 logger.error(
                                     "result_load_data_error",
                                     extra={"job_id": job_id, "error": str(e)},
                                     exc_info=True,
                                 )
-                                ui.notify("Failed to load result: Data processing error", type="negative")
+                                ui.notify(
+                                    "Failed to load result: Data processing error", type="negative"
+                                )
 
                         if job.get("result_path"):
                             ui.button("Load Details", on_click=show_result).props("flat")
@@ -830,7 +857,9 @@ async def _render_backtest_results(
                             if job.get("icir") is not None:
                                 ui.label(f"ICIR: {job['icir']:.2f}").classes("text-sm")
                             if job.get("hit_rate") is not None:
-                                ui.label(f"Hit Rate: {job['hit_rate'] * 100:.1f}%").classes("text-sm")
+                                ui.label(f"Hit Rate: {job['hit_rate'] * 100:.1f}%").classes(
+                                    "text-sm"
+                                )
 
     comparison_checkbox.on_value_change(results_display.refresh)
     results_display()
@@ -1092,7 +1121,9 @@ def _render_yahoo_backtest_details(result: Any, user: dict[str, Any]) -> None:
         if sigs.is_empty():
             return []
 
-        price_series = prices.filter(pl.col("symbol") == symbol).select(["date", "price"]).sort("date")
+        price_series = (
+            prices.filter(pl.col("symbol") == symbol).select(["date", "price"]).sort("date")
+        )
         price_map = {row["date"]: row["price"] for row in price_series.to_dicts()}
         last_price_row = price_series.tail(1).to_dicts()
         last_price_date = last_price_row[0]["date"] if last_price_row else None
@@ -1333,16 +1364,22 @@ def _render_comparison_table(results: list[Any]) -> None:
     rows = []
     for result in results:
         turnover = result.turnover_result.average_turnover if result.turnover_result else None
-        rows.append({
-            "alpha": result.alpha_name,
-            "period": f"{result.start_date} - {result.end_date}",
-            "mean_ic": f"{result.mean_ic:.4f}" if result.mean_ic is not None else "N/A",
-            "icir": f"{result.icir:.2f}" if result.icir is not None else "N/A",
-            "hit_rate": f"{result.hit_rate * 100:.1f}%" if result.hit_rate is not None else "N/A",
-            "coverage": f"{result.coverage * 100:.1f}%" if result.coverage is not None else "N/A",
-            "turnover": f"{turnover:.2%}" if turnover is not None else "N/A",
-            "days": result.n_days,
-        })
+        rows.append(
+            {
+                "alpha": result.alpha_name,
+                "period": f"{result.start_date} - {result.end_date}",
+                "mean_ic": f"{result.mean_ic:.4f}" if result.mean_ic is not None else "N/A",
+                "icir": f"{result.icir:.2f}" if result.icir is not None else "N/A",
+                "hit_rate": (
+                    f"{result.hit_rate * 100:.1f}%" if result.hit_rate is not None else "N/A"
+                ),
+                "coverage": (
+                    f"{result.coverage * 100:.1f}%" if result.coverage is not None else "N/A"
+                ),
+                "turnover": f"{turnover:.2%}" if turnover is not None else "N/A",
+                "days": result.n_days,
+            }
+        )
 
     ui.table(columns=columns, rows=rows).classes("w-full")
 

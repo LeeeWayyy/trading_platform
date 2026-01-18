@@ -11,7 +11,9 @@ from apps.web_console_ng import config
 
 
 class _DummyRequest:
-    def __init__(self, headers: dict[str, str] | None = None, client_host: str = "127.0.0.1") -> None:
+    def __init__(
+        self, headers: dict[str, str] | None = None, client_host: str = "127.0.0.1"
+    ) -> None:
         self.headers = headers or {}
         self.client = SimpleNamespace(host=client_host)
 
@@ -43,7 +45,9 @@ async def test_try_auto_login_untrusted_proxy(monkeypatch: pytest.MonkeyPatch) -
     _set_mtls_config(monkeypatch)
 
     handler = mtls_module.MTLSAuthHandler()
-    request = _DummyRequest(headers={"X-SSL-Client-Verify": "SUCCESS", "X-SSL-Client-DN": "/CN=alice"})
+    request = _DummyRequest(
+        headers={"X-SSL-Client-Verify": "SUCCESS", "X-SSL-Client-DN": "/CN=alice"}
+    )
 
     with patch.object(mtls_module, "is_trusted_ip", return_value=False):
         result = await handler.try_auto_login(request)
@@ -188,7 +192,9 @@ async def test_authenticate_invalid_dn(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_mtls_config(monkeypatch)
 
     handler = mtls_module.MTLSAuthHandler()
-    request = _DummyRequest(headers={"X-SSL-Client-Verify": "SUCCESS", "X-SSL-Client-DN": "/OU=admin"})
+    request = _DummyRequest(
+        headers={"X-SSL-Client-Verify": "SUCCESS", "X-SSL-Client-DN": "/OU=admin"}
+    )
 
     with patch.object(mtls_module, "is_trusted_ip", return_value=True):
         result = await handler.authenticate(request=request)
@@ -198,7 +204,9 @@ async def test_authenticate_invalid_dn(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_authenticate_success(monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock) -> None:
+async def test_authenticate_success(
+    monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock
+) -> None:
     _set_mtls_config(monkeypatch)
 
     handler = mtls_module.MTLSAuthHandler()

@@ -1292,9 +1292,7 @@ class TestFetchAndCache:
             # Should have called history with 5-year range
             assert "SPY.parquet" in result["files"]
 
-    def test_fetch_and_cache_updates_manifest_per_symbol(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_fetch_and_cache_updates_manifest_per_symbol(self, provider: YFinanceProvider) -> None:
         """Test fetch_and_cache updates manifest after each symbol."""
         import pandas as pd
 
@@ -1346,9 +1344,7 @@ class TestFetchAndCache:
         assert "NOSUCH" in result["failed_symbols"]
         assert "Download failed or empty" in caplog.text
 
-    def test_fetch_and_cache_lock_timeout_raises_error(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_fetch_and_cache_lock_timeout_raises_error(self, provider: YFinanceProvider) -> None:
         """Test fetch_and_cache raises error on lock timeout."""
         with patch(
             "libs.data.data_providers.yfinance_provider.AtomicFileLock.acquire",
@@ -1357,9 +1353,7 @@ class TestFetchAndCache:
             with pytest.raises(YFinanceError, match="Failed to acquire cache lock"):
                 provider.fetch_and_cache(symbols=["SPY"])
 
-    def test_fetch_and_cache_lock_oserror_raises_error(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_fetch_and_cache_lock_oserror_raises_error(self, provider: YFinanceProvider) -> None:
         """Test fetch_and_cache raises error on lock OSError."""
         with patch(
             "libs.data.data_providers.yfinance_provider.AtomicFileLock.acquire",
@@ -1368,9 +1362,7 @@ class TestFetchAndCache:
             with pytest.raises(YFinanceError, match="Failed to acquire cache lock"):
                 provider.fetch_and_cache(symbols=["SPY"])
 
-    def test_fetch_and_cache_releases_lock_on_success(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_fetch_and_cache_releases_lock_on_success(self, provider: YFinanceProvider) -> None:
         """Test fetch_and_cache releases lock after successful operation."""
         import pandas as pd
 
@@ -1408,9 +1400,7 @@ class TestFetchAndCache:
         # Should have released lock
         mock_lock.release.assert_called_once_with("test_token")
 
-    def test_fetch_and_cache_releases_lock_on_error(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_fetch_and_cache_releases_lock_on_error(self, provider: YFinanceProvider) -> None:
         """Test fetch_and_cache releases lock even on error."""
         mock_lock = Mock()
         mock_lock.acquire.return_value = "test_token"
@@ -1599,9 +1589,7 @@ class TestAtomicWrites:
         manifest_path = provider._storage_path / "yfinance_manifest.json"
         assert manifest_path.exists()
 
-    def test_atomic_write_manifest_no_tmp_file_visible(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_atomic_write_manifest_no_tmp_file_visible(self, provider: YFinanceProvider) -> None:
         """Test atomic manifest write doesn't leave .tmp files."""
         manifest_data = {"dataset": "yfinance", "files": {}}
         manifest_path = provider._storage_path / "yfinance_manifest.json"
@@ -1615,6 +1603,7 @@ class TestAtomicWrites:
         self, provider: YFinanceProvider
     ) -> None:
         """Test atomic manifest write handles serialization errors."""
+
         # Create non-serializable data
         class NotSerializable:
             pass
@@ -1628,9 +1617,7 @@ class TestAtomicWrites:
         temp_path = provider._storage_path / "yfinance_manifest.json.tmp"
         assert not temp_path.exists()
 
-    def test_atomic_write_manifest_cleans_up_tmp_on_error(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_atomic_write_manifest_cleans_up_tmp_on_error(self, provider: YFinanceProvider) -> None:
         """Test atomic manifest write cleans up temp file on error."""
         manifest_data = {"dataset": "yfinance", "files": {}}
         temp_path = provider._storage_path / "yfinance_manifest.json.tmp"
@@ -1711,9 +1698,7 @@ class TestAtomicWrites:
 class TestCacheIntegrity:
     """Tests for cache integrity verification."""
 
-    def test_cache_integrity_verified_on_read(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_cache_integrity_verified_on_read(self, provider_with_cache: YFinanceProvider) -> None:
         """Test cache integrity is verified before reading."""
         # Valid cache should be read successfully
         df = provider_with_cache.get_daily_prices(
@@ -1724,9 +1709,7 @@ class TestCacheIntegrity:
 
         assert df.height > 0
 
-    def test_corrupted_cache_quarantined(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_corrupted_cache_quarantined(self, provider_with_cache: YFinanceProvider) -> None:
         """Test corrupted cache is quarantined."""
         # Corrupt the cache file
         cache_path = provider_with_cache._daily_dir / "SPY.parquet"
@@ -1765,9 +1748,7 @@ class TestCacheIntegrity:
 
         assert df.height > 0
 
-    def test_cache_with_empty_data_returns_none(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_cache_with_empty_data_returns_none(self, provider: YFinanceProvider) -> None:
         """Test cache with empty data returns None."""
         # Write empty cache
         empty_df = pl.DataFrame(schema=YFINANCE_SCHEMA)
@@ -1799,9 +1780,7 @@ class TestCacheIntegrity:
     ) -> None:
         """Test cache with partial coverage returns None."""
         # Cache has Jan 2-4, request Jan 1-31
-        result = provider_with_cache._read_from_cache(
-            "SPY", date(2024, 1, 1), date(2024, 1, 31)
-        )
+        result = provider_with_cache._read_from_cache("SPY", date(2024, 1, 1), date(2024, 1, 31))
 
         # Should return None (partial coverage)
         assert result is None
@@ -1907,9 +1886,7 @@ class TestCacheIntegrity:
             assert result is None
             assert "Failed to quarantine corrupted cache" in caplog.text
 
-    def test_cache_with_null_dates_returns_none(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_cache_with_null_dates_returns_none(self, provider: YFinanceProvider) -> None:
         """Test cache with null min/max dates returns None."""
         # Create cache with null dates (shouldn't happen but defensive)
         cache_data = pl.DataFrame(
@@ -1927,9 +1904,7 @@ class TestCacheIntegrity:
 
         assert result is None
 
-    def test_cache_filters_to_requested_range(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_cache_filters_to_requested_range(self, provider_with_cache: YFinanceProvider) -> None:
         """Test cache filters data to requested date range."""
         # Cache has Jan 2-4, request exactly Jan 2-3
         df = provider_with_cache.get_daily_prices(
@@ -1948,9 +1923,7 @@ class TestCacheIntegrity:
     ) -> None:
         """Test cache filtered to empty returns None."""
         # Request date range that doesn't overlap with cache
-        result = provider_with_cache._read_from_cache(
-            "SPY", date(2023, 1, 1), date(2023, 1, 31)
-        )
+        result = provider_with_cache._read_from_cache("SPY", date(2023, 1, 1), date(2023, 1, 31))
 
         assert result is None
 
@@ -2277,9 +2250,7 @@ class TestDownload:
         assert "symbol" in df.columns
         assert df["symbol"][0] == "SPY"
 
-    def test_download_selects_only_available_columns(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_download_selects_only_available_columns(self, provider: YFinanceProvider) -> None:
         """Test download only selects available columns."""
         import pandas as pd
 
@@ -2521,9 +2492,7 @@ class TestBaselinePath:
 
         assert result is None
 
-    def test_safe_baseline_path_success(
-        self, provider_with_baseline: YFinanceProvider
-    ) -> None:
+    def test_safe_baseline_path_success(self, provider_with_baseline: YFinanceProvider) -> None:
         """Test _safe_baseline_path returns correct path for valid symbol."""
         result = provider_with_baseline._safe_baseline_path("SPY")
 

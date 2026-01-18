@@ -118,9 +118,7 @@ class TestBackfillAlpacaFillsPnLRecalculation:
 
         db_client.transaction = mock_transaction
         db_client.append_fill_to_order_metadata.return_value = True
-        db_client.recalculate_trade_realized_pnl.side_effect = ValueError(
-            "P&L calculation error"
-        )
+        db_client.recalculate_trade_realized_pnl.side_effect = ValueError("P&L calculation error")
 
         alpaca_client = MagicMock()
         alpaca_client.get_account_activities.return_value = [
@@ -311,9 +309,7 @@ class TestBackfillFillMetadataTimestampFallbacks:
 
             assert result is True
             call_args = mock_calc.call_args
-            assert call_args.kwargs["timestamp"] == datetime(
-                2024, 1, 15, 10, 0, 0, tzinfo=UTC
-            )
+            assert call_args.kwargs["timestamp"] == datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
 
     def test_uses_datetime_now_when_no_timestamps_available(self) -> None:
         """Uses datetime.now(UTC) when no timestamps available in broker_order."""
@@ -344,9 +340,7 @@ class TestBackfillFillMetadataTimestampFallbacks:
             patch(
                 "apps.execution_gateway.reconciliation.fills.calculate_synthetic_fill"
             ) as mock_calc,
-            patch(
-                "apps.execution_gateway.reconciliation.fills.datetime"
-            ) as mock_datetime,
+            patch("apps.execution_gateway.reconciliation.fills.datetime") as mock_datetime,
         ):
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
@@ -399,9 +393,7 @@ class TestBackfillFillMetadataFromOrderEdgeCases:
             patch(
                 "apps.execution_gateway.reconciliation.fills.calculate_synthetic_fill"
             ) as mock_calc,
-            patch(
-                "apps.execution_gateway.reconciliation.fills.datetime"
-            ) as mock_datetime,
+            patch("apps.execution_gateway.reconciliation.fills.datetime") as mock_datetime,
         ):
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)

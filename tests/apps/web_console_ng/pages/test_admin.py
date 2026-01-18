@@ -80,13 +80,17 @@ class DummyUI:
         self.labels.append(el)
         return el
 
-    def button(self, label: str, on_click: Callable[..., Any] | None = None, color: str | None = None) -> DummyElement:
+    def button(
+        self, label: str, on_click: Callable[..., Any] | None = None, color: str | None = None
+    ) -> DummyElement:
         el = DummyElement(self, "button", label=label, color=color)
         el.on_click(on_click)
         self.buttons.append(el)
         return el
 
-    def input(self, label: str | None = None, placeholder: str | None = None, value: Any = None) -> DummyElement:
+    def input(
+        self, label: str | None = None, placeholder: str | None = None, value: Any = None
+    ) -> DummyElement:
         el = DummyElement(self, "input", label=label, placeholder=placeholder, value=value)
         self.inputs.append(el)
         return el
@@ -213,6 +217,7 @@ async def test_render_api_key_manager_validations(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+
     async def fake_list_keys(*_: Any, **__: Any) -> list[dict[str, Any]]:
         return []
 
@@ -226,7 +231,11 @@ async def test_render_api_key_manager_validations(
     await admin_module._render_api_key_manager({"user_id": "u1"}, db_pool=object())
 
     name_input = next(i for i in dummy_ui.inputs if i.label == "Key Name")
-    scope_boxes = [c for c in dummy_ui.checkboxes if c.label in {"Read positions", "Read orders", "Write orders", "Read strategies"}]
+    scope_boxes = [
+        c
+        for c in dummy_ui.checkboxes
+        if c.label in {"Read positions", "Read orders", "Write orders", "Read strategies"}
+    ]
     create_button = next(b for b in dummy_ui.buttons if b.label == "Create Key")
 
     name_input.value = "ab"

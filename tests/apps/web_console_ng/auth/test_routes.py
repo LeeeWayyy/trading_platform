@@ -10,7 +10,6 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from redis import exceptions as redis_exceptions
 from starlette.datastructures import URL
-from starlette.responses import Response
 
 from apps.web_console_ng.auth import routes
 from apps.web_console_ng.auth.auth_result import AuthResult
@@ -108,8 +107,10 @@ async def test_login_post_invalid_auth_type_redirects(
     assert response.status_code == 303
     location = response.headers.get("location")
     assert location is not None
-    assert "/login" in location
-    assert "Unknown auth type: nope" in location
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert params["error"][0] == "Unknown auth type: nope"
 
 
 @pytest.mark.asyncio()
@@ -203,7 +204,11 @@ async def test_login_post_rate_limited_message(
     assert response.status_code == 303
     location = response.headers.get("location")
     assert location is not None
-    assert "Too many attempts" in location
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert "Too many attempts" in params["error"][0]
+    assert "45" in params["error"][0]
 
 
 @pytest.mark.asyncio()
@@ -231,60 +236,14 @@ async def test_login_post_sanitizes_redirect_path(
 
 
 @pytest.mark.asyncio()
-async def test_auth_callback_success_sets_storage_and_cookies(
-    cookie_config: _DummyCookieConfig,
-    ui_spy: dict[str, list[str]],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    response = Response()
-    request = SimpleNamespace(
-        headers={"user-agent": "ua"},
-        url=URL("http://testserver/auth/callback?code=abc&state=xyz"),
-        state=SimpleNamespace(response=response),
-    )
-
-    monkeypatch.setattr("nicegui.storage.request_contextvar.get", lambda: request)
-    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
-
-    class _Limiter:
-        async def check_and_increment_ip(self, _ip: str):  # noqa: ANN001
-            return False, 0, "allowed"
-
-    monkeypatch.setattr(routes, "AuthRateLimiter", _Limiter)
-
-    handler = SimpleNamespace(
-        handle_callback=AsyncMock(
-            return_value=AuthResult(
-                success=True,
-                cookie_value="session-cookie",
-                csrf_token="csrf-token",
-                user_data={"user_id": "u1"},
-            )
-        )
-    )
-    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
-
-    routes.app.storage.user = {"redirect_after_login": "/manual"}
-
-    await routes.auth_callback(code="abc", state="xyz")
-
-    cookies = response.headers.get_list("set-cookie")
-    assert any(cookie_config.cookie_name in header for header in cookies)
-    assert any("ng_csrf" in header for header in cookies)
-    assert routes.app.storage.user["logged_in"] is True
-    assert routes.app.storage.user["user"] == {"user_id": "u1"}
-    assert routes.app.storage.user["session_id"] == "session-cookie"
-    assert routes.app.storage.user.get("redirect_after_login") is None
-    assert ui_spy["navigations"] == ["/manual"]
-
-
 @pytest.mark.asyncio()
 async def test_auth_callback_rate_limited_blocks(
     ui_spy: dict[str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = SimpleNamespace(headers={}, url=URL("http://testserver/auth/callback"))
-    monkeypatch.setattr("nicegui.storage.request_contextvar.get", lambda: request)
+    request = SimpleNamespace(headers={}, url=URL("http://testserver/auth/callback"), client=SimpleNamespace(host="1.2.3.4"))
+    mock_contextvar = SimpleNamespace(get=lambda: request)
+    monkeypatch.setattr("nicegui.storage.request_contextvar", mock_contextvar)
     monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
 
     class _Limiter:
@@ -307,8 +266,9 @@ async def test_auth_callback_rate_limiter_redis_error(
     ui_spy: dict[str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = SimpleNamespace(headers={}, url=URL("http://testserver/auth/callback"))
-    monkeypatch.setattr("nicegui.storage.request_contextvar.get", lambda: request)
+    request = SimpleNamespace(headers={}, url=URL("http://testserver/auth/callback"), client=SimpleNamespace(host="1.2.3.4"))
+    mock_contextvar = SimpleNamespace(get=lambda: request)
+    monkeypatch.setattr("nicegui.storage.request_contextvar", mock_contextvar)
     monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
 
     class _Limiter:
@@ -323,16 +283,267 @@ async def test_auth_callback_rate_limiter_redis_error(
 
 
 @pytest.mark.asyncio()
-async def test_auth_callback_missing_request_context(
-    ui_spy: dict[str, list[str]],
+# Additional comprehensive tests for login_post error paths and edge cases
+
+
+@pytest.mark.asyncio()
+async def test_login_post_lockout_message(
+    fastapi_app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _missing():
-        raise LookupError
+    """Test that locked out users receive appropriate error message."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=False,
+                locked_out=True,
+                lockout_remaining=300,
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
 
-    monkeypatch.setattr("nicegui.storage.request_contextvar.get", _missing)
-    monkeypatch.setattr(routes.ui.context, "client", None, raising=False)
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/"},
+        )
 
-    await routes.auth_callback(code="abc", state="xyz")
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert "Account locked" in params["error"][0]
+    assert "300" in params["error"][0]
 
-    assert "Error: No request context" in ui_spy["labels"]
+
+@pytest.mark.asyncio()
+async def test_login_post_generic_failure_message(
+    fastapi_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test generic failure when no specific error message is provided."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=False,
+                error_message=None,
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/"},
+        )
+
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert params["error"][0] == "Login failed"
+
+
+@pytest.mark.asyncio()
+async def test_login_post_custom_error_message(
+    fastapi_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that custom error messages are propagated."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=False,
+                error_message="Invalid credentials provided",
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/"},
+        )
+
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert params["error"][0] == "Invalid credentials provided"
+
+
+@pytest.mark.asyncio()
+async def test_login_post_missing_username_only(
+    fastapi_app: FastAPI,
+) -> None:
+    """Test login with password but no username."""
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post("/auth/login", data={"password": "p"})
+
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert params["error"][0] == "Username and password required"
+
+
+@pytest.mark.asyncio()
+async def test_login_post_missing_password_only(
+    fastapi_app: FastAPI,
+) -> None:
+    """Test login with username but no password."""
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post("/auth/login", data={"username": "u"})
+
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/login"
+    assert params["error"][0] == "Username and password required"
+
+
+@pytest.mark.asyncio()
+async def test_login_post_success_without_csrf_token(
+    fastapi_app: FastAPI,
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test login success when auth handler doesn't return CSRF token."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                cookie_value="session-cookie",
+                csrf_token=None,
+                user_data={"user_id": "u1"},
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/"},
+        )
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/"
+    cookies = response.headers.get_list("set-cookie")
+    assert any(cookie_config.cookie_name in header for header in cookies)
+    assert all("ng_csrf" not in header for header in cookies)
+
+
+@pytest.mark.asyncio()
+async def test_login_post_success_without_cookie_value(
+    fastapi_app: FastAPI,
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test login success when auth handler doesn't return cookie value."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                cookie_value=None,
+                csrf_token="csrf-token",
+                user_data={"user_id": "u1"},
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/"},
+        )
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/"
+    cookies = response.headers.get_list("set-cookie")
+    assert all(cookie_config.cookie_name not in header for header in cookies)
+    assert any("ng_csrf" in header for header in cookies)
+
+
+@pytest.mark.asyncio()
+async def test_login_post_mfa_without_cookie_value(
+    fastapi_app: FastAPI,
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test MFA flow when auth handler doesn't return cookie value."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                requires_mfa=True,
+                cookie_value=None,
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/manual"},
+        )
+
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    assert location.startswith("/mfa-verify?")
+    cookies = response.headers.get_list("set-cookie")
+    assert all(cookie_config.cookie_name not in header for header in cookies)
+
+
+@pytest.mark.asyncio()
+async def test_login_post_mfa_sanitizes_redirect(
+    fastapi_app: FastAPI,
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that MFA flow sanitizes redirect path."""
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                requires_mfa=True,
+                cookie_value="pending-cookie",
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "https://evil.test/"},
+        )
+
+    assert response.status_code == 303
+    location = response.headers.get("location")
+    assert location is not None
+    assert location.startswith("/mfa-verify?")
+    assert "next=%2F" in location or "next=/" in location

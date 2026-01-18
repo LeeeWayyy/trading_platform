@@ -244,9 +244,7 @@ class DiskExpressionCache:
                         try:
                             cache_path.unlink(missing_ok=True)
                         except OSError as cleanup_err:
-                            logger.debug(
-                                "Failed to remove corrupted cache file: %s", cleanup_err
-                            )
+                            logger.debug("Failed to remove corrupted cache file: %s", cleanup_err)
 
         # Cache miss - compute
         logger.debug(

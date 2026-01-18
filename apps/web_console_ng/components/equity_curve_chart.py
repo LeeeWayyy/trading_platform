@@ -57,9 +57,9 @@ def render_equity_curve(
         sorted_df = sorted_df.filter(pl.col("return").is_finite())
         filtered_count = original_count - sorted_df.height
         if filtered_count > 0:
-            ui.label(
-                f"Warning: {filtered_count} invalid return value(s) excluded."
-            ).classes("text-yellow-600 text-sm mb-2")
+            ui.label(f"Warning: {filtered_count} invalid return value(s) excluded.").classes(
+                "text-yellow-600 text-sm mb-2"
+            )
 
         if sorted_df.height == 0:
             ui.label("No valid return data for equity curve.").classes(

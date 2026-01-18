@@ -57,9 +57,7 @@ class TestBackfillAlpacaFills:
         alpaca_client = MagicMock()
         alpaca_client.get_account_activities.return_value = []
 
-        with patch(
-            "apps.execution_gateway.reconciliation.fills.datetime"
-        ) as mock_datetime:
+        with patch("apps.execution_gateway.reconciliation.fills.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
@@ -104,9 +102,7 @@ class TestBackfillAlpacaFills:
         alpaca_client = MagicMock()
         alpaca_client.get_account_activities.return_value = []
 
-        with patch(
-            "apps.execution_gateway.reconciliation.fills.datetime"
-        ) as mock_datetime:
+        with patch("apps.execution_gateway.reconciliation.fills.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
@@ -371,9 +367,7 @@ class TestBackfillFillMetadata:
                 "_missing_qty": Decimal("100"),
             }
 
-            backfill_fill_metadata(
-                "client123", broker_order, db_client, cached_order=cached_order
-            )
+            backfill_fill_metadata("client123", broker_order, db_client, cached_order=cached_order)
 
             db_client.get_order_for_update.assert_not_called()
 

@@ -98,7 +98,9 @@ def test_init_defaults_in_debug(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_get_authorization_url_stores_flow(monkeypatch: pytest.MonkeyPatch, redis_client: AsyncMock) -> None:
+async def test_get_authorization_url_stores_flow(
+    monkeypatch: pytest.MonkeyPatch, redis_client: AsyncMock
+) -> None:
     _set_oauth2_config_debug(monkeypatch)
 
     handler = oauth2_module.OAuth2AuthHandler()

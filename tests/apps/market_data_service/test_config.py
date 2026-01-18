@@ -20,6 +20,26 @@ from pydantic import ValidationError
 
 def _import_config_module(monkeypatch, **env):
     """Helper to import config module with environment variables set."""
+    known_env_keys = {
+        "SERVICE_NAME",
+        "PORT",
+        "LOG_LEVEL",
+        "ALPACA_API_KEY",
+        "ALPACA_SECRET_KEY",
+        "ALPACA_BASE_URL",
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_DB",
+        "REDIS_PASSWORD",
+        "PRICE_CACHE_TTL",
+        "MAX_RECONNECT_ATTEMPTS",
+        "RECONNECT_BASE_DELAY",
+        "EXECUTION_GATEWAY_URL",
+        "SUBSCRIPTION_SYNC_INTERVAL",
+    }
+    for key in known_env_keys:
+        if key not in env:
+            monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     module_name = "apps.market_data_service.config"
@@ -39,7 +59,11 @@ class TestSettingsDefaults:
             ALPACA_SECRET_KEY="env-secret",
         )
 
-        settings = config.Settings(alpaca_api_key="key", alpaca_secret_key="secret")
+        settings = config.Settings(
+            alpaca_api_key="key",
+            alpaca_secret_key="secret",
+            _env_file=None,
+        )
 
         # Service defaults
         assert settings.service_name == "market-data-service"
@@ -74,7 +98,13 @@ class TestSettingsDefaults:
             ALPACA_SECRET_KEY="secret",
         )
 
-        assert config.settings.service_name == "market-data-service"
+        settings = config.Settings(
+            alpaca_api_key="key",
+            alpaca_secret_key="secret",
+            _env_file=None,
+        )
+
+        assert settings.service_name == "market-data-service"
 
     def test_port_default(self, monkeypatch):
         """Test port default value."""
@@ -84,7 +114,13 @@ class TestSettingsDefaults:
             ALPACA_SECRET_KEY="secret",
         )
 
-        assert config.settings.port == 8004
+        settings = config.Settings(
+            alpaca_api_key="key",
+            alpaca_secret_key="secret",
+            _env_file=None,
+        )
+
+        assert settings.port == 8004
 
     def test_log_level_default(self, monkeypatch):
         """Test log_level default value."""
@@ -94,7 +130,13 @@ class TestSettingsDefaults:
             ALPACA_SECRET_KEY="secret",
         )
 
-        assert config.settings.log_level == "INFO"
+        settings = config.Settings(
+            alpaca_api_key="key",
+            alpaca_secret_key="secret",
+            _env_file=None,
+        )
+
+        assert settings.log_level == "INFO"
 
 
 class TestRequiredFields:
@@ -109,7 +151,7 @@ class TestRequiredFields:
         from apps.market_data_service.config import Settings
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings()
+            Settings(_env_file=None)
 
         errors = exc_info.value.errors()
         assert any(e["loc"] == ("alpaca_api_key",) for e in errors)
@@ -123,7 +165,7 @@ class TestRequiredFields:
         from apps.market_data_service.config import Settings
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings()
+            Settings(_env_file=None)
 
         errors = exc_info.value.errors()
         assert any(e["loc"] == ("alpaca_secret_key",) for e in errors)

@@ -860,7 +860,12 @@ class SliceScheduler:
                 )
                 return
 
-        except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as infra_error:
+        except (
+            PsycopgOperationalError,
+            PsycopgDatabaseError,
+            RedisConnectionError,
+            RedisError,
+        ) as infra_error:
             # Infrastructure failure (PostgreSQL/Redis outage) during pre-submission checks
             # Mark slice as failed to prevent silent job drops
             logger.error(
@@ -884,7 +889,12 @@ class SliceScheduler:
                     source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Infrastructure failure during pre-submission checks: {infra_error}",
                 )
-            except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as db_error:
+            except (
+                PsycopgOperationalError,
+                PsycopgDatabaseError,
+                RedisConnectionError,
+                RedisError,
+            ) as db_error:
                 # Even marking as failed failed - log and re-raise original error
                 logger.critical(
                     f"Cannot update DB after infrastructure failure: parent={parent_order_id}, "
@@ -928,7 +938,12 @@ class SliceScheduler:
                     },
                 )
                 return
-        except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as infra_error:
+        except (
+            PsycopgOperationalError,
+            PsycopgDatabaseError,
+            RedisConnectionError,
+            RedisError,
+        ) as infra_error:
             # DB failure at pre-submit guard - mark as failed and re-raise
             logger.error(
                 f"Infrastructure failure at pre-submit guard: parent={parent_order_id}, "
@@ -950,7 +965,12 @@ class SliceScheduler:
                     source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Infrastructure failure at pre-submit guard: {infra_error}",
                 )
-            except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError) as db_error:
+            except (
+                PsycopgOperationalError,
+                PsycopgDatabaseError,
+                RedisConnectionError,
+                RedisError,
+            ) as db_error:
                 logger.critical(
                     f"Cannot update DB after pre-submit guard failure: parent={parent_order_id}, "
                     f"slice={slice_detail.slice_num}",
@@ -1026,7 +1046,13 @@ class SliceScheduler:
                         )
                         break  # Success, exit retry loop
 
-                    except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError, Exception) as db_error:
+                    except (
+                        PsycopgOperationalError,
+                        PsycopgDatabaseError,
+                        RedisConnectionError,
+                        RedisError,
+                        Exception,
+                    ) as db_error:
                         if retry_attempt < max_db_retries - 1:
                             # Retry with exponential backoff
                             wait_time = 2**retry_attempt  # 1s, 2s, 4s
@@ -1084,7 +1110,13 @@ class SliceScheduler:
                                         "awaiting_reconciliation": True,
                                     },
                                 )
-                            except (PsycopgOperationalError, PsycopgDatabaseError, RedisConnectionError, RedisError, Exception) as final_db_error:
+                            except (
+                                PsycopgOperationalError,
+                                PsycopgDatabaseError,
+                                RedisConnectionError,
+                                RedisError,
+                                Exception,
+                            ) as final_db_error:
                                 # Even this failed - log and re-raise for visibility
                                 logger.critical(
                                     f"CRITICAL: Cannot update DB at all after broker submission. "

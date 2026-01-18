@@ -11,7 +11,6 @@ Tests cover:
 Target: 50%+ branch coverage (baseline from 0%)
 """
 
-
 from libs.core.common.validators import (
     EXPOSURE_REQUIRED_KEYS,
     RISK_METRICS_REQUIRED_KEYS,

@@ -209,20 +209,24 @@ class TestEstimateNotional:
 
     def test_priority_notional_over_limit_price(self) -> None:
         """Notional takes priority over limit_price."""
-        result = estimate_notional({
-            "notional": "5000.00",
-            "qty": "100",
-            "limit_price": "60.00",
-        })
+        result = estimate_notional(
+            {
+                "notional": "5000.00",
+                "qty": "100",
+                "limit_price": "60.00",
+            }
+        )
         assert result == Decimal("5000.00")
 
     def test_priority_limit_price_over_filled_avg(self) -> None:
         """Limit price takes priority over filled_avg_price."""
-        result = estimate_notional({
-            "qty": "100",
-            "limit_price": "50.00",
-            "filled_avg_price": "52.00",
-        })
+        result = estimate_notional(
+            {
+                "qty": "100",
+                "limit_price": "50.00",
+                "filled_avg_price": "52.00",
+            }
+        )
         assert result == Decimal("5000.00")
 
     def test_fallback_to_zero(self) -> None:
@@ -734,21 +738,21 @@ class TestMergeBrokerOrdersEdgeCases:
 
     def test_large_number_of_unique_orders(self) -> None:
         """Handle large number of unique orders efficiently."""
-        open_orders = [
-            {"client_order_id": f"order_{i}", "status": "open"}
-            for i in range(1000)
-        ]
+        open_orders = [{"client_order_id": f"order_{i}", "status": "open"} for i in range(1000)]
         recent_orders = [
-            {"client_order_id": f"recent_{i}", "status": "filled"}
-            for i in range(1000)
+            {"client_order_id": f"recent_{i}", "status": "filled"} for i in range(1000)
         ]
         result = merge_broker_orders(open_orders, recent_orders)
         assert len(result) == 2000
 
     def test_timestamp_equal_keeps_existing(self) -> None:
         """When timestamps are equal, keep existing order."""
-        open_orders = [{"client_order_id": "abc", "updated_at": "2024-01-01T10:00:00Z", "field": "first"}]
-        recent_orders = [{"client_order_id": "abc", "updated_at": "2024-01-01T10:00:00Z", "field": "second"}]
+        open_orders = [
+            {"client_order_id": "abc", "updated_at": "2024-01-01T10:00:00Z", "field": "first"}
+        ]
+        recent_orders = [
+            {"client_order_id": "abc", "updated_at": "2024-01-01T10:00:00Z", "field": "second"}
+        ]
         result = merge_broker_orders(open_orders, recent_orders)
         # Equal timestamps: neither is "newer", so first stays
         assert result["abc"]["field"] == "first"
@@ -810,10 +814,7 @@ class TestExtractBrokerClientIdsEdgeCases:
 
     def test_very_large_list(self) -> None:
         """Handle very large order lists efficiently."""
-        orders = [
-            {"client_order_id": f"order_{i}"}
-            for i in range(10000)
-        ]
+        orders = [{"client_order_id": f"order_{i}"} for i in range(10000)]
         result = extract_broker_client_ids(orders)
         assert len(result) == 10000
         assert result[0] == "order_0"

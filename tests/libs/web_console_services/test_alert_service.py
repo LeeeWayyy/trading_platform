@@ -111,9 +111,7 @@ def sample_alert_rule_create(sample_channel_config: ChannelConfig) -> AlertRuleC
 class TestAlertServiceInitialization:
     """Tests for AlertConfigService initialization."""
 
-    def test_init_with_defaults(
-        self, mock_db_pool: Mock, mock_audit_logger: Mock
-    ) -> None:
+    def test_init_with_defaults(self, mock_db_pool: Mock, mock_audit_logger: Mock) -> None:
         """Test AlertConfigService initializes with default config."""
         service = AlertConfigService(db_pool=mock_db_pool, audit_logger=mock_audit_logger)
 
@@ -125,9 +123,11 @@ class TestAlertServiceInitialization:
         """Test channel handlers are lazily initialized."""
         assert alert_service._channel_handlers is None
 
-        with patch("libs.web_console_services.alert_service.EmailChannel") as mock_email, \
-             patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack, \
-             patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms:
+        with (
+            patch("libs.web_console_services.alert_service.EmailChannel") as mock_email,
+            patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
+            patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
+        ):
 
             handlers = alert_service._get_channel_handlers()
 
@@ -143,9 +143,11 @@ class TestAlertServiceInitialization:
         self, alert_service: AlertConfigService
     ) -> None:
         """Test channel handlers are cached after first initialization."""
-        with patch("libs.web_console_services.alert_service.EmailChannel") as mock_email, \
-             patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack, \
-             patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms:
+        with (
+            patch("libs.web_console_services.alert_service.EmailChannel") as mock_email,
+            patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
+            patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
+        ):
 
             handlers1 = alert_service._get_channel_handlers()
             handlers2 = alert_service._get_channel_handlers()
@@ -160,10 +162,15 @@ class TestAlertServiceInitialization:
         self, alert_service: AlertConfigService
     ) -> None:
         """Test SMS channel is skipped if Twilio credentials not configured."""
-        with patch("libs.web_console_services.alert_service.EmailChannel"), \
-             patch("libs.web_console_services.alert_service.SlackChannel"), \
-             patch("libs.web_console_services.alert_service.SMSChannel", side_effect=ConfigurationError("Missing Twilio credentials")), \
-             patch("libs.web_console_services.alert_service.logger") as mock_logger:
+        with (
+            patch("libs.web_console_services.alert_service.EmailChannel"),
+            patch("libs.web_console_services.alert_service.SlackChannel"),
+            patch(
+                "libs.web_console_services.alert_service.SMSChannel",
+                side_effect=ConfigurationError("Missing Twilio credentials"),
+            ),
+            patch("libs.web_console_services.alert_service.logger") as mock_logger,
+        ):
 
             handlers = alert_service._get_channel_handlers()
 
@@ -304,9 +311,11 @@ class TestCreateRule:
         )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch("libs.web_console_services.alert_service.uuid4", return_value=rule_id):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch("libs.web_console_services.alert_service.uuid4", return_value=rule_id),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             rule = await alert_service.create_rule(sample_alert_rule_create, admin_user)
@@ -340,8 +349,10 @@ class TestCreateRule:
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             with pytest.raises(RuntimeError, match="not found after create"):
@@ -377,9 +388,11 @@ class TestCreateRule:
         )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch("libs.web_console_services.alert_service.uuid4", return_value=rule_id):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch("libs.web_console_services.alert_service.uuid4", return_value=rule_id),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             rule = await alert_service.create_rule(sample_alert_rule_create, user_without_id)
@@ -420,8 +433,10 @@ class TestUpdateRule:
         )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             rule = await alert_service.update_rule(rule_id, update, operator_user)
@@ -475,8 +490,10 @@ class TestUpdateRule:
         )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.update_rule(rule_id, update, operator_user)
@@ -503,8 +520,10 @@ class TestUpdateRule:
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             with pytest.raises(RuntimeError, match="not found after update"):
@@ -525,8 +544,10 @@ class TestDeleteRule:
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.delete_rule(rule_id, admin_user)
@@ -568,8 +589,10 @@ class TestAcknowledgeAlert:
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.acknowledge_alert(alert_id, note, operator_user)
@@ -601,9 +624,7 @@ class TestAcknowledgeAlert:
         note = "short"
 
         with patch("libs.web_console_services.alert_service.has_permission", return_value=True):
-            with pytest.raises(
-                ValueError, match=f"at least {MIN_ACK_NOTE_LENGTH} characters"
-            ):
+            with pytest.raises(ValueError, match=f"at least {MIN_ACK_NOTE_LENGTH} characters"):
                 await alert_service.acknowledge_alert(alert_id, note, operator_user)
 
     @pytest.mark.asyncio()
@@ -637,8 +658,14 @@ class TestTestNotification:
             return_value=DeliveryResult(success=True, message_id="msg-123")
         )
 
-        with patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch.object(alert_service, "_get_channel_handlers", return_value={ChannelType.EMAIL: mock_handler}):
+        with (
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch.object(
+                alert_service,
+                "_get_channel_handlers",
+                return_value={ChannelType.EMAIL: mock_handler},
+            ),
+        ):
 
             result = await alert_service.test_notification(sample_channel_config, operator_user)
 
@@ -672,8 +699,14 @@ class TestTestNotification:
             return_value=DeliveryResult(success=False, error="SMTP connection failed")
         )
 
-        with patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch.object(alert_service, "_get_channel_handlers", return_value={ChannelType.EMAIL: mock_handler}):
+        with (
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch.object(
+                alert_service,
+                "_get_channel_handlers",
+                return_value={ChannelType.EMAIL: mock_handler},
+            ),
+        ):
 
             result = await alert_service.test_notification(sample_channel_config, operator_user)
 
@@ -692,8 +725,14 @@ class TestTestNotification:
         mock_handler = AsyncMock()
         mock_handler.send = AsyncMock(side_effect=Exception("Network timeout"))
 
-        with patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch.object(alert_service, "_get_channel_handlers", return_value={ChannelType.EMAIL: mock_handler}):
+        with (
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch.object(
+                alert_service,
+                "_get_channel_handlers",
+                return_value={ChannelType.EMAIL: mock_handler},
+            ),
+        ):
 
             result = await alert_service.test_notification(sample_channel_config, operator_user)
 
@@ -713,8 +752,10 @@ class TestTestNotification:
         # Create a channel with a type that's not in handlers
         channel = ChannelConfig(type=ChannelType.SMS, recipient="+1234567890", enabled=True)
 
-        with patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch.object(alert_service, "_get_channel_handlers", return_value={}):
+        with (
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch.object(alert_service, "_get_channel_handlers", return_value={}),
+        ):
 
             with pytest.raises(ValueError, match="Unsupported channel type"):
                 await alert_service.test_notification(channel, operator_user)
@@ -737,8 +778,10 @@ class TestAddChannel:
         mock_cursor.fetchone = AsyncMock(return_value=(False,))  # Channel doesn't exist
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.add_channel(rule_id, sample_channel_config, operator_user)
@@ -773,8 +816,10 @@ class TestAddChannel:
         mock_cursor.fetchone = AsyncMock(return_value=(True,))  # Channel already exists
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             with pytest.raises(ValueError, match="already exists for this rule"):
@@ -796,8 +841,10 @@ class TestUpdateChannel:
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.update_channel(rule_id, sample_channel_config, operator_user)
@@ -834,8 +881,10 @@ class TestRemoveChannel:
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.remove_channel(rule_id, channel_type, operator_user)
@@ -952,7 +1001,9 @@ class TestEdgeCases:
         """Test create_rule with multiple channel configurations."""
         channels = [
             ChannelConfig(type=ChannelType.EMAIL, recipient="test@example.com", enabled=True),
-            ChannelConfig(type=ChannelType.SLACK, recipient="https://hooks.slack.com/test", enabled=True),
+            ChannelConfig(
+                type=ChannelType.SLACK, recipient="https://hooks.slack.com/test", enabled=True
+            ),
         ]
         rule_create = AlertRuleCreate(
             name="Multi-channel Alert",
@@ -985,9 +1036,11 @@ class TestEdgeCases:
         )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True), \
-             patch("libs.web_console_services.alert_service.uuid4", return_value=rule_id):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            patch("libs.web_console_services.alert_service.uuid4", return_value=rule_id),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             rule = await alert_service.create_rule(rule_create, admin_user)
@@ -1024,8 +1077,10 @@ class TestEdgeCases:
         )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             rule = await alert_service.update_rule(rule_id, update, operator_user)
@@ -1045,8 +1100,10 @@ class TestEdgeCases:
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
 
-        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire, \
-             patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             # Should not raise

@@ -92,20 +92,36 @@ class TestLifespanStartup:
         monkeypatch.setenv("ENVIRONMENT", "production")
 
         with patch("apps.signal_service.main.Settings", mock_settings_class):
-            with patch("apps.signal_service.main.get_required_secret", return_value="postgresql://..."):
+            with patch(
+                "apps.signal_service.main.get_required_secret", return_value="postgresql://..."
+            ):
                 with patch("apps.signal_service.main.validate_required_secrets"):
-                    with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
-                        with patch("apps.signal_service.main.SignalGenerator", return_value=mock_generator):
-                            with patch("apps.signal_service.main.get_optional_secret_or_none", return_value=None):
-                                with patch("apps.signal_service.main.RedisClient", return_value=mock_redis):
+                    with patch(
+                        "apps.signal_service.main.ModelRegistry", return_value=mock_registry
+                    ):
+                        with patch(
+                            "apps.signal_service.main.SignalGenerator", return_value=mock_generator
+                        ):
+                            with patch(
+                                "apps.signal_service.main.get_optional_secret_or_none",
+                                return_value=None,
+                            ):
+                                with patch(
+                                    "apps.signal_service.main.RedisClient", return_value=mock_redis
+                                ):
                                     with patch("apps.signal_service.main.EventPublisher"):
                                         with patch("apps.signal_service.main.FallbackBuffer"):
                                             with patch("apps.signal_service.main.FeatureCache"):
-                                                with patch("asyncio.create_task") as mock_create_task:
+                                                with patch(
+                                                    "asyncio.create_task"
+                                                ) as mock_create_task:
                                                     # Mock tasks
                                                     mock_reload_task = AsyncMock()
                                                     mock_redis_task = AsyncMock()
-                                                    mock_create_task.side_effect = [mock_reload_task, mock_redis_task]
+                                                    mock_create_task.side_effect = [
+                                                        mock_reload_task,
+                                                        mock_redis_task,
+                                                    ]
 
                                                     async with lifespan(app):
                                                         # Verify startup completed
@@ -171,9 +187,13 @@ class TestLifespanStartup:
         monkeypatch.setenv("ENVIRONMENT", "production")
 
         with patch("apps.signal_service.main.Settings", mock_settings_class):
-            with patch("apps.signal_service.main.get_required_secret", return_value="postgresql://..."):
+            with patch(
+                "apps.signal_service.main.get_required_secret", return_value="postgresql://..."
+            ):
                 with patch("apps.signal_service.main.validate_required_secrets"):
-                    with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
+                    with patch(
+                        "apps.signal_service.main.ModelRegistry", return_value=mock_registry
+                    ):
                         with pytest.raises(RuntimeError, match="Failed to load model"):
                             async with lifespan(app):
                                 pass
@@ -198,9 +218,13 @@ class TestLifespanStartup:
         monkeypatch.setenv("ENVIRONMENT", "production")
 
         with patch("apps.signal_service.main.Settings", mock_settings_class):
-            with patch("apps.signal_service.main.get_required_secret", return_value="postgresql://..."):
+            with patch(
+                "apps.signal_service.main.get_required_secret", return_value="postgresql://..."
+            ):
                 with patch("apps.signal_service.main.validate_required_secrets"):
-                    with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
+                    with patch(
+                        "apps.signal_service.main.ModelRegistry", return_value=mock_registry
+                    ):
                         with pytest.raises(RuntimeError, match="Failed to load model"):
                             async with lifespan(app):
                                 pass
@@ -246,17 +270,32 @@ class TestLifespanStartup:
         monkeypatch.setenv("ENVIRONMENT", "production")
 
         with patch("apps.signal_service.main.Settings", mock_settings_class):
-            with patch("apps.signal_service.main.get_required_secret", return_value="postgresql://..."):
+            with patch(
+                "apps.signal_service.main.get_required_secret", return_value="postgresql://..."
+            ):
                 with patch("apps.signal_service.main.validate_required_secrets"):
-                    with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
-                        with patch("apps.signal_service.main.SignalGenerator", return_value=mock_generator):
-                            with patch("apps.signal_service.main.get_optional_secret_or_none", return_value=None):
-                                with patch("apps.signal_service.main.RedisClient", return_value=mock_redis):
+                    with patch(
+                        "apps.signal_service.main.ModelRegistry", return_value=mock_registry
+                    ):
+                        with patch(
+                            "apps.signal_service.main.SignalGenerator", return_value=mock_generator
+                        ):
+                            with patch(
+                                "apps.signal_service.main.get_optional_secret_or_none",
+                                return_value=None,
+                            ):
+                                with patch(
+                                    "apps.signal_service.main.RedisClient", return_value=mock_redis
+                                ):
                                     with patch("apps.signal_service.main.EventPublisher"):
                                         with patch("apps.signal_service.main.FallbackBuffer"):
                                             with patch("apps.signal_service.main.FeatureCache"):
-                                                with patch("asyncio.create_task") as mock_create_task:
-                                                    with patch("apps.signal_service.main.close_secret_manager") as mock_close_secrets:
+                                                with patch(
+                                                    "asyncio.create_task"
+                                                ) as mock_create_task:
+                                                    with patch(
+                                                        "apps.signal_service.main.close_secret_manager"
+                                                    ) as mock_close_secrets:
                                                         # Mock tasks
                                                         mock_reload_task = AsyncMock()
                                                         mock_redis_task = AsyncMock()
@@ -298,12 +337,14 @@ class TestGeneratorCache:
 
         # Create cached generator
         cached_gen = Mock()
-        cached_gen.generate_signals.return_value = pd.DataFrame({
-            "symbol": ["AAPL"],
-            "predicted_return": [0.023],
-            "rank": [1],
-            "target_weight": [1.0],
-        })
+        cached_gen.generate_signals.return_value = pd.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
 
         # Pre-populate cache
         cache_key = (1, 0)
@@ -350,12 +391,14 @@ class TestGeneratorCache:
         mock_generator.bottom_n = 0
         mock_generator.data_provider = Mock()
         mock_generator.data_provider.data_dir = "data/adjusted"
-        mock_generator.generate_signals.return_value = pd.DataFrame({
-            "symbol": ["AAPL"],
-            "predicted_return": [0.023],
-            "rank": [1],
-            "target_weight": [1.0],
-        })
+        mock_generator.generate_signals.return_value = pd.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
 
         mock_registry = Mock()
         mock_registry.is_loaded = True
@@ -370,12 +413,14 @@ class TestGeneratorCache:
 
         with patch("apps.signal_service.main.SignalGenerator") as mock_sig_gen_class:
             mock_new_gen = Mock()
-            mock_new_gen.generate_signals.return_value = pd.DataFrame({
-                "symbol": ["AAPL"],
-                "predicted_return": [0.023],
-                "rank": [1],
-                "target_weight": [1.0],
-            })
+            mock_new_gen.generate_signals.return_value = pd.DataFrame(
+                {
+                    "symbol": ["AAPL"],
+                    "predicted_return": [0.023],
+                    "rank": [1],
+                    "target_weight": [1.0],
+                }
+            )
             mock_sig_gen_class.return_value = mock_new_gen
 
             with patch("apps.signal_service.main._publish_signal_event_with_fallback"):
@@ -428,12 +473,14 @@ class TestGeneratorCache:
 
         with patch("apps.signal_service.main.SignalGenerator") as mock_sig_gen_class:
             mock_new_gen = Mock()
-            mock_new_gen.generate_signals.return_value = pd.DataFrame({
-                "symbol": ["AAPL"],
-                "predicted_return": [0.023],
-                "rank": [1],
-                "target_weight": [1.0],
-            })
+            mock_new_gen.generate_signals.return_value = pd.DataFrame(
+                {
+                    "symbol": ["AAPL"],
+                    "predicted_return": [0.023],
+                    "rank": [1],
+                    "target_weight": [1.0],
+                }
+            )
             mock_sig_gen_class.return_value = mock_new_gen
 
             with patch("apps.signal_service.main._publish_signal_event_with_fallback"):
@@ -885,12 +932,14 @@ class TestSignalEventPublishing:
         from apps.signal_service import main
 
         mock_generator = Mock()
-        mock_signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT"],
-            "predicted_return": [0.023, 0.018],
-            "rank": [1, 2],
-            "target_weight": [0.5, 0.5],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "predicted_return": [0.023, 0.018],
+                "rank": [1, 2],
+                "target_weight": [0.5, 0.5],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 2
         mock_generator.bottom_n = 0

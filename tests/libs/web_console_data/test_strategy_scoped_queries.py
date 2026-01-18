@@ -272,8 +272,7 @@ class TestFilterMethods:
     def test_build_filter_clauses_single_value(self) -> None:
         """Single value filter should use equality."""
         clauses, params = StrategyScopedDataAccess._build_filter_clauses(
-            {"symbol": "AAPL"},
-            {"symbol": "symbol"}
+            {"symbol": "AAPL"}, {"symbol": "symbol"}
         )
 
         assert clauses == ["symbol = %s"]
@@ -282,8 +281,7 @@ class TestFilterMethods:
     def test_build_filter_clauses_list_value(self) -> None:
         """List value should use ANY()."""
         clauses, params = StrategyScopedDataAccess._build_filter_clauses(
-            {"symbol": ["AAPL", "GOOGL"]},
-            {"symbol": "symbol"}
+            {"symbol": ["AAPL", "GOOGL"]}, {"symbol": "symbol"}
         )
 
         assert clauses == ["symbol = ANY(%s)"]
@@ -292,8 +290,7 @@ class TestFilterMethods:
     def test_build_filter_clauses_none_value(self) -> None:
         """None values should be ignored."""
         clauses, params = StrategyScopedDataAccess._build_filter_clauses(
-            {"symbol": None},
-            {"symbol": "symbol"}
+            {"symbol": None}, {"symbol": "symbol"}
         )
 
         assert clauses == []
@@ -829,9 +826,7 @@ class TestGetPnlSummary:
         access._execute_fetchall = AsyncMock(return_value=db_rows)
 
         result = await access.get_pnl_summary(
-            date_from=date(2025, 1, 14),
-            date_to=date(2025, 1, 15),
-            limit=100
+            date_from=date(2025, 1, 14), date_to=date(2025, 1, 15), limit=100
         )
 
         assert result == db_rows
@@ -914,10 +909,7 @@ class TestGetTrades:
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         access._execute_fetchall = AsyncMock(return_value=db_rows)
 
-        result = await access.get_trades(
-            date_from=date(2025, 1, 15),
-            date_to=date(2025, 1, 16)
-        )
+        result = await access.get_trades(date_from=date(2025, 1, 15), date_to=date(2025, 1, 16))
 
         assert result == db_rows
         call_args = access._execute_fetchall.call_args
@@ -990,19 +982,21 @@ class TestGetTradeStats:
         mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        db_rows = [{
-            "total_trades": 100,
-            "winning_trades": 55,
-            "losing_trades": 40,
-            "break_even_trades": 5,
-            "total_realized_pnl": Decimal("15000.50"),
-            "gross_profit": Decimal("25000.00"),
-            "gross_loss": Decimal("9999.50"),
-            "avg_win": Decimal("454.54"),
-            "avg_loss": Decimal("-249.99"),
-            "largest_win": Decimal("1500.00"),
-            "largest_loss": Decimal("-800.00"),
-        }]
+        db_rows = [
+            {
+                "total_trades": 100,
+                "winning_trades": 55,
+                "losing_trades": 40,
+                "break_even_trades": 5,
+                "total_realized_pnl": Decimal("15000.50"),
+                "gross_profit": Decimal("25000.00"),
+                "gross_loss": Decimal("9999.50"),
+                "avg_win": Decimal("454.54"),
+                "avg_loss": Decimal("-249.99"),
+                "largest_win": Decimal("1500.00"),
+                "largest_loss": Decimal("-800.00"),
+            }
+        ]
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         access._execute_fetchall = AsyncMock(return_value=db_rows)
@@ -1038,27 +1032,27 @@ class TestGetTradeStats:
         mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        db_rows = [{
-            "total_trades": 10,
-            "winning_trades": 6,
-            "losing_trades": 4,
-            "break_even_trades": 0,
-            "total_realized_pnl": Decimal("500.00"),
-            "gross_profit": Decimal("800.00"),
-            "gross_loss": Decimal("300.00"),
-            "avg_win": Decimal("133.33"),
-            "avg_loss": Decimal("-75.00"),
-            "largest_win": Decimal("200.00"),
-            "largest_loss": Decimal("-100.00"),
-        }]
+        db_rows = [
+            {
+                "total_trades": 10,
+                "winning_trades": 6,
+                "losing_trades": 4,
+                "break_even_trades": 0,
+                "total_realized_pnl": Decimal("500.00"),
+                "gross_profit": Decimal("800.00"),
+                "gross_loss": Decimal("300.00"),
+                "avg_win": Decimal("133.33"),
+                "avg_loss": Decimal("-75.00"),
+                "largest_win": Decimal("200.00"),
+                "largest_loss": Decimal("-100.00"),
+            }
+        ]
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         access._execute_fetchall = AsyncMock(return_value=db_rows)
 
         result = await access.get_trade_stats(
-            symbol="AAPL",
-            date_from=date(2025, 1, 1),
-            date_to=date(2025, 1, 31)
+            symbol="AAPL", date_from=date(2025, 1, 1), date_to=date(2025, 1, 31)
         )
 
         assert result["total_trades"] == 10

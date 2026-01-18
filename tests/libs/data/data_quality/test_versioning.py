@@ -1,6 +1,6 @@
 """Tests for libs.data_quality.versioning module.
 
-Test coverage: 38 test cases organized into 9 categories:
+Test coverage: 73 test cases organized into 17 categories:
 - Core Functionality (5 tests)
 - Consistency & Locking (3 tests)
 - Time-Travel (6 tests)
@@ -9,7 +9,27 @@ Test coverage: 38 test cases organized into 9 categories:
 - Checksums & Integrity (3 tests)
 - Error Handling & Recovery (4 tests)
 - Snapshot Deletion (5 tests)
+- Retention Policy (2 tests)
 - Edge Cases (2 tests)
+- Pydantic Models (3 tests)
+- Path Security & Validation (8 tests)
+- Lock Management (6 tests)
+- CAS Operations (4 tests)
+- File Operations (5 tests)
+- Atomic Write (3 tests)
+- Base64 Encoding (3 tests)
+- Diff Models (2 tests)
+- Additional Edge Cases (4 tests)
+
+Coverage areas:
+- Version tag validation and path traversal prevention
+- Lock acquisition, stale lock detection, and process liveness checks
+- CAS operations including deduplication, reference counting, and GC
+- File operations with fsync and checksum verification
+- Atomic JSON writes with error handling
+- Base64 encoding/decoding for binary data in diffs
+- Diff models for snapshot changes tracking
+- Security validation for file paths and identifiers
 """
 
 from __future__ import annotations
@@ -1221,3 +1241,657 @@ class TestPydanticModels:
 
         assert linkage.checksum is not None
         assert len(linkage.checksum) > 0
+
+
+# =============================================================================
+# Path Security & Validation Tests (8 tests)
+# =============================================================================
+
+
+class TestPathSecurityValidation(TestVersioningFixtures):
+    """Tests for path traversal prevention and file path validation."""
+
+    def test_validate_identifier_rejects_empty(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test _validate_identifier rejects empty strings."""
+        with pytest.raises(ValueError, match="Invalid.*identifier"):
+            version_manager._validate_identifier("", version_manager.snapshots_dir, "test")
+
+    def test_validate_identifier_rejects_path_traversal(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test _validate_identifier detects path traversal attempts."""
+        traversal_attempts = [
+            "../etc",
+            "../../passwd",
+            "foo/../../../etc",
+            "foo/../../bar",
+        ]
+        for attempt in traversal_attempts:
+            with pytest.raises(ValueError, match="path traversal"):
+                version_manager._validate_identifier(
+                    attempt, version_manager.snapshots_dir, "version_tag"
+                )
+
+    def test_validate_identifier_rejects_special_chars(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test _validate_identifier rejects invalid characters."""
+        invalid_identifiers = [
+            "foo/bar",
+            "foo\\bar",
+            "foo bar",  # Space
+            "foo\x00bar",  # Null byte
+            "foo:bar",  # Colon (path separator on Windows)
+        ]
+        for invalid in invalid_identifiers:
+            with pytest.raises(ValueError, match="Invalid"):
+                version_manager._validate_identifier(
+                    invalid, version_manager.snapshots_dir, "identifier"
+                )
+
+    def test_validate_identifier_accepts_valid(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test _validate_identifier accepts valid identifiers."""
+        valid_identifiers = [
+            "v1.0.0",
+            "2024-01-15",
+            "snapshot_123",
+            "my-snapshot",
+            "a1b2c3",
+            "BackTest-2024.Q1",
+        ]
+        for valid in valid_identifiers:
+            # Should not raise
+            version_manager._validate_identifier(valid, version_manager.snapshots_dir, "test")
+
+    def test_validate_file_path_rejects_outside_data_root(
+        self,
+        version_manager: DatasetVersionManager,
+        tmp_path: Path,
+    ) -> None:
+        """Test _validate_file_path rejects files outside data_root."""
+        # Create file outside data root
+        outside_file = tmp_path.parent / "outside.txt"
+        outside_file.write_text("outside data root")
+
+        with pytest.raises(ValueError, match="outside data root"):
+            version_manager._validate_file_path(outside_file)
+
+    def test_validate_file_path_rejects_symlinks(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _validate_file_path rejects symlinks."""
+        # Create a real file
+        real_file = temp_dirs["data"] / "real.txt"
+        real_file.write_text("real file")
+
+        # Create symlink pointing to it
+        symlink = temp_dirs["data"] / "link.txt"
+        symlink.symlink_to(real_file)
+
+        with pytest.raises(ValueError, match="Symlinks not allowed"):
+            version_manager._validate_file_path(symlink)
+
+    def test_validate_file_path_accepts_valid(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _validate_file_path accepts valid paths within data_root."""
+        valid_file = temp_dirs["data"] / "valid.txt"
+        valid_file.write_text("valid file")
+
+        # Should not raise
+        version_manager._validate_file_path(valid_file)
+
+    def test_get_snapshot_validates_version_tag(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test get_snapshot validates version_tag for path traversal."""
+        with pytest.raises(ValueError, match="path traversal"):
+            version_manager.get_snapshot("../../../etc/passwd")
+
+
+# =============================================================================
+# Lock Management Tests (6 tests)
+# =============================================================================
+
+
+class TestLockManagement(TestVersioningFixtures):
+    """Tests for lock acquisition and stale lock detection."""
+
+    def test_acquire_snapshot_lock_basic(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test basic snapshot lock acquisition."""
+        with version_manager._acquire_snapshot_lock():
+            # Lock acquired successfully
+            lock_path = version_manager.locks_dir / "snapshots.lock"
+            assert lock_path.exists()
+
+        # Lock released after context exit
+        assert not lock_path.exists()
+
+    def test_acquire_snapshot_lock_prevents_concurrent(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test snapshot lock prevents concurrent operations."""
+        from libs.data.data_quality.exceptions import LockNotHeldError
+
+        # Manually create lock file
+        lock_path = version_manager.locks_dir / "snapshots.lock"
+        lock_data = {
+            "pid": os.getpid(),  # Same process - should block
+            "hostname": version_manager._get_hostname(),
+            "acquired_at": datetime.now(UTC).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        try:
+            # Use very short timeout for test speed
+            original_timeout = version_manager.SNAPSHOT_LOCK_TIMEOUT_SECONDS
+            version_manager.SNAPSHOT_LOCK_TIMEOUT_SECONDS = 0.2
+            try:
+                # Should fail quickly (within timeout)
+                with pytest.raises(LockNotHeldError, match="Failed to acquire"):
+                    with version_manager._acquire_snapshot_lock():
+                        pass
+            finally:
+                version_manager.SNAPSHOT_LOCK_TIMEOUT_SECONDS = original_timeout
+        finally:
+            # Clean up
+            lock_path.unlink(missing_ok=True)
+
+    def test_is_lock_stale_detects_dead_process(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _is_lock_stale detects locks from dead processes."""
+        # Create lock from a PID that definitely doesn't exist
+        dead_pid = 99999999  # Very unlikely to exist
+        lock_path = temp_dirs["locks"] / "test.lock"
+        lock_data = {
+            "pid": dead_pid,
+            "hostname": version_manager._get_hostname(),  # Same host
+            "acquired_at": datetime.now(UTC).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Should detect as stale
+        assert version_manager._is_lock_stale(lock_path) is True
+
+    def test_is_lock_stale_preserves_live_process(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _is_lock_stale does not evict locks from live processes."""
+        # Create lock from current process
+        lock_path = temp_dirs["locks"] / "test.lock"
+        lock_data = {
+            "pid": os.getpid(),  # Current process - alive
+            "hostname": version_manager._get_hostname(),
+            "acquired_at": datetime.now(UTC).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Should NOT be stale (process is alive)
+        assert version_manager._is_lock_stale(lock_path) is False
+
+    def test_is_lock_stale_uses_timeout_for_different_host(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _is_lock_stale uses timeout for locks from different hosts."""
+        # Create old lock from different host
+        lock_path = temp_dirs["locks"] / "test.lock"
+        old_time = datetime.now(UTC) - timedelta(hours=2)  # > STALE_LOCK_TIMEOUT
+        lock_data = {
+            "pid": 12345,
+            "hostname": "different-host",
+            "acquired_at": old_time.isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Should be stale due to timeout
+        assert version_manager._is_lock_stale(lock_path) is True
+
+    def test_is_lock_stale_handles_corrupted_lock(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _is_lock_stale treats corrupted lock files as stale."""
+        # Create corrupted lock file
+        lock_path = temp_dirs["locks"] / "test.lock"
+        lock_path.write_text("not valid json {{{")
+
+        # Should treat as stale
+        assert version_manager._is_lock_stale(lock_path) is True
+
+
+# =============================================================================
+# CAS Operations Tests (4 tests)
+# =============================================================================
+
+
+class TestCASOperations(TestVersioningFixtures):
+    """Tests for Content-Addressable Storage operations."""
+
+    def test_get_cas_path_ignores_extension(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test _get_cas_path uses checksum-only naming."""
+        checksum = "abc123def456"
+
+        # Different extensions should give same CAS path
+        path1 = version_manager._get_cas_path(checksum, Path("file.parquet"))
+        path2 = version_manager._get_cas_path(checksum, Path("file.csv"))
+        path3 = version_manager._get_cas_path(checksum, None)
+
+        assert path1 == path2 == path3
+        assert path1.name == checksum  # No extension
+
+    def test_safe_copy_to_cas_verifies_checksum(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _safe_copy_to_cas verifies checksum after copy."""
+        # Create source file
+        src = temp_dirs["data"] / "source.txt"
+        src.write_text("test content")
+
+        # Compute correct checksum
+        checksum = version_manager.validator.compute_checksum(src)
+
+        # Copy to CAS
+        dest = temp_dirs["cas"] / checksum
+        version_manager._safe_copy_to_cas(src, dest, checksum)
+
+        # Verify file copied
+        assert dest.exists()
+        assert dest.read_text() == "test content"
+
+    def test_safe_copy_to_cas_rejects_wrong_checksum(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _safe_copy_to_cas raises on checksum mismatch."""
+        # Create source file
+        src = temp_dirs["data"] / "source.txt"
+        src.write_text("test content")
+
+        # Use WRONG checksum
+        wrong_checksum = "wrong123" * 8
+
+        dest = temp_dirs["cas"] / wrong_checksum
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            version_manager._safe_copy_to_cas(src, dest, wrong_checksum)
+
+        # Verify temp file cleaned up
+        temp_files = list(temp_dirs["cas"].glob(".tmp_*"))
+        assert len(temp_files) == 0
+
+    def test_gc_cas_removes_orphaned_files(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test gc_cas removes orphaned CAS files not in index."""
+        # Create orphaned CAS file (not in index)
+        orphan_hash = "orphan123" * 8
+        orphan_file = temp_dirs["cas"] / orphan_hash
+        orphan_file.write_text("orphaned content")
+
+        # Run GC
+        bytes_freed = version_manager.gc_cas()
+
+        # Orphaned file should be removed
+        assert not orphan_file.exists()
+        assert bytes_freed > 0
+
+
+# =============================================================================
+# File Operations Tests (5 tests)
+# =============================================================================
+
+
+class TestFileOperations(TestVersioningFixtures):
+    """Tests for file copy and fsync operations."""
+
+    def test_copy_with_fsync_preserves_content(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _copy_with_fsync preserves file content."""
+        src = temp_dirs["data"] / "source.txt"
+        src.write_text("test content")
+
+        dest = temp_dirs["data"] / "dest.txt"
+        version_manager._copy_with_fsync(src, dest)
+
+        assert dest.read_text() == "test content"
+
+    def test_copy_with_fsync_verifies_checksum(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _copy_with_fsync verifies checksum when provided."""
+        src = temp_dirs["data"] / "source.txt"
+        src.write_text("test content")
+
+        checksum = version_manager.validator.compute_checksum(src)
+
+        dest = temp_dirs["data"] / "dest.txt"
+        version_manager._copy_with_fsync(src, dest, checksum)
+
+        assert dest.exists()
+
+    def test_copy_with_fsync_rejects_wrong_checksum(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _copy_with_fsync raises on checksum mismatch."""
+        src = temp_dirs["data"] / "source.txt"
+        src.write_text("test content")
+
+        wrong_checksum = "wrong123" * 8
+
+        dest = temp_dirs["data"] / "dest.txt"
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            version_manager._copy_with_fsync(src, dest, wrong_checksum)
+
+        # Destination should be cleaned up
+        assert not dest.exists()
+
+    def test_fsync_directory_handles_unsupported(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _fsync_directory handles unsupported filesystems gracefully."""
+        # Mock os.open to fail for directory fsync
+        with patch("os.open", side_effect=OSError("Not supported")):
+            # Should not raise (just log warning)
+            version_manager._fsync_directory(temp_dirs["data"])
+
+    def test_fsync_file_syncs_data(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _fsync_file syncs file data."""
+        test_file = temp_dirs["data"] / "test.txt"
+        test_file.write_text("test")
+
+        # Should not raise
+        version_manager._fsync_file(test_file)
+
+
+# =============================================================================
+# Atomic Write Tests (3 tests)
+# =============================================================================
+
+
+class TestAtomicWrite(TestVersioningFixtures):
+    """Tests for atomic JSON write operations."""
+
+    def test_atomic_write_json_creates_file(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _atomic_write_json creates file with correct content."""
+        path = temp_dirs["data"] / "test.json"
+        data = {"key": "value", "number": 42}
+
+        version_manager._atomic_write_json(path, data)
+
+        assert path.exists()
+        with open(path) as f:
+            loaded = json.load(f)
+        assert loaded == data
+
+    def test_atomic_write_json_handles_oserror(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _atomic_write_json cleans up on OSError."""
+        path = temp_dirs["data"] / "test.json"
+
+        # Mock os.fsync to fail
+        with patch("os.fsync", side_effect=OSError("Disk full")):
+            with pytest.raises(OSError, match="Disk full"):
+                version_manager._atomic_write_json(path, {"key": "value"})
+
+        # Temp file should be cleaned up
+        temp_files = list(temp_dirs["data"].glob("test_*.tmp"))
+        assert len(temp_files) == 0
+
+    def test_atomic_write_json_handles_type_error(
+        self,
+        version_manager: DatasetVersionManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _atomic_write_json handles non-serializable data."""
+        path = temp_dirs["data"] / "test.json"
+
+        # Try to serialize non-serializable object
+        class NonSerializable:
+            pass
+
+        with pytest.raises(TypeError):
+            version_manager._atomic_write_json(path, {"obj": NonSerializable()})
+
+
+# =============================================================================
+# Base64 Encoding Tests (3 tests)
+# =============================================================================
+
+
+class TestBase64Encoding:
+    """Tests for base64 encoding/decoding utilities."""
+
+    def test_decode_base64_bytes_from_string(self) -> None:
+        """Test _decode_base64_bytes decodes base64 strings."""
+        from libs.data.data_quality.versioning import _decode_base64_bytes
+
+        # Encode test data
+        test_data = b"test binary data"
+        import base64
+
+        encoded = base64.b64encode(test_data).decode("ascii")
+
+        # Decode
+        result = _decode_base64_bytes(encoded)
+        assert result == test_data
+
+    def test_decode_base64_bytes_passes_through_bytes(self) -> None:
+        """Test _decode_base64_bytes passes through bytes unchanged."""
+        from libs.data.data_quality.versioning import _decode_base64_bytes
+
+        test_data = b"test bytes"
+        result = _decode_base64_bytes(test_data)
+        assert result == test_data
+
+    def test_decode_base64_bytes_handles_none(self) -> None:
+        """Test _decode_base64_bytes handles None."""
+        from libs.data.data_quality.versioning import _decode_base64_bytes
+
+        result = _decode_base64_bytes(None)
+        assert result is None
+
+
+# =============================================================================
+# Diff Model Tests (2 tests)
+# =============================================================================
+
+
+class TestDiffModels:
+    """Tests for diff data models."""
+
+    def test_diff_file_entry_with_inline_data(self) -> None:
+        """Test DiffFileEntry with inline binary data."""
+        from libs.data.data_quality.versioning import DiffFileEntry
+
+        entry = DiffFileEntry(
+            path="test.txt",
+            old_hash="abc123",
+            new_hash="def456",
+            storage="inline",
+            inline_data=b"test content",
+        )
+
+        # Should serialize to JSON (via base64)
+        data = entry.model_dump(mode="json")
+        assert "inline_data" in data
+        assert isinstance(data["inline_data"], str)  # Base64 encoded
+
+        # Should deserialize back
+        restored = DiffFileEntry.model_validate(data)
+        assert restored.inline_data == b"test content"
+
+    def test_snapshot_diff_tracks_changes(self) -> None:
+        """Test SnapshotDiff tracks file changes."""
+        from libs.data.data_quality.versioning import DiffFileEntry, SnapshotDiff
+
+        diff = SnapshotDiff(
+            from_version="v1",
+            to_version="v2",
+            created_at=datetime.now(UTC),
+            added_files=[
+                DiffFileEntry(
+                    path="new.txt",
+                    old_hash=None,
+                    new_hash="abc123",
+                    storage="cas",
+                    cas_hash="abc123",
+                )
+            ],
+            removed_files=["old.txt"],
+            changed_files=[
+                DiffFileEntry(
+                    path="modified.txt",
+                    old_hash="old123",
+                    new_hash="new456",
+                    storage="inline",
+                    inline_data=b"new content",
+                )
+            ],
+            checksum="diff123" * 8,
+        )
+
+        assert len(diff.added_files) == 1
+        assert len(diff.removed_files) == 1
+        assert len(diff.changed_files) == 1
+        assert diff.orphaned_at is None
+
+
+# =============================================================================
+# Additional Edge Cases (4 tests)
+# =============================================================================
+
+
+class TestAdditionalEdgeCases(TestVersioningFixtures):
+    """Tests for additional edge cases."""
+
+    def test_create_snapshot_with_missing_file(
+        self,
+        version_manager: DatasetVersionManager,
+        manifest_manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test snapshot creation fails if manifest references missing file."""
+        # Create manifest pointing to non-existent file
+        data_file = temp_dirs["data"] / "missing.parquet"
+        # Don't create the file
+
+        lock_path = temp_dirs["locks"] / "test_dataset.lock"
+        now = datetime.now(UTC)
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=now,
+            expires_at=now + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+        with open(lock_path, "w") as f:
+            json.dump(token.to_dict(), f)
+
+        manifest = SyncManifest(
+            dataset="test_dataset",
+            sync_timestamp=now,
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=1000,
+            checksum="abc123" * 10,
+            schema_version="v1.0.0",
+            wrds_query_hash="def456" * 10,
+            file_paths=[str(data_file)],  # File doesn't exist
+            validation_status="passed",
+        )
+        manifest_manager.save_manifest(manifest, token)
+
+        # Should fail with DataNotFoundError
+        with pytest.raises(DataNotFoundError, match="File not found"):
+            version_manager.create_snapshot("missing-file-v1")
+
+    def test_link_backtest_validates_backtest_id(
+        self,
+        version_manager: DatasetVersionManager,
+        manifest_manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test link_backtest validates backtest_id for path traversal."""
+        self._create_manifest_with_data(manifest_manager, "crsp_daily", temp_dirs)
+        version_manager.create_snapshot("v1.0.0")
+
+        # Should reject path traversal
+        with pytest.raises(ValueError, match="path traversal"):
+            version_manager.link_backtest("../../../etc/passwd", "v1.0.0")
+
+    def test_get_snapshot_for_backtest_validates_id(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test get_snapshot_for_backtest validates backtest_id."""
+        with pytest.raises(ValueError, match="path traversal"):
+            version_manager.get_snapshot_for_backtest("../../evil")
+
+    def test_is_process_alive_detects_dead_process(
+        self,
+        version_manager: DatasetVersionManager,
+    ) -> None:
+        """Test _is_process_alive detects dead processes."""
+        # PID that definitely doesn't exist
+        dead_pid = 99999999
+        assert version_manager._is_process_alive(dead_pid) is False
+
+        # Current process should be alive
+        assert version_manager._is_process_alive(os.getpid()) is True

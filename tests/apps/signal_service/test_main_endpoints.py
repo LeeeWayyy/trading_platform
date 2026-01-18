@@ -224,12 +224,14 @@ class TestGenerateSignalsEndpoint:
         """Test successful signal generation."""
         # Create mock signal generator
         mock_generator = Mock()
-        mock_signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT"],
-            "predicted_return": [0.023, 0.018],
-            "rank": [1, 2],
-            "target_weight": [0.5, 0.5],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "predicted_return": [0.023, 0.018],
+                "rank": [1, 2],
+                "target_weight": [0.5, 0.5],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 2
         mock_generator.bottom_n = 0
@@ -470,12 +472,14 @@ class TestGenerateSignalsEndpoint:
     ) -> None:
         """Test generate_signals with overridden top_n/bottom_n parameters."""
         mock_generator = Mock()
-        mock_signals = pd.DataFrame({
-            "symbol": ["AAPL"],
-            "predicted_return": [0.023],
-            "rank": [1],
-            "target_weight": [1.0],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 3  # Default
         mock_generator.bottom_n = 0
@@ -505,10 +509,12 @@ class TestGenerateSignalsEndpoint:
         """Test generate_signals handles non-string dict keys error."""
         mock_generator = Mock()
         # Simulate DataFrame with non-string column names (edge case)
-        bad_signals = pd.DataFrame({
-            1: ["AAPL"],  # Integer column name
-            "predicted_return": [0.023],
-        })
+        bad_signals = pd.DataFrame(
+            {
+                1: ["AAPL"],  # Integer column name
+                "predicted_return": [0.023],
+            }
+        )
         mock_generator.generate_signals.return_value = bad_signals
         mock_generator.top_n = 1
         mock_generator.bottom_n = 0

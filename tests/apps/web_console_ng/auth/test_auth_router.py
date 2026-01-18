@@ -9,7 +9,9 @@ from apps.web_console_ng.auth.routes import auth_api_router
 
 
 def test_auth_api_router_registers_login_route() -> None:
-    matching = [route for route in auth_api_router.routes if getattr(route, "path", None) == "/auth/login"]
+    matching = [
+        route for route in auth_api_router.routes if getattr(route, "path", None) == "/auth/login"
+    ]
     assert matching, "Expected /auth/login route to be registered"
     assert any("POST" in route.methods for route in matching)
 

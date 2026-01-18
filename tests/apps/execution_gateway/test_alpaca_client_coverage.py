@@ -21,6 +21,7 @@ import pytest
 try:
     from alpaca.common.exceptions import APIError as RealAlpacaAPIError
     from alpaca.trading.models import Order, Position, TradeAccount
+
     ALPACA_AVAILABLE = True
 except ImportError:
     ALPACA_AVAILABLE = False
@@ -40,7 +41,7 @@ def create_mock_api_error(message: str, status_code: int | None = None):
     error = RealAlpacaAPIError(message)
     # Override the status_code by setting the private attribute
     # that the property reads from (this may vary by alpaca-py version)
-    object.__setattr__(error, '_status_code', status_code)
+    object.__setattr__(error, "_status_code", status_code)
     return error
 
 
@@ -83,8 +84,13 @@ def mock_data_client():
 @pytest.fixture()
 def executor(mock_trading_client, mock_data_client):
     """Create AlpacaExecutor with mock clients."""
-    with patch("apps.execution_gateway.alpaca_client.TradingClient", return_value=mock_trading_client):
-        with patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient", return_value=mock_data_client):
+    with patch(
+        "apps.execution_gateway.alpaca_client.TradingClient", return_value=mock_trading_client
+    ):
+        with patch(
+            "apps.execution_gateway.alpaca_client.StockHistoricalDataClient",
+            return_value=mock_data_client,
+        ):
             return AlpacaExecutor(
                 api_key="test_key",
                 secret_key="test_secret",
@@ -672,6 +678,7 @@ class TestCheckConnectionNetworkError:
     def test_returns_false_on_connect_timeout(self, executor, mock_trading_client):
         """Test returns False on connection timeout."""
         import httpx
+
         mock_trading_client.get_account.side_effect = httpx.ConnectTimeout("Timeout")
 
         result = executor.check_connection()
@@ -681,6 +688,7 @@ class TestCheckConnectionNetworkError:
     def test_returns_false_on_network_error(self, executor, mock_trading_client):
         """Test returns False on network error."""
         import httpx
+
         mock_trading_client.get_account.side_effect = httpx.NetworkError("Network down")
 
         result = executor.check_connection()

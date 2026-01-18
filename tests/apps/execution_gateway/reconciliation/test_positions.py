@@ -197,9 +197,7 @@ class TestReconcilePositions:
             {"symbol": "AAPL", "qty": "100", "avg_entry_price": "150.00"},
         ]
 
-        with patch(
-            "apps.execution_gateway.reconciliation.positions.datetime"
-        ) as mock_datetime:
+        with patch("apps.execution_gateway.reconciliation.positions.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
@@ -492,9 +490,7 @@ class TestReconcilePositionsLogging:
         alpaca_client = MagicMock()
         alpaca_client.get_all_positions.return_value = []
 
-        with patch(
-            "apps.execution_gateway.reconciliation.positions.logger"
-        ) as mock_logger:
+        with patch("apps.execution_gateway.reconciliation.positions.logger") as mock_logger:
             reconcile_positions(db_client, alpaca_client)
 
             mock_logger.info.assert_called_once_with(
@@ -514,15 +510,12 @@ class TestReconcilePositionsLogging:
         alpaca_client = MagicMock()
         alpaca_client.get_all_positions.return_value = []
 
-        with patch(
-            "apps.execution_gateway.reconciliation.positions.logger"
-        ) as mock_logger:
+        with patch("apps.execution_gateway.reconciliation.positions.logger") as mock_logger:
             reconcile_positions(db_client, alpaca_client)
 
             assert mock_logger.info.call_count == 3
             logged_symbols = [
-                call_args.kwargs["extra"]["symbol"]
-                for call_args in mock_logger.info.call_args_list
+                call_args.kwargs["extra"]["symbol"] for call_args in mock_logger.info.call_args_list
             ]
             assert set(logged_symbols) == {"AAPL", "TSLA", "GOOG"}
 
@@ -538,9 +531,7 @@ class TestReconcilePositionsLogging:
             {"symbol": "AAPL", "qty": "100", "avg_entry_price": "150.00"},
         ]
 
-        with patch(
-            "apps.execution_gateway.reconciliation.positions.logger"
-        ) as mock_logger:
+        with patch("apps.execution_gateway.reconciliation.positions.logger") as mock_logger:
             reconcile_positions(db_client, alpaca_client)
 
             mock_logger.info.assert_not_called()
@@ -559,9 +550,7 @@ class TestReconcilePositionsTimestamps:
             {"symbol": "AAPL", "qty": "100", "avg_entry_price": "150.00"},
         ]
 
-        with patch(
-            "apps.execution_gateway.reconciliation.positions.datetime"
-        ) as mock_datetime:
+        with patch("apps.execution_gateway.reconciliation.positions.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
@@ -599,9 +588,7 @@ class TestReconcilePositionsTimestamps:
         alpaca_client = MagicMock()
         alpaca_client.get_all_positions.return_value = []
 
-        with patch(
-            "apps.execution_gateway.reconciliation.positions.datetime"
-        ) as mock_datetime:
+        with patch("apps.execution_gateway.reconciliation.positions.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)

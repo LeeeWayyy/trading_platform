@@ -107,7 +107,9 @@ class DummyUI:
         self.elements.append(element)
         return element
 
-    def select(self, *, label: str, options: Any, value: Any = None, multiple: bool = False) -> DummyElement:
+    def select(
+        self, *, label: str, options: Any, value: Any = None, multiple: bool = False
+    ) -> DummyElement:
         self._record("select", label, options, value, multiple)
         element = DummyElement(value=value)
         element.label = label
@@ -117,7 +119,9 @@ class DummyUI:
         self.elements.append(element)
         return element
 
-    def number(self, *, label: str, value: Any = None, step: Any = None, min: Any = None, max: Any = None) -> DummyElement:
+    def number(
+        self, *, label: str, value: Any = None, step: Any = None, min: Any = None, max: Any = None
+    ) -> DummyElement:
         self._record("number", label, value, step, min, max)
         element = DummyElement(value=value)
         element.label = label
@@ -253,6 +257,7 @@ class DummyUI:
 
     def refreshable(self, fn: Callable[..., Any]) -> Callable[..., Any]:
         if asyncio.iscoroutinefunction(fn):
+
             async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 return await fn(*args, **kwargs)
 

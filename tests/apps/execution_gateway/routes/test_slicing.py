@@ -132,7 +132,9 @@ class TestSubmitSlicedOrder:
         assert response.status_code == 503
         assert response.json()["detail"]["error"] == "Kill-switch engaged"
 
-    def test_liquidity_service_unavailable_returns_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_liquidity_service_unavailable_returns_503(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(slicing, "LIQUIDITY_CHECK_ENABLED", True)
 
         recovery_manager = MagicMock()

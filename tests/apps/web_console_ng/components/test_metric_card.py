@@ -57,7 +57,9 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(metric_module, "ui", dummy)
 
 
-def test_metric_card_color_updates_and_cleanup(dummy_ui: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_metric_card_color_updates_and_cleanup(
+    dummy_ui: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(metric_module.time, "time", lambda: 1000.0)
 
     card = metric_module.MetricCard(

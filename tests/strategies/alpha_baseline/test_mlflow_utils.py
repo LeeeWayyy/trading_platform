@@ -76,7 +76,9 @@ class TestInitializeMlflow:
         import mlflow.exceptions
 
         mock_mlflow.exceptions.MlflowException = mlflow.exceptions.MlflowException
-        mock_mlflow.get_experiment_by_name.side_effect = mlflow.exceptions.MlflowException("Backend unavailable")
+        mock_mlflow.get_experiment_by_name.side_effect = mlflow.exceptions.MlflowException(
+            "Backend unavailable"
+        )
 
         with pytest.warns(UserWarning, match="Failed to get/create experiment"):
             exp_id = initialize_mlflow()
@@ -483,7 +485,9 @@ class TestCompareRuns:
 
         assert result is None
 
-    @pytest.mark.skip(reason="Testing ImportError with installed pandas is complex; function works correctly")
+    @pytest.mark.skip(
+        reason="Testing ImportError with installed pandas is complex; function works correctly"
+    )
     @patch("strategies.alpha_baseline.mlflow_utils.MlflowClient")
     def test_compare_runs_pandas_not_installed(self, mock_client_class):
         """Test compare_runs() handles pandas ImportError gracefully."""

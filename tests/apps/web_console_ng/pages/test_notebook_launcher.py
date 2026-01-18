@@ -103,7 +103,9 @@ class DummyUI:
             self.inputs[label] = element
         return element
 
-    def button(self, text: str = "", icon: str | None = None, on_click=None, **kwargs) -> DummyElement:
+    def button(
+        self, text: str = "", icon: str | None = None, on_click=None, **kwargs
+    ) -> DummyElement:
         element = DummyElement(text=text)
         if on_click is not None:
             element.on_click(on_click)
@@ -138,7 +140,9 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:
 
 
 @pytest.mark.asyncio()
-async def test_get_redis_session_store_handles_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_redis_session_store_handles_invalid_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class DummyRedis:
         def get(self, key: str):
             return b"not-json"
@@ -197,9 +201,7 @@ async def test_render_notebook_launcher_launches_session(
     monkeypatch.setattr(notebook_module, "_save_redis_session_store", MagicMock())
     monkeypatch.setattr(notebook_module, "_render_active_sessions", AsyncMock())
 
-    await notebook_module._render_notebook_launcher(
-        service, templates, "user-1", session_store={}
-    )
+    await notebook_module._render_notebook_launcher(service, templates, "user-1", session_store={})
 
     assert "Strategy ID" in dummy_ui.inputs
     dummy_ui.inputs["Strategy ID"].value = "alpha_v2"
@@ -234,9 +236,7 @@ async def test_render_notebook_launcher_requires_template_selection(
     monkeypatch.setattr(notebook_module.run, "io_bound", io_bound)
     monkeypatch.setattr(notebook_module, "_render_active_sessions", AsyncMock())
 
-    await notebook_module._render_notebook_launcher(
-        service, templates, "user-1", session_store={}
-    )
+    await notebook_module._render_notebook_launcher(service, templates, "user-1", session_store={})
 
     dummy_ui.selects["Notebook Template"].value = None
 

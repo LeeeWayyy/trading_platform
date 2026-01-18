@@ -133,7 +133,9 @@ async def position_management_page(client: Client) -> None:
         ks_banner = ui.row().classes("w-full bg-red-100 p-4 rounded-lg mb-4 hidden")
         with ks_banner:
             ui.icon("warning", color="red").classes("text-2xl mr-2")
-            ui.label("Kill Switch is ENGAGED - position close/flatten blocked").classes("text-red-600 font-bold")
+            ui.label("Kill Switch is ENGAGED - position close/flatten blocked").classes(
+                "text-red-600 font-bold"
+            )
 
         # Summary row
         with ui.row().classes("w-full gap-4 mb-4"):
@@ -142,41 +144,51 @@ async def position_management_page(client: Client) -> None:
             unrealized_pnl_label = ui.label("Unrealized P&L: $0.00")
 
         # Positions table
-        positions_grid = ui.aggrid({
-            "columnDefs": [
-                {"field": "symbol", "headerName": "Symbol", "width": 100},
-                {"field": "qty", "headerName": "Qty", "width": 80},
-                {
-                    "field": "market_value",
-                    "headerName": "Market Value",
-                    "width": 120,
-                    "valueFormatter": "x => x.value != null ? '$' + x.value.toLocaleString('en-US', {minimumFractionDigits: 2}) : '-'",
-                },
-                {
-                    "field": "unrealized_pl",
-                    "headerName": "Unrealized P&L",
-                    "width": 130,
-                    "valueFormatter": "x => x.value != null ? '$' + x.value.toLocaleString('en-US', {minimumFractionDigits: 2}) : '-'",
-                    "cellStyle": "params => ({ color: params.value >= 0 ? 'green' : 'red' })",
-                },
-                {"field": "avg_entry_price", "headerName": "Avg Entry", "width": 100},
-                {"field": "current_price", "headerName": "Current", "width": 100},
-            ],
-            "rowData": [],
-            "domLayout": "autoHeight",
-            "getRowId": "data => data.symbol",
-            "rowSelection": "single",
-        }).classes("w-full mb-4")
+        positions_grid = ui.aggrid(
+            {
+                "columnDefs": [
+                    {"field": "symbol", "headerName": "Symbol", "width": 100},
+                    {"field": "qty", "headerName": "Qty", "width": 80},
+                    {
+                        "field": "market_value",
+                        "headerName": "Market Value",
+                        "width": 120,
+                        "valueFormatter": "x => x.value != null ? '$' + x.value.toLocaleString('en-US', {minimumFractionDigits: 2}) : '-'",
+                    },
+                    {
+                        "field": "unrealized_pl",
+                        "headerName": "Unrealized P&L",
+                        "width": 130,
+                        "valueFormatter": "x => x.value != null ? '$' + x.value.toLocaleString('en-US', {minimumFractionDigits: 2}) : '-'",
+                        "cellStyle": "params => ({ color: params.value >= 0 ? 'green' : 'red' })",
+                    },
+                    {"field": "avg_entry_price", "headerName": "Avg Entry", "width": 100},
+                    {"field": "current_price", "headerName": "Current", "width": 100},
+                ],
+                "rowData": [],
+                "domLayout": "autoHeight",
+                "getRowId": "data => data.symbol",
+                "rowSelection": "single",
+            }
+        ).classes("w-full mb-4")
 
         # Action buttons
         with ui.row().classes("w-full gap-4"):
             close_btn = ui.button("Close Selected Position", color="orange").classes("text-white")
-            cancel_all_btn = ui.button("Cancel All Orders (Selected Symbol)", color="yellow").classes(
-                "text-black"
-            ).props("data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'")
-            flatten_btn = ui.button("FLATTEN ALL POSITIONS", color="red").classes(
-                "text-white"
-            ).props("data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'")
+            cancel_all_btn = (
+                ui.button("Cancel All Orders (Selected Symbol)", color="yellow")
+                .classes("text-black")
+                .props(
+                    "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
+                )
+            )
+            flatten_btn = (
+                ui.button("FLATTEN ALL POSITIONS", color="red")
+                .classes("text-white")
+                .props(
+                    "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
+                )
+            )
 
     def update_summary() -> None:
         position_count_label.set_text(f"Positions: {len(positions_data)}")
@@ -312,6 +324,7 @@ async def position_management_page(client: Client) -> None:
             ).classes("w-full my-4")
 
             with ui.row().classes("gap-4 justify-end"):
+
                 async def confirm_close() -> None:
                     nonlocal action_in_progress, kill_switch_engaged
                     if action_in_progress:
@@ -323,9 +336,7 @@ async def position_management_page(client: Client) -> None:
                         return
 
                     # Fresh kill switch check via API (fail closed on unknown state)
-                    ks_result = await check_kill_switch_safety(
-                        trading_client, user_id, user_role
-                    )
+                    ks_result = await check_kill_switch_safety(trading_client, user_id, user_role)
                     kill_switch_engaged = ks_result.kill_switch_engaged
                     if ks_result.kill_switch_engaged:
                         ks_banner.classes(remove="hidden")
@@ -388,7 +399,9 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        ui.notify(f"Failed to close: HTTP {exc.response.status_code}", type="negative")
+                        ui.notify(
+                            f"Failed to close: HTTP {exc.response.status_code}", type="negative"
+                        )
                     except httpx.RequestError as exc:
                         logger.warning(
                             "close_position_failed",
@@ -414,7 +427,9 @@ async def position_management_page(client: Client) -> None:
                         close_confirm_btn.enable()
                         close_btn.enable()
 
-                close_confirm_btn = ui.button("Close Position", on_click=confirm_close, color="orange").classes("text-white")
+                close_confirm_btn = ui.button(
+                    "Close Position", on_click=confirm_close, color="orange"
+                ).classes("text-white")
                 ui.button("Cancel", on_click=dialog.close)
 
         dialog.open()
@@ -445,10 +460,10 @@ async def position_management_page(client: Client) -> None:
                     cancel_all_btn.enable()
 
             dialog.on("close", on_dialog_close)
-            ui.label(f"Cancel All Orders for {symbol}?").classes("text-xl font-bold text-orange-600 mb-4")
-            ui.label(
-                "This will cancel all open orders for this symbol."
-            ).classes("mb-4")
+            ui.label(f"Cancel All Orders for {symbol}?").classes(
+                "text-xl font-bold text-orange-600 mb-4"
+            )
+            ui.label("This will cancel all open orders for this symbol.").classes("mb-4")
 
             reason_input = ui.textarea(
                 "Reason (required)",
@@ -457,6 +472,7 @@ async def position_management_page(client: Client) -> None:
             ).classes("w-full mb-4")
 
             with ui.row().classes("gap-4 justify-end"):
+
                 async def confirm_cancel() -> None:
                     nonlocal action_in_progress
                     if action_in_progress:
@@ -497,7 +513,9 @@ async def position_management_page(client: Client) -> None:
                             },
                         )
 
-                        ui.notify(f"Cancelled {cancelled_count} orders for {symbol}", type="positive")
+                        ui.notify(
+                            f"Cancelled {cancelled_count} orders for {symbol}", type="positive"
+                        )
                         dialog.close()
 
                     except httpx.HTTPStatusError as exc:
@@ -519,7 +537,9 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        ui.notify(f"Failed to cancel: HTTP {exc.response.status_code}", type="negative")
+                        ui.notify(
+                            f"Failed to cancel: HTTP {exc.response.status_code}", type="negative"
+                        )
                     except httpx.RequestError as exc:
                         logger.warning(
                             "cancel_all_orders_failed",
@@ -545,7 +565,9 @@ async def position_management_page(client: Client) -> None:
                         cancel_confirm_btn.enable()
                         cancel_all_btn.enable()
 
-                cancel_confirm_btn = ui.button("Cancel All Orders", on_click=confirm_cancel, color="yellow").classes("text-black")
+                cancel_confirm_btn = ui.button(
+                    "Cancel All Orders", on_click=confirm_cancel, color="yellow"
+                ).classes("text-black")
                 ui.button("Keep Orders", on_click=dialog.close)
 
         dialog.open()
@@ -592,6 +614,7 @@ async def position_management_page(client: Client) -> None:
             ).classes("w-full mb-4")
 
             with ui.row().classes("gap-4 justify-end"):
+
                 async def proceed_to_confirm() -> None:
                     reason = (reason_input.value or "").strip()
                     if len(reason) < 20:
@@ -600,7 +623,9 @@ async def position_management_page(client: Client) -> None:
                     dialog1.close()
                     await show_flatten_confirmation(reason)
 
-                ui.button("Proceed", on_click=proceed_to_confirm, color="yellow").classes("text-black")
+                ui.button("Proceed", on_click=proceed_to_confirm, color="yellow").classes(
+                    "text-black"
+                )
                 ui.button("Cancel", on_click=dialog1.close)
 
         dialog1.open()
@@ -622,6 +647,7 @@ async def position_management_page(client: Client) -> None:
             confirm_input = ui.input("Type FLATTEN").classes("w-full mb-4 font-mono")
 
             with ui.row().classes("gap-4 justify-end"):
+
                 async def execute_flatten() -> None:
                     nonlocal action_in_progress, kill_switch_engaged
                     if action_in_progress:
@@ -635,9 +661,7 @@ async def position_management_page(client: Client) -> None:
                         return
 
                     # Fresh kill switch check via API (fail closed on unknown state)
-                    ks_result = await check_kill_switch_safety(
-                        trading_client, user_id, user_role
-                    )
+                    ks_result = await check_kill_switch_safety(trading_client, user_id, user_role)
                     kill_switch_engaged = ks_result.kill_switch_engaged
                     if ks_result.kill_switch_engaged:
                         ks_banner.classes(remove="hidden")
@@ -704,7 +728,9 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        ui.notify(f"Failed to flatten: HTTP {exc.response.status_code}", type="negative")
+                        ui.notify(
+                            f"Failed to flatten: HTTP {exc.response.status_code}", type="negative"
+                        )
                     except httpx.RequestError as exc:
                         logger.warning(
                             "flatten_all_failed",
@@ -729,7 +755,9 @@ async def position_management_page(client: Client) -> None:
                         flatten_confirm_btn.enable()
                         flatten_btn.enable()
 
-                flatten_confirm_btn = ui.button("FLATTEN ALL", on_click=execute_flatten, color="red").classes("text-white")
+                flatten_confirm_btn = ui.button(
+                    "FLATTEN ALL", on_click=execute_flatten, color="red"
+                ).classes("text-white")
                 ui.button("Cancel", on_click=dialog2.close)
 
         dialog2.open()

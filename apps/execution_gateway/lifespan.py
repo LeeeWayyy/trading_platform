@@ -71,9 +71,7 @@ class LifespanResources:
     zombie_recovery_task: asyncio.Task[None] | None = None
 
 
-def _is_reconciliation_ready(
-    settings: LifespanSettings, resources: LifespanResources
-) -> bool:
+def _is_reconciliation_ready(settings: LifespanSettings, resources: LifespanResources) -> bool:
     """Return True when startup reconciliation gate is open."""
     if settings.dry_run:
         return True
@@ -100,7 +98,10 @@ async def _recover_zombie_slices_after_reconciliation(
 
     poll_interval_seconds = 1.0
     while not _is_reconciliation_ready(settings, resources):
-        if resources.reconciliation_service and resources.reconciliation_service.startup_timed_out():
+        if (
+            resources.reconciliation_service
+            and resources.reconciliation_service.startup_timed_out()
+        ):
             logger.error("Startup reconciliation timed out; skipping zombie slice recovery")
             return
         await asyncio.sleep(poll_interval_seconds)
@@ -429,7 +430,9 @@ async def shutdown_execution_gateway(resources: LifespanResources) -> None:
     logger.info("Execution Gateway shutting down")
 
     # Shutdown slice scheduler (wait for running jobs to complete)
-    slice_scheduler = resources.recovery_manager.slice_scheduler if resources.recovery_manager else None
+    slice_scheduler = (
+        resources.recovery_manager.slice_scheduler if resources.recovery_manager else None
+    )
     if slice_scheduler:
         logger.info("Shutting down slice scheduler...")
         slice_scheduler.shutdown(wait=True)

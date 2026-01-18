@@ -18,7 +18,7 @@ P4T6 implements Track 8 of P4 Planning: Web Console Data Management dashboards. 
 2. **Dataset Explorer (T8.2)** - Browse datasets with preview, query, and export
 3. **Data Quality Reports (T8.3)** - Validation results, anomaly alerts, coverage gaps
 
-**Scope Alignment Note:** This task includes ONLY features specified in P4_PLANNING.md Track 8. Extended features (lock management UI, disk gauge, quarantine CRUD, schema histograms) are explicitly deferred to future tasks.
+**Scope Alignment Note:** This task includes ONLY features specified in P4_PLANNING_DONE.md Track 8. Extended features (lock management UI, disk gauge, quarantine CRUD, schema histograms) are explicitly deferred to future tasks.
 
 **Scope Extension Justification (7-10 → 10-13 days):**
 The increased effort from P4 Planning is justified by:
@@ -1244,10 +1244,10 @@ The following features were identified during review but are **explicitly deferr
 
 ## Related Documents
 
-- [P4_PLANNING.md](./P4_PLANNING.md) - Track 8 specification
-- [P4T1_TASK.md](./P4T1_TASK.md) - Data infrastructure (dependency)
-- [P4T5_TASK.md](./P4T5_TASK.md) - Track 7 Operations (auth patterns)
-- [ADR-024-analytics-security.md](../ADRs/ADR-024-analytics-security.md) - Security patterns for data access
+- [P4_PLANNING_DONE.md](./P4_PLANNING_DONE.md) - Track 8 specification
+- [P4T1_DONE.md](./P4T1_DONE.md) - Data infrastructure (dependency)
+- [P4T5_DONE.md](./P4T5_DONE.md) - Track 7 Operations (auth patterns)
+- [ADR-024-analytics-security.md](../../ADRs/ADR-024-analytics-security.md) - Security patterns for data access
 
 ---
 

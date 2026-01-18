@@ -34,7 +34,9 @@ async def test_auth_type_not_dev(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_invalid_credentials(monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock) -> None:
+async def test_invalid_credentials(
+    monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock
+) -> None:
     _set_dev_config(monkeypatch)
     monkeypatch.setenv("WEB_CONSOLE_USER", "expected")
     monkeypatch.setenv("WEB_CONSOLE_PASSWORD", "expected-pass")

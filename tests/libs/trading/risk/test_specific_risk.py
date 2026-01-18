@@ -300,7 +300,9 @@ class TestSpecificRiskErrorHandling:
             # Should still have results for other stocks
             assert result.specific_risks.height > 0
             # Check error was logged
-            assert any("matrix operation failed" in record.message.lower() for record in caplog.records)
+            assert any(
+                "matrix operation failed" in record.message.lower() for record in caplog.records
+            )
             assert any(record.levelname == "ERROR" for record in caplog.records)
 
     def test_handles_value_error(self, mock_crsp_provider, caplog):

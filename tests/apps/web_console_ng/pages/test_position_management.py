@@ -40,7 +40,9 @@ class FakeElement:
     def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - trivial
         return None
 
-    def classes(self, value: str | None = None, *, add: str | None = None, remove: str | None = None) -> FakeElement:
+    def classes(
+        self, value: str | None = None, *, add: str | None = None, remove: str | None = None
+    ) -> FakeElement:
         return self
 
     def props(self, _value: str) -> FakeElement:
@@ -126,7 +128,9 @@ class FakeUI:
         self.elements.append(element)
         return element
 
-    def button(self, text: str, on_click: Callable[..., Any] | None = None, **_kwargs: Any) -> FakeElement:
+    def button(
+        self, text: str, on_click: Callable[..., Any] | None = None, **_kwargs: Any
+    ) -> FakeElement:
         element = FakeElement("button", text=text)
         if on_click is not None:
             element.on_click(on_click)
@@ -212,7 +216,9 @@ def _find_element(
             continue
         if text is not None and element.text != text:
             continue
-        if text_prefix is not None and (element.text is None or not element.text.startswith(text_prefix)):
+        if text_prefix is not None and (
+            element.text is None or not element.text.startswith(text_prefix)
+        ):
             continue
         return element
     raise AssertionError(f"Element not found: kind={kind} label={label} text={text}")
@@ -229,7 +235,9 @@ def _unwrap_page(func: Callable[..., Any]) -> Callable[..., Any]:
 def fake_ui(monkeypatch: pytest.MonkeyPatch) -> FakeUI:
     ui = FakeUI()
     monkeypatch.setattr(position_management_module, "ui", ui)
-    monkeypatch.setattr(position_management_module, "app", SimpleNamespace(storage=SimpleNamespace(user={})))
+    monkeypatch.setattr(
+        position_management_module, "app", SimpleNamespace(storage=SimpleNamespace(user={}))
+    )
     return ui
 
 
@@ -267,7 +275,9 @@ def lifecycle(monkeypatch: pytest.MonkeyPatch) -> FakeLifecycleManager:
 def realtime(monkeypatch: pytest.MonkeyPatch) -> type[FakeRealtimeUpdater]:
     monkeypatch.setattr(position_management_module, "RealtimeUpdater", FakeRealtimeUpdater)
     monkeypatch.setattr(position_management_module, "kill_switch_channel", lambda: "kill-switch")
-    monkeypatch.setattr(position_management_module, "position_channel", lambda user_id: f"positions:{user_id}")
+    monkeypatch.setattr(
+        position_management_module, "position_channel", lambda user_id: f"positions:{user_id}"
+    )
     return FakeRealtimeUpdater
 
 
@@ -468,4 +478,7 @@ async def test_position_management_flatten_requires_admin(
     flatten_btn = _find_element(fake_ui.elements, kind="button", text="FLATTEN ALL POSITIONS")
     await flatten_btn._click_cb()
 
-    assert ("Admin permission required to flatten all positions", "negative") in fake_ui.notifications
+    assert (
+        "Admin permission required to flatten all positions",
+        "negative",
+    ) in fake_ui.notifications

@@ -81,9 +81,7 @@ class TestRedisKeysQuarantine:
             ("alpha-1", "MSFT", "quarantine:alpha-1:MSFT"),
         ],
     )
-    def test_quarantine_key_format(
-        self, strategy_id: str, symbol: str, expected: str
-    ) -> None:
+    def test_quarantine_key_format(self, strategy_id: str, symbol: str, expected: str) -> None:
         """Quarantine key uses quarantine:{strategy_id}:{symbol} format."""
         assert RedisKeys.quarantine(strategy_id, symbol) == expected
 
@@ -98,9 +96,7 @@ class TestRedisKeysOrphanExposure:
             ("alpha-1", "MSFT", "orphan_exposure:alpha-1:MSFT"),
         ],
     )
-    def test_orphan_exposure_key_format(
-        self, strategy_id: str, symbol: str, expected: str
-    ) -> None:
+    def test_orphan_exposure_key_format(self, strategy_id: str, symbol: str, expected: str) -> None:
         """Orphan exposure key uses orphan_exposure:{strategy_id}:{symbol} format."""
         assert RedisKeys.orphan_exposure(strategy_id, symbol) == expected
 

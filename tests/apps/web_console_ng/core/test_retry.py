@@ -93,7 +93,9 @@ async def test_retry_non_idempotent_does_not_retry_on_5xx() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_retry_non_idempotent_retries_on_transport_error(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retry_non_idempotent_retries_on_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     attempts: list[int] = []
 
     async def flaky() -> str:

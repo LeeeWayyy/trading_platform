@@ -13,9 +13,10 @@ from libs.web_console_services.cb_service import CircuitBreakerService
 
 
 def _build_service(db_pool: MagicMock | None = None) -> CircuitBreakerService:
-    with patch("libs.web_console_services.cb_service.CircuitBreaker") as breaker_class, patch(
-        "libs.web_console_services.cb_service.CBRateLimiter"
-    ) as rate_limiter_class:
+    with (
+        patch("libs.web_console_services.cb_service.CircuitBreaker") as breaker_class,
+        patch("libs.web_console_services.cb_service.CBRateLimiter") as rate_limiter_class,
+    ):
         breaker = MagicMock()
         breaker_class.return_value = breaker
         rate_limiter = MagicMock()
@@ -81,7 +82,9 @@ def test_log_audit_with_db_pool_writes(
     admin_action_total.labels.assert_called_once_with(action="CIRCUIT_BREAKER_RESET")
     admin_action_total.labels.return_value.inc.assert_called_once()
 
-    cursor = db_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    cursor = (
+        db_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    )
     cursor.execute.assert_called_once()
     _, params = cursor.execute.call_args[0]
     assert params[0] == "CIRCUIT_BREAKER_RESET"

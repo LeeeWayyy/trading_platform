@@ -113,7 +113,9 @@ async def invalidate_user_sessions(
                     "error_type": type(exc).__name__,
                 },
             )
-        except Exception as exc:  # Generic catch justified - audit log failures should not block invalidation
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - audit log failures should not block invalidation
             # Unexpected errors in audit logging - log warning but don't fail invalidation
             logger.warning(
                 "audit_log_unexpected_error_during_invalidation",
@@ -165,7 +167,9 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
             },
         )
         return False
-    except Exception as exc:  # Generic catch justified - validation must fail closed on unexpected errors
+    except (
+        Exception
+    ) as exc:  # Generic catch justified - validation must fail closed on unexpected errors
         # Unexpected errors - fail closed (deny access)
         logger.warning(
             "session_version_validation_failed_unexpected_error",

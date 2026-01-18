@@ -56,9 +56,9 @@ def render_drawdown_chart(
         sorted_df = sorted_df.filter(pl.col("return").is_finite())
         filtered_count = original_count - sorted_df.height
         if filtered_count > 0:
-            ui.label(
-                f"Warning: {filtered_count} invalid return value(s) excluded."
-            ).classes("text-yellow-600 text-sm mb-2")
+            ui.label(f"Warning: {filtered_count} invalid return value(s) excluded.").classes(
+                "text-yellow-600 text-sm mb-2"
+            )
 
         if sorted_df.height == 0:
             ui.label("No valid return data for drawdown chart.").classes(
@@ -75,8 +75,8 @@ def render_drawdown_chart(
         # Drawdown = (current - peak) / peak
         # LOW fix: Avoid division by zero when running_max is 0 (100% loss scenario)
         # If running_max is 0, drawdown is -1.0 (complete loss)
-        drawdown = pl.when(running_max == 0).then(-1.0).otherwise(
-            (cumulative - running_max) / running_max
+        drawdown = (
+            pl.when(running_max == 0).then(-1.0).otherwise((cumulative - running_max) / running_max)
         )
 
         # Add columns

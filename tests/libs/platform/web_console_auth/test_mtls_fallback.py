@@ -136,7 +136,9 @@ async def test_crl_cache_is_revoked(monkeypatch: pytest.MonkeyPatch) -> None:
         serial_number=123,
         revocation_date=now.replace(tzinfo=None),
     )
-    fake_crl = _FakeCRL(last_update=now.replace(tzinfo=None), next_update=now, revoked=[revoked_entry])
+    fake_crl = _FakeCRL(
+        last_update=now.replace(tzinfo=None), next_update=now, revoked=[revoked_entry]
+    )
 
     cache = mtls_fallback.CRLCache("http://example/crl")
 
@@ -191,7 +193,9 @@ async def test_validate_certificate_fails_allowlist(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio()
-async def test_validate_certificate_fails_lifetime_too_long(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_validate_certificate_fails_lifetime_too_long(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     now = datetime.now(UTC)
     _, pem = _make_cert("admin", now - timedelta(days=1), now + timedelta(days=10))
     validator = mtls_fallback.MtlsFallbackValidator(["admin"], "http://example/crl")

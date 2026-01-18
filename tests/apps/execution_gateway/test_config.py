@@ -64,7 +64,10 @@ def test_get_config_validates_thresholds(monkeypatch, caplog):
     assert cfg.fat_finger_max_notional is None
     assert cfg.fat_finger_max_qty is None
     assert cfg.fat_finger_max_adv_pct is None
-    assert cfg.fat_finger_max_price_age_seconds == config_module.FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    assert (
+        cfg.fat_finger_max_price_age_seconds
+        == config_module.FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    )
     assert cfg.max_slice_pct_of_adv == 0.01
     assert cfg.alpaca_data_feed is None
     assert "FAT_FINGER_MAX_NOTIONAL must be > 0" in caplog.text
@@ -83,4 +86,3 @@ def test_get_config_cached_returns_singleton(monkeypatch):
 
     assert cfg1 is cfg2
     assert cfg2.strategy_id == "alpha_baseline"
-

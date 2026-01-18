@@ -279,6 +279,8 @@ class TestKillSwitchEdgeCases:
         # Should not raise errors
         status = kill_switch.get_status()
         assert status["state"] == "ACTIVE"
+
+
 """
 P0 Coverage Tests for KillSwitch - Additional branch coverage to reach 95%+ target.
 

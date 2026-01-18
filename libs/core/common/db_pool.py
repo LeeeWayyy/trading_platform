@@ -264,7 +264,6 @@ def get_redis_client() -> AsyncRedisAdapter | None:
         return None
 
 
-
 __all__ = [
     "AsyncConnectionAdapter",
     "AsyncRedisAdapter",

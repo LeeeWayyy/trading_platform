@@ -93,7 +93,9 @@ async def test_send_sendgrid_uses_expected_headers_and_payload(
 async def test_send_skips_sendgrid_on_smtp_success(email_channel: EmailChannel) -> None:
     smtp_result = DeliveryResult(success=True, message_id="smtp-123")
 
-    with patch.object(email_channel, "_send_smtp", AsyncMock(return_value=smtp_result)) as mock_smtp:
+    with patch.object(
+        email_channel, "_send_smtp", AsyncMock(return_value=smtp_result)
+    ) as mock_smtp:
         with patch.object(email_channel, "_send_sendgrid", AsyncMock()) as mock_sendgrid:
             result = await email_channel.send("user@example.com", "Subject", "Body")
 
@@ -108,7 +110,9 @@ async def test_send_passes_attachments_to_smtp_only(email_channel: EmailChannel)
     smtp_result = DeliveryResult(success=False, error="smtp failed", retryable=True)
     sendgrid_result = DeliveryResult(success=True, message_id="sg-123")
 
-    with patch.object(email_channel, "_send_smtp", AsyncMock(return_value=smtp_result)) as mock_smtp:
+    with patch.object(
+        email_channel, "_send_smtp", AsyncMock(return_value=smtp_result)
+    ) as mock_smtp:
         with patch.object(
             email_channel, "_send_sendgrid", AsyncMock(return_value=sendgrid_result)
         ) as mock_sendgrid:

@@ -33,7 +33,9 @@ def template() -> NotebookTemplate:
     )
 
 
-def test_list_templates_requires_permission(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_list_templates_requires_permission(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
     with patch(
@@ -43,7 +45,9 @@ def test_list_templates_requires_permission(user: dict[str, object], template: N
             service.list_templates()
 
 
-def test_list_templates_returns_templates(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_list_templates_returns_templates(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
     with patch(
@@ -64,29 +68,31 @@ def test_create_notebook_unknown_template_raises(user: dict[str, object]) -> Non
             service.create_notebook("missing", parameters={})
 
 
-def test_create_notebook_success(user: dict[str, object], template: NotebookTemplate, tmp_path: Path) -> None:
+def test_create_notebook_success(
+    user: dict[str, object], template: NotebookTemplate, tmp_path: Path
+) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
-    with patch(
-        "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.notebook_launcher_service.subprocess.Popen"
-    ) as popen_mock, patch(
-        "libs.web_console_services.notebook_launcher_service.secrets.token_urlsafe",
-        return_value="token-123",
-    ), patch(
-        "libs.web_console_services.notebook_launcher_service.uuid4"
-    ) as uuid_mock, patch.object(
-        service, "_allocate_port", return_value=9001
-    ), patch.object(
-        service, "_resolve_log_dir", return_value=tmp_path
-    ), patch.dict(
-        "os.environ",
-        {
-            "NOTEBOOK_LAUNCH_COMMAND": "jupyter --port {port} --token {token}",
-            "NOTEBOOK_BASE_URL": "http://localhost",
-        },
-        clear=False,
+    with (
+        patch(
+            "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
+        ),
+        patch("libs.web_console_services.notebook_launcher_service.subprocess.Popen") as popen_mock,
+        patch(
+            "libs.web_console_services.notebook_launcher_service.secrets.token_urlsafe",
+            return_value="token-123",
+        ),
+        patch("libs.web_console_services.notebook_launcher_service.uuid4") as uuid_mock,
+        patch.object(service, "_allocate_port", return_value=9001),
+        patch.object(service, "_resolve_log_dir", return_value=tmp_path),
+        patch.dict(
+            "os.environ",
+            {
+                "NOTEBOOK_LAUNCH_COMMAND": "jupyter --port {port} --token {token}",
+                "NOTEBOOK_BASE_URL": "http://localhost",
+            },
+            clear=False,
+        ),
     ):
         uuid_mock.return_value.hex = "session-1"
         popen_instance = Mock()
@@ -113,17 +119,21 @@ def test_create_notebook_launch_failure_sets_error(
 ) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
-    with patch(
-        "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
-        side_effect=RuntimeError("boom"),
-    ), patch.object(service, "_allocate_port", return_value=9001), patch.object(
-        service, "_resolve_log_dir", return_value=tmp_path
-    ), patch.dict(
-        "os.environ",
-        {"NOTEBOOK_LAUNCH_COMMAND": "jupyter --port {port}"},
-        clear=False,
+    with (
+        patch(
+            "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
+        ),
+        patch(
+            "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
+            side_effect=RuntimeError("boom"),
+        ),
+        patch.object(service, "_allocate_port", return_value=9001),
+        patch.object(service, "_resolve_log_dir", return_value=tmp_path),
+        patch.dict(
+            "os.environ",
+            {"NOTEBOOK_LAUNCH_COMMAND": "jupyter --port {port}"},
+            clear=False,
+        ),
     ):
         session = service.create_notebook("alpha_research", parameters={})
 
@@ -131,7 +141,9 @@ def test_create_notebook_launch_failure_sets_error(
     assert "boom" in (session.error_message or "")
 
 
-def test_get_session_status_updates_stopped(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_get_session_status_updates_stopped(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     session = NotebookSession(
         session_id="session-1",
         template_id=template.template_id,
@@ -143,9 +155,12 @@ def test_get_session_status_updates_stopped(user: dict[str, object], template: N
     )
     service = NotebookLauncherService(user=user, templates=[template], session_store={"s": session})
 
-    with patch(
-        "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
-    ), patch.object(service, "_is_process_alive", return_value=False):
+    with (
+        patch(
+            "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
+        ),
+        patch.object(service, "_is_process_alive", return_value=False),
+    ):
         status = service.get_session_status("s")
 
     assert status == SessionStatus.STOPPED
@@ -182,7 +197,9 @@ def test_terminate_session_without_process_id_sets_stopped(
     assert session.status == SessionStatus.STOPPED
 
 
-def test_terminate_session_sends_sigterm(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_terminate_session_sends_sigterm(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     session = NotebookSession(
         session_id="session-1",
         template_id=template.template_id,
@@ -194,9 +211,12 @@ def test_terminate_session_sends_sigterm(user: dict[str, object], template: Note
     )
     service = NotebookLauncherService(user=user, templates=[template], session_store={"s": session})
 
-    with patch(
-        "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
-    ), patch("libs.web_console_services.notebook_launcher_service.os.kill") as kill_mock:
+    with (
+        patch(
+            "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
+        ),
+        patch("libs.web_console_services.notebook_launcher_service.os.kill") as kill_mock,
+    ):
         assert service.terminate_session("s") is True
 
     kill_mock.assert_called_once_with(222, signal.SIGTERM)
@@ -217,18 +237,23 @@ def test_terminate_session_process_lookup_sets_stopped(
     )
     service = NotebookLauncherService(user=user, templates=[template], session_store={"s": session})
 
-    with patch(
-        "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.notebook_launcher_service.os.kill",
-        side_effect=ProcessLookupError,
+    with (
+        patch(
+            "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
+        ),
+        patch(
+            "libs.web_console_services.notebook_launcher_service.os.kill",
+            side_effect=ProcessLookupError,
+        ),
     ):
         assert service.terminate_session("s") is True
 
     assert session.status == SessionStatus.STOPPED
 
 
-def test_force_terminate_requires_stopping(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_force_terminate_requires_stopping(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     session = NotebookSession(
         session_id="session-1",
         template_id=template.template_id,
@@ -258,18 +283,22 @@ def test_force_terminate_kills_process(user: dict[str, object], template: Notebo
     )
     service = NotebookLauncherService(user=user, templates=[template], session_store={"s": session})
 
-    with patch(
-        "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
-    ), patch.object(service, "_is_process_alive", return_value=True), patch(
-        "libs.web_console_services.notebook_launcher_service.os.kill"
-    ) as kill_mock:
+    with (
+        patch(
+            "libs.web_console_services.notebook_launcher_service.has_permission", return_value=True
+        ),
+        patch.object(service, "_is_process_alive", return_value=True),
+        patch("libs.web_console_services.notebook_launcher_service.os.kill") as kill_mock,
+    ):
         assert service.force_terminate_session("s") is True
 
     kill_mock.assert_called_once()
     assert session.status == SessionStatus.STOPPED
 
 
-def test_list_sessions_excludes_stopped(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_list_sessions_excludes_stopped(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     session_running = NotebookSession(
         session_id="running",
         template_id=template.template_id,
@@ -316,7 +345,9 @@ def test_build_access_url_formats(user: dict[str, object], template: NotebookTem
     assert url == "http://localhost:9001/?token=token"
 
 
-def test_build_launch_command_requires_env(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_build_launch_command_requires_env(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
     with patch.dict("os.environ", {}, clear=True):
@@ -326,7 +357,9 @@ def test_build_launch_command_requires_env(user: dict[str, object], template: No
             )
 
 
-def test_build_launch_command_missing_placeholder(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_build_launch_command_missing_placeholder(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
     with patch.dict(
@@ -340,7 +373,9 @@ def test_build_launch_command_missing_placeholder(user: dict[str, object], templ
             )
 
 
-def test_build_launch_env_serializes_parameters(user: dict[str, object], template: NotebookTemplate) -> None:
+def test_build_launch_env_serializes_parameters(
+    user: dict[str, object], template: NotebookTemplate
+) -> None:
     service = NotebookLauncherService(user=user, templates=[template])
 
     session = NotebookSession(

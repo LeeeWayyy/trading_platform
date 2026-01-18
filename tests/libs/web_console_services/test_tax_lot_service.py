@@ -103,12 +103,15 @@ class TestListLots:
         mock_cursor.fetchall = AsyncMock(return_value=[row])
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.tax_lot_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.tax_lot_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             lots = await service.list_lots()
 
@@ -176,12 +179,15 @@ class TestCreateLot:
         mock_cursor.fetchone = AsyncMock(return_value=row)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.tax_lot_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.tax_lot_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             lot = await service.create_lot(
                 symbol="AAPL",
@@ -220,12 +226,15 @@ class TestUpdateLot:
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.tax_lot_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.tax_lot_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             with pytest.raises(ValueError, match="not found"):
                 await service.update_lot("lot-1", updates={"symbol": "MSFT"})
@@ -249,12 +258,15 @@ class TestUpdateLot:
         mock_cursor.fetchone = AsyncMock(return_value=row)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.tax_lot_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.tax_lot_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             with pytest.raises(ValueError, match="status must be 'open' or 'closed'"):
                 await service.update_lot("lot-1", updates={"status": "bad"})
@@ -271,12 +283,15 @@ class TestCloseLot:
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.tax_lot_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.tax_lot_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             result = await service.close_lot("lot-1")
 

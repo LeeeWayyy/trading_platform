@@ -173,9 +173,7 @@ def generate_fill_id_from_activity(fill: dict[str, Any]) -> str:
         "activity_time": str(fill.get("activity_time") or ""),
         "id_hint": str(fill.get("id") or ""),
     }
-    fallback_payload = "|".join(
-        f"{key}={value}" for key, value in sorted(fallback_parts.items())
-    )
+    fallback_payload = "|".join(f"{key}={value}" for key, value in sorted(fallback_parts.items()))
     return hashlib.sha256(fallback_payload.encode()).hexdigest()[:32]
 
 
@@ -230,8 +228,4 @@ def extract_broker_client_ids(orders: list[dict[str, Any]]) -> list[str]:
     Returns:
         List of non-None client_order_id values.
     """
-    return [
-        cid
-        for order in orders
-        if (cid := order.get("client_order_id")) is not None
-    ]
+    return [cid for order in orders if (cid := order.get("client_order_id")) is not None]

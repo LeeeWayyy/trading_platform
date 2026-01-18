@@ -89,14 +89,10 @@ def _make_db(rows: list[dict[str, Any]]) -> DatabaseClient:
 
 
 def test_performance_cache_key_scopes_user_and_strategies():
-    key = create_performance_cache_key(
-        date(2024, 1, 1), date(2024, 1, 2), ("b", "a"), "user-1"
-    )
+    key = create_performance_cache_key(date(2024, 1, 1), date(2024, 1, 2), ("b", "a"), "user-1")
     assert "user-1" in key
     # ordering of strategies should not affect hash
-    key2 = create_performance_cache_key(
-        date(2024, 1, 1), date(2024, 1, 2), ("a", "b"), "user-1"
-    )
+    key2 = create_performance_cache_key(date(2024, 1, 1), date(2024, 1, 2), ("a", "b"), "user-1")
     assert key == key2
 
 

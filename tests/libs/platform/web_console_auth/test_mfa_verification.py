@@ -97,7 +97,9 @@ class TestVerifyStepUpAuth:
     def test_verify_step_up_auth_expired_auth_time(self):
         """Test step-up auth validation fails when auth is too old."""
         # Auth time exceeds MFA_MAX_AGE_SECONDS (default 60 seconds)
-        old_auth_time = int((datetime.now(UTC) - timedelta(seconds=MFA_MAX_AGE_SECONDS + 10)).timestamp())
+        old_auth_time = int(
+            (datetime.now(UTC) - timedelta(seconds=MFA_MAX_AGE_SECONDS + 10)).timestamp()
+        )
         id_token_claims = {"auth_time": old_auth_time, "amr": ["mfa"]}
 
         valid, error = verify_step_up_auth(id_token_claims)
@@ -258,9 +260,7 @@ class TestRequire2faForAction:
 
         audit_logger = AsyncMock()
 
-        valid, error = await require_2fa_for_action(
-            session_data, "delete_strategy", audit_logger
-        )
+        valid, error = await require_2fa_for_action(session_data, "delete_strategy", audit_logger)
 
         assert valid is False
         assert error == "step_up_required"
@@ -290,7 +290,9 @@ class TestRequire2faForAction:
         session_data = Mock()
         session_data.user_id = "user456"
         # Claims with expired auth_time
-        old_auth_time = int((datetime.now(UTC) - timedelta(seconds=MFA_MAX_AGE_SECONDS + 10)).timestamp())
+        old_auth_time = int(
+            (datetime.now(UTC) - timedelta(seconds=MFA_MAX_AGE_SECONDS + 10)).timestamp()
+        )
         session_data.step_up_claims = {"auth_time": old_auth_time, "amr": ["mfa"]}
 
         audit_logger = AsyncMock()
@@ -377,7 +379,9 @@ class TestMfaMaxAgeConfiguration:
     def test_mfa_max_age_default_value(self):
         """Test MFA_MAX_AGE_SECONDS has default value of 60 seconds."""
         # Default when MFA_MAX_AGE_SECONDS not set
-        assert MFA_MAX_AGE_SECONDS >= 60 or MFA_MAX_AGE_SECONDS == int(os.getenv("MFA_MAX_AGE_SECONDS", "60"))
+        assert MFA_MAX_AGE_SECONDS >= 60 or MFA_MAX_AGE_SECONDS == int(
+            os.getenv("MFA_MAX_AGE_SECONDS", "60")
+        )
 
     def test_mfa_max_age_respects_env_var(self):
         """Test MFA_MAX_AGE_SECONDS respects environment variable."""

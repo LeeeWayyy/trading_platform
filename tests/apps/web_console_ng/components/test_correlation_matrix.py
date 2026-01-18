@@ -83,9 +83,7 @@ def test_render_correlation_matrix_builds_heatmap(dummy_ui: DummyUI) -> None:
         }
     )
 
-    correlation_matrix_module.render_correlation_matrix(
-        corr_matrix, title="Corr", height=320
-    )
+    correlation_matrix_module.render_correlation_matrix(corr_matrix, title="Corr", height=320)
 
     assert dummy_ui.labels == []
     assert len(dummy_ui.plotly_calls) == 1

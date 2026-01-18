@@ -123,9 +123,7 @@ class TestRestoreLock:
         assert backup_manager._restore_lock_depth == 0
         assert backup_manager._restore_lock_file is None
 
-    def test_restore_lock_reentrant(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_lock_reentrant(self, backup_manager: RegistryBackupManager) -> None:
         """Test restore lock is reentrant."""
         with backup_manager._restore_lock():
             assert backup_manager._restore_lock_depth == 1
@@ -159,9 +157,7 @@ class TestRestoreLock:
         with manager._restore_lock():
             assert manager._restore_lock_path.parent.exists()
 
-    def test_restore_lock_exception_cleanup(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_lock_exception_cleanup(self, backup_manager: RegistryBackupManager) -> None:
         """Test restore lock cleanup on exception."""
         with pytest.raises(RuntimeError):
             with backup_manager._restore_lock():
@@ -190,9 +186,7 @@ class TestRestoreLock:
 class TestBackupLock:
     """Test backup lock mechanism."""
 
-    def test_backup_lock_acquires_and_releases(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_backup_lock_acquires_and_releases(self, backup_manager: RegistryBackupManager) -> None:
         """Test backup lock can be acquired and released."""
         with backup_manager._backup_lock():
             assert backup_manager._backup_lock_depth == 1
@@ -202,9 +196,7 @@ class TestBackupLock:
         assert backup_manager._backup_lock_depth == 0
         assert backup_manager._backup_lock_file is None
 
-    def test_backup_lock_reentrant(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_backup_lock_reentrant(self, backup_manager: RegistryBackupManager) -> None:
         """Test backup lock is reentrant."""
         with backup_manager._backup_lock():
             assert backup_manager._backup_lock_depth == 1
@@ -223,9 +215,7 @@ class TestBackupLock:
                 with manager2._backup_lock():
                     pass
 
-    def test_backup_lock_exception_cleanup(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_backup_lock_exception_cleanup(self, backup_manager: RegistryBackupManager) -> None:
         """Test backup lock cleanup on exception."""
         with pytest.raises(RuntimeError):
             with backup_manager._backup_lock():
@@ -324,9 +314,7 @@ class TestCreateBackup:
         assert data["checksum"] == manifest.checksum
         assert data["size_bytes"] == manifest.size_bytes
 
-    def test_create_backup_updates_manifest(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_create_backup_updates_manifest(self, backup_manager: RegistryBackupManager) -> None:
         """Test backup updates registry manifest."""
         # Create backup (manifest update happens inside create_backup)
         manifest = backup_manager.create_backup()
@@ -357,15 +345,11 @@ class TestCreateBackup:
 class TestRestoreFromBackup:
     """Test backup restoration."""
 
-    def _create_test_backup(
-        self, backup_manager: RegistryBackupManager
-    ) -> BackupManifest:
+    def _create_test_backup(self, backup_manager: RegistryBackupManager) -> BackupManifest:
         """Helper to create a test backup."""
         return backup_manager.create_backup()
 
-    def test_restore_from_backup_by_id(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_from_backup_by_id(self, backup_manager: RegistryBackupManager) -> None:
         """Test restore from backup by ID."""
         manifest = self._create_test_backup(backup_manager)
 
@@ -375,9 +359,7 @@ class TestRestoreFromBackup:
         assert result.models_restored >= 0
         assert manifest.backup_id in result.message
 
-    def test_restore_from_backup_most_recent(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_from_backup_most_recent(self, backup_manager: RegistryBackupManager) -> None:
         """Test restore from most recent backup."""
         self._create_test_backup(backup_manager)
 
@@ -385,9 +367,7 @@ class TestRestoreFromBackup:
 
         assert result.success is True
 
-    def test_restore_from_backup_by_date(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_from_backup_by_date(self, backup_manager: RegistryBackupManager) -> None:
         """Test restore from backup by date."""
         self._create_test_backup(backup_manager)
 
@@ -395,9 +375,7 @@ class TestRestoreFromBackup:
 
         assert result.success is True
 
-    def test_restore_from_backup_not_found(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_from_backup_not_found(self, backup_manager: RegistryBackupManager) -> None:
         """Test restore fails when backup not found."""
         result = backup_manager.restore_from_backup(backup_id="nonexistent")
 
@@ -464,14 +442,13 @@ class TestRestoreFromBackup:
         manifest = self._create_test_backup(backup_manager)
 
         call_count = 0
+
         def failing_restore(path: Path) -> None:
             nonlocal call_count
             call_count += 1
             raise RuntimeError(f"Error {call_count}")
 
-        with patch.object(
-            backup_manager, "_restore_backup_contents", side_effect=failing_restore
-        ):
+        with patch.object(backup_manager, "_restore_backup_contents", side_effect=failing_restore):
             result = backup_manager.restore_from_backup(backup_id=manifest.backup_id)
 
             assert result.success is False
@@ -494,9 +471,7 @@ class TestRestoreFromBackup:
         assert result.success is True
         assert result.models_restored == 3
 
-    def test_restore_backup_contents(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_restore_backup_contents(self, backup_manager: RegistryBackupManager) -> None:
         """Test _restore_backup_contents helper."""
         manifest = self._create_test_backup(backup_manager)
         backup_path = Path(manifest.backup_path)
@@ -518,9 +493,7 @@ class TestRestoreFromBackup:
 class TestSyncToRemote:
     """Test remote sync functionality."""
 
-    def test_sync_to_remote_success(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_sync_to_remote_success(self, backup_manager: RegistryBackupManager) -> None:
         """Test successful remote sync."""
         with patch("shutil.which", return_value="/usr/bin/rclone"):
             with patch("subprocess.run") as mock_run:
@@ -547,9 +520,7 @@ class TestSyncToRemote:
             assert "rclone not installed" in result.message
             assert result.bytes_transferred == 0
 
-    def test_sync_to_remote_rclone_failure(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_sync_to_remote_rclone_failure(self, backup_manager: RegistryBackupManager) -> None:
         """Test sync handles rclone failure."""
         with patch("shutil.which", return_value="/usr/bin/rclone"):
             with patch("subprocess.run") as mock_run:
@@ -564,9 +535,7 @@ class TestSyncToRemote:
                 assert result.success is False
                 assert "rclone failed" in result.message
 
-    def test_sync_to_remote_timeout(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_sync_to_remote_timeout(self, backup_manager: RegistryBackupManager) -> None:
         """Test sync handles timeout."""
         with patch("shutil.which", return_value="/usr/bin/rclone"):
             with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("rclone", 3600)):
@@ -575,9 +544,7 @@ class TestSyncToRemote:
                 assert result.success is False
                 assert "timed out" in result.message
 
-    def test_sync_to_remote_exception(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_sync_to_remote_exception(self, backup_manager: RegistryBackupManager) -> None:
         """Test sync handles general exceptions."""
         with patch("shutil.which", return_value="/usr/bin/rclone"):
             with patch("subprocess.run", side_effect=RuntimeError("Unexpected error")):
@@ -595,59 +562,41 @@ class TestSyncToRemote:
 class TestHelperMethods:
     """Test helper methods."""
 
-    def test_parse_rclone_size_gib(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_gib(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing GiB size."""
         assert backup_manager._parse_rclone_size("1.234 GiB") == int(1.234 * 1024**3)
 
-    def test_parse_rclone_size_mib(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_mib(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing MiB size."""
         assert backup_manager._parse_rclone_size("500 MiB") == 500 * 1024**2
 
-    def test_parse_rclone_size_kib(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_kib(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing KiB size."""
         assert backup_manager._parse_rclone_size("1024 KiB") == 1024 * 1024
 
-    def test_parse_rclone_size_bytes(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_bytes(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing bytes."""
         assert backup_manager._parse_rclone_size("1024 B") == 1024
 
-    def test_parse_rclone_size_decimal_units(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_decimal_units(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing decimal units (GB, MB, KB)."""
         assert backup_manager._parse_rclone_size("1 GB") == 1000**3
         assert backup_manager._parse_rclone_size("1 MB") == 1000**2
         assert backup_manager._parse_rclone_size("1 KB") == 1000
 
-    def test_parse_rclone_size_raw_bytes(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_raw_bytes(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing raw bytes."""
         assert backup_manager._parse_rclone_size("12345") == 12345
 
-    def test_parse_rclone_size_empty(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_empty(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing empty string."""
         assert backup_manager._parse_rclone_size("") == 0
 
-    def test_parse_rclone_size_invalid(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_invalid(self, backup_manager: RegistryBackupManager) -> None:
         """Test parsing invalid size string."""
         assert backup_manager._parse_rclone_size("invalid") == 0
 
-    def test_find_backup_by_date_exact_match(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_find_backup_by_date_exact_match(self, backup_manager: RegistryBackupManager) -> None:
         """Test finding backup by exact date."""
         manifest = backup_manager.create_backup()
 
@@ -656,9 +605,7 @@ class TestHelperMethods:
         assert result is not None
         assert result.name == manifest.backup_id
 
-    def test_find_backup_by_date_closest_match(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_find_backup_by_date_closest_match(self, backup_manager: RegistryBackupManager) -> None:
         """Test finding closest backup by date."""
         backup_manager.create_backup()
 
@@ -668,17 +615,13 @@ class TestHelperMethods:
 
         assert result is not None
 
-    def test_find_backup_by_date_no_backups(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_find_backup_by_date_no_backups(self, backup_manager: RegistryBackupManager) -> None:
         """Test finding backup when no backups exist."""
         result = backup_manager._find_backup_by_date(date.today())
 
         assert result is None
 
-    def test_find_most_recent_backup(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_find_most_recent_backup(self, backup_manager: RegistryBackupManager) -> None:
         """Test finding most recent backup."""
         backup_manager.create_backup()
 
@@ -686,9 +629,7 @@ class TestHelperMethods:
 
         assert result is not None
 
-    def test_find_most_recent_backup_multiple(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_find_most_recent_backup_multiple(self, backup_manager: RegistryBackupManager) -> None:
         """Test finding most recent among multiple backups."""
         backup_manager.create_backup()
         manifest2 = backup_manager.create_backup()
@@ -698,17 +639,13 @@ class TestHelperMethods:
         assert result is not None
         assert result.name == manifest2.backup_id
 
-    def test_find_most_recent_backup_empty(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_find_most_recent_backup_empty(self, backup_manager: RegistryBackupManager) -> None:
         """Test finding backup when directory is empty."""
         result = backup_manager._find_most_recent_backup()
 
         assert result is None
 
-    def test_update_manifest_backup_info(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_update_manifest_backup_info(self, backup_manager: RegistryBackupManager) -> None:
         """Test updating manifest with backup info."""
         backup_manager.create_backup()  # Create a backup for update_manifest_backup_info to find
 
@@ -741,9 +678,7 @@ class TestHelperMethods:
 class TestCleanupOldBackups:
     """Test backup cleanup."""
 
-    def test_cleanup_old_backups_removes_old(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_cleanup_old_backups_removes_old(self, backup_manager: RegistryBackupManager) -> None:
         """Test cleanup removes old backups."""
         # Create old backup
         old_backup_dir = backup_manager.backups_dir / "old_backup"
@@ -766,9 +701,7 @@ class TestCleanupOldBackups:
         assert count == 1
         assert not old_backup_dir.exists()
 
-    def test_cleanup_old_backups_keeps_recent(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_cleanup_old_backups_keeps_recent(self, backup_manager: RegistryBackupManager) -> None:
         """Test cleanup keeps recent backups."""
         manifest = backup_manager.create_backup()
 
@@ -805,9 +738,7 @@ class TestCleanupOldBackups:
         count = backup_manager.cleanup_old_backups(retention_days=60)
         assert count == 0
 
-    def test_cleanup_old_backups_no_backups_dir(
-        self, tmp_path: Path
-    ) -> None:
+    def test_cleanup_old_backups_no_backups_dir(self, tmp_path: Path) -> None:
         """Test cleanup when backups directory doesn't exist."""
         manager = RegistryBackupManager(tmp_path / "empty")
 
@@ -815,9 +746,7 @@ class TestCleanupOldBackups:
 
         assert count == 0
 
-    def test_cleanup_old_backups_skips_files(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_cleanup_old_backups_skips_files(self, backup_manager: RegistryBackupManager) -> None:
         """Test cleanup skips non-directory files."""
         # Create a file in backups directory
         (backup_manager.backups_dir / "readme.txt").write_text("info")
@@ -984,9 +913,7 @@ class TestCollectExpiredArchived:
 class TestRunGC:
     """Test garbage collection execution."""
 
-    def test_run_gc_dry_run(
-        self, registry_gc: RegistryGC, mock_registry: MagicMock
-    ) -> None:
+    def test_run_gc_dry_run(self, registry_gc: RegistryGC, mock_registry: MagicMock) -> None:
         """Test GC dry run doesn't delete."""
         old_staged = MagicMock()
         old_staged.model_id = "staged_1"
@@ -1119,9 +1046,7 @@ class TestRunGC:
         report = registry_gc.run_gc(dry_run=False)
         assert report.dry_run is False
 
-    def test_delete_model_from_db(
-        self, registry_gc: RegistryGC, mock_registry: MagicMock
-    ) -> None:
+    def test_delete_model_from_db(self, registry_gc: RegistryGC, mock_registry: MagicMock) -> None:
         """Test _delete_model_from_db removes entries."""
         mock_conn = MagicMock()
         mock_registry._get_connection.return_value.__enter__.return_value = mock_conn
@@ -1131,9 +1056,7 @@ class TestRunGC:
         # Should delete from both tables
         assert mock_conn.execute.call_count == 2
 
-    def test_update_manifest_after_gc(
-        self, registry_gc: RegistryGC
-    ) -> None:
+    def test_update_manifest_after_gc(self, registry_gc: RegistryGC) -> None:
         """Test update_manifest_after_gc recalculates counts."""
         mock_manifest_manager = MagicMock()
         mock_manifest_manager.registry_dir = Path("/tmp/registry")
@@ -1213,9 +1136,7 @@ class TestEdgeCases:
         # Should handle gracefully
         assert report.expired_staged == ["model_1"]
 
-    def test_parse_rclone_size_edge_cases(
-        self, backup_manager: RegistryBackupManager
-    ) -> None:
+    def test_parse_rclone_size_edge_cases(self, backup_manager: RegistryBackupManager) -> None:
         """Test _parse_rclone_size with various edge cases."""
         # Whitespace handling
         assert backup_manager._parse_rclone_size("  1.5 GiB  ") == int(1.5 * 1024**3)

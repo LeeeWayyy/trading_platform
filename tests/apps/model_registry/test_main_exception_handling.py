@@ -124,7 +124,9 @@ async def test_lifespan_handles_manifest_pickle_error():
 
         mock_manager_instance = Mock()
         mock_manager_instance.exists.return_value = True
-        mock_manager_instance.verify_integrity.side_effect = pickle.PickleError("Corrupted pickle data")
+        mock_manager_instance.verify_integrity.side_effect = pickle.PickleError(
+            "Corrupted pickle data"
+        )
         mock_manager.return_value = mock_manager_instance
 
         # Expect ManifestIntegrityError to be raised
@@ -226,7 +228,9 @@ async def test_lifespan_handles_pickle_error_on_get_manifest():
     ):
         # Setup mocks
         mock_registry_instance = Mock()
-        mock_registry_instance.get_manifest.side_effect = pickle.PickleError("Cannot unpickle model")
+        mock_registry_instance.get_manifest.side_effect = pickle.PickleError(
+            "Cannot unpickle model"
+        )
         mock_registry.return_value = mock_registry_instance
 
         mock_manager_instance = Mock()

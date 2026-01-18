@@ -1,11 +1,20 @@
 """
 Unit tests for libs.web_console_services.user_management.
+
+This test suite validates user management operations including:
+- User listing and data conversion
+- Role changes with validation and audit logging
+- Strategy access grants and revokes
+- Bulk operations
+- Error handling and edge cases
+- Database transaction behavior
 """
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, Mock, patch
 
+import psycopg
 import pytest
 
 from libs.platform.web_console_auth.permissions import Role
@@ -27,10 +36,19 @@ def audit_logger() -> Mock:
 
 
 def _mock_acquire_connection(mock_conn: AsyncMock) -> AsyncMock:
+    """Create a properly configured async context manager for connections."""
     mock_cm = AsyncMock()
     mock_cm.__aenter__.return_value = mock_conn
     mock_cm.__aexit__.return_value = None
     return mock_cm
+
+
+def _setup_transaction_mock(mock_conn: AsyncMock) -> None:
+    """Set up transaction context manager on mock connection."""
+    mock_txn = AsyncMock()
+    mock_txn.__aenter__ = AsyncMock(return_value=None)
+    mock_txn.__aexit__ = AsyncMock(return_value=None)
+    mock_conn.transaction = Mock(return_value=mock_txn)
 
 
 class TestRowToUserInfo:
@@ -120,8 +138,7 @@ class TestChangeUserRole:
         self, mock_db_pool: Mock, audit_logger: Mock
     ) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
-        mock_conn.transaction.return_value.__aexit__.return_value = None
+        _setup_transaction_mock(mock_conn)
         mock_cursor = AsyncMock()
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
@@ -145,11 +162,9 @@ class TestChangeUserRole:
         assert audit_logger.log_admin_change.await_count == 0
 
     @pytest.mark.asyncio()
-    async def test_change_user_role_no_change(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_change_user_role_no_change(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
         mock_cursor = AsyncMock()
         mock_cursor.fetchone = AsyncMock(return_value=(Role.ADMIN.value,))
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
@@ -173,11 +188,9 @@ class TestChangeUserRole:
         audit_logger.log_admin_change.assert_not_called()
 
     @pytest.mark.asyncio()
-    async def test_change_user_role_success(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_change_user_role_success(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
         mock_cursor_select = AsyncMock()
         mock_cursor_select.fetchone = AsyncMock(return_value=(Role.VIEWER.value,))
         mock_cursor_update = AsyncMock()
@@ -207,7 +220,7 @@ class TestStrategyGrants:
         self, mock_db_pool: Mock, audit_logger: Mock
     ) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
         mock_cursor = AsyncMock()
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
@@ -233,7 +246,7 @@ class TestStrategyGrants:
         self, mock_db_pool: Mock, audit_logger: Mock
     ) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
 
         select_cursor = AsyncMock()
         select_cursor.fetchone = AsyncMock(return_value=(1,))
@@ -259,11 +272,9 @@ class TestStrategyGrants:
         audit_logger.log_action.assert_awaited()
 
     @pytest.mark.asyncio()
-    async def test_grant_strategy_success(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_grant_strategy_success(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
 
         select_cursor = AsyncMock()
         select_cursor.fetchone = AsyncMock(return_value=(1,))
@@ -295,7 +306,7 @@ class TestStrategyRevokes:
         self, mock_db_pool: Mock, audit_logger: Mock
     ) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
         mock_cursor = AsyncMock()
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
@@ -321,7 +332,7 @@ class TestStrategyRevokes:
         self, mock_db_pool: Mock, audit_logger: Mock
     ) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
 
         select_cursor = AsyncMock()
         select_cursor.fetchone = AsyncMock(return_value=(1,))
@@ -347,11 +358,9 @@ class TestStrategyRevokes:
         audit_logger.log_action.assert_awaited()
 
     @pytest.mark.asyncio()
-    async def test_revoke_strategy_success(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_revoke_strategy_success(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         mock_conn = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__.return_value = None
+        _setup_transaction_mock(mock_conn)
 
         select_cursor = AsyncMock()
         select_cursor.fetchone = AsyncMock(return_value=(1,))
@@ -426,3 +435,162 @@ class TestBulkOperations:
             )
 
         assert results == {"u1": (True, "ok")}
+
+
+class TestListStrategies:
+    """Test list_strategies function."""
+
+    @pytest.mark.asyncio()
+    async def test_list_strategies_empty(self, mock_db_pool: Mock) -> None:
+        """Test listing strategies when none exist."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            strategies = await user_management.list_strategies(mock_db_pool)
+
+        assert strategies == []
+
+    @pytest.mark.asyncio()
+    async def test_list_strategies_with_data(self, mock_db_pool: Mock) -> None:
+        """Test listing multiple strategies."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(
+            return_value=[
+                ("s1", "Strategy 1", "Description 1"),
+                ("s2", "Strategy 2", None),
+            ]
+        )
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            strategies = await user_management.list_strategies(mock_db_pool)
+
+        assert len(strategies) == 2
+        assert strategies[0].strategy_id == "s1"
+        assert strategies[1].description is None
+
+
+class TestGetUserStrategies:
+    """Test get_user_strategies function."""
+
+    @pytest.mark.asyncio()
+    async def test_get_user_strategies_empty(self, mock_db_pool: Mock) -> None:
+        """Test getting user strategies when none assigned."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            strategies = await user_management.get_user_strategies(mock_db_pool, "user-1")
+
+        assert strategies == []
+
+    @pytest.mark.asyncio()
+    async def test_get_user_strategies_with_data(self, mock_db_pool: Mock) -> None:
+        """Test getting user strategies with assignments."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[("s1",), ("s2",)])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            strategies = await user_management.get_user_strategies(mock_db_pool, "user-1")
+
+        assert strategies == ["s1", "s2"]
+
+
+class TestDatabaseErrors:
+    """Test database error handling."""
+
+    @pytest.mark.asyncio()
+    async def test_change_role_database_error(
+        self, mock_db_pool: Mock, audit_logger: Mock
+    ) -> None:
+        """Test database error handling in change_user_role."""
+        mock_conn = AsyncMock()
+        _setup_transaction_mock(mock_conn)
+        mock_conn.execute = AsyncMock(side_effect=psycopg.Error("DB error"))
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            success, msg = await user_management.change_user_role(
+                mock_db_pool,
+                user_id="user-1",
+                new_role=Role.ADMIN.value,
+                admin_user_id="admin-1",
+                audit_logger=audit_logger,
+                reason="testing",
+            )
+
+        assert not success
+        assert "Database error" in msg
+        audit_logger.log_action.assert_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_grant_strategy_exception(
+        self, mock_db_pool: Mock, audit_logger: Mock
+    ) -> None:
+        """Test exception handling in grant_strategy."""
+        mock_conn = AsyncMock()
+        _setup_transaction_mock(mock_conn)
+        mock_conn.execute = AsyncMock(side_effect=Exception("Test error"))
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            success, msg = await user_management.grant_strategy(
+                mock_db_pool,
+                user_id="user-1",
+                strategy_id="s1",
+                admin_user_id="admin-1",
+                audit_logger=audit_logger,
+            )
+
+        assert not success
+        assert "Error:" in msg
+        audit_logger.log_action.assert_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_revoke_strategy_exception(
+        self, mock_db_pool: Mock, audit_logger: Mock
+    ) -> None:
+        """Test exception handling in revoke_strategy."""
+        mock_conn = AsyncMock()
+        _setup_transaction_mock(mock_conn)
+        mock_conn.execute = AsyncMock(side_effect=Exception("Test error"))
+
+        with patch(
+            "libs.web_console_services.user_management.acquire_connection",
+            return_value=_mock_acquire_connection(mock_conn),
+        ):
+            success, msg = await user_management.revoke_strategy(
+                mock_db_pool,
+                user_id="user-1",
+                strategy_id="s1",
+                admin_user_id="admin-1",
+                audit_logger=audit_logger,
+            )
+
+        assert not success
+        assert "Error:" in msg
+        audit_logger.log_action.assert_awaited()

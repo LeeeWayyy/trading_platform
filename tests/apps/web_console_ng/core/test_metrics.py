@@ -85,9 +85,7 @@ def test_record_auth_failure_sanitizes_reason(monkeypatch: pytest.MonkeyPatch) -
     metrics.record_auth_failure("oauth", "Token Expired")
 
     assert dummy.inc_calls == 1
-    assert dummy.labels_calls == [
-        {"pod": "pod-9", "auth_type": "oauth", "reason": "token_expired"}
-    ]
+    assert dummy.labels_calls == [{"pod": "pod-9", "auth_type": "oauth", "reason": "token_expired"}]
 
 
 @pytest.mark.parametrize(
@@ -104,7 +102,9 @@ def test_record_auth_failure_sanitizes_reason(monkeypatch: pytest.MonkeyPatch) -
         ("normal", 0),
     ],
 )
-def test_set_circuit_breaker_state(monkeypatch: pytest.MonkeyPatch, state: object, expected: int) -> None:
+def test_set_circuit_breaker_state(
+    monkeypatch: pytest.MonkeyPatch, state: object, expected: int
+) -> None:
     dummy = DummyGauge()
     monkeypatch.setattr(metrics, "circuit_breaker_state", dummy)
     monkeypatch.setattr(metrics, "POD_NAME", "pod-2")
@@ -199,7 +199,9 @@ async def test_metrics_endpoint_allows_internal(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio()
-async def test_metrics_endpoint_allows_when_ingress_protected(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_metrics_endpoint_allows_when_ingress_protected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(metrics.config, "METRICS_INGRESS_PROTECTED", True)
     monkeypatch.setattr(metrics, "is_internal_request", lambda _: False)
     monkeypatch.setattr(metrics, "generate_latest", lambda: b"metrics")

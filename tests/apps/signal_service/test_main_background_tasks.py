@@ -98,7 +98,10 @@ class TestModelReloadTask:
 
         mock_registry = Mock()
         mock_registry.is_loaded = False
-        mock_registry.reload_if_changed.side_effect = [ValueError("Invalid model"), asyncio.CancelledError()]
+        mock_registry.reload_if_changed.side_effect = [
+            ValueError("Invalid model"),
+            asyncio.CancelledError(),
+        ]
 
         with patch("apps.signal_service.main.settings", mock_settings):
             with patch("apps.signal_service.main.model_registry", mock_registry):
@@ -332,10 +335,17 @@ class TestAttemptRedisReconnect:
 
         with patch("apps.signal_service.main.redis_client", None):
             with patch("apps.signal_service.main.settings", mock_settings):
-                with patch("apps.signal_service.main.get_optional_secret_or_none", return_value=None):
-                    with patch("apps.signal_service.main.RedisClient", return_value=mock_redis_instance):
+                with patch(
+                    "apps.signal_service.main.get_optional_secret_or_none", return_value=None
+                ):
+                    with patch(
+                        "apps.signal_service.main.RedisClient", return_value=mock_redis_instance
+                    ):
                         with patch("apps.signal_service.main.EventPublisher"):
-                            with patch("apps.signal_service.main.FeatureCache", return_value=mock_feature_cache):
+                            with patch(
+                                "apps.signal_service.main.FeatureCache",
+                                return_value=mock_feature_cache,
+                            ):
                                 with patch("apps.signal_service.main.signal_generator", Mock()):
                                     with patch("apps.signal_service.main._generator_cache", {}):
                                         result = _attempt_redis_reconnect()
@@ -352,7 +362,9 @@ class TestAttemptRedisReconnect:
 
         with patch("apps.signal_service.main.redis_client", None):
             with patch("apps.signal_service.main.settings", mock_settings):
-                with patch("apps.signal_service.main.get_optional_secret_or_none", return_value=None):
+                with patch(
+                    "apps.signal_service.main.get_optional_secret_or_none", return_value=None
+                ):
                     with patch(
                         "apps.signal_service.main.RedisClient",
                         side_effect=RedisConnectionError("Connection failed"),
@@ -422,7 +434,9 @@ class TestRedFallbackReplayTask:
         with patch("apps.signal_service.main.settings", mock_settings):
             with patch("apps.signal_service.main.fallback_buffer", mock_fallback):
                 with patch("apps.signal_service.main.redis_client", None):
-                    with patch("apps.signal_service.main._attempt_redis_reconnect", return_value=False):
+                    with patch(
+                        "apps.signal_service.main._attempt_redis_reconnect", return_value=False
+                    ):
                         task = asyncio.create_task(redis_fallback_replay_task())
                         await asyncio.sleep(0.05)
                         task.cancel()

@@ -222,9 +222,9 @@ If burndown exceeds capacity at any phase checkpoint, defer items in this priori
 - **Week 17:** Track 7/8 complete → Cut-3 decision point
 
 **Related Documentation:**
-- [P4T2_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T2_DONE.md) - Detailed Phase 2 task specifications
-- [qlib-comparison.md](../CONCEPTS/qlib-comparison.md) - Qlib integration analysis
-- [ADR-0022-qlib-integration.md](../ADRs/ADR-0022-qlib-integration.md) - Integration architecture decision
+- [P4T2_DONE.md](./P4T2_DONE.md) - Detailed Phase 2 task specifications
+- [qlib-comparison.md](../../CONCEPTS/qlib-comparison.md) - Qlib integration analysis
+- [ADR-0022-qlib-integration.md](../../ADRs/ADR-0022-qlib-integration.md) - Integration architecture decision
 
 ---
 
@@ -585,7 +585,7 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 
 **Goal:** Build factor models, risk analytics, and alpha research tools
 
-**Qlib Integration Strategy:** See [P4T2_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T2_DONE.md#qlib-integration-strategy) and [qlib-comparison.md](../CONCEPTS/qlib-comparison.md) for comprehensive analysis.
+**Qlib Integration Strategy:** See [P4T2_DONE.md](./P4T2_DONE.md#qlib-integration-strategy) and [qlib-comparison.md](../../CONCEPTS/qlib-comparison.md) for comprehensive analysis.
 - **Factor Definitions:** Static Python classes (PIT-safe); FormulaicFactor adapter deferred to Phase 3
 - **Alpha Metrics:** Wrap `qlib.contrib.evaluate` (grouped IC, rank IC) with local fallback
 - **Microstructure:** Polars/DuckDB only; daily aggregates exported to Qlib
@@ -794,7 +794,7 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 **Status:** ✅ Complete
 **Dependencies:** T1.7, T1.8
 
-**⚠️ Architectural Constraint:** All TAQ feature generation (RV, VPIN, spread, depth) implemented in **Polars/DuckDB only**. Daily aggregates exported to Qlib via Parquet. See [P4T2_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T2_DONE.md#qlib-integration-strategy).
+**⚠️ Architectural Constraint:** All TAQ feature generation (RV, VPIN, spread, depth) implemented in **Polars/DuckDB only**. Daily aggregates exported to Qlib via Parquet. See [P4T2_DONE.md](./P4T2_DONE.md#qlib-integration-strategy).
 
 **Deliverables:**
 - Realized volatility calculation (5-min sampling)
@@ -1847,8 +1847,8 @@ All P4 tech-debt items TD-001 through TD-005 were addressed on 2025-12-09. No ou
 - [P3_PLANNING_DONE.md](./P3_PLANNING_DONE.md) - Previous phase (Issue Remediation)
 - [P2_PLANNING_DONE.md](./P2_PLANNING_DONE.md) - Advanced Features (Complete)
 - [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md) - Production Hardening (Complete)
-- [docs/CONCEPTS/](../CONCEPTS/) - Trading concepts documentation
-- [docs/ADRs/](../ADRs/) - Architecture Decision Records
+- [docs/CONCEPTS/](../../CONCEPTS/) - Trading concepts documentation
+- [docs/ADRs/](../../ADRs/) - Architecture Decision Records
 
 ---
 

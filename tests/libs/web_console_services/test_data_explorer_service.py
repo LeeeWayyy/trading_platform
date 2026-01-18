@@ -42,11 +42,12 @@ async def test_list_datasets_filters_by_dataset_permission(
     def dataset_access(_user: DummyUser, dataset: str) -> bool:
         return dataset in {"crsp", "fama_french"}
 
-    with patch(
-        "libs.web_console_services.data_explorer_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_explorer_service.has_dataset_permission",
-        side_effect=dataset_access,
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            side_effect=dataset_access,
+        ),
     ):
         datasets = await service.list_datasets(DummyUser(user_id="user-1"))
 
@@ -56,10 +57,12 @@ async def test_list_datasets_filters_by_dataset_permission(
 
 @pytest.mark.asyncio()
 async def test_get_dataset_preview_limit_guard(service: DataExplorerService) -> None:
-    with patch(
-        "libs.web_console_services.data_explorer_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_explorer_service.has_dataset_permission", return_value=True
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
     ):
         with pytest.raises(ValueError, match="1000"):
             await service.get_dataset_preview(DummyUser(user_id="user-1"), "crsp", limit=1001)
@@ -72,10 +75,12 @@ async def test_execute_query_invalid_sql_fails_before_rate_limit(
     sql_validator.validate.return_value = (False, "bad sql")
     service = DataExplorerService(rate_limiter=rate_limiter, sql_validator=sql_validator)
 
-    with patch(
-        "libs.web_console_services.data_explorer_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_explorer_service.has_dataset_permission", return_value=True
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
     ):
         with pytest.raises(ValueError, match="Invalid query"):
             await service.execute_query(DummyUser(user_id="user-1"), "crsp", "select 1")
@@ -87,11 +92,14 @@ async def test_execute_query_invalid_sql_fails_before_rate_limit(
 async def test_execute_query_rate_limit_exceeded(service: DataExplorerService) -> None:
     service._rate_limiter.check_rate_limit = AsyncMock(return_value=(False, 0))
 
-    with patch(
-        "libs.web_console_services.data_explorer_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_explorer_service.has_dataset_permission", return_value=True
-    ), patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"):
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"),
+    ):
         with pytest.raises(RateLimitExceeded):
             await service.execute_query(DummyUser(user_id="user-1"), "crsp", "select 1")
 
@@ -100,11 +108,14 @@ async def test_execute_query_rate_limit_exceeded(service: DataExplorerService) -
 async def test_execute_query_enforces_row_limit_and_calls_rate_limiter(
     service: DataExplorerService, sql_validator: MagicMock
 ) -> None:
-    with patch(
-        "libs.web_console_services.data_explorer_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_explorer_service.has_dataset_permission", return_value=True
-    ), patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"):
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"),
+    ):
         result = await service.execute_query(DummyUser(user_id="user-1"), "crsp", "select 1")
 
     assert result.total_count == 0
@@ -113,12 +124,17 @@ async def test_execute_query_enforces_row_limit_and_calls_rate_limiter(
 
 
 @pytest.mark.asyncio()
-async def test_export_data_returns_job(service: DataExplorerService, sql_validator: MagicMock) -> None:
-    with patch(
-        "libs.web_console_services.data_explorer_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_explorer_service.has_dataset_permission", return_value=True
-    ), patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"):
+async def test_export_data_returns_job(
+    service: DataExplorerService, sql_validator: MagicMock
+) -> None:
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"),
+    ):
         job = await service.export_data(
             DummyUser(user_id="user-1"),
             dataset="crsp",

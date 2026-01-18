@@ -150,7 +150,9 @@ class NotebookLauncherService:
             session.command = command
             session.status = SessionStatus.RUNNING
             session.updated_at = datetime.now(UTC)
-        except Exception as exc:  # Generic catch justified - defensive logging for process launch failures
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - defensive logging for process launch failures
             session.status = SessionStatus.ERROR
             session.error_message = str(exc)
             session.updated_at = datetime.now(UTC)
@@ -219,7 +221,9 @@ class NotebookLauncherService:
             session.status = SessionStatus.STOPPED
             session.updated_at = datetime.now(UTC)
             return True
-        except Exception as exc:  # Generic catch justified - defensive logging for process termination failures
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - defensive logging for process termination failures
             session.status = SessionStatus.ERROR
             session.error_message = str(exc)
             session.updated_at = datetime.now(UTC)
@@ -301,7 +305,9 @@ class NotebookLauncherService:
             session.status = SessionStatus.STOPPED
             session.updated_at = datetime.now(UTC)
             return True
-        except Exception as exc:  # Generic catch justified - defensive logging for force termination failures
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - defensive logging for force termination failures
             session.status = SessionStatus.ERROR
             session.error_message = f"Force terminate failed: {exc}"
             session.updated_at = datetime.now(UTC)

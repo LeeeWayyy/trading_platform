@@ -563,9 +563,7 @@ class TestDailyPerformanceEndpoint:
 class TestDailyPnLDatabase:
     def test_compute_daily_performance_drawdown(self):
         rows = _sample_daily_rows()
-        daily, total, max_dd = compute_daily_performance(
-            rows, date(2024, 1, 1), date(2024, 1, 2)
-        )
+        daily, total, max_dd = compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 2))
 
         assert total == Decimal("50")
         assert len(daily) == 2
@@ -587,9 +585,7 @@ class TestDailyPnLDatabase:
 
     def test_all_negative_series_tracks_drawdown(self):
         rows = _all_negative_rows()
-        daily, total, max_dd = compute_daily_performance(
-            rows, date(2024, 1, 1), date(2024, 1, 3)
-        )
+        daily, total, max_dd = compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 3))
 
         assert total == Decimal("-60")
         # Peak should start at first cumulative (-20) and remain -20

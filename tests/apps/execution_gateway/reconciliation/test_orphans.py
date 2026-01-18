@@ -109,9 +109,7 @@ class TestHandleOrphanOrder:
         db_client = MagicMock()
         redis_client = MagicMock()
 
-        handle_orphan_order(
-            broker_order, db_client, redis_client, resolve_terminal=True
-        )
+        handle_orphan_order(broker_order, db_client, redis_client, resolve_terminal=True)
 
         update_call = db_client.update_orphan_order_status.call_args
         assert update_call.kwargs["resolved_at"] is not None
@@ -126,9 +124,7 @@ class TestHandleOrphanOrder:
         db_client = MagicMock()
         redis_client = MagicMock()
 
-        handle_orphan_order(
-            broker_order, db_client, redis_client, resolve_terminal=True
-        )
+        handle_orphan_order(broker_order, db_client, redis_client, resolve_terminal=True)
 
         update_call = db_client.update_orphan_order_status.call_args
         assert update_call.kwargs["resolved_at"] is None
@@ -145,9 +141,7 @@ class TestHandleOrphanOrder:
 
         handle_orphan_order(broker_order, db_client, redis_client)
 
-        db_client.get_orphan_exposure.assert_called_once_with(
-            "GOOG", QUARANTINE_STRATEGY_SENTINEL
-        )
+        db_client.get_orphan_exposure.assert_called_once_with("GOOG", QUARANTINE_STRATEGY_SENTINEL)
 
     def test_handles_none_redis_client(self) -> None:
         """Handle works when redis_client is None."""
@@ -247,9 +241,7 @@ class TestSyncOrphanExposure:
         import psycopg
 
         db_client = MagicMock()
-        db_client.get_orphan_exposure.side_effect = psycopg.OperationalError(
-            "DB connection lost"
-        )
+        db_client.get_orphan_exposure.side_effect = psycopg.OperationalError("DB connection lost")
         redis_client = MagicMock()
 
         result = sync_orphan_exposure("AAPL", "strategy1", db_client, redis_client)
@@ -282,9 +274,7 @@ class TestDetectOrphans:
         db_client = MagicMock()
         redis_client = MagicMock()
 
-        count = detect_orphans(
-            open_orders, recent_orders, db_known_ids, db_client, redis_client
-        )
+        count = detect_orphans(open_orders, recent_orders, db_known_ids, db_client, redis_client)
 
         assert count == 1
         # broker2 should be handled as orphan
@@ -306,9 +296,7 @@ class TestDetectOrphans:
         db_client = MagicMock()
         redis_client = MagicMock()
 
-        count = detect_orphans(
-            open_orders, recent_orders, db_known_ids, db_client, redis_client
-        )
+        count = detect_orphans(open_orders, recent_orders, db_known_ids, db_client, redis_client)
 
         assert count == 1
         # Should resolve terminal order
@@ -327,9 +315,7 @@ class TestDetectOrphans:
         db_client = MagicMock()
         redis_client = MagicMock()
 
-        count = detect_orphans(
-            open_orders, recent_orders, db_known_ids, db_client, redis_client
-        )
+        count = detect_orphans(open_orders, recent_orders, db_known_ids, db_client, redis_client)
 
         assert count == 0
         db_client.create_orphan_order.assert_not_called()
@@ -369,8 +355,6 @@ class TestDetectOrphans:
         db_client = MagicMock()
         redis_client = MagicMock()
 
-        count = detect_orphans(
-            open_orders, recent_orders, db_known_ids, db_client, redis_client
-        )
+        count = detect_orphans(open_orders, recent_orders, db_known_ids, db_client, redis_client)
 
         assert count == 3

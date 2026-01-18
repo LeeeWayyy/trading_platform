@@ -533,6 +533,8 @@ class TestValidateOrderEdgeCases:
         assert is_valid is False
         assert "Circuit breaker" in reason
         assert "blacklist" not in reason.lower()
+
+
 """
 P0 Coverage Tests for RiskChecker - Additional branch coverage to reach 95%+ target.
 
@@ -574,9 +576,7 @@ class TestRiskCheckerPositionReservation:
     def config(self):
         """Create risk config."""
         return RiskConfig(
-            position_limits=PositionLimits(
-                max_position_size=1000, max_position_pct=Decimal("0.2")
-            ),
+            position_limits=PositionLimits(max_position_size=1000, max_position_pct=Decimal("0.2")),
             portfolio_limits=PortfolioLimits(
                 max_total_notional=Decimal("100000.00"),
                 max_long_exposure=Decimal("80000.00"),
@@ -713,9 +713,7 @@ class TestRiskCheckerPositionReservation:
         # Verify reservation was attempted
         mock_position_reservation.reserve.assert_called_once()
 
-    def test_validate_order_with_reservation_no_reservation_configured(
-        self, config, mock_breaker
-    ):
+    def test_validate_order_with_reservation_no_reservation_configured(self, config, mock_breaker):
         """Test validate_order_with_reservation when position_reservation is None."""
         # Checker without position reservation
         checker = RiskChecker(config=config, breaker=mock_breaker, position_reservation=None)

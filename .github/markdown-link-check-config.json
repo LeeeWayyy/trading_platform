@@ -4,6 +4,12 @@
       "pattern": "^mailto:"
     },
     {
+      "pattern": "ARCHIVE/"
+    },
+    {
+      "pattern": "/ARCHIVE/"
+    },
+    {
       "pattern": "^\\.\\./\\.\\./general_ai_guide"
     },
     {

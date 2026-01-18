@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-17 - PR review fixes: reduce-only orders with pending order accounting, rate limiter, cleanup -->
+<!-- Last reviewed: 2026-01-18 - DB pools lazy-open (open=False) and reconciliation loop stops promptly on stop event -->
 
 ## Identity
 - **Type:** Service
@@ -141,6 +141,10 @@
 - `DRY_RUN=true` never submits broker orders.
 - Webhook signatures are required when `WEBHOOK_SECRET` is configured.
 - During startup reconciliation gating, reduce-only orders are allowed (per ADR-0020).
+
+### Database Pooling & Reconciliation Loop
+- Database pools are initialized with `open=False` to avoid eager connections during startup/tests.
+- Periodic reconciliation waits on the stop event to exit promptly between polls.
 
 ## Data Flow
 ```

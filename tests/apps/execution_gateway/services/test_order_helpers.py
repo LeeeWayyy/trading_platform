@@ -162,9 +162,7 @@ async def test_resolve_fat_finger_context_uses_limit_price() -> None:
     )
     thresholds = FatFingerThresholds(max_notional=Decimal("100000"))
 
-    price, adv = await resolve_fat_finger_context(
-        order, thresholds, None, None, 300
-    )
+    price, adv = await resolve_fat_finger_context(order, thresholds, None, None, 300)
 
     assert price == Decimal("150.00")
     assert adv is None
@@ -184,9 +182,7 @@ async def test_resolve_fat_finger_context_uses_stop_price() -> None:
     )
     thresholds = FatFingerThresholds(max_notional=Decimal("100000"))
 
-    price, adv = await resolve_fat_finger_context(
-        order, thresholds, None, None, 300
-    )
+    price, adv = await resolve_fat_finger_context(order, thresholds, None, None, 300)
 
     assert price == Decimal("145.00")
     assert adv is None
@@ -206,14 +202,12 @@ async def test_resolve_fat_finger_context_fetches_realtime_price() -> None:
     thresholds = FatFingerThresholds(max_notional=Decimal("100000"))
 
     # Mock batch_fetch to return real-time price
-    with patch("apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis") as mock_batch:
-        mock_batch.return_value = {
-            "AAPL": (Decimal("152.50"), datetime.now(UTC))
-        }
+    with patch(
+        "apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis"
+    ) as mock_batch:
+        mock_batch.return_value = {"AAPL": (Decimal("152.50"), datetime.now(UTC))}
 
-        price, adv = await resolve_fat_finger_context(
-            order, thresholds, MagicMock(), None, 300
-        )
+        price, adv = await resolve_fat_finger_context(order, thresholds, MagicMock(), None, 300)
 
         assert price == Decimal("152.50")
         assert adv is None
@@ -234,10 +228,10 @@ async def test_resolve_fat_finger_context_rejects_stale_price() -> None:
 
     # Mock batch_fetch with stale timestamp
     stale_timestamp = datetime.now(UTC) - timedelta(seconds=400)
-    with patch("apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis") as mock_batch:
-        mock_batch.return_value = {
-            "AAPL": (Decimal("152.50"), stale_timestamp)
-        }
+    with patch(
+        "apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis"
+    ) as mock_batch:
+        mock_batch.return_value = {"AAPL": (Decimal("152.50"), stale_timestamp)}
 
         price, adv = await resolve_fat_finger_context(
             order, thresholds, MagicMock(), None, 300  # Max age: 300 seconds
@@ -260,14 +254,12 @@ async def test_resolve_fat_finger_context_rejects_missing_timestamp() -> None:
     thresholds = FatFingerThresholds(max_notional=Decimal("100000"))
 
     # Mock batch_fetch with missing timestamp
-    with patch("apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis") as mock_batch:
-        mock_batch.return_value = {
-            "AAPL": (Decimal("152.50"), None)  # Missing timestamp
-        }
+    with patch(
+        "apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis"
+    ) as mock_batch:
+        mock_batch.return_value = {"AAPL": (Decimal("152.50"), None)}  # Missing timestamp
 
-        price, adv = await resolve_fat_finger_context(
-            order, thresholds, MagicMock(), None, 300
-        )
+        price, adv = await resolve_fat_finger_context(order, thresholds, MagicMock(), None, 300)
 
         assert price is None  # Missing timestamp rejected
 
@@ -313,9 +305,7 @@ async def test_resolve_fat_finger_context_no_validation_needed() -> None:
     )
     thresholds = FatFingerThresholds()  # No thresholds set
 
-    price, adv = await resolve_fat_finger_context(
-        order, thresholds, None, None, 300
-    )
+    price, adv = await resolve_fat_finger_context(order, thresholds, None, None, 300)
 
     assert price is None
     assert adv is None
@@ -474,10 +464,10 @@ async def test_resolve_fat_finger_context_fresh_price() -> None:
 
     # Mock batch_fetch with fresh timestamp (10 seconds old)
     fresh_timestamp = datetime.now(UTC) - timedelta(seconds=10)
-    with patch("apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis") as mock_batch:
-        mock_batch.return_value = {
-            "AAPL": (Decimal("152.50"), fresh_timestamp)
-        }
+    with patch(
+        "apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis"
+    ) as mock_batch:
+        mock_batch.return_value = {"AAPL": (Decimal("152.50"), fresh_timestamp)}
 
         price, adv = await resolve_fat_finger_context(
             order, thresholds, MagicMock(), None, 300  # Max age: 300 seconds
@@ -501,15 +491,13 @@ async def test_resolve_fat_finger_context_naive_timestamp_handling() -> None:
 
     # Mock batch_fetch with naive timestamp (no tzinfo)
     naive_timestamp = datetime.now().replace(tzinfo=None)  # Naive datetime
-    with patch("apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis") as mock_batch:
-        mock_batch.return_value = {
-            "AAPL": (Decimal("152.50"), naive_timestamp)
-        }
+    with patch(
+        "apps.execution_gateway.services.order_helpers.batch_fetch_realtime_prices_from_redis"
+    ) as mock_batch:
+        mock_batch.return_value = {"AAPL": (Decimal("152.50"), naive_timestamp)}
 
         # Should not raise, handles naive timestamp by adding UTC
-        price, adv = await resolve_fat_finger_context(
-            order, thresholds, MagicMock(), None, 300
-        )
+        price, adv = await resolve_fat_finger_context(order, thresholds, MagicMock(), None, 300)
 
         # Price should be accepted if timestamp is recent
         assert price is not None or price is None  # Either case is valid depending on actual time
@@ -529,9 +517,7 @@ async def test_resolve_fat_finger_context_no_redis_client() -> None:
     thresholds = FatFingerThresholds(max_notional=Decimal("100000"))
 
     # No Redis client provided
-    price, adv = await resolve_fat_finger_context(
-        order, thresholds, None, None, 300
-    )
+    price, adv = await resolve_fat_finger_context(order, thresholds, None, None, 300)
 
     # Price should be None (no limit_price, no stop_price, no Redis)
     assert price is None
@@ -552,7 +538,6 @@ def test_parse_webhook_timestamp_empty_string() -> None:
 def test_handle_idempotency_race_logs_info(caplog: pytest.LogCaptureFixture) -> None:
     """Test that idempotency race condition is logged."""
     import logging
-
 
     db_client_mock = MagicMock()
     existing_order_mock = MagicMock()

@@ -37,9 +37,13 @@ if ! command -v markdown-link-check &> /dev/null; then
 fi
 
 # Find all markdown files in target path
+# Exclude: .venv (dependencies), qlib (external), docs/ARCHIVE (historical docs with stale links)
 echo -e "${YELLOW}Searching for markdown files in: ${TARGET_PATH}${NC}"
-MARKDOWN_FILES=$(find "$TARGET_PATH" -name "*.md" -type f \
-    -not -path "./qlib/*" \
+MARKDOWN_FILES=$(find "$TARGET_PATH" \
+    -path "./.venv" -prune -o \
+    -path "./qlib" -prune -o \
+    -path "./docs/ARCHIVE" -prune -o \
+    -name "*.md" -type f -print \
     | sort)
 
 if [ -z "$MARKDOWN_FILES" ]; then

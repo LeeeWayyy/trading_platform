@@ -253,9 +253,7 @@ async def update_orders_table(
 
     added_orders = [o for o in valid_orders if o["client_order_id"] not in previous_order_ids]
     updated_orders = [o for o in valid_orders if o["client_order_id"] in previous_order_ids]
-    removed_orders = [
-        {"client_order_id": oid} for oid in (previous_order_ids - current_ids)
-    ]
+    removed_orders = [{"client_order_id": oid} for oid in (previous_order_ids - current_ids)]
 
     monitor = get_monitor(grid)
     if monitor:

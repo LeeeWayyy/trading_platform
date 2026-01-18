@@ -185,9 +185,7 @@ class TestMainEntrypoint:
 
         # Mock Redis client to raise connection error on ping
         mock_redis_client = MagicMock()
-        mock_redis_client.ping.side_effect = redis.exceptions.ConnectionError(
-            "Connection refused"
-        )
+        mock_redis_client.ping.side_effect = redis.exceptions.ConnectionError("Connection refused")
         mock_redis_class.from_url.return_value = mock_redis_client
 
         with pytest.raises(SystemExit) as exc_info:
@@ -366,9 +364,7 @@ class TestMainEntrypoint:
 
     @patch("apps.backtest_worker.entrypoint.Worker")
     @patch("apps.backtest_worker.entrypoint.Redis")
-    def test_main_worker_scheduler_disabled(
-        self, mock_redis_class, mock_worker_class, monkeypatch
-    ):
+    def test_main_worker_scheduler_disabled(self, mock_redis_class, mock_worker_class, monkeypatch):
         """Test main calls worker.work() with scheduler disabled."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")

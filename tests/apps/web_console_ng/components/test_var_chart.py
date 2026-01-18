@@ -96,7 +96,9 @@ def validate_metrics_true(monkeypatch: pytest.MonkeyPatch) -> Callable[[dict[str
 
 
 @pytest.fixture()
-def passthrough_history(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[dict[str, Any]]], list[dict[str, Any]]]:
+def passthrough_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[list[dict[str, Any]]], list[dict[str, Any]]]:
     def _passthrough(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return values
 

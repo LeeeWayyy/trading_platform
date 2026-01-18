@@ -315,9 +315,7 @@ class TestLifespanStartup:
             patch(
                 "apps.market_data_service.main.EventPublisher", return_value=mock_event_publisher
             ),
-            patch(
-                "apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream
-            ),
+            patch("apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream),
             patch(
                 "apps.market_data_service.main.PositionBasedSubscription",
                 return_value=mock_subscription_manager,
@@ -384,9 +382,7 @@ class TestLifespanStartup:
             patch(
                 "apps.market_data_service.main.EventPublisher", return_value=mock_event_publisher
             ),
-            patch(
-                "apps.market_data_service.main.AlpacaMarketDataStream", side_effect=http_error
-            ),
+            patch("apps.market_data_service.main.AlpacaMarketDataStream", side_effect=http_error),
         ):
             from apps.market_data_service.main import lifespan
 
@@ -509,9 +505,7 @@ class TestLifespanStartup:
             patch(
                 "apps.market_data_service.main.EventPublisher", return_value=mock_event_publisher
             ),
-            patch(
-                "apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream
-            ),
+            patch("apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream),
             patch(
                 "apps.market_data_service.main.PositionBasedSubscription",
                 return_value=mock_subscription_manager,
@@ -553,9 +547,7 @@ class TestLifespanStartup:
             patch(
                 "apps.market_data_service.main.EventPublisher", return_value=mock_event_publisher
             ),
-            patch(
-                "apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream
-            ),
+            patch("apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream),
             patch(
                 "apps.market_data_service.main.PositionBasedSubscription",
                 return_value=mock_subscription_manager,
@@ -823,4 +815,7 @@ class TestMetricsUpdates:
         content = metrics_response.text
 
         # Should have error status in metrics
-        assert 'market_data_subscription_requests_total{operation="subscribe",status="error"}' in content
+        assert (
+            'market_data_subscription_requests_total{operation="subscribe",status="error"}'
+            in content
+        )

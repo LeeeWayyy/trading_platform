@@ -58,5 +58,3 @@ def test_login_page_script_tags_have_nonce(nginx_base_url):
 
     # Verify nonce in HTML matches nonce in CSP header
     assert header_nonce in script_nonces, "Script tag nonce should match CSP header nonce"
-
-

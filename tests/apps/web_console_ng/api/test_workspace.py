@@ -83,14 +83,12 @@ class _StubWorkspaceService:
         self.reset_calls.append((user_id, workspace_key))
 
 
-def _build_app(
-    monkeypatch: pytest.MonkeyPatch, service: _StubWorkspaceService
-) -> FastAPI:
+def _build_app(monkeypatch: pytest.MonkeyPatch, service: _StubWorkspaceService) -> FastAPI:
     app = FastAPI()
     app.include_router(workspace_api.router)
-    app.dependency_overrides[workspace_api.require_authenticated_user] = (
-        lambda: {"user_id": "user-1"}
-    )
+    app.dependency_overrides[workspace_api.require_authenticated_user] = lambda: {
+        "user_id": "user-1"
+    }
     monkeypatch.setattr(workspace_api, "get_workspace_service", lambda: service)
     return app
 
@@ -168,7 +166,9 @@ async def test_enforce_max_state_size_streaming_rejects_oversize() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_require_authenticated_user_prefers_request_state(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_require_authenticated_user_prefers_request_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     request = _make_request()
     request.state.user = {"user_id": "user-123"}
 

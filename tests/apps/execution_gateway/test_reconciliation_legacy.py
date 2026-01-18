@@ -44,7 +44,23 @@ from apps.execution_gateway.reconciliation import (
     SOURCE_PRIORITY_RECONCILIATION,
     SOURCE_PRIORITY_WEBHOOK,
     ReconciliationService,
+    calculate_synthetic_fill,
+    estimate_notional,
 )
+from apps.execution_gateway.reconciliation.fills import (
+    backfill_fill_metadata,
+    backfill_fill_metadata_from_order,
+)
+from apps.execution_gateway.reconciliation.orders import (
+    apply_broker_update,
+    reconcile_missing_orders,
+)
+from apps.execution_gateway.reconciliation.orphans import (
+    handle_orphan_order,
+    set_quarantine,
+    sync_orphan_exposure,
+)
+from apps.execution_gateway.reconciliation.positions import reconcile_positions
 
 POD_LABEL = os.getenv("POD_NAME") or os.getenv("HOSTNAME") or "unknown"
 
@@ -129,9 +145,9 @@ class TestReconciliationServiceInitialization:
         assert service.alpaca_client is mock_alpaca_client
         assert service.redis_client is None
         assert service.dry_run is False
-        assert service._startup_complete is False
-        assert service._override_active is False
-        assert service._last_reconciliation_result is None
+        assert service.is_startup_complete() is False
+        assert service.override_active() is False
+        assert service._state.get_last_reconciliation_result() is None
 
         # Check default config values
         assert service.poll_interval_seconds == 300
@@ -144,7 +160,9 @@ class TestReconciliationServiceInitialization:
         assert service.fills_backfill_page_size == 100
         assert service.fills_backfill_max_pages == 5
 
-    def test_initialization_with_custom_config(self, mock_db_client, mock_alpaca_client, monkeypatch):
+    def test_initialization_with_custom_config(
+        self, mock_db_client, mock_alpaca_client, monkeypatch
+    ):
         """Should initialize with custom environment configuration."""
         monkeypatch.setenv("RECONCILIATION_INTERVAL_SECONDS", "60")
         monkeypatch.setenv("RECONCILIATION_TIMEOUT_SECONDS", "120")
@@ -221,7 +239,7 @@ class TestStartupState:
     def test_startup_timed_out_after_timeout(self, reconciliation_service):
         """Should time out after configured timeout."""
         # Set startup time to past
-        reconciliation_service._startup_started_at = datetime.now(UTC) - timedelta(
+        reconciliation_service._state._startup_started_at = datetime.now(UTC) - timedelta(
             seconds=reconciliation_service.timeout_seconds + 10
         )
         assert reconciliation_service.startup_timed_out() is True
@@ -235,7 +253,9 @@ class TestStartupState:
 
     def test_mark_startup_complete_forced_without_reconciliation(self, reconciliation_service):
         """Should reject forced bypass without prior reconciliation attempt."""
-        with pytest.raises(ValueError, match="Cannot force startup complete without running reconciliation"):
+        with pytest.raises(
+            ValueError, match="Cannot force startup complete without running reconciliation"
+        ):
             reconciliation_service.mark_startup_complete(
                 forced=True,
                 user_id="operator",
@@ -245,26 +265,30 @@ class TestStartupState:
     def test_mark_startup_complete_forced_missing_user_id(self, reconciliation_service):
         """Should reject forced bypass without user_id."""
         # Set last reconciliation result to allow forced bypass
-        reconciliation_service._last_reconciliation_result = {"status": "failed"}
+        reconciliation_service._state.record_reconciliation_result({"status": "failed"})
 
         with pytest.raises(ValueError, match="Both user_id and reason are required"):
-            reconciliation_service.mark_startup_complete(forced=True, user_id=None, reason="emergency")
+            reconciliation_service.mark_startup_complete(
+                forced=True, user_id=None, reason="emergency"
+            )
 
     def test_mark_startup_complete_forced_missing_reason(self, reconciliation_service):
         """Should reject forced bypass without reason."""
         # Set last reconciliation result to allow forced bypass
-        reconciliation_service._last_reconciliation_result = {"status": "failed"}
+        reconciliation_service._state.record_reconciliation_result({"status": "failed"})
 
         with pytest.raises(ValueError, match="Both user_id and reason are required"):
-            reconciliation_service.mark_startup_complete(forced=True, user_id="operator", reason=None)
+            reconciliation_service.mark_startup_complete(
+                forced=True, user_id="operator", reason=None
+            )
 
     def test_mark_startup_complete_forced_success(self, reconciliation_service):
         """Should allow forced bypass with valid context after reconciliation attempt."""
         # Set last reconciliation result to allow forced bypass
-        reconciliation_service._last_reconciliation_result = {
+        reconciliation_service._state.record_reconciliation_result({
             "status": "failed",
             "error": "Connection timeout",
-        }
+        })
 
         reconciliation_service.mark_startup_complete(
             forced=True,
@@ -283,7 +307,7 @@ class TestStartupState:
 
     def test_override_context_thread_safe(self, reconciliation_service):
         """Should safely access override context from multiple threads."""
-        reconciliation_service._last_reconciliation_result = {"status": "failed"}
+        reconciliation_service._state.record_reconciliation_result({"status": "failed"})
         reconciliation_service.mark_startup_complete(forced=True, user_id="op1", reason="test")
 
         contexts = []
@@ -342,7 +366,7 @@ class TestStartupReconciliation:
         assert result is False
 
         # Should record failed result for forced bypass
-        last_result = reconciliation_service._last_reconciliation_result
+        last_result = reconciliation_service._state.get_last_reconciliation_result()
         assert last_result is not None
         assert last_result["status"] == "failed"
         assert last_result["mode"] == "startup"
@@ -361,7 +385,7 @@ class TestStartupReconciliation:
         assert result is False
 
         # Should record failed result for forced bypass
-        last_result = reconciliation_service._last_reconciliation_result
+        last_result = reconciliation_service._state.get_last_reconciliation_result()
         assert last_result is not None
         assert last_result["status"] == "failed"
         assert "Connection refused" in last_result["error"]
@@ -377,7 +401,7 @@ class TestStartupReconciliation:
         assert result is False
 
         # Should record failed result for forced bypass
-        last_result = reconciliation_service._last_reconciliation_result
+        last_result = reconciliation_service._state.get_last_reconciliation_result()
         assert last_result is not None
         assert last_result["status"] == "failed"
         assert "Invalid order data" in last_result["error"]
@@ -392,7 +416,9 @@ class TestPeriodicReconciliation:
     """Test periodic reconciliation loop."""
 
     @pytest.mark.asyncio()
-    async def test_run_periodic_loop_opens_gate_after_success(self, reconciliation_service, mock_db_client):
+    async def test_run_periodic_loop_opens_gate_after_success(
+        self, reconciliation_service, mock_db_client
+    ):
         """Should open startup gate after first successful periodic run."""
         mock_db_client.get_reconciliation_high_water_mark.return_value = None
 
@@ -481,7 +507,7 @@ class TestBrokerOrderSync:
 
         mock_db_client.update_order_status_cas.return_value = True
 
-        reconciliation_service._apply_broker_update("client-456", broker_order)
+        apply_broker_update("client-456", broker_order, mock_db_client)
 
         mock_db_client.update_order_status_cas.assert_called_once()
         call_kwargs = mock_db_client.update_order_status_cas.call_args[1]
@@ -500,7 +526,7 @@ class TestBrokerOrderSync:
 
         mock_db_client.update_order_status_cas.return_value = None  # CAS failed
 
-        reconciliation_service._apply_broker_update("client-456", broker_order)
+        apply_broker_update("client-456", broker_order, mock_db_client)
 
         mock_db_client.update_order_status_cas.assert_called_once()
 
@@ -514,17 +540,19 @@ class TestBrokerOrderSync:
             "updated_at": datetime.now(UTC),
         }
 
-        mock_order = Mock()
-        mock_order.metadata = {"fills": []}
         mock_db_client.update_order_status_cas.return_value = True
-        mock_db_client.get_order_for_update.return_value = mock_order
-        mock_db_client.transaction.return_value.__enter__ = Mock(return_value=Mock())
-        mock_db_client.transaction.return_value.__exit__ = Mock(return_value=False)
+        backfill_callback = Mock()
 
-        reconciliation_service._apply_broker_update("client-456", broker_order)
+        apply_broker_update(
+            "client-456",
+            broker_order,
+            mock_db_client,
+            backfill_fills_callback=backfill_callback,
+        )
 
         # Should attempt CAS update
         mock_db_client.update_order_status_cas.assert_called_once()
+        backfill_callback.assert_called_once()
 
 
 # --------------------------
@@ -535,7 +563,9 @@ class TestBrokerOrderSync:
 class TestMissingOrderResolution:
     """Test resolution of missing orders (submitted_unconfirmed grace period)."""
 
-    def test_reconcile_missing_orders_within_grace_period(self, reconciliation_service, mock_db_client):
+    def test_reconcile_missing_orders_within_grace_period(
+        self, reconciliation_service, mock_db_client, mock_alpaca_client
+    ):
         """Should defer failure for submitted_unconfirmed within grace period."""
         mock_order = Mock()
         mock_order.client_order_id = "client-123"
@@ -543,28 +573,50 @@ class TestMissingOrderResolution:
         mock_order.created_at = datetime.now(UTC) - timedelta(seconds=60)  # 60s ago
         mock_order.broker_order_id = None
 
-        reconciliation_service._reconcile_missing_orders([mock_order], None)
+        mock_alpaca_client.get_order_by_client_id.return_value = None
+        result = reconcile_missing_orders(
+            [mock_order],
+            after_time=None,
+            db_client=mock_db_client,
+            alpaca_client=mock_alpaca_client,
+            max_individual_lookups=reconciliation_service.max_individual_lookups,
+            submitted_unconfirmed_grace_seconds=reconciliation_service.submitted_unconfirmed_grace_seconds,
+        )
 
         # Should NOT update status to failed
         mock_db_client.update_order_status_cas.assert_not_called()
+        assert result["marked_failed"] == 0
 
-    def test_reconcile_missing_orders_after_grace_period(self, reconciliation_service, mock_db_client):
+    def test_reconcile_missing_orders_after_grace_period(
+        self, reconciliation_service, mock_db_client, mock_alpaca_client
+    ):
         """Should mark as failed after grace period expires."""
         mock_order = Mock()
         mock_order.client_order_id = "client-123"
         mock_order.status = "submitted_unconfirmed"
-        mock_order.created_at = datetime.now(UTC) - timedelta(seconds=400)  # 400s ago (> 300s grace)
+        mock_order.created_at = datetime.now(UTC) - timedelta(
+            seconds=400
+        )  # 400s ago (> 300s grace)
         mock_order.broker_order_id = None
 
         mock_db_client.update_order_status_cas.return_value = True
 
-        reconciliation_service._reconcile_missing_orders([mock_order], None)
+        mock_alpaca_client.get_order_by_client_id.return_value = None
+        result = reconcile_missing_orders(
+            [mock_order],
+            after_time=None,
+            db_client=mock_db_client,
+            alpaca_client=mock_alpaca_client,
+            max_individual_lookups=reconciliation_service.max_individual_lookups,
+            submitted_unconfirmed_grace_seconds=reconciliation_service.submitted_unconfirmed_grace_seconds,
+        )
 
         # Should update status to failed
         mock_db_client.update_order_status_cas.assert_called_once()
         call_kwargs = mock_db_client.update_order_status_cas.call_args[1]
         assert call_kwargs["client_order_id"] == "client-123"
         assert call_kwargs["status"] == "failed"
+        assert result["marked_failed"] == 1
 
     def test_reconcile_missing_orders_max_lookups(
         self, reconciliation_service, mock_db_client, mock_alpaca_client
@@ -580,10 +632,19 @@ class TestMissingOrderResolution:
             mock_order.broker_order_id = None
             orders.append(mock_order)
 
-        reconciliation_service._reconcile_missing_orders(orders, None)
+        mock_alpaca_client.get_order_by_client_id.return_value = None
+        result = reconcile_missing_orders(
+            orders,
+            after_time=None,
+            db_client=mock_db_client,
+            alpaca_client=mock_alpaca_client,
+            max_individual_lookups=100,
+            submitted_unconfirmed_grace_seconds=reconciliation_service.submitted_unconfirmed_grace_seconds,
+        )
 
         # Should only lookup up to max
-        assert mock_alpaca_client.get_order_by_client_id.call_count <= 100
+        assert mock_alpaca_client.get_order_by_client_id.call_count == 100
+        assert result["lookups"] == 100
 
     def test_reconcile_missing_orders_non_terminal_recent(
         self, reconciliation_service, mock_db_client, mock_alpaca_client
@@ -597,7 +658,14 @@ class TestMissingOrderResolution:
         mock_order.created_at = datetime.now(UTC) - timedelta(seconds=30)  # Recent
         mock_order.broker_order_id = "broker-456"
 
-        reconciliation_service._reconcile_missing_orders([mock_order], after_time)
+        reconcile_missing_orders(
+            [mock_order],
+            after_time=after_time,
+            db_client=mock_db_client,
+            alpaca_client=mock_alpaca_client,
+            max_individual_lookups=reconciliation_service.max_individual_lookups,
+            submitted_unconfirmed_grace_seconds=reconciliation_service.submitted_unconfirmed_grace_seconds,
+        )
 
         # Should skip lookup for recent orders
         mock_alpaca_client.get_order_by_client_id.assert_not_called()
@@ -623,7 +691,13 @@ class TestOrphanOrderDetection:
             "notional": Decimal("15000"),
         }
 
-        reconciliation_service._handle_orphan_order(broker_order, resolve_terminal=False)
+        handled = handle_orphan_order(
+            broker_order,
+            db_client=mock_db_client,
+            redis_client=None,
+            resolve_terminal=False,
+        )
+        assert handled is True
 
         mock_db_client.create_orphan_order.assert_called_once()
         call_kwargs = mock_db_client.create_orphan_order.call_args[1]
@@ -645,7 +719,13 @@ class TestOrphanOrderDetection:
             "status": "new",
         }
 
-        reconciliation_service._handle_orphan_order(broker_order, resolve_terminal=False)
+        handled = handle_orphan_order(
+            broker_order,
+            db_client=mock_db_client,
+            redis_client=mock_redis_client,
+            resolve_terminal=False,
+        )
+        assert handled is True
 
         # Should set quarantine key
         mock_redis_client.set.assert_called()
@@ -660,7 +740,13 @@ class TestOrphanOrderDetection:
             "status": "filled",  # Terminal status
         }
 
-        reconciliation_service._handle_orphan_order(broker_order, resolve_terminal=True)
+        handled = handle_orphan_order(
+            broker_order,
+            db_client=mock_db_client,
+            redis_client=None,
+            resolve_terminal=True,
+        )
+        assert handled is True
 
         # Should update with resolved_at timestamp
         assert mock_db_client.update_orphan_order_status.called
@@ -680,7 +766,13 @@ class TestOrphanOrderDetection:
             "status": "new",  # Non-terminal
         }
 
-        reconciliation_service._handle_orphan_order(broker_order, resolve_terminal=False)
+        handled = handle_orphan_order(
+            broker_order,
+            db_client=mock_db_client,
+            redis_client=None,
+            resolve_terminal=False,
+        )
+        assert handled is True
 
         # Should update without resolved_at
         call_kwargs = mock_db_client.update_orphan_order_status.call_args[1]
@@ -689,25 +781,25 @@ class TestOrphanOrderDetection:
     def test_estimate_notional_from_notional_field(self, reconciliation_service):
         """Should use notional field if available."""
         broker_order = {"notional": Decimal("15000.50")}
-        result = reconciliation_service._estimate_notional(broker_order)
+        result = estimate_notional(broker_order)
         assert result == Decimal("15000.50")
 
     def test_estimate_notional_from_limit_price(self, reconciliation_service):
         """Should calculate from qty * limit_price if available."""
         broker_order = {"qty": 100, "limit_price": Decimal("150.50")}
-        result = reconciliation_service._estimate_notional(broker_order)
+        result = estimate_notional(broker_order)
         assert result == Decimal("15050")
 
     def test_estimate_notional_from_filled_avg_price(self, reconciliation_service):
         """Should calculate from qty * filled_avg_price if available."""
         broker_order = {"qty": 100, "filled_avg_price": Decimal("149.75")}
-        result = reconciliation_service._estimate_notional(broker_order)
+        result = estimate_notional(broker_order)
         assert result == Decimal("14975")
 
     def test_estimate_notional_fallback_zero(self, reconciliation_service):
         """Should return zero if no price information available."""
         broker_order = {"qty": 100}
-        result = reconciliation_service._estimate_notional(broker_order)
+        result = estimate_notional(broker_order)
         assert result == Decimal("0")
 
 
@@ -721,7 +813,7 @@ class TestFillMetadataBackfill:
 
     def test_calculate_synthetic_fill_no_existing_fills(self, reconciliation_service):
         """Should generate synthetic fill when no existing fills."""
-        fill_data = reconciliation_service._calculate_synthetic_fill(
+        fill_data = calculate_synthetic_fill(
             client_order_id="client-123",
             filled_qty=Decimal("100"),
             filled_avg_price=Decimal("150.50"),
@@ -743,7 +835,7 @@ class TestFillMetadataBackfill:
             {"fill_qty": 50, "synthetic": False, "superseded": False},
         ]
 
-        fill_data = reconciliation_service._calculate_synthetic_fill(
+        fill_data = calculate_synthetic_fill(
             client_order_id="client-123",
             filled_qty=Decimal("100"),
             filled_avg_price=Decimal("150.50"),
@@ -762,7 +854,7 @@ class TestFillMetadataBackfill:
             {"fill_qty": 100, "synthetic": False, "superseded": False},
         ]
 
-        fill_data = reconciliation_service._calculate_synthetic_fill(
+        fill_data = calculate_synthetic_fill(
             client_order_id="client-123",
             filled_qty=Decimal("100"),
             filled_avg_price=Decimal("150.50"),
@@ -780,7 +872,7 @@ class TestFillMetadataBackfill:
             {"fill_qty": 30, "synthetic": False, "superseded": False},  # Count this
         ]
 
-        fill_data = reconciliation_service._calculate_synthetic_fill(
+        fill_data = calculate_synthetic_fill(
             client_order_id="client-123",
             filled_qty=Decimal("100"),
             filled_avg_price=Decimal("150.50"),
@@ -795,7 +887,7 @@ class TestFillMetadataBackfill:
 
     def test_calculate_synthetic_fill_fractional_shares(self, reconciliation_service):
         """Should handle fractional shares correctly."""
-        fill_data = reconciliation_service._calculate_synthetic_fill(
+        fill_data = calculate_synthetic_fill(
             client_order_id="client-123",
             filled_qty=Decimal("100.5"),
             filled_avg_price=Decimal("150.50"),
@@ -825,7 +917,7 @@ class TestFillMetadataBackfill:
         mock_db_client.transaction.return_value.__exit__ = Mock(return_value=False)
         mock_db_client.append_fill_to_order_metadata.return_value = True
 
-        reconciliation_service._backfill_fill_metadata("client-123", broker_order)
+        backfill_fill_metadata("client-123", broker_order, mock_db_client)
 
         mock_db_client.append_fill_to_order_metadata.assert_called_once()
 
@@ -837,11 +929,13 @@ class TestFillMetadataBackfill:
             "updated_at": datetime.now(UTC),
         }
 
-        reconciliation_service._backfill_fill_metadata("client-123", broker_order)
+        backfill_fill_metadata("client-123", broker_order, mock_db_client)
 
         mock_db_client.get_order_for_update.assert_not_called()
 
-    def test_backfill_fill_metadata_from_order_success(self, reconciliation_service, mock_db_client):
+    def test_backfill_fill_metadata_from_order_success(
+        self, reconciliation_service, mock_db_client
+    ):
         """Should backfill from DB order when broker data unavailable."""
         mock_order = Mock()
         mock_order.client_order_id = "client-123"
@@ -858,7 +952,7 @@ class TestFillMetadataBackfill:
         mock_db_client.transaction.return_value.__enter__ = Mock(return_value=Mock())
         mock_db_client.transaction.return_value.__exit__ = Mock(return_value=False)
 
-        reconciliation_service._backfill_fill_metadata_from_order(mock_order)
+        backfill_fill_metadata_from_order(mock_order, mock_db_client)
 
         mock_db_client.append_fill_to_order_metadata.assert_called_once()
 
@@ -895,8 +989,11 @@ class TestAlpacaFillsBackfill:
         assert result["status"] == "skipped"
         assert "DRY_RUN" in result["message"]
 
-    def test_backfill_alpaca_fills_no_fills(self, reconciliation_service, mock_alpaca_client, mock_db_client):
+    def test_backfill_alpaca_fills_no_fills(
+        self, reconciliation_service, mock_alpaca_client, mock_db_client
+    ):
         """Should handle empty fills list."""
+        reconciliation_service.fills_backfill_enabled = True
         mock_alpaca_client.get_account_activities.return_value = []
         mock_db_client.get_reconciliation_high_water_mark.return_value = None
 
@@ -910,6 +1007,7 @@ class TestAlpacaFillsBackfill:
         self, reconciliation_service, mock_alpaca_client, mock_db_client
     ):
         """Should process fills and insert into database."""
+        reconciliation_service.fills_backfill_enabled = True
         fills = [
             {
                 "id": "fill-1",
@@ -955,6 +1053,7 @@ class TestAlpacaFillsBackfill:
         self, reconciliation_service, mock_alpaca_client, mock_db_client
     ):
         """Should track unmatched fills (no corresponding order)."""
+        reconciliation_service.fills_backfill_enabled = True
         fills = [
             {
                 "id": "fill-1",
@@ -980,6 +1079,7 @@ class TestAlpacaFillsBackfill:
         self, reconciliation_service, mock_alpaca_client, mock_db_client
     ):
         """Should handle pagination for large fill sets."""
+        reconciliation_service.fills_backfill_enabled = True
         # First page: full page size
         page1 = [{"id": f"fill-{i}", "order_id": f"broker-{i}"} for i in range(100)]
         # Second page: partial
@@ -1000,6 +1100,7 @@ class TestAlpacaFillsBackfill:
         self, reconciliation_service, mock_alpaca_client, mock_db_client
     ):
         """Should rollback on P&L recalculation failure."""
+        reconciliation_service.fills_backfill_enabled = True
         fills = [
             {
                 "id": "fill-1",
@@ -1056,7 +1157,7 @@ class TestPositionReconciliation:
         mock_alpaca_client.get_all_positions.return_value = broker_positions
         mock_db_client.get_all_positions.return_value = []
 
-        reconciliation_service._reconcile_positions()
+        reconcile_positions(mock_db_client, mock_alpaca_client)
 
         assert mock_db_client.upsert_position_snapshot.call_count == 2
 
@@ -1074,7 +1175,7 @@ class TestPositionReconciliation:
         mock_alpaca_client.get_all_positions.return_value = broker_positions
         mock_db_client.get_all_positions.return_value = [mock_db_position]
 
-        reconciliation_service._reconcile_positions()
+        reconcile_positions(mock_db_client, mock_alpaca_client)
 
         # Should upsert AAPL and flatten TSLA
         assert mock_db_client.upsert_position_snapshot.call_count == 2
@@ -1096,7 +1197,7 @@ class TestQuarantineManagement:
 
     def test_set_quarantine_success(self, reconciliation_service, mock_redis_client):
         """Should set quarantine flag in Redis."""
-        reconciliation_service._set_quarantine(symbol="AAPL", strategy_id="alpha_v1")
+        set_quarantine(symbol="AAPL", strategy_id="alpha_v1", redis_client=mock_redis_client)
 
         mock_redis_client.set.assert_called_once()
 
@@ -1110,14 +1211,17 @@ class TestQuarantineManagement:
         )
 
         # Should not raise exception
-        service._set_quarantine(symbol="AAPL", strategy_id="alpha_v1")
+        assert (
+            set_quarantine(symbol="AAPL", strategy_id="alpha_v1", redis_client=service.redis_client)
+            is False
+        )
 
     def test_set_quarantine_redis_error(self, reconciliation_service, mock_redis_client):
         """Should log warning on Redis error."""
         mock_redis_client.set.side_effect = redis.RedisError("Connection lost")
 
         # Should not raise exception
-        reconciliation_service._set_quarantine(symbol="AAPL", strategy_id="alpha_v1")
+        set_quarantine(symbol="AAPL", strategy_id="alpha_v1", redis_client=mock_redis_client)
 
     def test_sync_orphan_exposure_success(
         self, reconciliation_service, mock_db_client, mock_redis_client
@@ -1125,7 +1229,12 @@ class TestQuarantineManagement:
         """Should sync orphan exposure to Redis."""
         mock_db_client.get_orphan_exposure.return_value = Decimal("15000")
 
-        reconciliation_service._sync_orphan_exposure(symbol="AAPL", strategy_id=QUARANTINE_STRATEGY_SENTINEL)
+        sync_orphan_exposure(
+            symbol="AAPL",
+            strategy_id=QUARANTINE_STRATEGY_SENTINEL,
+            db_client=mock_db_client,
+            redis_client=mock_redis_client,
+        )
 
         mock_redis_client.set.assert_called_once()
 
@@ -1136,7 +1245,12 @@ class TestQuarantineManagement:
         mock_db_client.get_orphan_exposure.side_effect = psycopg.OperationalError("Connection lost")
 
         # Should not raise exception
-        reconciliation_service._sync_orphan_exposure(symbol="AAPL", strategy_id=QUARANTINE_STRATEGY_SENTINEL)
+        sync_orphan_exposure(
+            symbol="AAPL",
+            strategy_id=QUARANTINE_STRATEGY_SENTINEL,
+            db_client=mock_db_client,
+            redis_client=mock_redis_client,
+        )
 
     def test_sync_orphan_exposure_no_redis_client(self, mock_db_client, mock_alpaca_client):
         """Should skip sync when Redis client is None."""
@@ -1148,7 +1262,15 @@ class TestQuarantineManagement:
         )
 
         # Should not raise exception
-        service._sync_orphan_exposure(symbol="AAPL", strategy_id=QUARANTINE_STRATEGY_SENTINEL)
+        assert (
+            sync_orphan_exposure(
+                symbol="AAPL",
+                strategy_id=QUARANTINE_STRATEGY_SENTINEL,
+                db_client=mock_db_client,
+                redis_client=service.redis_client,
+            )
+            is False
+        )
 
 
 # --------------------------
@@ -1199,6 +1321,7 @@ class TestThreadSafety:
 
     def test_mark_startup_complete_thread_safe(self, reconciliation_service):
         """Should safely mark startup complete from multiple threads."""
+
         def mark_complete():
             reconciliation_service.mark_startup_complete()
 
@@ -1304,16 +1427,28 @@ class TestEdgeCasesAndErrors:
         """Should skip orphan orders without symbol."""
         broker_order = {"id": "broker-999", "status": "new"}  # No symbol
 
-        reconciliation_service._handle_orphan_order(broker_order, resolve_terminal=False)
+        handled = handle_orphan_order(
+            broker_order,
+            db_client=mock_db_client,
+            redis_client=None,
+            resolve_terminal=False,
+        )
 
+        assert handled is False
         mock_db_client.create_orphan_order.assert_not_called()
 
     def test_handle_orphan_order_missing_broker_id(self, reconciliation_service, mock_db_client):
         """Should skip orphan orders without broker_order_id."""
         broker_order = {"symbol": "AAPL", "status": "new"}  # No id
 
-        reconciliation_service._handle_orphan_order(broker_order, resolve_terminal=False)
+        handled = handle_orphan_order(
+            broker_order,
+            db_client=mock_db_client,
+            redis_client=None,
+            resolve_terminal=False,
+        )
 
+        assert handled is False
         mock_db_client.create_orphan_order.assert_not_called()
 
     def test_backfill_fill_metadata_exception_handling(
@@ -1329,7 +1464,7 @@ class TestEdgeCasesAndErrors:
         mock_db_client.get_order_for_update.side_effect = RuntimeError("Database error")
 
         # Should not raise exception
-        reconciliation_service._backfill_fill_metadata("client-123", broker_order)
+        backfill_fill_metadata("client-123", broker_order, mock_db_client)
 
     def test_calculate_synthetic_fill_invalid_qty(self, reconciliation_service):
         """Should handle invalid fill quantities gracefully."""
@@ -1338,7 +1473,7 @@ class TestEdgeCasesAndErrors:
         ]
 
         # Should handle ValueError from Decimal conversion
-        fill_data = reconciliation_service._calculate_synthetic_fill(
+        fill_data = calculate_synthetic_fill(
             client_order_id="client-123",
             filled_qty=Decimal("100"),
             filled_avg_price=Decimal("150.50"),

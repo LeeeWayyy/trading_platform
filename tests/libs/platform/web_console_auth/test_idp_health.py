@@ -168,7 +168,5 @@ def test_should_check_now_respects_intervals() -> None:
     checker._last_check = datetime.now(UTC)
     assert checker.should_check_now() is False
 
-    checker._last_check = datetime.now(UTC) - checker.fallback_check_interval - timedelta(
-        seconds=1
-    )
+    checker._last_check = datetime.now(UTC) - checker.fallback_check_interval - timedelta(seconds=1)
     assert checker.should_check_now() is True

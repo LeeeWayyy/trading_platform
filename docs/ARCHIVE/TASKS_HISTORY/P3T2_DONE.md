@@ -10,7 +10,7 @@ created: 2025-11-30
 dependencies: ["P3T1"]
 estimated_effort: "2-3 days"
 related_adrs: []
-related_docs: ["P3_PLANNING.md", "P3_ISSUES.md"]
+related_docs: ["P3_PLANNING_DONE.md", "P3_ISSUES_DONE.md"]
 features: ["T2.1-Security", "T2.2-TradingSafety", "T2.3-DataIntegrity", "T2.4-APIContracts"]
 ---
 
@@ -164,11 +164,11 @@ Fix 8 critical issues identified by triple-reviewer analysis (Claude, Gemini, Co
 ## Related
 
 **Planning:**
-- [P3_PLANNING.md](./P3_PLANNING.md) - Phase 3 planning
-- [P3_ISSUES.md](./P3_ISSUES.md) - Full issue list
+- [P3_PLANNING_DONE.md](./P3_PLANNING_DONE.md) - Phase 3 planning
+- [P3_ISSUES_DONE.md](./P3_ISSUES_DONE.md) - Full issue list
 
 **Tasks:**
-- Depends on: [P3T1](./P3T1_TASK.md) ✅
+- Depends on: [P3T1](./P3T1_DONE.md) ✅
 - Blocks: P3T3 (High Priority Fixes)
 
 ---

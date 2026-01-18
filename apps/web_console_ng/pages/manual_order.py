@@ -115,8 +115,12 @@ async def manual_order_page(client: Client) -> None:
             validation={"Min 10 characters": lambda v: bool(v and len(v.strip()) >= 10)},
         ).classes("w-full mb-4")
 
-        submit_btn = ui.button("Preview Order", color="primary").classes("w-full").props(
-            "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
+        submit_btn = (
+            ui.button("Preview Order", color="primary")
+            .classes("w-full")
+            .props(
+                "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
+            )
         )
 
     def is_read_only_mode() -> bool:
@@ -142,9 +146,7 @@ async def manual_order_page(client: Client) -> None:
 
         # Blocking API check for confirmation or when cache unavailable
         try:
-            ks_status = await trading_client.fetch_kill_switch_status(
-                user_id, role=user_role
-            )
+            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
             state = str(ks_status.get("state", "")).upper()
             if state == "ENGAGED":
                 ui.notify("Cannot submit: Kill Switch is ENGAGED", type="negative")
@@ -163,7 +165,9 @@ async def manual_order_page(client: Client) -> None:
                 "kill_switch_check_failed",
                 extra={"user_id": user_id, "status": exc.response.status_code},
             )
-            ui.notify(f"Cannot verify kill switch: HTTP {exc.response.status_code}", type="negative")
+            ui.notify(
+                f"Cannot verify kill switch: HTTP {exc.response.status_code}", type="negative"
+            )
             return False
         except httpx.RequestError as exc:
             logger.warning(
@@ -251,10 +255,13 @@ async def manual_order_page(client: Client) -> None:
                 ui.label(f"Type: {order_data['order_type'].upper()}").classes("font-mono")
                 if "limit_price" in order_data:
                     ui.label(f"Limit Price: ${order_data['limit_price']:.2f}").classes("font-mono")
-                ui.label(f"Time in Force: {order_data['time_in_force'].upper()}").classes("font-mono")
+                ui.label(f"Time in Force: {order_data['time_in_force'].upper()}").classes(
+                    "font-mono"
+                )
                 ui.label(f"Reason: {reason}").classes("text-gray-600 text-sm")
 
             with ui.row().classes("gap-4 justify-end"):
+
                 async def confirm_order() -> None:
                     nonlocal submitting
                     if submitting:
@@ -322,7 +329,11 @@ async def manual_order_page(client: Client) -> None:
                         error_detail = ""
                         try:
                             payload = exc.response.json()
-                            detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
+                            detail = (
+                                payload.get("detail", payload)
+                                if isinstance(payload, dict)
+                                else payload
+                            )
                             if isinstance(detail, dict):
                                 error_detail = detail.get("message") or detail.get("error") or ""
                         except (ValueError, TypeError):

@@ -53,15 +53,13 @@ class TestNormalizeHelpers:
         assert service._normalize_config(None) == {}
         assert service._normalize_config("not-json") == {}
         assert service._normalize_config({"cron": "* * * * *"}) == {"cron": "* * * * *"}
-        assert service._normalize_config("{\"cron\": \"* * * * *\"}") == {
-            "cron": "* * * * *"
-        }
+        assert service._normalize_config('{"cron": "* * * * *"}') == {"cron": "* * * * *"}
 
     def test_parse_json_list(self, mock_db_pool: Mock, viewer_user: dict[str, Any]) -> None:
         service = ScheduledReportsService(mock_db_pool, viewer_user)
         assert service._parse_json_list(None) == []
         assert service._parse_json_list(["a"]) == ["a"]
-        assert service._parse_json_list("[\"x\", \"y\"]") == ["x", "y"]
+        assert service._parse_json_list('["x", "y"]') == ["x", "y"]
         assert service._parse_json_list("not-json") == []
 
 
@@ -117,12 +115,15 @@ class TestListSchedules:
         mock_cursor.fetchall = AsyncMock(return_value=[row])
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             schedules = await service.list_schedules()
 
@@ -154,12 +155,15 @@ class TestCreateUpdateDelete:
         mock_cursor.fetchone = AsyncMock(return_value=row)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             schedule = await service.create_schedule(
                 name="Daily",
@@ -199,12 +203,15 @@ class TestCreateUpdateDelete:
         mock_cursor.fetchone = AsyncMock(side_effect=[existing, updated])
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             schedule = await service.update_schedule(
                 "sched-1",
@@ -222,12 +229,15 @@ class TestCreateUpdateDelete:
         mock_cursor.rowcount = 1
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             deleted = await service.delete_schedule("sched-1")
 
@@ -236,19 +246,24 @@ class TestCreateUpdateDelete:
 
 class TestRunHistory:
     @pytest.mark.asyncio()
-    async def test_get_run_history_not_owned(self, mock_db_pool: Mock, viewer_user: dict[str, Any]) -> None:
+    async def test_get_run_history_not_owned(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
         service = ScheduledReportsService(mock_db_pool, viewer_user)
 
         mock_cursor = AsyncMock()
         mock_cursor.fetchone = AsyncMock(return_value=None)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             runs = await service.get_run_history("sched-1")
 
@@ -278,12 +293,15 @@ class TestRunHistory:
         )
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
         ):
             runs = await service.get_run_history("sched-1")
 
@@ -303,7 +321,9 @@ class TestTradingDataFetch:
         assert "Trading client not configured" in errors[0]
 
     @pytest.mark.asyncio()
-    async def test_fetch_trading_data_error(self, mock_db_pool: Mock, viewer_user: dict[str, Any]) -> None:
+    async def test_fetch_trading_data_error(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
         async def _raise() -> None:
             raise ConnectionError("down")
 
@@ -339,16 +359,21 @@ class TestRunNow:
         mock_cursor.fetchone = AsyncMock(return_value=schedule_row)
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.uuid4",
-            return_value=Mock(hex="abc123"),
-        ), patch.dict(os.environ, {"REPORT_OUTPUT_DIR": str(tmp_path)}):
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.uuid4",
+                return_value=Mock(hex="abc123"),
+            ),
+            patch.dict(os.environ, {"REPORT_OUTPUT_DIR": str(tmp_path)}),
+        ):
             report_run = await service.run_now("sched-1")
 
         assert isinstance(report_run, ReportRun)
@@ -371,27 +396,32 @@ class TestDownloadArchive:
         )
         mock_conn = _mock_cursor_conn(mock_cursor)
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch(
-            "libs.web_console_services.scheduled_reports_service.acquire_connection",
-            return_value=_mock_acquire_connection(mock_conn),
-        ), patch.dict(os.environ, {"REPORT_OUTPUT_DIR": str(tmp_path)}):
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.scheduled_reports_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+            patch.dict(os.environ, {"REPORT_OUTPUT_DIR": str(tmp_path)}),
+        ):
             result = await service.download_archive("run-1")
 
         assert result == file_path
 
     @pytest.mark.asyncio()
-    async def test_download_archive_missing_user(
-        self, mock_db_pool: Mock, tmp_path: Path
-    ) -> None:
+    async def test_download_archive_missing_user(self, mock_db_pool: Mock, tmp_path: Path) -> None:
         service = ScheduledReportsService(mock_db_pool, {"role": "viewer"})
 
-        with patch(
-            "libs.web_console_services.scheduled_reports_service.has_permission",
-            return_value=True,
-        ), patch.dict(os.environ, {"REPORT_OUTPUT_DIR": str(tmp_path)}):
+        with (
+            patch(
+                "libs.web_console_services.scheduled_reports_service.has_permission",
+                return_value=True,
+            ),
+            patch.dict(os.environ, {"REPORT_OUTPUT_DIR": str(tmp_path)}),
+        ):
             result = await service.download_archive("run-1")
 
         assert result is None

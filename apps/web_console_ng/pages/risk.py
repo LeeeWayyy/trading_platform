@@ -139,14 +139,16 @@ async def risk_dashboard(client: Client) -> None:
             data = await service.get_risk_dashboard_data()
 
             risk_data.clear()
-            risk_data.update({
-                "risk_metrics": data.risk_metrics,
-                "factor_exposures": data.factor_exposures,
-                "stress_tests": data.stress_tests,
-                "var_history": data.var_history,
-                "is_placeholder": data.is_placeholder,
-                "placeholder_reason": data.placeholder_reason,
-            })
+            risk_data.update(
+                {
+                    "risk_metrics": data.risk_metrics,
+                    "factor_exposures": data.factor_exposures,
+                    "stress_tests": data.stress_tests,
+                    "var_history": data.var_history,
+                    "is_placeholder": data.is_placeholder,
+                    "placeholder_reason": data.placeholder_reason,
+                }
+            )
             error_state = None  # Clear error on success
             prev_error_state = None
         except PermissionError as e:

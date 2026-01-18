@@ -142,16 +142,12 @@ async def notebook_launcher_page() -> None:
             exc_info=True,
         )
         with ui.card().classes("w-full p-6"):
-            ui.label(f"Failed to load notebook templates: {e}").classes(
-                "text-red-500 text-center"
-            )
+            ui.label(f"Failed to load notebook templates: {e}").classes("text-red-500 text-center")
         return
 
     if not templates:
         with ui.card().classes("w-full p-6"):
-            ui.label("No notebook templates available.").classes(
-                "text-gray-500 text-center"
-            )
+            ui.label("No notebook templates available.").classes("text-gray-500 text-center")
         return
 
     await _render_notebook_launcher(service, templates, user_id, session_store)
@@ -194,9 +190,9 @@ async def _render_notebook_launcher(
         ).classes("w-full max-w-md")
 
         # Template description
-        desc_label = ui.label(
-            templates[0].description if templates else ""
-        ).classes("text-gray-600 text-sm mt-2")
+        desc_label = ui.label(templates[0].description if templates else "").classes(
+            "text-gray-600 text-sm mt-2"
+        )
 
         def update_description() -> None:
             selected_id = template_select.value
@@ -283,22 +279,18 @@ async def _render_notebook_launcher(
         try:
             from libs.web_console_services.notebook_launcher_service import SessionStatus
 
-            session = await run.io_bound(
-                service.create_notebook, selected_id, parameters
-            )
+            session = await run.io_bound(service.create_notebook, selected_id, parameters)
             # Persist session changes to Redis for multi-worker consistency
             await run.io_bound(_save_redis_session_store, user_id, session_store)
 
             result_container.clear()
             with result_container:
                 if session.status == SessionStatus.ERROR:
-                    ui.label(
-                        session.error_message or "Notebook launch failed."
-                    ).classes("text-red-500 p-2")
-                else:
-                    ui.label("Notebook session started successfully!").classes(
-                        "text-green-600 p-2"
+                    ui.label(session.error_message or "Notebook launch failed.").classes(
+                        "text-red-500 p-2"
                     )
+                else:
+                    ui.label("Notebook session started successfully!").classes("text-green-600 p-2")
                     if session.access_url:
                         with ui.row().classes("items-center gap-2"):
                             ui.label("Access URL:").classes("font-medium")
@@ -318,7 +310,12 @@ async def _render_notebook_launcher(
         except ValueError as e:
             logger.error(
                 "Failed to launch notebook - invalid parameters",
-                extra={"error": str(e), "template_id": selected_id, "parameters": parameters, "page": "notebook_launcher"},
+                extra={
+                    "error": str(e),
+                    "template_id": selected_id,
+                    "parameters": parameters,
+                    "page": "notebook_launcher",
+                },
                 exc_info=True,
             )
             result_container.clear()
@@ -334,9 +331,7 @@ async def _render_notebook_launcher(
             )
             result_container.clear()
             with result_container:
-                ui.label(f"Failed to launch notebook: {e}").classes(
-                    "text-red-500 p-2"
-                )
+                ui.label(f"Failed to launch notebook: {e}").classes("text-red-500 p-2")
 
     launch_btn.on_click(launch_notebook)
 
@@ -360,9 +355,7 @@ async def _render_active_sessions(
             sessions_container.clear()
 
             try:
-                sessions = await run.io_bound(
-                    service.list_sessions, include_stopped=False
-                )
+                sessions = await run.io_bound(service.list_sessions, include_stopped=False)
             except FileNotFoundError as e:
                 logger.error(
                     "Failed to load sessions - session store not found",
@@ -381,9 +374,7 @@ async def _render_active_sessions(
                     exc_info=True,
                 )
                 with sessions_container:
-                    ui.label(f"Failed to load sessions: {e}").classes(
-                        "text-red-500 p-2"
-                    )
+                    ui.label(f"Failed to load sessions: {e}").classes("text-red-500 p-2")
                 return
 
             with sessions_container:
@@ -401,19 +392,24 @@ async def _render_active_sessions(
 
                 rows = []
                 for s in sessions:
-                    rows.append({
-                        "session_id": s.session_id[:8] + "...",
-                        "template": s.template_id,
-                        "status": s.status.value if hasattr(s.status, "value") else str(s.status),
-                        "started": str(s.created_at)[:19] if s.created_at else "-",
-                        "url": s.access_url or "-",
-                    })
+                    rows.append(
+                        {
+                            "session_id": s.session_id[:8] + "...",
+                            "template": s.template_id,
+                            "status": (
+                                s.status.value if hasattr(s.status, "value") else str(s.status)
+                            ),
+                            "started": str(s.created_at)[:19] if s.created_at else "-",
+                            "url": s.access_url or "-",
+                        }
+                    )
 
                 ui.table(columns=columns, rows=rows).classes("w-full")
 
                 # Terminate buttons
                 ui.label("Terminate a session:").classes("text-sm mt-4 mb-2")
                 for s in sessions:
+
                     async def terminate(session_id: str = s.session_id) -> None:
                         try:
                             await run.io_bound(service.terminate_session, session_id)
@@ -424,14 +420,22 @@ async def _render_active_sessions(
                         except FileNotFoundError as e:
                             logger.error(
                                 "Failed to terminate session - session not found",
-                                extra={"error": str(e), "session_id": session_id, "page": "notebook_launcher"},
+                                extra={
+                                    "error": str(e),
+                                    "session_id": session_id,
+                                    "page": "notebook_launcher",
+                                },
                                 exc_info=True,
                             )
                             ui.notify("Session not found.", type="negative")
                         except Exception as e:
                             logger.error(
                                 "Failed to terminate session",
-                                extra={"error": str(e), "session_id": session_id, "page": "notebook_launcher"},
+                                extra={
+                                    "error": str(e),
+                                    "session_id": session_id,
+                                    "page": "notebook_launcher",
+                                },
                                 exc_info=True,
                             )
                             ui.notify(f"Failed to terminate: {e}", type="negative")
@@ -457,9 +461,7 @@ def _render_demo_mode() -> None:
     with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("info", color="amber-700")
-            ui.label(
-                "Demo Mode: Notebook service unavailable."
-            ).classes("text-amber-700")
+            ui.label("Demo Mode: Notebook service unavailable.").classes("text-amber-700")
 
     with ui.card().classes("w-full mb-4 p-4"):
         ui.label("Select Template").classes("text-lg font-bold mb-2")

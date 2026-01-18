@@ -171,7 +171,9 @@ class TestAtomicWriteExceptionHandling:
         path = cache.cache_dir / "test.parquet"
 
         # Mock df.write_parquet to raise ComputeError
-        with patch.object(pl.DataFrame, "write_parquet", side_effect=pl.ComputeError("Write error")):
+        with patch.object(
+            pl.DataFrame, "write_parquet", side_effect=pl.ComputeError("Write error")
+        ):
             with pytest.raises(pl.ComputeError, match="Write error"):
                 cache._atomic_write_parquet(path, df)
 
@@ -192,9 +194,7 @@ class TestIndexUpdateExceptionHandling:
             return pl.DataFrame({"a": [1, 2, 3]})
 
         # Mock _update_index to raise sqlite3.Error
-        with patch.object(
-            cache, "_update_index", side_effect=sqlite3.Error("Database locked")
-        ):
+        with patch.object(cache, "_update_index", side_effect=sqlite3.Error("Database locked")):
             with pytest.raises(sqlite3.Error, match="Database locked"):
                 cache.get_or_compute(
                     factor_name="test_factor",

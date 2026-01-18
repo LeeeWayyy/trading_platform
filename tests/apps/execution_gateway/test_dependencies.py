@@ -164,4 +164,3 @@ async def test_test_config_override_async():
         assert app.state.config is config
 
     assert app.state.config == "original"
-

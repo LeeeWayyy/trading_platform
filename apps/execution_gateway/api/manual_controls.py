@@ -178,7 +178,9 @@ async def _check_circuit_breaker(
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=error_detail("circuit_breaker_tripped", "Trading blocked: circuit breaker active"),
+            detail=error_detail(
+                "circuit_breaker_tripped", "Trading blocked: circuit breaker active"
+            ),
         )
 
 

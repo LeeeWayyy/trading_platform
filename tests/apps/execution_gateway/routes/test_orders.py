@@ -133,10 +133,13 @@ class TestSubmitOrder:
             "time_in_force": "day",
         }
 
-        with patch("apps.execution_gateway.routes.orders.generate_client_order_id") as gen_id, patch(
-            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
-            new_callable=AsyncMock,
-        ) as resolve_context:
+        with (
+            patch("apps.execution_gateway.routes.orders.generate_client_order_id") as gen_id,
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new_callable=AsyncMock,
+            ) as resolve_context,
+        ):
             gen_id.return_value = "client-123"
             resolve_context.return_value = (Decimal("100"), 1000000)
 
@@ -191,10 +194,13 @@ class TestSubmitOrder:
             "time_in_force": "day",
         }
 
-        with patch("apps.execution_gateway.routes.orders.generate_client_order_id") as gen_id, patch(
-            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
-            new_callable=AsyncMock,
-        ) as resolve_context:
+        with (
+            patch("apps.execution_gateway.routes.orders.generate_client_order_id") as gen_id,
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new_callable=AsyncMock,
+            ) as resolve_context,
+        ):
             gen_id.return_value = "client-456"
             resolve_context.return_value = (Decimal("100"), 1000000)
 

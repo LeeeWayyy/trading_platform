@@ -197,7 +197,9 @@ def test_record_state_save_error():
 
     # Verify label was sanitized
     samples = metrics_module.state_save_errors_total.collect()[0].samples
-    reasons = [s.labels.get("reason", "") for s in samples if s.labels.get("pod") == config.POD_NAME]
+    reasons = [
+        s.labels.get("reason", "") for s in samples if s.labels.get("pod") == config.POD_NAME
+    ]
     assert any("connection_timeout" in r for r in reasons)
 
 
@@ -585,7 +587,9 @@ def test_record_auth_failure_different_types():
     metrics_module.record_auth_failure("sso", "redirect_error")
 
     samples = metrics_module.auth_failures_total.collect()[0].samples
-    auth_types = {s.labels.get("auth_type", "") for s in samples if s.labels.get("pod") == config.POD_NAME}
+    auth_types = {
+        s.labels.get("auth_type", "") for s in samples if s.labels.get("pod") == config.POD_NAME
+    }
 
     assert "password" in auth_types
     assert "mfa" in auth_types

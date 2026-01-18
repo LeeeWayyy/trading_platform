@@ -18,7 +18,9 @@ from tests.apps.web_console_ng.pages.ui_test_utils import DummyUI
 
 class DummyHealthService:
     async def get_all_services_status(self):
-        return {"svc": SimpleNamespace(status="healthy", checked_at=datetime.now(UTC), is_stale=False)}
+        return {
+            "svc": SimpleNamespace(status="healthy", checked_at=datetime.now(UTC), is_stale=False)
+        }
 
     async def get_connectivity(self):
         return SimpleNamespace(redis_connected=True, postgres_connected=True, is_stale=False)
@@ -53,7 +55,9 @@ def test_get_health_service_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     dummy_prom_module = SimpleNamespace(PrometheusClient=lambda *_args, **_kwargs: object())
     dummy_redis_module = SimpleNamespace(RedisClient=lambda **_kwargs: object())
 
-    monkeypatch.setitem(sys.modules, "libs.web_console_services.health_service", dummy_service_module)
+    monkeypatch.setitem(
+        sys.modules, "libs.web_console_services.health_service", dummy_service_module
+    )
     monkeypatch.setitem(sys.modules, "libs.core.health.health_client", dummy_health_client_module)
     monkeypatch.setitem(sys.modules, "libs.core.health.prometheus_client", dummy_prom_module)
     monkeypatch.setitem(sys.modules, "libs.core.redis_client", dummy_redis_module)

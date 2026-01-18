@@ -352,14 +352,19 @@ class TestAlpacaExecutorInitialization:
             patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient") as mock_data,
         ):
             executor = AlpacaExecutor(
-                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets", paper=True
+                api_key="test_key",
+                secret_key="test_secret",
+                base_url="https://paper-api.alpaca.markets",
+                paper=True,
             )
 
             assert executor.api_key == "test_key"
             assert executor.secret_key == "test_secret"
             assert executor.paper is True
             assert executor.base_url == "https://paper-api.alpaca.markets"
-            mock_trading.assert_called_once_with(api_key="test_key", secret_key="test_secret", paper=True)
+            mock_trading.assert_called_once_with(
+                api_key="test_key", secret_key="test_secret", paper=True
+            )
             mock_data.assert_called_once_with(api_key="test_key", secret_key="test_secret")
 
 
@@ -400,7 +405,9 @@ class TestOrderSubmissionRetryLogic:
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
 
         with patch("apps.execution_gateway.alpaca_client.AlpacaAPIError", MockAPIError):
-            mock_executor.client.submit_order = Mock(side_effect=MockAPIError(400, "Invalid symbol"))
+            mock_executor.client.submit_order = Mock(
+                side_effect=MockAPIError(400, "Invalid symbol")
+            )
 
             with pytest.raises(AlpacaValidationError, match="Invalid order"):
                 mock_executor.submit_order(order_request, "client_123")
@@ -420,7 +427,9 @@ class TestOrderSubmissionRetryLogic:
 
         with patch("apps.execution_gateway.alpaca_client.AlpacaAPIError", MockAPIError):
             # Test 422 - Unprocessable entity
-            mock_executor.client.submit_order = Mock(side_effect=MockAPIError(422, "Insufficient funds"))
+            mock_executor.client.submit_order = Mock(
+                side_effect=MockAPIError(422, "Insufficient funds")
+            )
 
             with pytest.raises(AlpacaRejectionError, match="Order rejected"):
                 mock_executor.submit_order(order_request, "client_123")
@@ -428,7 +437,9 @@ class TestOrderSubmissionRetryLogic:
             assert mock_executor.client.submit_order.call_count == 1
 
             # Test 403 - Forbidden
-            mock_executor.client.submit_order = Mock(side_effect=MockAPIError(403, "Account suspended"))
+            mock_executor.client.submit_order = Mock(
+                side_effect=MockAPIError(403, "Account suspended")
+            )
 
             with pytest.raises(AlpacaRejectionError, match="Order rejected"):
                 mock_executor.submit_order(order_request, "client_123")
@@ -543,7 +554,11 @@ class TestBuildAlpacaRequest:
 
         # Missing limit_price
         order = OrderRequest(
-            symbol="AAPL", side="sell", qty=10, order_type="stop_limit", stop_price=Decimal("144.00")
+            symbol="AAPL",
+            side="sell",
+            qty=10,
+            order_type="stop_limit",
+            stop_price=Decimal("144.00"),
         )
         with pytest.raises(ValueError, match="Both limit_price and stop_price are required"):
             mock_executor._build_alpaca_request(order, "client_123")
@@ -700,7 +715,10 @@ class TestGetOrders:
         page1 = [mock_executor._mock_order_class(f"order_{i}", now) for i in range(5)]
 
         # Second page - less than limit (end of results)
-        page2 = [mock_executor._mock_order_class(f"order_{i}", now + timedelta(seconds=i)) for i in range(5, 7)]
+        page2 = [
+            mock_executor._mock_order_class(f"order_{i}", now + timedelta(seconds=i))
+            for i in range(5, 7)
+        ]
 
         mock_executor.client.get_orders = Mock(side_effect=[page1, page2])
 
@@ -1008,7 +1026,9 @@ class TestGetAccountActivities:
             patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient"),
         ):
             executor = AlpacaExecutor(
-                api_key="test_key", secret_key="test_secret", base_url="https://paper-api.alpaca.markets"
+                api_key="test_key",
+                secret_key="test_secret",
+                base_url="https://paper-api.alpaca.markets",
             )
             yield executor
 
@@ -1110,7 +1130,9 @@ class TestGetLatestQuotes:
         assert "MSFT" in result
         assert isinstance(result["AAPL"]["ask_price"], Decimal)
         assert isinstance(result["AAPL"]["bid_price"], Decimal)
-        assert result["AAPL"]["last_price"] == (Decimal("150.75") + Decimal("150.50")) / Decimal("2")
+        assert result["AAPL"]["last_price"] == (Decimal("150.75") + Decimal("150.50")) / Decimal(
+            "2"
+        )
 
     def test_get_latest_quotes_handles_missing_bid_ask(self, mock_executor):
         """Should handle None values for bid/ask prices."""

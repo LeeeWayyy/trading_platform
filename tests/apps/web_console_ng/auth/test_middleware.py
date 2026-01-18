@@ -71,14 +71,18 @@ def test_get_request_from_storage_falls_back_in_debug(
     assert request.url.path == "/"
 
 
-def test_validate_mtls_request_rejects_untrusted_ip(make_request: callable, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_mtls_request_rejects_untrusted_ip(
+    make_request: callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
     request = make_request(headers=[(b"x-ssl-client-verify", b"SUCCESS")])
     monkeypatch.setattr(middleware_module, "is_trusted_ip", lambda _ip: False)
 
     assert middleware_module._validate_mtls_request(request, {"client_dn": "CN=user"}) is False
 
 
-def test_validate_mtls_request_accepts_matching_dn(make_request: callable, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_mtls_request_accepts_matching_dn(
+    make_request: callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
     headers = [
         (b"x-ssl-client-verify", b"SUCCESS"),
         (b"x-ssl-client-dn", b"CN=user"),

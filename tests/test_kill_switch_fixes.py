@@ -117,6 +117,7 @@ def _setup_app_state():
     main.recovery_manager = original_recovery_manager
     main.app.dependency_overrides.clear()
 
+
 # Import after services are mocked
 # from apps.execution_gateway.main import app as execution_app
 # from apps.orchestrator.main import app as orchestrator_app

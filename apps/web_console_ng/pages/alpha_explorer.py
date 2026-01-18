@@ -99,12 +99,10 @@ async def alpha_explorer_page() -> None:
     # Feature flag check
     if not FEATURE_ALPHA_EXPLORER:
         with ui.card().classes("w-full p-6"):
-            ui.label("Alpha Explorer feature is disabled.").classes(
-                "text-gray-500 text-center"
+            ui.label("Alpha Explorer feature is disabled.").classes("text-gray-500 text-center")
+            ui.label("Set FEATURE_ALPHA_EXPLORER=true to enable this feature.").classes(
+                "text-gray-400 text-sm text-center"
             )
-            ui.label(
-                "Set FEATURE_ALPHA_EXPLORER=true to enable this feature."
-            ).classes("text-gray-400 text-sm text-center")
         return
 
     # Permission check
@@ -124,9 +122,9 @@ async def alpha_explorer_page() -> None:
         with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("info", color="amber-700")
-                ui.label(
-                    "Demo Mode: Service unavailable. Configure MODEL_REGISTRY_DIR."
-                ).classes("text-amber-700")
+                ui.label("Demo Mode: Service unavailable. Configure MODEL_REGISTRY_DIR.").classes(
+                    "text-amber-700"
+                )
 
         _render_demo_mode()
         return
@@ -196,9 +194,7 @@ async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, 
             ).classes("w-20")
 
             # Apply button
-            apply_btn = ui.button("Apply Filters", icon="filter_list").classes(
-                "self-end"
-            )
+            apply_btn = ui.button("Apply Filters", icon="filter_list").classes("self-end")
 
     # Results container
     results_container = ui.column().classes("w-full")
@@ -211,9 +207,7 @@ async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, 
         with results_container:
             # Fetch signals
             status_value = status_select.value
-            status_filter = (
-                ModelStatus(status_value) if status_value != "All" else None
-            )
+            status_filter = ModelStatus(status_value) if status_value != "All" else None
             min_ic = min_ic_input.value if min_ic_input.value > 0 else None
             max_ic = max_ic_input.value if max_ic_input.value < 1 else None
             page_size = min(int(page_size_select.value), MAX_PAGE_SIZE)
@@ -239,11 +233,15 @@ async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, 
             except ValueError as e:
                 logger.error(
                     "Failed to fetch signals - invalid filter parameters",
-                    extra={"error": str(e), "page": "alpha_explorer", "filters": {
-                        "status": status_filter,
-                        "min_ic": min_ic,
-                        "max_ic": max_ic,
-                    }},
+                    extra={
+                        "error": str(e),
+                        "page": "alpha_explorer",
+                        "filters": {
+                            "status": status_filter,
+                            "min_ic": min_ic,
+                            "max_ic": max_ic,
+                        },
+                    },
                     exc_info=True,
                 )
                 ui.notify("Invalid filter parameters. Please adjust your filters.", type="negative")
@@ -257,14 +255,10 @@ async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, 
                 ui.notify("Failed to fetch signals. Please try again.", type="negative")
                 signals, total = [], 0
 
-            ui.label(f"Showing {len(signals)} of {total} signals").classes(
-                "text-gray-600 mb-2"
-            )
+            ui.label(f"Showing {len(signals)} of {total} signals").classes("text-gray-600 mb-2")
 
             if not signals:
-                ui.label("No signals found matching filters.").classes(
-                    "text-gray-500 p-4"
-                )
+                ui.label("No signals found matching filters.").classes("text-gray-500 p-4")
                 return
 
             # Signal selector
@@ -392,9 +386,7 @@ async def _render_signal_details(
                     f"alpha_signal_{metrics.signal_id}_metrics.csv",
                 )
 
-            ui.button("Export Metrics", icon="download", on_click=export_metrics).classes(
-                "w-full"
-            )
+            ui.button("Export Metrics", icon="download", on_click=export_metrics).classes("w-full")
 
     ui.separator().classes("my-4")
 
@@ -407,56 +399,76 @@ async def _render_signal_details(
     with ui.tab_panels(tabs, value=tab_ic).classes("w-full"):
         with ui.tab_panel(tab_ic):
             try:
-                ic_data = await run.io_bound(
-                    service.get_ic_timeseries, selected.signal_id
-                )
+                ic_data = await run.io_bound(service.get_ic_timeseries, selected.signal_id)
                 render_ic_chart(ic_data)
             except FileNotFoundError as e:
                 logger.error(
                     "Failed to fetch IC data - data file not found",
-                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    extra={
+                        "error": str(e),
+                        "signal_id": selected.signal_id,
+                        "page": "alpha_explorer",
+                    },
                     exc_info=True,
                 )
                 ui.label("IC data not found for this signal.").classes("text-red-500 p-4")
             except ValueError as e:
                 logger.error(
                     "Failed to fetch IC data - invalid data format",
-                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    extra={
+                        "error": str(e),
+                        "signal_id": selected.signal_id,
+                        "page": "alpha_explorer",
+                    },
                     exc_info=True,
                 )
                 ui.label("Invalid IC data format.").classes("text-red-500 p-4")
             except Exception as e:
                 logger.error(
                     "Failed to fetch IC data",
-                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    extra={
+                        "error": str(e),
+                        "signal_id": selected.signal_id,
+                        "page": "alpha_explorer",
+                    },
                     exc_info=True,
                 )
                 ui.label("Failed to load IC data.").classes("text-red-500 p-4")
 
         with ui.tab_panel(tab_decay):
             try:
-                decay_data = await run.io_bound(
-                    service.get_decay_curve, selected.signal_id
-                )
+                decay_data = await run.io_bound(service.get_decay_curve, selected.signal_id)
                 render_decay_curve(decay_data, metrics.decay_half_life)
             except FileNotFoundError as e:
                 logger.error(
                     "Failed to fetch decay data - data file not found",
-                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    extra={
+                        "error": str(e),
+                        "signal_id": selected.signal_id,
+                        "page": "alpha_explorer",
+                    },
                     exc_info=True,
                 )
                 ui.label("Decay data not found for this signal.").classes("text-red-500 p-4")
             except ValueError as e:
                 logger.error(
                     "Failed to fetch decay data - invalid data format",
-                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    extra={
+                        "error": str(e),
+                        "signal_id": selected.signal_id,
+                        "page": "alpha_explorer",
+                    },
                     exc_info=True,
                 )
                 ui.label("Invalid decay data format.").classes("text-red-500 p-4")
             except Exception as e:
                 logger.error(
                     "Failed to fetch decay data",
-                    extra={"error": str(e), "signal_id": selected.signal_id, "page": "alpha_explorer"},
+                    extra={
+                        "error": str(e),
+                        "signal_id": selected.signal_id,
+                        "page": "alpha_explorer",
+                    },
                     exc_info=True,
                 )
                 ui.label("Failed to load decay data.").classes("text-red-500 p-4")
@@ -580,9 +592,7 @@ def _render_demo_mode() -> None:
             ui.button("Launch Backtest", icon="play_arrow").classes("w-full mb-2").props(
                 "color=primary disable"
             )
-            ui.button("Export Metrics", icon="download").classes("w-full").props(
-                "disable"
-            )
+            ui.button("Export Metrics", icon="download").classes("w-full").props("disable")
 
     ui.label("Configure MODEL_REGISTRY_DIR to view real signals.").classes(
         "text-gray-500 text-center mt-4"

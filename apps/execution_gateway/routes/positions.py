@@ -167,7 +167,9 @@ async def get_positions(
 # =============================================================================
 
 
-@router.get("/api/v1/performance/daily", response_model=DailyPerformanceResponse, tags=["Performance"])
+@router.get(
+    "/api/v1/performance/daily", response_model=DailyPerformanceResponse, tags=["Performance"]
+)
 @require_permission(Permission.VIEW_PNL)
 async def get_daily_performance(
     request: Request,
@@ -287,7 +289,9 @@ async def get_daily_performance(
 # =============================================================================
 
 
-@router.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
+@router.get(
+    "/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"]
+)
 @require_permission(Permission.VIEW_PNL)
 async def get_realtime_pnl(
     user: dict[str, Any] = Depends(build_user_context),
@@ -479,7 +483,9 @@ async def get_market_prices(
     """
     # user is the context dict from build_user_context, extract actual user object
     authorized_strategies = get_authorized_strategies(user.get("user"))
-    if not authorized_strategies and not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
+    if not authorized_strategies and not has_permission(
+        user.get("user"), Permission.VIEW_ALL_STRATEGIES
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
 
     if has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):

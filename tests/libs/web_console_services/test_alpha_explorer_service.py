@@ -157,9 +157,10 @@ def test_get_signal_metrics_without_backtest_defaults(registry: Mock) -> None:
     registry.get_model_by_id.return_value = metadata
 
     service = AlphaExplorerService(registry)
-    with patch.object(service, "_load_backtest_result", return_value=None), patch(
-        "libs.web_console_services.alpha_explorer_service.date"
-    ) as date_mock:
+    with (
+        patch.object(service, "_load_backtest_result", return_value=None),
+        patch("libs.web_console_services.alpha_explorer_service.date") as date_mock,
+    ):
         date_mock.today.return_value = date(2025, 1, 15)
         metrics = service.get_signal_metrics("alpha-1")
 
@@ -298,7 +299,11 @@ def test_load_backtest_result_storage_error_returns_none(registry: Mock) -> None
     storage_instance = Mock()
     storage_instance.get_result.side_effect = OSError("db down")
 
-    with patch("libs.core.common.sync_db_pool.get_sync_db_pool", return_value=Mock()), patch(
-        "libs.trading.backtest.result_storage.BacktestResultStorage", return_value=storage_instance
+    with (
+        patch("libs.core.common.sync_db_pool.get_sync_db_pool", return_value=Mock()),
+        patch(
+            "libs.trading.backtest.result_storage.BacktestResultStorage",
+            return_value=storage_instance,
+        ),
     ):
         assert service._load_backtest_result(metadata) is None

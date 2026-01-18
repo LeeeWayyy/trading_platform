@@ -156,7 +156,9 @@ def _install_dummy_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[_DummyApp, 
         return None
 
     connection_events_module.setup_connection_handlers = _setup_connection_handlers
-    monkeypatch.setitem(sys.modules, "apps.web_console_ng.core.connection_events", connection_events_module)
+    monkeypatch.setitem(
+        sys.modules, "apps.web_console_ng.core.connection_events", connection_events_module
+    )
 
     database_module = ModuleType("apps.web_console_ng.core.database")
     pool = _DummyPool()
@@ -216,7 +218,9 @@ def _install_dummy_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[_DummyApp, 
     auth_parent.routes = auth_routes_module
     auth_parent.logout = auth_logout_module
     monkeypatch.setitem(sys.modules, "apps.web_console_ng.auth", auth_parent)
-    monkeypatch.setitem(sys.modules, "apps.web_console_ng.pages", ModuleType("apps.web_console_ng.pages"))
+    monkeypatch.setitem(
+        sys.modules, "apps.web_console_ng.pages", ModuleType("apps.web_console_ng.pages")
+    )
 
     dependencies_module = ModuleType("apps.web_console_ng.core.dependencies")
     dependencies_module.close_sync_db_pool = lambda: None
@@ -463,7 +467,9 @@ async def test_shutdown_redis_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_log_unhandled_exception_logs_traceback(monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
+async def test_log_unhandled_exception_logs_traceback(
+    monkeypatch: pytest.MonkeyPatch, caplog: Any
+) -> None:
     """Test exception handler logs with full details."""
     import logging
 

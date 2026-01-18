@@ -96,7 +96,9 @@ async def test_create_and_get_session_round_trip(monkeypatch: pytest.MonkeyPatch
     data = _sample_session(fixed_now)
     await store.create_session("sess1", data)
 
-    session = await store.get_session("sess1", current_ip="192.168.1.10", current_user_agent="Mozilla/5.0")
+    session = await store.get_session(
+        "sess1", current_ip="192.168.1.10", current_user_agent="Mozilla/5.0"
+    )
 
     assert session is not None
     assert session.user_id == data.user_id
@@ -105,7 +107,9 @@ async def test_create_and_get_session_round_trip(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio()
-async def test_get_session_updates_activity_with_remaining_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_session_updates_activity_with_remaining_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     redis_client = FakeRedis()
     key = b"k" * 32
     store = RedisSessionStore(redis_client, encryption_key=key, absolute_timeout_hours=4)

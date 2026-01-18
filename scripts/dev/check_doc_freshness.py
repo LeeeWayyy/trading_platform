@@ -582,7 +582,9 @@ def main() -> int:
         repo_report["stale"] = False
     else:
         repo_doc_ts = datetime.fromisoformat(repo_report["last_doc_update"].replace("Z", "+00:00"))
-        repo_source_ts = datetime.fromisoformat(repo_report["last_source_change"].replace("Z", "+00:00"))
+        repo_source_ts = datetime.fromisoformat(
+            repo_report["last_source_change"].replace("Z", "+00:00")
+        )
         repo_stale_days = _days_between(repo_doc_ts, repo_source_ts)
         if repo_stale_days > 7:
             exit_code |= 8
@@ -608,8 +610,12 @@ def main() -> int:
         if _is_path_dirty(ARCH_CONFIG_PATH):
             arch_report["stale"] = False
         elif arch_report["stale"]:
-            arch_doc_ts = datetime.fromisoformat(arch_report["last_doc_update"].replace("Z", "+00:00"))
-            arch_source_ts = datetime.fromisoformat(arch_report["last_source_change"].replace("Z", "+00:00"))
+            arch_doc_ts = datetime.fromisoformat(
+                arch_report["last_doc_update"].replace("Z", "+00:00")
+            )
+            arch_source_ts = datetime.fromisoformat(
+                arch_report["last_source_change"].replace("Z", "+00:00")
+            )
             arch_stale_days = _days_between(arch_doc_ts, arch_source_ts)
             if arch_stale_days > 1:
                 exit_code |= 32
@@ -657,8 +663,12 @@ def main() -> int:
             if _is_path_dirty(spec_file):
                 report["stale"] = False
             elif report["stale"]:
-                spec_doc_ts = datetime.fromisoformat(report["last_doc_update"].replace("Z", "+00:00"))
-                spec_source_ts = datetime.fromisoformat(report["last_source_change"].replace("Z", "+00:00"))
+                spec_doc_ts = datetime.fromisoformat(
+                    report["last_doc_update"].replace("Z", "+00:00")
+                )
+                spec_source_ts = datetime.fromisoformat(
+                    report["last_source_change"].replace("Z", "+00:00")
+                )
                 spec_stale_days = _days_between(spec_doc_ts, spec_source_ts)
                 if spec_stale_days > 1:
                     stale_specs.append(report["doc_path"])
@@ -708,9 +718,7 @@ def main() -> int:
 
     # Report file structure changes (files added/deleted/modified since spec update)
     specs_with_changes = [
-        r
-        for r in spec_reports
-        if r["files_added"] or r["files_deleted"] or r["files_modified"]
+        r for r in spec_reports if r["files_added"] or r["files_deleted"] or r["files_modified"]
     ]
     if specs_with_changes:
         print(f"\nERROR: Source files changed ({len(specs_with_changes)} specs affected):")

@@ -37,7 +37,10 @@ def test_refresh_rate_limited_returns_429(client: TestClient) -> None:
     handler.refresh_tokens = AsyncMock()
 
     with (
-        patch("apps.auth_service.routes.refresh.get_rate_limiters", return_value={"refresh": rate_limiter}),
+        patch(
+            "apps.auth_service.routes.refresh.get_rate_limiters",
+            return_value={"refresh": rate_limiter},
+        ),
         patch("apps.auth_service.routes.refresh.get_oauth2_handler", return_value=handler),
     ):
         response = client.post("/refresh", cookies={"session_id": "session_123"})
@@ -62,7 +65,10 @@ def test_refresh_uses_binding_validation_for_standard_requests(
     handler.refresh_tokens = AsyncMock(return_value=session_data)
 
     with (
-        patch("apps.auth_service.routes.refresh.get_rate_limiters", return_value={"refresh": rate_limiter}),
+        patch(
+            "apps.auth_service.routes.refresh.get_rate_limiters",
+            return_value={"refresh": rate_limiter},
+        ),
         patch("apps.auth_service.routes.refresh.get_oauth2_handler", return_value=handler),
     ):
         response = client.post(
@@ -84,7 +90,9 @@ def test_refresh_uses_binding_validation_for_standard_requests(
     )
 
 
-def test_refresh_internal_bypass_skips_binding(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_refresh_internal_bypass_skips_binding(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Internal refresh should skip binding when shared secret matches."""
     monkeypatch.setattr(refresh_module, "INTERNAL_REFRESH_SECRET", "shared-secret")
 
@@ -96,7 +104,10 @@ def test_refresh_internal_bypass_skips_binding(client: TestClient, monkeypatch: 
     handler.refresh_tokens = AsyncMock(return_value=session_data)
 
     with (
-        patch("apps.auth_service.routes.refresh.get_rate_limiters", return_value={"refresh": rate_limiter}),
+        patch(
+            "apps.auth_service.routes.refresh.get_rate_limiters",
+            return_value={"refresh": rate_limiter},
+        ),
         patch("apps.auth_service.routes.refresh.get_oauth2_handler", return_value=handler),
     ):
         response = client.post(
@@ -130,7 +141,10 @@ def test_refresh_invalid_internal_header_returns_401(
     handler.refresh_tokens = AsyncMock()
 
     with (
-        patch("apps.auth_service.routes.refresh.get_rate_limiters", return_value={"refresh": rate_limiter}),
+        patch(
+            "apps.auth_service.routes.refresh.get_rate_limiters",
+            return_value={"refresh": rate_limiter},
+        ),
         patch("apps.auth_service.routes.refresh.get_oauth2_handler", return_value=handler),
     ):
         response = client.post(

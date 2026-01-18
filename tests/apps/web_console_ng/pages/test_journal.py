@@ -67,11 +67,15 @@ class DummyUI:
         self.labels.append(text)
         return DummyElement(text=text)
 
-    def table(self, *, columns: list[dict[str, Any]], rows: list[dict[str, Any]], **kwargs) -> DummyElement:
+    def table(
+        self, *, columns: list[dict[str, Any]], rows: list[dict[str, Any]], **kwargs
+    ) -> DummyElement:
         self.tables.append({"columns": columns, "rows": rows})
         return DummyElement()
 
-    def button(self, text: str = "", icon: str | None = None, on_click=None, **kwargs) -> DummyElement:
+    def button(
+        self, text: str = "", icon: str | None = None, on_click=None, **kwargs
+    ) -> DummyElement:
         element = DummyElement(text=text)
         if on_click is not None:
             element.on_click(on_click)
@@ -143,8 +147,24 @@ async def test_render_trade_table_formats_naive_datetime(dummy_ui: DummyUI) -> N
 @pytest.mark.asyncio()
 async def test_export_csv_streams_rows() -> None:
     trades = [
-        {"executed_at": "2026-01-01", "symbol": "AAPL", "side": "buy", "qty": 1, "price": 10, "realized_pnl": 2, "strategy_id": "s1"},
-        {"executed_at": "2026-01-02", "symbol": "MSFT", "side": "sell", "qty": 2, "price": 20, "realized_pnl": -1, "strategy_id": "s2"},
+        {
+            "executed_at": "2026-01-01",
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 1,
+            "price": 10,
+            "realized_pnl": 2,
+            "strategy_id": "s1",
+        },
+        {
+            "executed_at": "2026-01-02",
+            "symbol": "MSFT",
+            "side": "sell",
+            "qty": 2,
+            "price": 20,
+            "realized_pnl": -1,
+            "strategy_id": "s2",
+        },
     ]
 
     class DummyAccess:

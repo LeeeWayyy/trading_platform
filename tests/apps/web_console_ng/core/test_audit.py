@@ -10,7 +10,9 @@ import pytest
 from apps.web_console_ng.core import audit as audit_module
 
 
-def test_audit_log_emits_expected_fields(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_audit_log_emits_expected_fields(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     fixed = datetime(2025, 1, 2, 3, 4, 5, tzinfo=UTC)
 
     class FakeDateTime:

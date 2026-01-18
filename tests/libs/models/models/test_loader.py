@@ -315,9 +315,7 @@ class TestModelGetters:
         assert version == "v2.0.0"
         mock_registry.get_current_production.assert_called_once_with(ModelType.risk_model.value)
 
-    def test_get_current_version_returns_none_when_no_production(
-        self, mock_registry: Mock
-    ) -> None:
+    def test_get_current_version_returns_none_when_no_production(self, mock_registry: Mock) -> None:
         """Test get_current_version returns None when no production version."""
         mock_registry.get_current_production = Mock(return_value=None)
 
@@ -628,9 +626,7 @@ class TestLoadFromRegistry:
             current_dataset_versions={"crsp": "v1.2.3"},
         )
 
-        with patch(
-            "libs.models.models.loader.compute_checksum", return_value="different_checksum"
-        ):
+        with patch("libs.models.models.loader.compute_checksum", return_value="different_checksum"):
             with pytest.raises(ChecksumMismatchError):
                 loader._load_from_registry(ModelType.risk_model.value, "v1.0.0")
 
@@ -864,9 +860,7 @@ class TestRecordSuccessAndFailure:
 
         assert result == last_good_model
 
-    def test_handle_load_failure_no_callback_still_trips_breaker(
-        self, mock_registry: Mock
-    ) -> None:
+    def test_handle_load_failure_no_callback_still_trips_breaker(self, mock_registry: Mock) -> None:
         """Test _handle_load_failure trips breaker even without callback."""
         loader = ProductionModelLoader(
             registry=mock_registry,
@@ -1049,7 +1043,9 @@ class TestPolling:
 class TestCacheManagement:
     """Tests for cache management methods."""
 
-    def test_clear_cache_all_entries(self, mock_registry: Mock, mock_metadata: ModelMetadata) -> None:
+    def test_clear_cache_all_entries(
+        self, mock_registry: Mock, mock_metadata: ModelMetadata
+    ) -> None:
         """Test clear_cache removes all entries when model_type is None."""
         loader = ProductionModelLoader(
             registry=mock_registry,

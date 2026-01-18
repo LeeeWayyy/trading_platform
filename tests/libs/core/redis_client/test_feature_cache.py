@@ -371,6 +371,8 @@ class TestFeatureCacheEndToEnd:
             mock_redis.get.return_value = json.dumps(features_map[date])
             result = cache.get("AAPL", date)
             assert result == features_map[date]
+
+
 """
 P0 Coverage Tests for FeatureCache - Additional branch coverage to reach 95%+ target.
 

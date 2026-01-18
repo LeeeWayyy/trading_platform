@@ -46,9 +46,9 @@ class _StubWorkspaceService:
 def _build_app(monkeypatch: pytest.MonkeyPatch, service: _StubWorkspaceService) -> FastAPI:
     app = FastAPI()
     app.include_router(workspace_api.router)
-    app.dependency_overrides[workspace_api.require_authenticated_user] = (
-        lambda: {"user_id": "user-1"}
-    )
+    app.dependency_overrides[workspace_api.require_authenticated_user] = lambda: {
+        "user_id": "user-1"
+    }
     monkeypatch.setattr(workspace_api, "get_workspace_service", lambda: service)
     return app
 

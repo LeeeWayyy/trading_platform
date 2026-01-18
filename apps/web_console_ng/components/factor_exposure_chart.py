@@ -160,9 +160,9 @@ def render_factor_exposure(
 
     # Show warning if canonical factors are missing (M-2 Fix)
     if missing_factors:
-        ui.label(
-            f"Data unavailable for: {', '.join(missing_factors)}"
-        ).classes("text-yellow-600 text-sm mt-2")
+        ui.label(f"Data unavailable for: {', '.join(missing_factors)}").classes(
+            "text-yellow-600 text-sm mt-2"
+        )
 
 
 __all__ = [

@@ -39,7 +39,9 @@ def service() -> WorkspacePersistenceService:
 
 
 @pytest.mark.asyncio()
-async def test_save_grid_state_requires_db(service: WorkspacePersistenceService, monkeypatch) -> None:
+async def test_save_grid_state_requires_db(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=None))
 
     with pytest.raises(DatabaseUnavailableError):
@@ -88,7 +90,9 @@ async def test_load_grid_state_missing(service: WorkspacePersistenceService, mon
 
 
 @pytest.mark.asyncio()
-async def test_load_grid_state_schema_mismatch(service: WorkspacePersistenceService, monkeypatch) -> None:
+async def test_load_grid_state_schema_mismatch(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
     cursor = AsyncMock()
     cursor.fetchone.return_value = ("{}", 999)
     pool = _make_pool(cursor)
@@ -125,7 +129,9 @@ async def test_load_grid_state_from_json(service: WorkspacePersistenceService, m
 
 
 @pytest.mark.asyncio()
-async def test_load_grid_state_corrupt_json(service: WorkspacePersistenceService, monkeypatch) -> None:
+async def test_load_grid_state_corrupt_json(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
     cursor = AsyncMock()
     cursor.fetchone.return_value = (
         "{not-json}",
@@ -138,7 +144,9 @@ async def test_load_grid_state_corrupt_json(service: WorkspacePersistenceService
 
 
 @pytest.mark.asyncio()
-async def test_load_grid_state_unexpected_type(service: WorkspacePersistenceService, monkeypatch) -> None:
+async def test_load_grid_state_unexpected_type(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
     cursor = AsyncMock()
     cursor.fetchone.return_value = (42, workspace_persistence.SCHEMA_VERSIONS["grid"])
     pool = _make_pool(cursor)
@@ -148,7 +156,9 @@ async def test_load_grid_state_unexpected_type(service: WorkspacePersistenceServ
 
 
 @pytest.mark.asyncio()
-async def test_load_grid_state_invalid_dict_type(service: WorkspacePersistenceService, monkeypatch) -> None:
+async def test_load_grid_state_invalid_dict_type(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
     cursor = AsyncMock()
     cursor.fetchone.return_value = (["a"], workspace_persistence.SCHEMA_VERSIONS["grid"])
     pool = _make_pool(cursor)

@@ -97,7 +97,9 @@ def test_callback_sets_cookie_domain(client: TestClient, monkeypatch: pytest.Mon
     assert "Domain=.example.test" in set_cookie
 
 
-def test_callback_rate_limited_returns_429(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_callback_rate_limited_returns_429(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Rate limited requests should return 429 without invoking handler."""
     monkeypatch.setenv("TRUSTED_PROXY_IPS", "")
 

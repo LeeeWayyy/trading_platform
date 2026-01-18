@@ -181,9 +181,7 @@ class TestJobQueueContextManager:
     @patch("libs.trading.backtest.job_queue.BacktestJobQueue")
     @patch("libs.core.common.sync_db_pool.get_sync_db_pool")
     @patch("libs.core.common.sync_db_pool.get_sync_redis_client")
-    def test_get_job_queue_yields_queue(
-        self, mock_get_redis, mock_get_pool, mock_queue_class
-    ):
+    def test_get_job_queue_yields_queue(self, mock_get_redis, mock_get_pool, mock_queue_class):
         """Test job queue context manager yields BacktestJobQueue instance."""
         mock_redis = Mock()
         mock_pool = Mock()

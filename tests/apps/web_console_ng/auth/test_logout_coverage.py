@@ -38,11 +38,7 @@ def _create_mock_request(
     request.cookies = {cookie_cfg.get_cookie_name(): cookie_value} if cookie_value else {}
     request.headers = {
         "user-agent": user_agent,
-        **(
-            {CSRF_HEADER_NAME: csrf_header}
-            if csrf_header
-            else {}
-        ),
+        **({CSRF_HEADER_NAME: csrf_header} if csrf_header else {}),
     }
     request.client = MagicMock()
     request.client.host = client_ip
@@ -208,9 +204,7 @@ async def test_logout_post_csrf_failure_session_invalidation_fails() -> None:
         assert body["error"] == "csrf_invalid"
         # Should log the invalidation failure
         mock_logger.warning.assert_called_once()
-        assert "Failed to invalidate session on CSRF failure" in str(
-            mock_logger.warning.call_args
-        )
+        assert "Failed to invalidate session on CSRF failure" in str(mock_logger.warning.call_args)
 
 
 @pytest.mark.asyncio()
@@ -330,9 +324,7 @@ async def test_perform_logout_no_request_object() -> None:
         assert url is None
         mock_app.storage.user.clear.assert_called_once()
         mock_logger.warning.assert_called_once()
-        assert "No request object available for logout" in str(
-            mock_logger.warning.call_args
-        )
+        assert "No request object available for logout" in str(mock_logger.warning.call_args)
 
 
 @pytest.mark.asyncio()
@@ -382,9 +374,7 @@ async def test_perform_logout_redis_unavailable_during_validation() -> None:
     request.client.host = "10.0.0.1"
     response = MagicMock()
 
-    mock_store = _create_mock_session_store(
-        validate_error=SessionValidationError("Redis down")
-    )
+    mock_store = _create_mock_session_store(validate_error=SessionValidationError("Redis down"))
 
     with (
         patch("apps.web_console_ng.auth.logout.app", mock_app),
@@ -434,9 +424,7 @@ async def test_perform_logout_session_invalidation_fails() -> None:
         mock_app.storage.user.clear.assert_called_once()
         # Should log warning
         mock_logger.warning.assert_called()
-        assert "Failed to invalidate session in Redis" in str(
-            mock_logger.warning.call_args
-        )
+        assert "Failed to invalidate session in Redis" in str(mock_logger.warning.call_args)
 
 
 @pytest.mark.asyncio()

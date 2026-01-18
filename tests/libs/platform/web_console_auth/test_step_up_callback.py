@@ -683,7 +683,9 @@ class TestHandleStepUpCallbackSuccess:
         mock_session_store.update_step_up_claims.assert_called_once_with(
             "session_success", mock_id_token_claims
         )
-        mock_session_store.clear_step_up_request_timestamp.assert_called_once_with("session_success")
+        mock_session_store.clear_step_up_request_timestamp.assert_called_once_with(
+            "session_success"
+        )
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
         assert audit_call["action"] == "step_up_success"
         assert audit_call["outcome"] == "success"

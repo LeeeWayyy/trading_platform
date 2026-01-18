@@ -12,7 +12,7 @@ dependencies: [T6.1, health-endpoints, secrets-provisioning]
 estimated_effort: "18-26 days"
 actual_effort: "~20 days"
 related_adrs: [ADR-0029-alerting-system]
-related_docs: [P4_PLANNING.md]
+related_docs: [P4_PLANNING_DONE.md]
 features: [T7.1, T7.2, T7.5, T7.3, T7.4]
 ---
 
@@ -26,7 +26,7 @@ features: [T7.1, T7.2, T7.5, T7.3, T7.4]
 **Completed:** 2025-12-21
 **Estimated Effort:** 18-26 days
 **Actual Effort:** ~20 days
-**Track:** Track 7 from P4_PLANNING.md
+**Track:** Track 7 from P4_PLANNING_DONE.md
 
 ---
 
@@ -704,8 +704,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
   - Scope: Architecture, channel handlers, data retention, rate limits, idempotency
 
 **Documentation:**
-- [P4_PLANNING.md](./P4_PLANNING.md) - Track 7 specification
-- [P4T4_5.3_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T4_5.3_DONE.md) - Auth stub pattern reference
+- [P4_PLANNING_DONE.md](./P4_PLANNING_DONE.md) - Track 7 specification
+- [P4T4_5.3_DONE.md](./P4T4_5.3_DONE.md) - Auth stub pattern reference
 
 **Tasks:**
 - ~~Depends on: T6.1 (Auth/RBAC)~~: **DELIVERED** in PR#76 (2025-12-12) - dev stub for local convenience
@@ -767,7 +767,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 
 ## Task Creation Review Checklist
 
-See [./AI/Workflows/02-planning.md](../AI/Workflows/02-planning.md) for workflow details.
+See [./AI/Workflows/02-planning.md](../../AI/Workflows/02-planning.md) for workflow details.
 
 **Review validates:**
 - [x] Objective is clear and measurable (with SLAs)

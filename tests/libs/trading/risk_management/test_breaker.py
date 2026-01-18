@@ -904,6 +904,8 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         mock_pipeline.zrem.assert_called_once()
         mock_pipeline.zadd.assert_called_once()
         mock_pipeline.execute.assert_called_once()
+
+
 """
 P0 Coverage Tests for CircuitBreaker - Additional branch coverage to reach 95%+ target.
 

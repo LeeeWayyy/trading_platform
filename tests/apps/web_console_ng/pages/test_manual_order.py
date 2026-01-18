@@ -46,7 +46,9 @@ class FakeElement:
     def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - trivial
         return None
 
-    def classes(self, value: str | None = None, *, add: str | None = None, remove: str | None = None) -> FakeElement:
+    def classes(
+        self, value: str | None = None, *, add: str | None = None, remove: str | None = None
+    ) -> FakeElement:
         return self
 
     def props(self, _value: str) -> FakeElement:
@@ -147,7 +149,9 @@ class FakeUI:
         self.elements.append(element)
         return element
 
-    def button(self, text: str, on_click: Callable[..., Any] | None = None, **_kwargs: Any) -> FakeElement:
+    def button(
+        self, text: str, on_click: Callable[..., Any] | None = None, **_kwargs: Any
+    ) -> FakeElement:
         element = FakeElement("button", text=text)
         if on_click is not None:
             element.on_click(on_click)
@@ -218,7 +222,9 @@ class FakeLifecycleManager:
         self.cleanup_calls.append((client_id, callback))
 
 
-def _find_element(elements: list[FakeElement], *, kind: str, label: str | None = None, text: str | None = None) -> FakeElement:
+def _find_element(
+    elements: list[FakeElement], *, kind: str, label: str | None = None, text: str | None = None
+) -> FakeElement:
     for element in elements:
         if element.kind != kind:
             continue
@@ -241,7 +247,9 @@ def _unwrap_page(func: Callable[..., Any]) -> Callable[..., Any]:
 def fake_ui(monkeypatch: pytest.MonkeyPatch) -> FakeUI:
     ui = FakeUI()
     monkeypatch.setattr(manual_order_module, "ui", ui)
-    monkeypatch.setattr(manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={})))
+    monkeypatch.setattr(
+        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={}))
+    )
     return ui
 
 
@@ -351,7 +359,9 @@ async def test_manual_order_order_type_toggle(
     order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
     order_type_select._value_change_cb(FakeEvent("limit"))
 
-    limit_price_containers = [e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None]
+    limit_price_containers = [
+        e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None
+    ]
     assert limit_price_containers
     assert limit_price_containers[0].visible is True
 

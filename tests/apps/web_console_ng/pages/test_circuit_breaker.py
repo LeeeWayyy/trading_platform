@@ -69,7 +69,9 @@ def test_get_cb_service_caches_instance(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(cb_module, "get_sync_db_pool", lambda: None)
     monkeypatch.setattr(cb_module, "get_sync_redis_client", lambda: object())
 
-    dummy_cb_module = SimpleNamespace(CircuitBreakerService=lambda *_args, **_kwargs: DummyService())
+    dummy_cb_module = SimpleNamespace(
+        CircuitBreakerService=lambda *_args, **_kwargs: DummyService()
+    )
     monkeypatch.setitem(sys.modules, "libs.web_console_services.cb_service", dummy_cb_module)
 
     first = cb_module._get_cb_service()
@@ -115,7 +117,9 @@ async def test_trip_and_reset_callbacks(
     assert trip_select.on_value_change_cb is not None
     trip_select.on_value_change_cb()
 
-    reason_input = next(e for e in dummy_ui.elements if getattr(e, "label", None) == "Custom reason")
+    reason_input = next(
+        e for e in dummy_ui.elements if getattr(e, "label", None) == "Custom reason"
+    )
     reason_input.value = "manual check"
 
     assert trip_button.on_click_cb is not None
@@ -124,15 +128,12 @@ async def test_trip_and_reset_callbacks(
 
     min_len = cb_module.config.MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
     reset_label = f"Reset Reason (minimum {min_len} characters)"
-    reset_textarea = next(
-        e for e in dummy_ui.elements if getattr(e, "label", "") == reset_label
-    )
+    reset_textarea = next(e for e in dummy_ui.elements if getattr(e, "label", "") == reset_label)
     reset_textarea.value = "reset reason long enough"
     checkbox = next(
         e
         for e in dummy_ui.elements
-        if getattr(e, "label", "")
-        == "I acknowledge that resetting will allow trading to resume"
+        if getattr(e, "label", "") == "I acknowledge that resetting will allow trading to resume"
     )
     checkbox.value = True
 

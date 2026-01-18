@@ -1,5 +1,7 @@
 # Orchestrator Service
 
+<!-- Last reviewed: 2026-01-18 - Orchestrator DB pool lazy-open (open=False) -->
+
 ## Identity
 - **Type:** Service
 - **Port:** 8003
@@ -60,6 +62,9 @@ OrchestrationRequest -> Kill-Switch Check -> Signal Service -> Execution Gateway
 ## Dependencies
 - **Internal:** `apps/orchestrator/orchestrator.py`, `apps/orchestrator/database.py`, `apps/orchestrator/schemas.py`, `libs.redis_client`, `libs.risk_management`.
 - **External:** Signal Service API, Execution Gateway API, Postgres, Redis (kill-switch), Prometheus.
+
+### Database Pooling
+- Orchestration DB pool initializes with `open=False` to avoid eager connections during startup/tests.
 
 ## Configuration
 | Variable | Required | Default | Description |

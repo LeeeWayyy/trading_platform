@@ -106,7 +106,9 @@ class ReconciliationService:
         self.submitted_unconfirmed_grace_seconds = int(
             os.getenv("RECONCILIATION_SUBMITTED_UNCONFIRMED_GRACE_SECONDS", "300")
         )
-        self.fills_backfill_enabled = os.getenv("ALPACA_FILLS_BACKFILL_ENABLED", "false").lower() in {
+        self.fills_backfill_enabled = os.getenv(
+            "ALPACA_FILLS_BACKFILL_ENABLED", "false"
+        ).lower() in {
             "1",
             "true",
             "yes",
@@ -279,7 +281,15 @@ class ReconciliationService:
                         "reconciliation_mode": "periodic",
                     },
                 )
-            await asyncio.sleep(self.poll_interval_seconds)
+            # Wait for either a stop signal or the next poll interval.
+            # This allows graceful shutdown without waiting full poll interval.
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self.poll_interval_seconds,
+                )
+            except TimeoutError:
+                pass
 
     async def run_reconciliation_once(self, mode: str) -> None:
         """Run a single reconciliation cycle.

@@ -56,18 +56,16 @@ async def performance_dashboard_page() -> None:
             ui.label("Performance Dashboard feature is not available.").classes(
                 "text-gray-500 text-center"
             )
-            ui.label(
-                "Set FEATURE_PERFORMANCE_DASHBOARD=true to enable this feature."
-            ).classes("text-gray-400 text-sm text-center")
+            ui.label("Set FEATURE_PERFORMANCE_DASHBOARD=true to enable this feature.").classes(
+                "text-gray-400 text-sm text-center"
+            )
         return
 
     # Permission check
     if not has_permission(user, Permission.VIEW_PNL):
         ui.notify("Permission denied: VIEW_PNL required", type="negative")
         with ui.card().classes("w-full p-6"):
-            ui.label("Permission denied: VIEW_PNL required.").classes(
-                "text-red-500 text-center"
-            )
+            ui.label("Permission denied: VIEW_PNL required.").classes("text-red-500 text-center")
         return
 
     # Get authorized strategies
@@ -167,7 +165,9 @@ async def _render_performance_dashboard(
 
     async def apply_custom() -> None:
         try:
-            start = date.fromisoformat(from_input.value) if from_input.value else state["start_date"]
+            start = (
+                date.fromisoformat(from_input.value) if from_input.value else state["start_date"]
+            )
             end = date.fromisoformat(to_input.value) if to_input.value else state["end_date"]
         except ValueError:
             ui.notify("Invalid date format", type="negative")
@@ -190,8 +190,10 @@ async def _render_performance_dashboard(
 
     # Connect preset buttons
     for label, btn in preset_btns.items():
+
         async def on_preset_click(preset_label: str = label) -> None:
             await select_preset(preset_label)
+
         btn.on_click(on_preset_click)
 
     async def on_date_change(_: Any) -> None:
@@ -219,13 +221,36 @@ def _render_realtime_pnl(user: dict[str, Any]) -> None:
 
         # Demo data (would fetch from API in production)
         demo_positions: list[dict[str, Any]] = [
-            {"symbol": "AAPL", "qty": 100, "avg_entry": 185.00, "current": 187.50, "unrealized": 250.00, "unrealized_pct": 1.35},
-            {"symbol": "MSFT", "qty": 50, "avg_entry": 375.00, "current": 372.00, "unrealized": -150.00, "unrealized_pct": -0.80},
-            {"symbol": "GOOGL", "qty": 25, "avg_entry": 142.00, "current": 145.00, "unrealized": 75.00, "unrealized_pct": 2.11},
+            {
+                "symbol": "AAPL",
+                "qty": 100,
+                "avg_entry": 185.00,
+                "current": 187.50,
+                "unrealized": 250.00,
+                "unrealized_pct": 1.35,
+            },
+            {
+                "symbol": "MSFT",
+                "qty": 50,
+                "avg_entry": 375.00,
+                "current": 372.00,
+                "unrealized": -150.00,
+                "unrealized_pct": -0.80,
+            },
+            {
+                "symbol": "GOOGL",
+                "qty": 25,
+                "avg_entry": 142.00,
+                "current": 145.00,
+                "unrealized": 75.00,
+                "unrealized_pct": 2.11,
+            },
         ]
 
         total_unrealized = float(sum(p["unrealized"] for p in demo_positions))
-        total_unrealized_pct = float(sum(p["unrealized_pct"] for p in demo_positions)) / len(demo_positions)
+        total_unrealized_pct = float(sum(p["unrealized_pct"] for p in demo_positions)) / len(
+            demo_positions
+        )
 
         with ui.row().classes("gap-4 mb-4"):
             _metric_card("Open Positions", str(len(demo_positions)))
@@ -267,9 +292,27 @@ def _render_position_summary() -> None:
 
         # Demo data
         demo_positions = [
-            {"symbol": "AAPL", "qty": 100, "avg_entry": 185.00, "realized_pnl": 1250.00, "updated": "2026-01-03 14:30:00"},
-            {"symbol": "MSFT", "qty": 50, "avg_entry": 375.00, "realized_pnl": 890.00, "updated": "2026-01-03 14:25:00"},
-            {"symbol": "GOOGL", "qty": 25, "avg_entry": 142.00, "realized_pnl": 425.00, "updated": "2026-01-03 14:20:00"},
+            {
+                "symbol": "AAPL",
+                "qty": 100,
+                "avg_entry": 185.00,
+                "realized_pnl": 1250.00,
+                "updated": "2026-01-03 14:30:00",
+            },
+            {
+                "symbol": "MSFT",
+                "qty": 50,
+                "avg_entry": 375.00,
+                "realized_pnl": 890.00,
+                "updated": "2026-01-03 14:25:00",
+            },
+            {
+                "symbol": "GOOGL",
+                "qty": 25,
+                "avg_entry": 142.00,
+                "realized_pnl": 425.00,
+                "updated": "2026-01-03 14:20:00",
+            },
         ]
 
         columns = [
@@ -356,7 +399,10 @@ def _render_historical_performance(
         running_max = [equity[0]]
         for e in equity[1:]:
             running_max.append(max(running_max[-1], e))
-        drawdown = [(e - m) / max(abs(m), 1) * 100 if m != 0 else 0 for e, m in zip(equity, running_max, strict=True)]
+        drawdown = [
+            (e - m) / max(abs(m), 1) * 100 if m != 0 else 0
+            for e, m in zip(equity, running_max, strict=True)
+        ]
 
         fig2 = go.Figure()
         fig2.add_trace(

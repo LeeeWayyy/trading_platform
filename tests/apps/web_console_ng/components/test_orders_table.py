@@ -529,12 +529,16 @@ async def test_on_cancel_order_succeeds_with_valid_client_order_id(
         "admin",
     )
 
-    mock_client.cancel_order.assert_awaited_once_with("valid-client-order-id", "user-1", role="admin")
+    mock_client.cancel_order.assert_awaited_once_with(
+        "valid-client-order-id", "user-1", role="admin"
+    )
     assert any("Cancel requested" in message for message, _ in dummy_ui)
 
 
 @pytest.mark.asyncio()
-async def test_update_orders_table_missing_all_ids_notifies_with_client_id_context(dummy_ui) -> None:
+async def test_update_orders_table_missing_all_ids_notifies_with_client_id_context(
+    dummy_ui,
+) -> None:
     """Notification includes client_id suffix when provided."""
     grid = orders_module.create_orders_table()
     notified_missing_ids: set[str] = set()

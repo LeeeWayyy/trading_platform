@@ -54,7 +54,9 @@ def mock_result(polars_df: pl.DataFrame, pandas_df: pd.DataFrame) -> Mock:
 
 
 @pytest.fixture()
-def catalog_with_result(catalog: DuckDBCatalog, mock_conn: Mock, mock_result: Mock) -> DuckDBCatalog:
+def catalog_with_result(
+    catalog: DuckDBCatalog, mock_conn: Mock, mock_result: Mock
+) -> DuckDBCatalog:
     mock_conn.execute.return_value = mock_result
     return catalog
 
@@ -79,7 +81,9 @@ class TestDuckDBCatalogInit:
 
 class TestDuckDBCatalogRegisterTable:
     @pytest.mark.parametrize("table_name", ["", "123bad", "bad-name"])
-    def test_register_table_invalid_name_raises(self, catalog: DuckDBCatalog, table_name: str) -> None:
+    def test_register_table_invalid_name_raises(
+        self, catalog: DuckDBCatalog, table_name: str
+    ) -> None:
         with pytest.raises(ValueError, match="Invalid table name"):
             catalog.register_table(table_name, "data/market.parquet")
 
@@ -101,7 +105,11 @@ class TestDuckDBCatalogRegisterTable:
 
 class TestDuckDBCatalogQuery:
     def test_query_with_params_polars(
-        self, catalog_with_result: DuckDBCatalog, mock_conn: Mock, mock_result: Mock, polars_df: pl.DataFrame
+        self,
+        catalog_with_result: DuckDBCatalog,
+        mock_conn: Mock,
+        mock_result: Mock,
+        polars_df: pl.DataFrame,
     ) -> None:
         result = catalog_with_result.query("SELECT * FROM table WHERE id = ?", params=[1])
 
@@ -110,7 +118,11 @@ class TestDuckDBCatalogQuery:
         mock_result.pl.assert_called_once_with()
 
     def test_query_without_params_pandas(
-        self, catalog_with_result: DuckDBCatalog, mock_conn: Mock, mock_result: Mock, pandas_df: pd.DataFrame
+        self,
+        catalog_with_result: DuckDBCatalog,
+        mock_conn: Mock,
+        mock_result: Mock,
+        pandas_df: pd.DataFrame,
     ) -> None:
         result = catalog_with_result.query("SELECT * FROM table", return_format="pandas")
 

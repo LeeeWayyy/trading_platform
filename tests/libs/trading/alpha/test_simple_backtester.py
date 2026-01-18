@@ -17,11 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Check for required dependencies
-_missing = [
-    mod
-    for mod in ("polars", "structlog")
-    if importlib.util.find_spec(mod) is None
-]
+_missing = [mod for mod in ("polars", "structlog") if importlib.util.find_spec(mod) is None]
 if _missing:
     pytest.skip(
         f"Skipping simple_backtester tests: missing {', '.join(_missing)}",
@@ -82,16 +78,18 @@ def sample_price_data():
     rows = []
     for d in dates:
         for sym in symbols:
-            rows.append({
-                "date": d,
-                "symbol": sym,
-                "open": 100.0,
-                "high": 105.0,
-                "low": 95.0,
-                "close": 102.0,
-                "adj_close": 102.0,
-                "volume": 1000000,
-            })
+            rows.append(
+                {
+                    "date": d,
+                    "symbol": sym,
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 95.0,
+                    "close": 102.0,
+                    "adj_close": 102.0,
+                    "volume": 1000000,
+                }
+            )
 
     return pl.DataFrame(rows)
 
@@ -180,19 +178,19 @@ class TestForwardReturns:
         dates = [date(2024, 1, i) for i in range(1, 11)]  # 10 days
         rows = []
         for d in dates:
-            rows.append({
-                "date": d,
-                "symbol": "AAPL",
-                "permno": 1,
-                "ret": 0.01,  # 1% daily return
-            })
+            rows.append(
+                {
+                    "date": d,
+                    "symbol": "AAPL",
+                    "permno": 1,
+                    "ret": 0.01,  # 1% daily return
+                }
+            )
 
         prices = pl.DataFrame(rows)
         backtester = SimpleBacktester(mock_fetcher)
 
-        result = backtester._compute_forward_returns(
-            prices, as_of_date=date(2024, 1, 1), horizon=1
-        )
+        result = backtester._compute_forward_returns(prices, as_of_date=date(2024, 1, 1), horizon=1)
 
         assert "return" in result.columns
         assert "permno" in result.columns
@@ -201,18 +199,18 @@ class TestForwardReturns:
     def test_compute_forward_returns_insufficient_data(self, mock_fetcher):
         """Test MissingForwardReturnError when insufficient data."""
         # Only 2 days of data
-        prices = pl.DataFrame({
-            "date": [date(2024, 1, 1), date(2024, 1, 2)],
-            "symbol": ["AAPL", "AAPL"],
-            "permno": [1, 1],
-            "ret": [0.01, 0.01],
-        })
+        prices = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "permno": [1, 1],
+                "ret": [0.01, 0.01],
+            }
+        )
         backtester = SimpleBacktester(mock_fetcher)
 
         with pytest.raises(MissingForwardReturnError):
-            backtester._compute_forward_returns(
-                prices, as_of_date=date(2024, 1, 2), horizon=5
-            )
+            backtester._compute_forward_returns(prices, as_of_date=date(2024, 1, 2), horizon=5)
 
 
 class TestDataLeakagePrevention:
@@ -220,14 +218,18 @@ class TestDataLeakagePrevention:
 
     def test_date_index_building(self, mock_fetcher):
         """Test that _build_date_index creates correct mapping."""
-        prices = pl.DataFrame({
-            "date": [
-                date(2024, 1, 1), date(2024, 1, 1),  # 2 rows for day 1
-                date(2024, 1, 2), date(2024, 1, 2),  # 2 rows for day 2
-                date(2024, 1, 3),  # 1 row for day 3
-            ],
-            "symbol": ["AAPL", "MSFT", "AAPL", "MSFT", "AAPL"],
-        })
+        prices = pl.DataFrame(
+            {
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 1),  # 2 rows for day 1
+                    date(2024, 1, 2),
+                    date(2024, 1, 2),  # 2 rows for day 2
+                    date(2024, 1, 3),  # 1 row for day 3
+                ],
+                "symbol": ["AAPL", "MSFT", "AAPL", "MSFT", "AAPL"],
+            }
+        )
         backtester = SimpleBacktester(mock_fetcher)
 
         index = backtester._build_date_index(prices)
@@ -259,16 +261,18 @@ class TestRunBacktest:
     def test_run_backtest_no_trading_days(self, mock_fetcher, mock_metrics):
         """Test error when no trading days in range."""
         # Data exists but not in requested range
-        mock_fetcher.get_daily_prices.return_value = pl.DataFrame({
-            "date": [date(2023, 1, 1)],  # Wrong year
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [105.0],
-            "low": [95.0],
-            "close": [102.0],
-            "adj_close": [102.0],
-            "volume": [1000000],
-        })
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)],  # Wrong year
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [105.0],
+                "low": [95.0],
+                "close": [102.0],
+                "adj_close": [102.0],
+                "volume": [1000000],
+            }
+        )
         backtester = SimpleBacktester(mock_fetcher, mock_metrics)
 
         mock_alpha = MagicMock()
@@ -288,27 +292,31 @@ class TestRunBacktest:
         dates = [date(2024, 1, i) for i in range(1, 8)]  # 7 days
         rows = []
         for d in dates:
-            rows.append({
-                "date": d,
-                "symbol": "AAPL",
-                "open": 100.0,
-                "high": 105.0,
-                "low": 95.0,
-                "close": 102.0,
-                "adj_close": 102.0,
-                "volume": 1000000,
-            })
+            rows.append(
+                {
+                    "date": d,
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 95.0,
+                    "close": 102.0,
+                    "adj_close": 102.0,
+                    "volume": 1000000,
+                }
+            )
 
         mock_fetcher.get_daily_prices.return_value = pl.DataFrame(rows)
         backtester = SimpleBacktester(mock_fetcher, mock_metrics)
 
         mock_alpha = MagicMock()
         mock_alpha.name = "test_alpha"
-        mock_alpha.compute.return_value = pl.DataFrame({
-            "date": [date(2024, 1, 1)],
-            "permno": [1],
-            "signal": [0.5],
-        })
+        mock_alpha.compute.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "permno": [1],
+                "signal": [0.5],
+            }
+        )
 
         # The backtest should stop early due to forward return limitations
         # We mock to verify n_days matches processed count
@@ -340,36 +348,42 @@ class TestResultMetadata:
         dates = [date(2024, 1, i) for i in range(1, 15)]
         rows = []
         for d in dates:
-            rows.append({
-                "date": d,
-                "symbol": "AAPL",
-                "open": 100.0,
-                "high": 105.0,
-                "low": 95.0,
-                "close": 102.0,
-                "adj_close": 102.0,
-                "volume": 1000000,
-            })
+            rows.append(
+                {
+                    "date": d,
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 95.0,
+                    "close": 102.0,
+                    "adj_close": 102.0,
+                    "volume": 1000000,
+                }
+            )
 
         mock_fetcher.get_daily_prices.return_value = pl.DataFrame(rows)
         backtester = SimpleBacktester(mock_fetcher, mock_metrics)
 
         mock_alpha = MagicMock()
         mock_alpha.name = "test_alpha"
-        mock_alpha.compute.return_value = pl.DataFrame({
-            "date": [date(2024, 1, 1)],
-            "permno": [1],
-            "signal": [0.5],
-        })
+        mock_alpha.compute.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "permno": [1],
+                "signal": [0.5],
+            }
+        )
 
         with patch.object(
             backtester,
             "_compute_forward_returns",
-            return_value=pl.DataFrame({
-                "permno": [1],
-                "return": [0.01],
-                "date": [date(2024, 1, 1)],
-            }),
+            return_value=pl.DataFrame(
+                {
+                    "permno": [1],
+                    "return": [0.01],
+                    "date": [date(2024, 1, 1)],
+                }
+            ),
         ):
             result = backtester.run_backtest(
                 alpha=mock_alpha,
@@ -417,12 +431,8 @@ class TestCallbacks:
         backtester = SimpleBacktester(mock_fetcher)
         progress_callback = MagicMock()
 
-        t1 = backtester._invoke_callbacks(
-            progress_callback, None, 0.0, 50, date(2024, 1, 1)
-        )
+        t1 = backtester._invoke_callbacks(progress_callback, None, 0.0, 50, date(2024, 1, 1))
         # Force should invoke even though within rate limit
-        backtester._invoke_callbacks(
-            progress_callback, None, t1, 60, date(2024, 1, 2), force=True
-        )
+        backtester._invoke_callbacks(progress_callback, None, t1, 60, date(2024, 1, 2), force=True)
 
         assert progress_callback.call_count == 2

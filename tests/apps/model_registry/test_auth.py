@@ -76,7 +76,9 @@ async def test_verify_token_invalid_token_raises_401(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio()
-async def test_verify_token_valid_token_returns_service_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_verify_token_valid_token_returns_service_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     token = "svc:read-secret"
     monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, token)
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)

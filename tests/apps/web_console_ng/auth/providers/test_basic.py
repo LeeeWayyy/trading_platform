@@ -39,7 +39,9 @@ def _set_basic_config(
 
 
 @pytest.mark.asyncio()
-async def test_auth_type_not_basic(monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock) -> None:
+async def test_auth_type_not_basic(
+    monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock
+) -> None:
     _set_basic_config(monkeypatch, auth_type="dev")
 
     with patch.object(basic_module, "AuthRateLimiter", return_value=rate_limiter):
@@ -51,7 +53,9 @@ async def test_auth_type_not_basic(monkeypatch: pytest.MonkeyPatch, rate_limiter
 
 
 @pytest.mark.asyncio()
-async def test_basic_auth_blocked_in_production(monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock) -> None:
+async def test_basic_auth_blocked_in_production(
+    monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock
+) -> None:
     _set_basic_config(monkeypatch, auth_type="basic", debug=False, allow_dev_basic_auth=True)
 
     with patch.object(basic_module, "AuthRateLimiter", return_value=rate_limiter):
@@ -64,7 +68,9 @@ async def test_basic_auth_blocked_in_production(monkeypatch: pytest.MonkeyPatch,
 
 
 @pytest.mark.asyncio()
-async def test_dev_basic_auth_disabled(monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock) -> None:
+async def test_dev_basic_auth_disabled(
+    monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock
+) -> None:
     _set_basic_config(monkeypatch, auth_type="basic", debug=True, allow_dev_basic_auth=False)
 
     with patch.object(basic_module, "AuthRateLimiter", return_value=rate_limiter):
@@ -126,7 +132,9 @@ async def test_invalid_credentials_records_failure(
 
 
 @pytest.mark.asyncio()
-async def test_invalid_credentials_lockout(monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock) -> None:
+async def test_invalid_credentials_lockout(
+    monkeypatch: pytest.MonkeyPatch, rate_limiter: AsyncMock
+) -> None:
     _set_basic_config(monkeypatch)
     monkeypatch.setenv("WEB_CONSOLE_USER", "expected")
     monkeypatch.setenv("WEB_CONSOLE_PASSWORD", "expected-pass")

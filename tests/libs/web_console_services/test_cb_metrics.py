@@ -23,7 +23,9 @@ def staleness_gauge(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return gauge
 
 
-def test_update_cb_staleness_metric_success(redis_client: MagicMock, staleness_gauge: MagicMock) -> None:
+def test_update_cb_staleness_metric_success(
+    redis_client: MagicMock, staleness_gauge: MagicMock
+) -> None:
     redis_client.get.return_value = json.dumps({"state": "OPEN"})
 
     cb_metrics.update_cb_staleness_metric(redis_client)

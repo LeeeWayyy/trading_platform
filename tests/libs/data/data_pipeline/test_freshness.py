@@ -17,7 +17,9 @@ def fixed_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _df_with_timestamps(timestamps: list[datetime], symbols: list[str] | None = None) -> pl.DataFrame:
+def _df_with_timestamps(
+    timestamps: list[datetime], symbols: list[str] | None = None
+) -> pl.DataFrame:
     data: dict[str, object] = {
         "timestamp": pl.Series(timestamps, dtype=pl.Datetime(time_zone="UTC"))
     }

@@ -49,8 +49,12 @@ async def test_fetch_comparison_data_calls_service(monkeypatch: pytest.MonkeyPat
     dummy_scoped_module = SimpleNamespace(StrategyScopedDataAccess=lambda **_kwargs: object())
     dummy_service_module = SimpleNamespace(ComparisonService=lambda _scoped: DummyService())
 
-    monkeypatch.setitem(sys.modules, "libs.web_console_data.strategy_scoped_queries", dummy_scoped_module)
-    monkeypatch.setitem(sys.modules, "libs.web_console_services.comparison_service", dummy_service_module)
+    monkeypatch.setitem(
+        sys.modules, "libs.web_console_data.strategy_scoped_queries", dummy_scoped_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "libs.web_console_services.comparison_service", dummy_service_module
+    )
 
     user = {"user_id": "u1"}
     strategies = ["s1", "s2"]
@@ -108,7 +112,9 @@ async def test_portfolio_simulator_invalid_weights(
 
     pnl_frame = pd.DataFrame({"s1": [1, 2], "s2": [2, 3]})
 
-    await compare_module._render_portfolio_simulator(["s1", "s2"], {"s1": 0.5, "s2": 0.5}, pnl_frame)
+    await compare_module._render_portfolio_simulator(
+        ["s1", "s2"], {"s1": 0.5, "s2": 0.5}, pnl_frame
+    )
 
     simulate_btn = next(b for b in dummy_ui.buttons if b.text == "Simulate Portfolio")
     assert simulate_btn.on_click_cb is not None

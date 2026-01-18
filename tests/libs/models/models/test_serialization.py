@@ -62,7 +62,9 @@ class TestSerialization:
 
         assert compute_config_hash(config_a) == compute_config_hash(config_b)
 
-    def test_serialize_and_deserialize_pickle(self, tmp_path: Path, env_metadata: EnvironmentMetadata) -> None:
+    def test_serialize_and_deserialize_pickle(
+        self, tmp_path: Path, env_metadata: EnvironmentMetadata
+    ) -> None:
         """Pickle serialization should round-trip for non-alpha weights."""
         metadata = _make_metadata(ModelType.risk_model, env_metadata)
         model = {"weights": [1.0, 2.0]}

@@ -61,9 +61,9 @@ async def strategy_comparison_page() -> None:
 
     # Page title
     ui.label("Strategy Comparison").classes("text-2xl font-bold mb-2")
-    ui.label("Compare strategy performance, correlations, and simulate combined portfolios.").classes(
-        "text-gray-600 mb-4"
-    )
+    ui.label(
+        "Compare strategy performance, correlations, and simulate combined portfolios."
+    ).classes("text-gray-600 mb-4")
 
     # Feature flag check
     if not FEATURE_STRATEGY_COMPARISON:
@@ -71,9 +71,9 @@ async def strategy_comparison_page() -> None:
             ui.label("Strategy Comparison is not currently enabled.").classes(
                 "text-gray-500 text-center"
             )
-            ui.label(
-                "Set FEATURE_STRATEGY_COMPARISON=true to enable this feature."
-            ).classes("text-gray-400 text-sm text-center")
+            ui.label("Set FEATURE_STRATEGY_COMPARISON=true to enable this feature.").classes(
+                "text-gray-400 text-sm text-center"
+            )
         return
 
     # Permission check
@@ -102,9 +102,9 @@ async def strategy_comparison_page() -> None:
         with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("info", color="amber-700")
-                ui.label(
-                    "Demo Mode: Database not configured. Configure DATABASE_URL."
-                ).classes("text-amber-700")
+                ui.label("Demo Mode: Database not configured. Configure DATABASE_URL.").classes(
+                    "text-amber-700"
+                )
 
         _render_demo_mode(authorized_strategies)
         return
@@ -141,9 +141,11 @@ async def _render_comparison_tool(
             to_input = ui.date(value=str(date_to)).classes("w-40")
 
             # Compare button
-            compare_btn = ui.button("Compare", icon="compare_arrows").classes(
-                "self-end"
-            ).props("color=primary")
+            compare_btn = (
+                ui.button("Compare", icon="compare_arrows")
+                .classes("self-end")
+                .props("color=primary")
+            )
 
     # Results container
     results_container = ui.column().classes("w-full")
@@ -154,9 +156,9 @@ async def _render_comparison_tool(
         selected = strategy_select.value or []
         if len(selected) < MIN_STRATEGIES:
             with results_container:
-                ui.label(f"Select at least {MIN_STRATEGIES} strategies to run the comparison.").classes(
-                    "text-amber-600 p-4"
-                )
+                ui.label(
+                    f"Select at least {MIN_STRATEGIES} strategies to run the comparison."
+                ).classes("text-amber-600 p-4")
             return
 
         if len(selected) > MAX_STRATEGIES:
@@ -168,8 +170,14 @@ async def _render_comparison_tool(
 
         # Parse dates
         try:
-            date_from = date.fromisoformat(from_input.value) if from_input.value else _default_date_range()[0]
-            date_to = date.fromisoformat(to_input.value) if to_input.value else _default_date_range()[1]
+            date_from = (
+                date.fromisoformat(from_input.value)
+                if from_input.value
+                else _default_date_range()[0]
+            )
+            date_to = (
+                date.fromisoformat(to_input.value) if to_input.value else _default_date_range()[1]
+            )
         except ValueError:
             with results_container:
                 ui.label("Invalid date format.").classes("text-red-500 p-4")
@@ -199,9 +207,9 @@ async def _render_comparison_tool(
 
             except PermissionError:
                 loading.delete()
-                ui.label("You do not have permission to access one or more selected strategies.").classes(
-                    "text-red-500 p-4"
-                )
+                ui.label(
+                    "You do not have permission to access one or more selected strategies."
+                ).classes("text-red-500 p-4")
             except (ConnectionError, OSError) as exc:
                 loading.delete()
                 logger.error(
@@ -301,7 +309,12 @@ def _render_metrics_table(metrics: dict[str, dict[str, float]]) -> None:
         # Build table
         columns = [
             {"name": "strategy", "label": "Strategy", "field": "strategy", "sortable": True},
-            {"name": "total_return", "label": "Total Return", "field": "total_return", "sortable": True},
+            {
+                "name": "total_return",
+                "label": "Total Return",
+                "field": "total_return",
+                "sortable": True,
+            },
             {"name": "volatility", "label": "Volatility", "field": "volatility", "sortable": True},
             {"name": "sharpe", "label": "Sharpe", "field": "sharpe", "sortable": True},
             {
@@ -314,13 +327,15 @@ def _render_metrics_table(metrics: dict[str, dict[str, float]]) -> None:
 
         rows = []
         for strategy_id, m in metrics.items():
-            rows.append({
-                "strategy": strategy_id,
-                "total_return": f"${m.get('total_return', 0):,.2f}",
-                "volatility": f"${m.get('volatility', 0):,.2f}",
-                "sharpe": f"{m.get('sharpe', 0):.2f}",
-                "max_drawdown": f"${m.get('max_drawdown', 0):,.2f}",
-            })
+            rows.append(
+                {
+                    "strategy": strategy_id,
+                    "total_return": f"${m.get('total_return', 0):,.2f}",
+                    "volatility": f"${m.get('volatility', 0):,.2f}",
+                    "sharpe": f"{m.get('sharpe', 0):.2f}",
+                    "max_drawdown": f"${m.get('max_drawdown', 0):,.2f}",
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -428,7 +443,9 @@ async def _render_portfolio_simulator(
                         step=0.05,
                         value=default_weight,
                     ).classes("w-full")
-                    weight_label = ui.label(f"{default_weight:.0%}").classes("text-xs text-gray-500")
+                    weight_label = ui.label(f"{default_weight:.0%}").classes(
+                        "text-xs text-gray-500"
+                    )
                     slider.on_value_change(
                         lambda e, lbl=weight_label: lbl.set_text(f"{e.value:.0%}")
                     )
@@ -504,7 +521,9 @@ async def _render_portfolio_simulator(
                         },
                         exc_info=True,
                     )
-                    ui.label("Failed to compute portfolio: Database connection error").classes("text-red-500 p-2")
+                    ui.label("Failed to compute portfolio: Database connection error").classes(
+                        "text-red-500 p-2"
+                    )
                     ui.notify("Database connection error", type="negative")
                 except (ValueError, KeyError, TypeError) as exc:
                     logger.error(
@@ -515,7 +534,9 @@ async def _render_portfolio_simulator(
                         },
                         exc_info=True,
                     )
-                    ui.label("Failed to compute portfolio: Data processing error").classes("text-red-500 p-2")
+                    ui.label("Failed to compute portfolio: Data processing error").classes(
+                        "text-red-500 p-2"
+                    )
                     ui.notify("Data processing error", type="negative")
 
         simulate_btn.on_click(simulate)

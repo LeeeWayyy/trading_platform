@@ -179,7 +179,9 @@ def render_scenario_table(results: Sequence[dict[str, Any]]) -> None:
         columns=columns,
         rows=rows,
         row_key="scenario",
-    ).classes("w-full").props('data-testid="stress-results-table"')
+    ).classes(
+        "w-full"
+    ).props('data-testid="stress-results-table"')
 
 
 def render_factor_waterfall(scenario_result: dict[str, Any]) -> None:
@@ -194,15 +196,11 @@ def render_factor_waterfall(scenario_result: dict[str, Any]) -> None:
 
     # Guard against non-mapping types (list/None/other unexpected shapes)
     if not isinstance(factor_impacts, Mapping):
-        ui.label("Invalid factor contribution data format.").classes(
-            "text-yellow-600 p-4"
-        )
+        ui.label("Invalid factor contribution data format.").classes("text-yellow-600 p-4")
         return
 
     if not factor_impacts:
-        ui.label("No factor contribution data for this scenario.").classes(
-            "text-gray-500 p-4"
-        )
+        ui.label("No factor contribution data for this scenario.").classes("text-gray-500 p-4")
         return
 
     # Sort factors by absolute impact (largest first), with safe float conversion

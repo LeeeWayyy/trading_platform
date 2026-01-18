@@ -42,7 +42,9 @@ def main():
             print(f"  EXPIRED ({exp}): {test}")
         return 1
 
-    total_entries = sum(1 for line in QUARANTINE_FILE.open() if line.strip() and not line.startswith("#"))
+    total_entries = sum(
+        1 for line in QUARANTINE_FILE.open() if line.strip() and not line.startswith("#")
+    )
     print(f"✓ Quarantine check passed: {total_entries} entries, none expired")
     return 0
 

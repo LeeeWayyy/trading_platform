@@ -1,5 +1,7 @@
 # Signal Service
 
+<!-- Last reviewed: 2026-01-18 - ModelRegistry DB pool lazy-open (open=False) -->
+
 ## Identity
 - **Type:** Service
 - **Port:** 8001
@@ -102,6 +104,9 @@ Request -> Validate -> Feature Generation -> Model Predict -> Rank/Weight -> Res
 ## Dependencies
 - **Internal:** `apps/signal_service/model_registry.py`, `apps/signal_service/signal_generator.py`, `strategies/alpha_baseline/*`, `libs.redis_client`, `libs.common.api_auth_dependency`, `libs.common.rate_limit_dependency`, `libs.common.secrets`, `libs.web_console_auth.permissions`.
 - **External:** Postgres (model registry table), Redis (optional), Prometheus, Parquet data in `data/adjusted`.
+
+### Database Pooling
+- ModelRegistry connection pool initializes with `open=False` so connections open lazily on first use.
 
 ## Configuration
 | Variable | Required | Default | Description |

@@ -233,9 +233,7 @@ class TestMeasure:
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_response.raise_for_status = MagicMock(
-            side_effect=httpx.HTTPStatusError(
-                "", request=MagicMock(), response=mock_response
-            )
+            side_effect=httpx.HTTPStatusError("", request=MagicMock(), response=mock_response)
         )
 
         mock_http_client = AsyncMock()

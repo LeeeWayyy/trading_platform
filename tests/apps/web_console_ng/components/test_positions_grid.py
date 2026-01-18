@@ -414,9 +414,7 @@ async def test_on_close_position_passes_qty_to_close_position(
     assert dummy_ui_with_dialog["dialog"].is_open
 
     # Find and click the Confirm button
-    confirm_btn = next(
-        (b for b in dummy_ui_with_dialog["buttons"] if b.label == "Confirm"), None
-    )
+    confirm_btn = next((b for b in dummy_ui_with_dialog["buttons"] if b.label == "Confirm"), None)
     assert confirm_btn is not None
     assert confirm_btn.on_click is not None
 
@@ -447,9 +445,7 @@ async def test_on_close_position_uses_abs_qty_for_negative(
     await grid_module.on_close_position("AAPL", -15, "user-1", "admin")
 
     # Find and click Confirm
-    confirm_btn = next(
-        (b for b in dummy_ui_with_dialog["buttons"] if b.label == "Confirm"), None
-    )
+    confirm_btn = next((b for b in dummy_ui_with_dialog["buttons"] if b.label == "Confirm"), None)
     assert confirm_btn is not None
     await confirm_btn.on_click()
 
@@ -477,16 +473,14 @@ async def test_on_close_position_proceeds_when_safety_service_unreachable(
     assert dummy_ui_with_dialog["dialog"].is_open
 
     # User should be warned about safety service
-    assert any("unreachable" in message.lower() for message, _ in dummy_ui_with_dialog["notify_calls"])
+    assert any(
+        "unreachable" in message.lower() for message, _ in dummy_ui_with_dialog["notify_calls"]
+    )
 
     # Confirm button should still work
-    confirm_btn = next(
-        (b for b in dummy_ui_with_dialog["buttons"] if b.label == "Confirm"), None
-    )
+    confirm_btn = next((b for b in dummy_ui_with_dialog["buttons"] if b.label == "Confirm"), None)
     assert confirm_btn is not None
     await confirm_btn.on_click()
 
     # close_position should still be called (fail-open)
     mock_client.close_position.assert_awaited_once()
-
-

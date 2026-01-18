@@ -50,7 +50,9 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:
 
 
 @pytest.fixture()
-def passthrough_validate(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[dict[str, Any]]], list[dict[str, Any]]]:
+def passthrough_validate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[list[dict[str, Any]]], list[dict[str, Any]]]:
     def _passthrough(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return values
 
@@ -104,9 +106,7 @@ def test_render_factor_exposure_orders_colors_and_warns_missing(
 
     expected_factors = [pair[0] for pair in expected_pairs]
     expected_values = [pair[1] for pair in expected_pairs]
-    expected_colors = [
-        factor_chart_module._get_exposure_color(value) for value in expected_values
-    ]
+    expected_colors = [factor_chart_module._get_exposure_color(value) for value in expected_values]
 
     assert list(fig.data[0].y) == expected_factors
     assert list(fig.data[0].x) == pytest.approx(expected_values)

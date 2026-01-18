@@ -96,9 +96,7 @@ class ReconciliationState:
                     "This ensures broker state was checked even if reconciliation failed."
                 )
             if not user_id or not reason:
-                raise ValueError(
-                    "Both user_id and reason are required for forced startup bypass"
-                )
+                raise ValueError("Both user_id and reason are required for forced startup bypass")
             with self._lock:
                 self._override_active = True
                 self._override_context = {

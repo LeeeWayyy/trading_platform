@@ -90,12 +90,14 @@ class TestSignalGenerationGoldenMaster:
         mock_generator.bottom_n = 1
 
         # Create known output (this is the "golden master" - known good output structure)
-        golden_signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL"],
-            "predicted_return": [0.023, 0.018, -0.015],
-            "rank": [1, 2, 3],
-            "target_weight": [0.5, 0.5, -1.0],
-        })
+        golden_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL"],
+                "predicted_return": [0.023, 0.018, -0.015],
+                "rank": [1, 2, 3],
+                "target_weight": [0.5, 0.5, -1.0],
+            }
+        )
         mock_generator.generate_signals.return_value = golden_signals
 
         # Mock event publisher
@@ -116,7 +118,9 @@ class TestSignalGenerationGoldenMaster:
         )
 
         # Assert response structure (golden master verification)
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert (
+            response.status_code == 200
+        ), f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
 
         # Verify top-level response structure
@@ -131,8 +135,9 @@ class TestSignalGenerationGoldenMaster:
         # Verify each signal has required fields
         required_fields = {"symbol", "target_weight", "predicted_return", "rank"}
         for signal in signals:
-            assert required_fields.issubset(set(signal.keys())), \
-                f"Signal missing fields: {required_fields - set(signal.keys())}"
+            assert required_fields.issubset(
+                set(signal.keys())
+            ), f"Signal missing fields: {required_fields - set(signal.keys())}"
 
         # Verify specific values (golden master)
         symbols = [s["symbol"] for s in signals]
@@ -152,4 +157,3 @@ class TestSignalGenerationGoldenMaster:
 
         # Verify event publishing was called
         mock_publish.assert_called_once()
-

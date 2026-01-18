@@ -49,9 +49,7 @@ def load_baselines() -> dict:
 
 def get_current_coverage() -> dict:
     """Parse coverage.json to get current branch coverage per module."""
-    result = subprocess.run(
-        ["coverage", "json", "-o", "-"], capture_output=True, text=True
-    )
+    result = subprocess.run(["coverage", "json", "-o", "-"], capture_output=True, text=True)
 
     # Error handling for missing/empty coverage data
     if result.returncode != 0:
@@ -87,9 +85,7 @@ def get_current_coverage() -> dict:
         normalized = normalize_path(filepath)  # Normalize to repo-relative path
         num_branches = filedata["summary"].get("num_branches", 0)
         if num_branches >= MIN_BRANCH_COUNT:  # Enforce minimum branch count
-            coverage[normalized] = (
-                filedata["summary"]["covered_branches"] / num_branches * 100
-            )
+            coverage[normalized] = filedata["summary"]["covered_branches"] / num_branches * 100
             coverage["_branch_counts"][normalized] = num_branches
 
     return coverage
@@ -120,9 +116,7 @@ def check_ratchet() -> int:
 
     # Check overall
     if current["overall"] < baselines["overall"]:
-        failures.append(
-            f"overall: {current['overall']:.1f}% < {baselines['overall']}% baseline"
-        )
+        failures.append(f"overall: {current['overall']:.1f}% < {baselines['overall']}% baseline")
 
     # Print warnings
     if warnings:

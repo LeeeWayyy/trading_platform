@@ -370,7 +370,9 @@ class TestGetMockAlpha158Features:
 class TestComputeSimpleFeatures:
     """Tests for compute_simple_features() function."""
 
-    def _create_test_dataframe(self, num_days: int = 100, base_price: float = 100.0) -> pd.DataFrame:
+    def _create_test_dataframe(
+        self, num_days: int = 100, base_price: float = 100.0
+    ) -> pd.DataFrame:
         """
         Helper to create test DataFrame with OHLCV data.
 

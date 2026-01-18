@@ -293,13 +293,14 @@ class DatabaseClient:
         self.db_conn_string = db_conn_string
 
         # H2 Fix: Connection pooling for 10x performance
-        # Pool opens lazily on first .connection() call (no explicit open needed)
+        # Pool uses open=False to avoid eager connections during tests/startup.
+        # Connections open lazily on first .connection() call.
         self._pool = ConnectionPool(
             db_conn_string,
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
-            # open=True is default - pool opens lazily on first connection request
+            open=False,
         )
 
         logger.info(
@@ -333,6 +334,7 @@ class DatabaseClient:
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
+            open=False,
         )
         logger.warning("DatabaseClient connection pool recreated")
 
@@ -1184,7 +1186,11 @@ class DatabaseClient:
     ) -> dict[str, int]:
         """Recalculate realized P&L for trades of a symbol/strategy."""
         if update_sources is None:
-            update_sources = {"alpaca_activity", "reconciliation_backfill", "reconciliation_db_backfill"}
+            update_sources = {
+                "alpaca_activity",
+                "reconciliation_backfill",
+                "reconciliation_db_backfill",
+            }
 
         def _execute(connection: psycopg.Connection) -> dict[str, int]:
             with connection.cursor(row_factory=dict_row) as cur:
@@ -2125,11 +2131,7 @@ class DatabaseClient:
                 executed_at = None
 
         if executed_at is None:
-            executed_at = (
-                _get("filled_at")
-                or _get("updated_at")
-                or datetime.now(UTC)
-            )
+            executed_at = _get("filled_at") or _get("updated_at") or datetime.now(UTC)
 
         # Ensure executed_at is timezone-aware (UTC) - guard against naive datetimes
         if executed_at.tzinfo is None:

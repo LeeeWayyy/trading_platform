@@ -464,9 +464,7 @@ class TestRunStressTests:
 
         # Mock load_risk_model to return a mock object, then have StressTester fail
         with patch.object(service, "_load_risk_model", return_value=Mock()):
-            with patch(
-                "libs.trading.risk.stress_testing.StressTester", side_effect=AttributeError
-            ):
+            with patch("libs.trading.risk.stress_testing.StressTester", side_effect=AttributeError):
                 results, is_placeholder = await service._run_stress_tests(weights)
 
         assert results == []
@@ -577,9 +575,7 @@ class TestGetVarHistory:
         mock_scoped_access = AsyncMock()
         mock_scoped_access.user_id = "user123"
         mock_scoped_access.authorized_strategies = ["strategy1"]
-        mock_scoped_access.get_pnl_summary = AsyncMock(
-            side_effect=PermissionError("No access")
-        )
+        mock_scoped_access.get_pnl_summary = AsyncMock(side_effect=PermissionError("No access"))
 
         service = RiskService(mock_scoped_access)
 
@@ -592,9 +588,7 @@ class TestGetVarHistory:
         mock_scoped_access = AsyncMock()
         mock_scoped_access.user_id = "user123"
         mock_scoped_access.authorized_strategies = ["strategy1"]
-        mock_scoped_access.get_pnl_summary = AsyncMock(
-            side_effect=RuntimeError("DB pool is None")
-        )
+        mock_scoped_access.get_pnl_summary = AsyncMock(side_effect=RuntimeError("DB pool is None"))
 
         service = RiskService(mock_scoped_access)
         result = await service._get_var_history(days=30, portfolio_value=10000)
@@ -622,9 +616,7 @@ class TestGetVarHistory:
         mock_scoped_access = AsyncMock()
         mock_scoped_access.user_id = "user123"
         mock_scoped_access.authorized_strategies = ["strategy1"]
-        mock_scoped_access.get_pnl_summary = AsyncMock(
-            side_effect=Exception("Unexpected error")
-        )
+        mock_scoped_access.get_pnl_summary = AsyncMock(side_effect=Exception("Unexpected error"))
 
         service = RiskService(mock_scoped_access)
         result = await service._get_var_history(days=30, portfolio_value=10000)
@@ -974,9 +966,15 @@ class TestIntegrationFlow:
         service = RiskService(mock_scoped_access)
 
         # Spy on format methods to verify they're called
-        with patch.object(service, '_format_risk_metrics', wraps=service._format_risk_metrics) as mock_format_risk:
-            with patch.object(service, '_format_factor_exposures', wraps=service._format_factor_exposures) as mock_format_factors:
-                with patch.object(service, '_format_stress_tests', wraps=service._format_stress_tests) as mock_format_stress:
+        with patch.object(
+            service, "_format_risk_metrics", wraps=service._format_risk_metrics
+        ) as mock_format_risk:
+            with patch.object(
+                service, "_format_factor_exposures", wraps=service._format_factor_exposures
+            ) as mock_format_factors:
+                with patch.object(
+                    service, "_format_stress_tests", wraps=service._format_stress_tests
+                ) as mock_format_stress:
                     result = await service.get_risk_dashboard_data()
 
         # Verify all format methods were called

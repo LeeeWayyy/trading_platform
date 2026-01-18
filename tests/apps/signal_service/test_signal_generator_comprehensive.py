@@ -96,10 +96,7 @@ def sample_features():
     """Create sample Alpha158 features for testing."""
     date_str = "2024-01-15"
     symbols = ["AAPL", "MSFT", "GOOGL"]
-    index = pd.MultiIndex.from_product(
-        [[date_str], symbols],
-        names=["datetime", "instrument"]
-    )
+    index = pd.MultiIndex.from_product([[date_str], symbols], names=["datetime", "instrument"])
 
     np.random.seed(42)
     features = pd.DataFrame(
@@ -211,7 +208,9 @@ class TestSignalGeneration:
         with pytest.raises(RuntimeError, match="Model not loaded"):
             generator.generate_signals(["AAPL"])
 
-    def test_generate_signals_without_metadata_raises_error(self, test_db_url, temp_dir, mock_model):
+    def test_generate_signals_without_metadata_raises_error(
+        self, test_db_url, temp_dir, mock_model
+    ):
         """Generating signals without metadata raises ValueError."""
         registry = ModelRegistry(test_db_url)
         model = registry.load_model_from_file(str(mock_model))
@@ -231,12 +230,7 @@ class TestSignalGeneration:
         # Setup mock to return sample features
         mock_get_features.return_value = sample_features
 
-        generator = SignalGenerator(
-            mock_model_with_registry,
-            temp_dir,
-            top_n=1,
-            bottom_n=1
-        )
+        generator = SignalGenerator(mock_model_with_registry, temp_dir, top_n=1, bottom_n=1)
 
         signals = generator.generate_signals(
             symbols=["AAPL", "MSFT", "GOOGL"],
@@ -321,7 +315,13 @@ class TestSignalGeneration:
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_generate_signals_fallback_to_mock_on_error(
-        self, mock_get_mock, mock_get_real, test_db_url, temp_dir, mock_model_with_registry, sample_features
+        self,
+        mock_get_mock,
+        mock_get_real,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        sample_features,
     ):
         """Generating signals falls back to mock features on error."""
         # Real features fail
@@ -435,8 +435,13 @@ class TestFeatureCaching:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_cache_miss_triggers_generation(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Cache miss triggers feature generation."""
         # Cache miss
@@ -461,8 +466,13 @@ class TestFeatureCaching:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_cache_error_falls_back_to_generation(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Cache error gracefully falls back to generation."""
         # Cache raises error
@@ -486,8 +496,13 @@ class TestFeatureCaching:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_cache_set_error_continues(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Cache set error doesn't fail signal generation."""
         # Cache miss, but set fails
@@ -511,10 +526,16 @@ class TestFeatureCaching:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_mixed_cache_hits_and_misses(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Some symbols cached, others need generation."""
+
         # AAPL cached, MSFT not cached
         def cache_get_side_effect(symbol, date_str):
             if symbol == "AAPL":
@@ -552,7 +573,9 @@ class TestFeatureCaching:
 class TestFeaturePrecomputation:
     """Tests for precompute_features method."""
 
-    def test_precompute_without_cache_returns_skipped(self, test_db_url, temp_dir, mock_model_with_registry):
+    def test_precompute_without_cache_returns_skipped(
+        self, test_db_url, temp_dir, mock_model_with_registry
+    ):
         """Precompute without cache returns all skipped."""
         generator = SignalGenerator(mock_model_with_registry, temp_dir, feature_cache=None)
 
@@ -568,8 +591,13 @@ class TestFeaturePrecomputation:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_precompute_with_cache_success(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Precompute successfully caches features."""
         # No symbols cached yet
@@ -594,8 +622,13 @@ class TestFeaturePrecomputation:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_precompute_skips_already_cached(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Precompute skips symbols already in cache."""
         # AAPL already cached
@@ -624,8 +657,7 @@ class TestFeaturePrecomputation:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_precompute_handles_generation_failure(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache
+        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, mock_feature_cache
     ):
         """Precompute handles feature generation failure gracefully."""
         mock_feature_cache.mget.return_value = {}
@@ -639,7 +671,9 @@ class TestFeaturePrecomputation:
 
         # Should try mock features and potentially fail, but not crash
         # Actually the code falls back to mock features
-        with patch("apps.signal_service.signal_generator.get_mock_alpha158_features") as mock_get_mock:
+        with patch(
+            "apps.signal_service.signal_generator.get_mock_alpha158_features"
+        ) as mock_get_mock:
             mock_get_mock.side_effect = ValueError("Mock also failed")
 
             result = generator.precompute_features(
@@ -660,7 +694,9 @@ class TestFeaturePrecomputation:
 class TestFeatureHydration:
     """Tests for hydrate_feature_cache method."""
 
-    def test_hydration_without_cache_returns_zero(self, test_db_url, temp_dir, mock_model_with_registry):
+    def test_hydration_without_cache_returns_zero(
+        self, test_db_url, temp_dir, mock_model_with_registry
+    ):
         """Hydration without cache returns zero results."""
         generator = SignalGenerator(mock_model_with_registry, temp_dir, feature_cache=None)
 
@@ -709,8 +745,13 @@ class TestFeatureHydration:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_hydration_success_multiple_days(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Hydration successfully processes multiple days."""
         mock_feature_cache.mget.return_value = {}
@@ -735,8 +776,13 @@ class TestFeatureHydration:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_hydration_handles_partial_failures(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry,
-        mock_feature_cache, sample_features
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        sample_features,
     ):
         """Hydration continues despite partial failures."""
         mock_feature_cache.mget.return_value = {}
@@ -755,7 +801,9 @@ class TestFeatureHydration:
         )
 
         # Need to also mock the fallback
-        with patch("apps.signal_service.signal_generator.get_mock_alpha158_features") as mock_get_mock:
+        with patch(
+            "apps.signal_service.signal_generator.get_mock_alpha158_features"
+        ) as mock_get_mock:
             mock_get_mock.side_effect = ValueError("Mock also failed")
 
             result = generator.hydrate_feature_cache(
@@ -838,12 +886,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-            "predicted_return": [0.02, 0.01, -0.01, -0.02],
-            "rank": [1, 2, 3, 4],
-            "target_weight": [0.5, 0.5, -0.5, -0.5],
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                "predicted_return": [0.02, 0.01, -0.01, -0.02],
+                "rank": [1, 2, 3, 4],
+                "target_weight": [0.5, 0.5, -0.5, -0.5],
+            }
+        )
 
         assert generator.validate_weights(signals) is True
 
@@ -852,12 +902,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-            "predicted_return": [0.02, 0.01, -0.01, -0.02],
-            "rank": [1, 2, 3, 4],
-            "target_weight": [0.4, 0.5, -0.5, -0.5],  # Sum = 0.9, not 1.0
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                "predicted_return": [0.02, 0.01, -0.01, -0.02],
+                "rank": [1, 2, 3, 4],
+                "target_weight": [0.4, 0.5, -0.5, -0.5],  # Sum = 0.9, not 1.0
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -866,12 +918,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-            "predicted_return": [0.02, 0.01, -0.01, -0.02],
-            "rank": [1, 2, 3, 4],
-            "target_weight": [0.5, 0.5, -0.4, -0.5],  # Sum = -0.9, not -1.0
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                "predicted_return": [0.02, 0.01, -0.01, -0.02],
+                "rank": [1, 2, 3, 4],
+                "target_weight": [0.5, 0.5, -0.4, -0.5],  # Sum = -0.9, not -1.0
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -880,12 +934,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-            "predicted_return": [0.02, 0.01, -0.01, -0.02],
-            "rank": [1, 2, 3, 4],
-            "target_weight": [1.0, 0.0, -0.5, -0.5],  # Only 1 long, expected 2
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                "predicted_return": [0.02, 0.01, -0.01, -0.02],
+                "rank": [1, 2, 3, 4],
+                "target_weight": [1.0, 0.0, -0.5, -0.5],  # Only 1 long, expected 2
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -894,12 +950,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-            "predicted_return": [0.02, 0.01, -0.01, -0.02],
-            "rank": [1, 2, 3, 4],
-            "target_weight": [0.5, 0.5, -1.0, 0.0],  # Only 1 short, expected 2
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                "predicted_return": [0.02, 0.01, -0.01, -0.02],
+                "rank": [1, 2, 3, 4],
+                "target_weight": [0.5, 0.5, -1.0, 0.0],  # Only 1 short, expected 2
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -908,12 +966,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-            "predicted_return": [0.02, 0.01, -0.01, -0.02],
-            "rank": [1, 2, 3, 4],
-            "target_weight": [1.5, -0.5, -0.5, -0.5],  # 1.5 > 1.0
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                "predicted_return": [0.02, 0.01, -0.01, -0.02],
+                "rank": [1, 2, 3, 4],
+                "target_weight": [1.5, -0.5, -0.5, -0.5],  # 1.5 > 1.0
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -922,12 +982,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=3, bottom_n=0)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL"],
-            "predicted_return": [0.02, 0.01, -0.01],
-            "rank": [1, 2, 3],
-            "target_weight": [0.333, 0.333, 0.334],  # Only long positions
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL"],
+                "predicted_return": [0.02, 0.01, -0.01],
+                "rank": [1, 2, 3],
+                "target_weight": [0.333, 0.333, 0.334],  # Only long positions
+            }
+        )
 
         assert generator.validate_weights(signals) is True
 
@@ -936,12 +998,14 @@ class TestWeightValidation:
         registry = ModelRegistry(test_db_url)
         generator = SignalGenerator(registry, temp_dir, top_n=0, bottom_n=3)
 
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL"],
-            "predicted_return": [0.02, 0.01, -0.01],
-            "rank": [1, 2, 3],
-            "target_weight": [-0.333, -0.333, -0.334],  # Only short positions
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL"],
+                "predicted_return": [0.02, 0.01, -0.01],
+                "rank": [1, 2, 3],
+                "target_weight": [-0.333, -0.333, -0.334],  # Only short positions
+            }
+        )
 
         assert generator.validate_weights(signals) is True
 
@@ -962,7 +1026,9 @@ class TestEdgeCases:
         # Create features for single symbol
         single_feature = pd.DataFrame(
             np.random.randn(1, 10),
-            index=pd.MultiIndex.from_tuples([("2024-01-15", "AAPL")], names=["datetime", "instrument"]),
+            index=pd.MultiIndex.from_tuples(
+                [("2024-01-15", "AAPL")], names=["datetime", "instrument"]
+            ),
             columns=[f"feature_{i:03d}" for i in range(10)],
         )
         mock_get_features.return_value = single_feature
@@ -986,8 +1052,7 @@ class TestEdgeCases:
         constant_features = pd.DataFrame(
             np.zeros((3, 10)),  # All zeros -> constant predictions
             index=pd.MultiIndex.from_product(
-                [["2024-01-15"], ["AAPL", "MSFT", "GOOGL"]],
-                names=["datetime", "instrument"]
+                [["2024-01-15"], ["AAPL", "MSFT", "GOOGL"]], names=["datetime", "instrument"]
             ),
             columns=[f"feature_{i:03d}" for i in range(10)],
         )

@@ -181,9 +181,7 @@ class AsyncTradingClient:
         }
         if details:
             payload["details"] = details
-        resp = await self._client.post(
-            "/api/v1/kill-switch/engage", headers=headers, json=payload
-        )
+        resp = await self._client.post("/api/v1/kill-switch/engage", headers=headers, json=payload)
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -460,9 +458,7 @@ class AsyncTradingClient:
             "requested_by": requested_by,
             "requested_at": requested_at,
         }
-        resp = await self._client.post(
-            "/api/v1/orders/cancel-all", headers=headers, json=payload
-        )
+        resp = await self._client.post("/api/v1/orders/cancel-all", headers=headers, json=payload)
         resp.raise_for_status()
         return self._json_dict(resp)
 

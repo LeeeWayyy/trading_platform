@@ -376,7 +376,10 @@ async def on_close_position(
                         "strategy_id": "manual",
                     },
                 )
-                ui.notify(f"Safety service error (HTTP {exc.response.status_code}) - proceeding with close", type="warning")
+                ui.notify(
+                    f"Safety service error (HTTP {exc.response.status_code}) - proceeding with close",
+                    type="warning",
+                )
                 # Do NOT return - proceed to show confirmation dialog
             else:
                 logger.warning(
@@ -506,7 +509,10 @@ async def on_close_position(
                                 "strategy_id": "manual",
                             },
                         )
-                        ui.notify(f"Safety service error (HTTP {exc.response.status_code}) - proceeding", type="warning")
+                        ui.notify(
+                            f"Safety service error (HTTP {exc.response.status_code}) - proceeding",
+                            type="warning",
+                        )
                         # Do NOT return - proceed to submit close order
                     else:
                         logger.warning(
@@ -607,9 +613,7 @@ async def on_close_position(
                     if confirm_button:
                         confirm_button.enable()
 
-            confirm_button = ui.button("Confirm", on_click=confirm).classes(
-                "bg-red-600 text-white"
-            )
+            confirm_button = ui.button("Confirm", on_click=confirm).classes("bg-red-600 text-white")
             ui.button("Cancel", on_click=dialog.close)
 
     dialog.open()

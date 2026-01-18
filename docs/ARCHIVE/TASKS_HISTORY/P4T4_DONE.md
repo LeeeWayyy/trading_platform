@@ -15,12 +15,12 @@
 
 | Task | Status | PR | Notes |
 |------|--------|-----|-------|
-| [T5.1 Job Queue](./P4T4_5.1_TASK.md) | ✅ Complete | #78 | Redis + RQ queue |
-| [T5.2 Result Storage](./P4T4_5.2_TASK.md) | ✅ Complete | #80 | Postgres schema |
-| [T5.3 Web UI](./P4T4_5.3_TASK.md) | ✅ Complete | #92 | Depends on T6.1 Auth |
-| [T5.4 Walk-Forward](./P4T4_5.4_TASK.md) | ✅ Complete | #81 | |
-| [T5.5 Monte Carlo](./P4T4_5.5_TASK.md) | ✅ Complete | #85 | |
-| [T5.6 Regression Harness](./P4T4_5.6_TASK.md) | ✅ Complete | #86 | |
+| [T5.1 Job Queue](./P4T4_5.1_DONE.md) | ✅ Complete | #78 | Redis + RQ queue |
+| [T5.2 Result Storage](./P4T4_5.2_DONE.md) | ✅ Complete | #80 | Postgres schema |
+| [T5.3 Web UI](./P4T4_5.3_DONE.md) | ✅ Complete | #92 | Depends on T6.1 Auth |
+| [T5.4 Walk-Forward](./P4T4_5.4_DONE.md) | ✅ Complete | #81 | |
+| [T5.5 Monte Carlo](./P4T4_5.5_DONE.md) | ✅ Complete | #85 | |
+| [T5.6 Regression Harness](./P4T4_5.6_DONE.md) | ✅ Complete | #86 | |
 
 **Progress:** 6/6 tasks complete (100%)
 
@@ -48,7 +48,7 @@ Track 5 builds enhanced backtesting infrastructure with web UI and advanced feat
 
 **Dependencies from Previous Phases:**
 - T1.6 Dataset Versioning (P4T1 - COMPLETE)
-- T2.5 Alpha Research Framework (P4T2 - COMPLETE) - `libs/alpha/research_platform.py`
+- T2.5 Alpha Research Framework (P4T2 - COMPLETE) - `libs/trading/alpha/research_platform.py`
 - T6.1 Auth/RBAC (Track 6 - Pending) - Required for T5.3 Web UI
 
 **Infrastructure Preconditions:**
@@ -59,7 +59,7 @@ Track 5 builds enhanced backtesting infrastructure with web UI and advanced feat
 - **Shared Volume:** `backtest_data` volume shared between `web_console` and `backtest_worker`
 
 **Existing Infrastructure to Build Upon:**
-- `libs/alpha/research_platform.py` - PITBacktester and BacktestResult
+- `libs/trading/alpha/research_platform.py` - PITBacktester and BacktestResult
 - `libs/redis_client/` - Redis client infrastructure
 - `apps/web_console/` - Streamlit-based web console with auth
 - `libs/data_quality/versioning.py` - DatasetVersionManager for reproducibility
@@ -430,12 +430,12 @@ Reproducibility note: `snapshot_id` and `dataset_version_ids` stay NULL while co
 
 ---
 ## Subtask Documents
-- [P4T4_5.1_TASK.md](./P4T4_5.1_TASK.md) — Job Queue Infrastructure
-- [P4T4_5.2_TASK.md](./P4T4_5.2_TASK.md) — Backtest Result Storage
-- [P4T4_5.3_TASK.md](./P4T4_5.3_TASK.md) — Backtest Web UI
-- [P4T4_5.4_TASK.md](./P4T4_5.4_TASK.md) — Walk-Forward Optimization
-- [P4T4_5.5_TASK.md](./P4T4_5.5_TASK.md) — Monte Carlo Simulation
-- [P4T4_5.6_TASK.md](./P4T4_5.6_TASK.md) — Backtest Regression Harness
+- [P4T4_5.1_DONE.md](./P4T4_5.1_DONE.md) — Job Queue Infrastructure
+- [P4T4_5.2_DONE.md](./P4T4_5.2_DONE.md) — Backtest Result Storage
+- [P4T4_5.3_DONE.md](./P4T4_5.3_DONE.md) — Backtest Web UI
+- [P4T4_5.4_DONE.md](./P4T4_5.4_DONE.md) — Walk-Forward Optimization
+- [P4T4_5.5_DONE.md](./P4T4_5.5_DONE.md) — Monte Carlo Simulation
+- [P4T4_5.6_DONE.md](./P4T4_5.6_DONE.md) — Backtest Regression Harness
 
 ---
 ## Track 5 Definition of Done (E2E Acceptance)
@@ -487,10 +487,10 @@ P4T4 is complete when ALL of the following E2E flows pass:
 
 ## Related Documents
 
-- [P4_PLANNING.md](./P4_PLANNING.md) - Overall P4 planning
-- [P4T2_TASK.md](./P4T2_TASK.md) - Alpha research framework (dependency)
-- [docs/CONCEPTS/execution-algorithms.md](../CONCEPTS/execution-algorithms.md) - Execution algorithms and trade quality concepts
-- [libs/alpha/research_platform.py](../../libs/alpha/research_platform.py) - PITBacktester implementation
+- [P4_PLANNING_DONE.md](./P4_PLANNING_DONE.md) - Overall P4 planning
+- [P4T2_DONE.md](./P4T2_DONE.md) - Alpha research framework (dependency)
+- [docs/CONCEPTS/execution-algorithms.md](../../CONCEPTS/execution-algorithms.md) - Execution algorithms and trade quality concepts
+- [libs/trading/alpha/research_platform.py](../../../libs/trading/alpha/research_platform.py) - PITBacktester implementation
 
 ---
 

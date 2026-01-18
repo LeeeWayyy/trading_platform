@@ -137,7 +137,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except redis.exceptions.ConnectionError as e:
         logger.error(
             "Failed to start Market Data Service - Redis connection error",
-            extra={"error": str(e), "error_type": type(e).__name__, "redis_host": settings.redis_host, "redis_port": settings.redis_port},
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "redis_host": settings.redis_host,
+                "redis_port": settings.redis_port,
+            },
             exc_info=True,
         )
         raise

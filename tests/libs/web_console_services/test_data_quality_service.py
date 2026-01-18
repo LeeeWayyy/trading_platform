@@ -27,11 +27,12 @@ async def test_get_validation_results_filters_by_dataset_permission(
     def dataset_access(_user: DummyUser, dataset: str) -> bool:
         return dataset in {"crsp", "compustat"}
 
-    with patch(
-        "libs.web_console_services.data_quality_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_quality_service.has_dataset_permission",
-        side_effect=dataset_access,
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            side_effect=dataset_access,
+        ),
     ):
         results = await service.get_validation_results(DummyUser(user_id="user-1"), dataset=None)
 
@@ -41,10 +42,12 @@ async def test_get_validation_results_filters_by_dataset_permission(
 
 @pytest.mark.asyncio()
 async def test_get_validation_results_requires_dataset_access(service: DataQualityService) -> None:
-    with patch(
-        "libs.web_console_services.data_quality_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_quality_service.has_dataset_permission", return_value=False
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=False,
+        ),
     ):
         with pytest.raises(PermissionError, match="Dataset access required"):
             await service.get_validation_results(DummyUser(user_id="user-1"), dataset="taq")
@@ -57,11 +60,12 @@ async def test_get_anomaly_alerts_filters_severity_and_acknowledged(
     def dataset_access(_user: DummyUser, dataset: str) -> bool:
         return dataset in {"crsp", "fama_french"}
 
-    with patch(
-        "libs.web_console_services.data_quality_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_quality_service.has_dataset_permission",
-        side_effect=dataset_access,
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            side_effect=dataset_access,
+        ),
     ):
         alerts = await service.get_anomaly_alerts(
             DummyUser(user_id="user-1"), severity="warning", acknowledged=False
@@ -74,12 +78,13 @@ async def test_get_anomaly_alerts_filters_severity_and_acknowledged(
 
 @pytest.mark.asyncio()
 async def test_acknowledge_alert_idempotent(service: DataQualityService) -> None:
-    with patch(
-        "libs.web_console_services.data_quality_service.has_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_quality_service.has_dataset_permission", return_value=True
-    ), patch(
-        "libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"),
     ):
         first = await service.acknowledge_alert(
             DummyUser(user_id="user-1"), alert_id="alert-1", reason="triage"

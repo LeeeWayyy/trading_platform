@@ -107,7 +107,9 @@ class DummyUI:
     def switch(self, *args, **kwargs) -> DummyElement:
         return DummyElement(value=kwargs.get("value", True))
 
-    def button(self, text: str = "", icon: str | None = None, on_click=None, **kwargs) -> DummyElement:
+    def button(
+        self, text: str = "", icon: str | None = None, on_click=None, **kwargs
+    ) -> DummyElement:
         element = DummyElement(text=text)
         if on_click is not None:
             element.on_click(on_click)

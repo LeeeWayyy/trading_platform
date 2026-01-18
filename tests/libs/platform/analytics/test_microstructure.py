@@ -1148,3 +1148,396 @@ class TestDeterminism:
 
         assert result1.avg_bid_depth == result2.avg_bid_depth
         assert result1.avg_ask_depth == result2.avg_ask_depth
+
+
+class TestEdgeCases:
+    """Additional edge cases and error handling tests."""
+
+    def test_rv_sampling_freq_non_standard(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test RV with non-standard sampling frequency (not 5 or 30 min)."""
+        mock_taq_provider.fetch_realized_volatility.side_effect = DataNotFoundError(
+            "no precomputed"
+        )
+        bars = _create_minute_bars("AAPL", date(2024, 1, 15), n_bars=78)
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="abc123")
+
+        result = analyzer.compute_realized_volatility(
+            "AAPL", date(2024, 1, 15), sampling_freq_minutes=15
+        )
+
+        assert isinstance(result, RealizedVolatilityResult)
+        assert result.sampling_freq_minutes == 15
+        assert not math.isnan(result.rv_daily)
+
+    def test_rv_empty_bars_dataframe(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test RV with completely empty bars DataFrame."""
+        mock_taq_provider.fetch_realized_volatility.side_effect = DataNotFoundError(
+            "no precomputed"
+        )
+        empty_bars = pl.DataFrame(
+            schema={
+                "ts": pl.Datetime,
+                "symbol": pl.Utf8,
+                "open": pl.Float64,
+                "high": pl.Float64,
+                "low": pl.Float64,
+                "close": pl.Float64,
+                "volume": pl.Int64,
+                "vwap": pl.Float64,
+                "date": pl.Date,
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = empty_bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="abc123")
+
+        result = analyzer.compute_realized_volatility("AAPL", date(2024, 1, 15))
+
+        assert math.isnan(result.rv_daily)
+        assert result.num_observations == 0
+
+    def test_rv_pit_no_version_manager(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test RV raises ValueError when PIT requested but version_manager is None."""
+        mock_taq_provider.version_manager = None
+
+        with pytest.raises(ValueError, match="version_manager required"):
+            analyzer.compute_realized_volatility("AAPL", date(2024, 1, 15), as_of=date(2024, 2, 1))
+
+    def test_vpin_no_trades_in_data(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test VPIN when tick data has no trades (all trade_size=0)."""
+        timestamps = _create_timestamps(date(2024, 1, 15), 100)
+        ticks = pl.DataFrame(
+            {
+                "ts": timestamps,
+                "symbol": ["AAPL"] * 100,
+                "bid": [100.0] * 100,
+                "ask": [100.02] * 100,
+                "bid_size": [100] * 100,
+                "ask_size": [100] * 100,
+                "trade_px": [100.01] * 100,
+                "trade_size": [0] * 100,  # All zero
+                "cond": [""] * 100,
+            }
+        )
+        mock_taq_provider.fetch_ticks.return_value = ticks
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="abc123")
+
+        result = analyzer.compute_vpin("AAPL", date(2024, 1, 15))
+
+        assert result.num_buckets == 0
+        assert any("no valid trades" in w.lower() for w in result.warnings)
+
+    def test_vpin_zero_volume_trades_warning(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test VPIN warns when >5% trades have zero volume."""
+        timestamps = _create_timestamps(date(2024, 1, 15), 100)
+        sizes = [10] * 93 + [0] * 7  # 7% zero volume
+        ticks = pl.DataFrame(
+            {
+                "ts": timestamps,
+                "symbol": ["AAPL"] * 100,
+                "bid": [100.0] * 100,
+                "ask": [100.02] * 100,
+                "bid_size": [100] * 100,
+                "ask_size": [100] * 100,
+                "trade_px": [100.0 + i * 0.01 for i in range(100)],
+                "trade_size": sizes,
+                "cond": [""] * 100,
+            }
+        )
+        mock_taq_provider.fetch_ticks.return_value = ticks
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="abc123")
+
+        result = analyzer.compute_vpin(
+            "AAPL", date(2024, 1, 15), volume_per_bucket=50, window_buckets=5, sigma_lookback=10
+        )
+
+        assert any("zero-volume" in w.lower() for w in result.warnings)
+
+    def test_composite_version_without_snapshot(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test CompositeVersionInfo without snapshot_id (non-PIT query)."""
+        info = CompositeVersionInfo(
+            versions={"ds1": "v1", "ds2": "v2"},
+            snapshot_id=None,
+            is_pit=False,
+        )
+
+        # Should generate deterministic hash without snapshot
+        assert len(info.composite_version_id) == 32
+        assert info.is_pit is False
+
+    def test_filter_quotes_with_record_type(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _filter_quotes uses record_type column when available."""
+        timestamps = [datetime(2024, 1, 15, 9, 30, i) for i in range(10)]
+        ticks = pl.DataFrame(
+            {
+                "ts": timestamps,
+                "symbol": ["AAPL"] * 10,
+                "bid": [100.0] * 10,
+                "ask": [100.02] * 10,
+                "bid_size": [100] * 10,
+                "ask_size": [100] * 10,
+                "trade_px": [100.01] * 10,
+                "trade_size": [10] * 10,
+                "cond": [""] * 10,
+                "record_type": ["quote"] * 5 + ["trade"] * 5,
+            }
+        )
+
+        quotes_df = analyzer._filter_quotes(ticks)
+
+        assert quotes_df.height == 5
+        assert all(quotes_df["record_type"] == "quote")
+
+    def test_filter_quotes_without_record_type(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _filter_quotes fallback logic when record_type missing."""
+        timestamps = [datetime(2024, 1, 15, 9, 30, i) for i in range(10)]
+        ticks = pl.DataFrame(
+            {
+                "ts": timestamps,
+                "symbol": ["AAPL"] * 10,
+                "bid": [100.0] * 5 + [0.0] * 5,
+                "ask": [100.02] * 5 + [0.0] * 5,
+                "bid_size": [100] * 5 + [0] * 5,
+                "ask_size": [100] * 5 + [0] * 5,
+                "trade_px": [100.01] * 10,
+                "trade_size": [10] * 10,
+                "cond": [""] * 10,
+            }
+        )
+
+        quotes_df = analyzer._filter_quotes(ticks)
+
+        # Should filter to rows with bid_size > 0 AND ask_size > 0
+        assert quotes_df.height == 5
+
+    def test_depth_with_zero_duration_filtered(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _compute_depth_from_ticks filters out zero-duration quotes."""
+        # Create quotes with same timestamp (zero duration after shift)
+        timestamp = datetime(2024, 1, 15, 9, 30, 0)
+        quotes = pl.DataFrame(
+            {
+                "ts": [timestamp] * 5,
+                "bid": [100.0] * 5,
+                "ask": [100.02] * 5,
+                "bid_size": [100] * 5,
+                "ask_size": [100] * 5,
+            }
+        )
+
+        avg_bid, avg_ask = analyzer._compute_depth_from_ticks(quotes)
+
+        # All quotes have zero duration, should return NaN
+        assert math.isnan(avg_bid)
+        assert math.isnan(avg_ask)
+
+    def test_depth_with_invalid_quotes(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _compute_depth_from_ticks with invalid bid/ask (bid > ask)."""
+        timestamps = [datetime(2024, 1, 15, 9, 30, i) for i in range(10)]
+        quotes = pl.DataFrame(
+            {
+                "ts": timestamps,
+                "bid": [100.02] * 10,  # bid > ask (invalid)
+                "ask": [100.0] * 10,
+                "bid_size": [100] * 10,
+                "ask_size": [100] * 10,
+            }
+        )
+
+        avg_bid, avg_ask = analyzer._compute_depth_from_ticks(quotes)
+
+        # Should filter out invalid quotes, return NaN
+        assert math.isnan(avg_bid)
+        assert math.isnan(avg_ask)
+
+    def test_stale_quotes_less_than_two(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _compute_stale_quote_pct with <2 quotes returns 0."""
+        quotes = pl.DataFrame(
+            {
+                "ts": [datetime(2024, 1, 15, 9, 30, 0)],
+                "bid": [100.0],
+                "ask": [100.02],
+                "bid_size": [100],
+                "ask_size": [100],
+            }
+        )
+
+        stale_pct = analyzer._compute_stale_quote_pct(quotes)
+
+        assert stale_pct == 0.0
+
+    def test_spread_depth_missing_spread_data(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test compute_spread_depth_stats raises DataNotFoundError when spread_df empty."""
+        empty_spread_df = pl.DataFrame(
+            schema={
+                "date": pl.Date,
+                "symbol": pl.Utf8,
+                "qwap_spread": pl.Float64,
+                "ewas": pl.Float64,
+                "quotes": pl.Int64,
+                "trades": pl.Int64,
+            }
+        )
+        mock_taq_provider.fetch_spread_metrics.return_value = empty_spread_df
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="empty_v1"
+        )
+
+        with pytest.raises(DataNotFoundError, match="No spread stats found"):
+            analyzer.compute_spread_depth_stats("AAPL", date(2024, 1, 15))
+
+    def test_resolve_mean_with_nan(self) -> None:
+        """Test _resolve_mean handles NaN values correctly."""
+        from libs.platform.analytics.microstructure import _resolve_mean
+
+        # DataFrame with NaN mean
+        df = pl.DataFrame({"vpin": [float("nan"), float("nan")]})
+        result = _resolve_mean(df)
+        assert math.isnan(result)
+
+    def test_resolve_mean_with_valid_values(self) -> None:
+        """Test _resolve_mean returns correct float for valid data."""
+        from libs.platform.analytics.microstructure import _resolve_mean
+
+        df = pl.DataFrame({"vpin": [0.1, 0.2, 0.3]})
+        result = _resolve_mean(df)
+        assert result == pytest.approx(0.2, rel=1e-6)
+
+    def test_get_version_id_dataset_not_in_snapshot(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _get_version_id raises DataNotFoundError when dataset missing from snapshot."""
+        mock_version_manager = MagicMock(spec=DatasetVersionManager)
+        mock_taq_provider.version_manager = mock_version_manager
+
+        snapshot = MagicMock(spec=SnapshotManifest)
+        snapshot.datasets = {"other_dataset": MagicMock(sync_manifest_version=1)}
+        mock_version_manager.query_as_of.return_value = (Path("/data"), snapshot)
+
+        with pytest.raises(DataNotFoundError, match="Dataset 'taq_1min_bars' not found"):
+            analyzer._get_version_id("taq_1min_bars", as_of=date(2024, 1, 15))
+
+    def test_get_multi_version_id_no_version_manager(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _get_multi_version_id raises ValueError when PIT but no version_manager."""
+        mock_taq_provider.version_manager = None
+
+        with pytest.raises(ValueError, match="version_manager required"):
+            analyzer._get_multi_version_id(["ds1", "ds2"], as_of=date(2024, 1, 15))
+
+    def test_intraday_pattern_pit_no_version_manager(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test analyze_intraday_pattern raises ValueError when PIT but no version_manager."""
+        mock_taq_provider.version_manager = None
+
+        with pytest.raises(ValueError, match="version_manager required"):
+            analyzer.analyze_intraday_pattern(
+                "AAPL", date(2024, 1, 15), date(2024, 1, 15), as_of=date(2024, 2, 1)
+            )
+
+    def test_spread_depth_pit_no_version_manager(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test compute_spread_depth_stats raises ValueError when PIT but no version_manager."""
+        mock_taq_provider.version_manager = None
+
+        with pytest.raises(ValueError, match="version_manager required"):
+            analyzer.compute_spread_depth_stats("AAPL", date(2024, 1, 15), as_of=date(2024, 2, 1))
+
+    def test_vpin_with_precomputed_rv_fallback(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test RV falls back to bars when precomputed raises KeyError."""
+        mock_taq_provider.fetch_realized_volatility.side_effect = KeyError("missing key")
+        bars = _create_minute_bars("AAPL", date(2024, 1, 15), n_bars=78)
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="abc123")
+
+        result = analyzer.compute_realized_volatility("AAPL", date(2024, 1, 15))
+
+        # Should successfully compute from bars
+        assert not math.isnan(result.rv_daily)
+        mock_taq_provider.fetch_minute_bars.assert_called_once()
+
+    def test_depth_with_single_quote(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _compute_depth_from_ticks with single quote (edge case for shift)."""
+        quotes = pl.DataFrame(
+            {
+                "ts": [datetime(2024, 1, 15, 9, 30, 0)],
+                "bid": [100.0],
+                "ask": [100.02],
+                "bid_size": [100],
+                "ask_size": [100],
+            }
+        )
+
+        avg_bid, avg_ask = analyzer._compute_depth_from_ticks(quotes)
+
+        # Single quote gets 1 second duration by default
+        assert avg_bid == 100.0
+        assert avg_ask == 100.0
+
+    def test_locked_markets_empty_dataframe(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _detect_locked_markets with empty DataFrame."""
+        empty_quotes = pl.DataFrame(
+            schema={
+                "ts": pl.Datetime,
+                "bid": pl.Float64,
+                "ask": pl.Float64,
+                "bid_size": pl.Int64,
+                "ask_size": pl.Int64,
+            }
+        )
+
+        has_locked, locked_pct = analyzer._detect_locked_markets(empty_quotes)
+
+        assert has_locked is False
+        assert locked_pct == 0.0
+
+    def test_crossed_markets_empty_dataframe(
+        self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test _detect_crossed_markets with empty DataFrame."""
+        empty_quotes = pl.DataFrame(
+            schema={
+                "ts": pl.Datetime,
+                "bid": pl.Float64,
+                "ask": pl.Float64,
+                "bid_size": pl.Int64,
+                "ask_size": pl.Int64,
+            }
+        )
+
+        has_crossed, crossed_pct = analyzer._detect_crossed_markets(empty_quotes)
+
+        assert has_crossed is False
+        assert crossed_pct == 0.0

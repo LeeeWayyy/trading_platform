@@ -161,7 +161,9 @@ class TestOrderWebhooks:
             },
         }
 
-        with patch("apps.execution_gateway.routes.webhooks.invalidate_performance_cache") as mock_invalidate:
+        with patch(
+            "apps.execution_gateway.routes.webhooks.invalidate_performance_cache"
+        ) as mock_invalidate:
             client = TestClient(app)
             response = _signed_request(client, payload, "secret")
 

@@ -482,7 +482,9 @@ class TestCircuitBreakerServiceErrorHandling:
         reason = "Conditions cleared, verified system health"
 
         # Mock history update to fail with Redis error
-        cb_service_with_db.breaker.update_history_with_reset.side_effect = redis.exceptions.ConnectionError("Redis down")
+        cb_service_with_db.breaker.update_history_with_reset.side_effect = (
+            redis.exceptions.ConnectionError("Redis down")
+        )
 
         # Reset should still succeed (history update is best-effort)
         result = cb_service_with_db.reset(reason, user, acknowledged=True)

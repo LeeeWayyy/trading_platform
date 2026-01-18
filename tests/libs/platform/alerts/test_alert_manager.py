@@ -32,9 +32,7 @@ class TestAlertManagerInitialization:
     @patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret")
     @patch("libs.platform.alerts.alert_manager.Queue")
     @patch("libs.platform.alerts.alert_manager.QueueDepthManager")
-    def test_init_with_defaults(
-        self, mock_depth_manager_class, mock_queue_class, mock_get_secret
-    ):
+    def test_init_with_defaults(self, mock_depth_manager_class, mock_queue_class, mock_get_secret):
         """Test AlertManager initializes with default RQ queue and depth manager."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
@@ -62,7 +60,11 @@ class TestAlertManagerInitialization:
         """Test AlertManager accepts custom RQ queue and depth manager."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
         mock_rq_queue = Mock()
         mock_depth_manager = Mock()
@@ -154,14 +156,20 @@ class TestTriggerAlert:
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
         mock_rq_queue = Mock()
         mock_depth_manager = AsyncMock()
         mock_depth_manager.is_accepting = AsyncMock(return_value=True)
         mock_depth_manager.increment = AsyncMock()
 
-        with patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"):
+        with patch(
+            "libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"
+        ):
             manager = AlertManager(
                 db_pool=mock_db_pool,
                 redis_client=mock_redis_async,
@@ -341,10 +349,16 @@ class TestAcknowledgeAlert:
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
 
-        with patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"):
+        with patch(
+            "libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"
+        ):
             with patch("libs.platform.alerts.alert_manager.Queue"):
                 with patch("libs.platform.alerts.alert_manager.QueueDepthManager"):
                     manager = AlertManager(
@@ -413,10 +427,16 @@ class TestFetchRule:
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
 
-        with patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"):
+        with patch(
+            "libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"
+        ):
             with patch("libs.platform.alerts.alert_manager.Queue"):
                 with patch("libs.platform.alerts.alert_manager.QueueDepthManager"):
                     manager = AlertManager(
@@ -554,10 +574,17 @@ class TestCreateDeliveries:
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
 
-        with patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="test_secret"):
+        with patch(
+            "libs.platform.alerts.alert_manager.get_recipient_hash_secret",
+            return_value="test_secret",
+        ):
             with patch("libs.platform.alerts.alert_manager.Queue"):
                 with patch("libs.platform.alerts.alert_manager.QueueDepthManager"):
                     manager = AlertManager(
@@ -659,11 +686,13 @@ class TestCreateDeliveries:
         mock_mask.side_effect = ["email***", "slack***", "sms***"]
 
         mock_cur = AsyncMock()
-        mock_cur.fetchone = AsyncMock(side_effect=[
-            {"id": "delivery1"},
-            {"id": "delivery2"},
-            None,  # Third channel conflicts (already delivered)
-        ])
+        mock_cur.fetchone = AsyncMock(
+            side_effect=[
+                {"id": "delivery1"},
+                {"id": "delivery2"},
+                None,  # Third channel conflicts (already delivered)
+            ]
+        )
         mock_cur.execute = AsyncMock()
 
         event_id = str(uuid4())
@@ -706,10 +735,16 @@ class TestMarkDeliveryFailed:
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
 
-        with patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"):
+        with patch(
+            "libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"
+        ):
             with patch("libs.platform.alerts.alert_manager.Queue"):
                 with patch("libs.platform.alerts.alert_manager.QueueDepthManager"):
                     manager = AlertManager(
@@ -752,14 +787,20 @@ class TestEnqueueDeliveries:
         """Create AlertManager with mocked dependencies."""
         mock_db_pool = Mock()
         mock_redis_async = Mock()
-        mock_redis_async.connection_pool.connection_kwargs = {"host": "localhost", "port": 6379, "db": 0}
+        mock_redis_async.connection_pool.connection_kwargs = {
+            "host": "localhost",
+            "port": 6379,
+            "db": 0,
+        }
         mock_delivery_func = Mock()
         mock_rq_queue = Mock()
         mock_depth_manager = AsyncMock()
         mock_depth_manager.increment = AsyncMock()
         mock_depth_manager.decrement = AsyncMock()
 
-        with patch("libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"):
+        with patch(
+            "libs.platform.alerts.alert_manager.get_recipient_hash_secret", return_value="secret"
+        ):
             manager = AlertManager(
                 db_pool=mock_db_pool,
                 redis_client=mock_redis_async,
@@ -800,14 +841,14 @@ class TestEnqueueDeliveries:
     @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.alert_dropped_total")
     @patch("libs.platform.alerts.alert_manager.asyncio.to_thread")
-    async def test_enqueue_deliveries_enqueue_failure(self, mock_to_thread, mock_dropped_metric, manager):
+    async def test_enqueue_deliveries_enqueue_failure(
+        self, mock_to_thread, mock_dropped_metric, manager
+    ):
         """Test _enqueue_deliveries() handles enqueue failures gracefully."""
         mock_to_thread.side_effect = Exception("RQ connection failed")
         manager._mark_delivery_failed = AsyncMock()
 
-        deliveries = [
-            ("delivery456", ChannelConfig(type=ChannelType.SLACK, recipient="#alerts"))
-        ]
+        deliveries = [("delivery456", ChannelConfig(type=ChannelType.SLACK, recipient="#alerts"))]
 
         await manager._enqueue_deliveries(
             deliveries=deliveries,
@@ -828,7 +869,9 @@ class TestEnqueueDeliveries:
 
     @pytest.mark.asyncio()
     @patch("libs.platform.alerts.alert_manager.asyncio.to_thread")
-    async def test_enqueue_deliveries_multiple_channels_mixed_results(self, mock_to_thread, manager):
+    async def test_enqueue_deliveries_multiple_channels_mixed_results(
+        self, mock_to_thread, manager
+    ):
         """Test _enqueue_deliveries() handles mixed success/failure results."""
         # First succeeds, second fails, third succeeds
         mock_to_thread.side_effect = [

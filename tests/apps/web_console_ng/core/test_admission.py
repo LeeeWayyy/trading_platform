@@ -101,7 +101,9 @@ async def test_non_websocket_passthrough(rejection_tracker: list[str]) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_draining_rejects(reset_draining: None, rejection_tracker: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_draining_rejects(
+    reset_draining: None, rejection_tracker: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(health, "is_draining", True)
 
     async def app(scope, receive, send):
@@ -191,7 +193,9 @@ async def test_value_error_invalid_session(
     session_store.validate_session = AsyncMock(return_value={"user": "ok"})
     monkeypatch.setattr(admission, "get_session_store", lambda: session_store)
     monkeypatch.setattr(admission, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
-    monkeypatch.setattr(admission, "extract_session_id", lambda *_: (_ for _ in ()).throw(ValueError("bad")))
+    monkeypatch.setattr(
+        admission, "extract_session_id", lambda *_: (_ for _ in ()).throw(ValueError("bad"))
+    )
 
     middleware = AdmissionControlMiddleware(lambda *_: None)
     cookie = f"{config.SESSION_COOKIE_NAME}=cookie"

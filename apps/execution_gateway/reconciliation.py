@@ -97,7 +97,9 @@ class ReconciliationService:
         self.submitted_unconfirmed_grace_seconds = int(
             os.getenv("RECONCILIATION_SUBMITTED_UNCONFIRMED_GRACE_SECONDS", "300")
         )
-        self.fills_backfill_enabled = os.getenv("ALPACA_FILLS_BACKFILL_ENABLED", "false").lower() in {
+        self.fills_backfill_enabled = os.getenv(
+            "ALPACA_FILLS_BACKFILL_ENABLED", "false"
+        ).lower() in {
             "1",
             "true",
             "yes",
@@ -150,9 +152,7 @@ class ReconciliationService:
                     "This ensures broker state was checked even if reconciliation failed."
                 )
             if not user_id or not reason:
-                raise ValueError(
-                    "Both user_id and reason are required for forced startup bypass"
-                )
+                raise ValueError("Both user_id and reason are required for forced startup bypass")
             with self._state_lock:
                 self._override_active = True
                 self._override_context = {
@@ -499,11 +499,7 @@ class ReconciliationService:
             self.db_client.set_reconciliation_high_water_mark(now, name="alpaca_fills")
             return {"status": "ok", "fills_seen": 0, "fills_inserted": 0, "unmatched": 0}
 
-        broker_ids = [
-            str(fill.get("order_id"))
-            for fill in fills
-            if fill.get("order_id")
-        ]
+        broker_ids = [str(fill.get("order_id")) for fill in fills if fill.get("order_id")]
         orders_by_broker = self.db_client.get_orders_by_broker_ids(broker_ids)
 
         fills_by_client: dict[str, list[dict[str, Any]]] = {}
@@ -830,7 +826,10 @@ class ReconciliationService:
         except Exception as exc:
             logger.warning(
                 "Reconciliation DB fill backfill failed",
-                extra={"client_order_id": getattr(order, "client_order_id", "?"), "error": str(exc)},
+                extra={
+                    "client_order_id": getattr(order, "client_order_id", "?"),
+                    "error": str(exc),
+                },
             )
 
     def _reconcile_missing_orders(self, db_orders: list[Any], after_time: datetime | None) -> None:

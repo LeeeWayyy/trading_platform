@@ -182,7 +182,9 @@ class TestStateDelegation:
         assert service.is_startup_complete() is True
         assert service.override_active() is False  # No override when not forced
 
-    def test_mark_startup_complete_forced_requires_prior_recon(self, mock_db_client, mock_alpaca_client):
+    def test_mark_startup_complete_forced_requires_prior_recon(
+        self, mock_db_client, mock_alpaca_client
+    ):
         """Test mark_startup_complete with forced flag requires prior reconciliation."""
         service = ReconciliationService(
             db_client=mock_db_client,
@@ -324,7 +326,9 @@ class TestStartupReconciliation:
             dry_run=False,
         )
         # Mock _run_reconciliation to raise integrity error
-        service._run_reconciliation = Mock(side_effect=psycopg.IntegrityError("Constraint violation"))
+        service._run_reconciliation = Mock(
+            side_effect=psycopg.IntegrityError("Constraint violation")
+        )
 
         result = await service.run_startup_reconciliation()
 
@@ -419,12 +423,24 @@ class TestRunReconciliation:
         )
 
         # Mock sub-module functions
-        with patch("apps.execution_gateway.reconciliation.service.reconcile_known_orders") as mock_known:
-            with patch("apps.execution_gateway.reconciliation.service.reconcile_missing_orders") as mock_missing:
-                with patch("apps.execution_gateway.reconciliation.service.detect_orphans") as mock_orphans:
-                    with patch("apps.execution_gateway.reconciliation.service.backfill_terminal_fills") as mock_terminal:
-                        with patch("apps.execution_gateway.reconciliation.service.reconcile_positions") as mock_positions:
-                            with patch("apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan") as mock_scan:
+        with patch(
+            "apps.execution_gateway.reconciliation.service.reconcile_known_orders"
+        ) as mock_known:
+            with patch(
+                "apps.execution_gateway.reconciliation.service.reconcile_missing_orders"
+            ) as mock_missing:
+                with patch(
+                    "apps.execution_gateway.reconciliation.service.detect_orphans"
+                ) as mock_orphans:
+                    with patch(
+                        "apps.execution_gateway.reconciliation.service.backfill_terminal_fills"
+                    ) as mock_terminal:
+                        with patch(
+                            "apps.execution_gateway.reconciliation.service.reconcile_positions"
+                        ) as mock_positions:
+                            with patch(
+                                "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
+                            ) as mock_scan:
                                 # Mock _backfill_alpaca_fills to avoid complexity
                                 service._backfill_alpaca_fills = Mock(return_value={})
 
@@ -454,9 +470,15 @@ class TestRunReconciliation:
         with patch("apps.execution_gateway.reconciliation.service.reconcile_known_orders"):
             with patch("apps.execution_gateway.reconciliation.service.reconcile_missing_orders"):
                 with patch("apps.execution_gateway.reconciliation.service.detect_orphans"):
-                    with patch("apps.execution_gateway.reconciliation.service.backfill_terminal_fills"):
-                        with patch("apps.execution_gateway.reconciliation.service.reconcile_positions"):
-                            with patch("apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"):
+                    with patch(
+                        "apps.execution_gateway.reconciliation.service.backfill_terminal_fills"
+                    ):
+                        with patch(
+                            "apps.execution_gateway.reconciliation.service.reconcile_positions"
+                        ):
+                            with patch(
+                                "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
+                            ):
                                 service._backfill_alpaca_fills = Mock(return_value={})
 
                                 result = service._run_reconciliation("periodic")
@@ -479,9 +501,15 @@ class TestRunReconciliation:
         with patch("apps.execution_gateway.reconciliation.service.reconcile_known_orders"):
             with patch("apps.execution_gateway.reconciliation.service.reconcile_missing_orders"):
                 with patch("apps.execution_gateway.reconciliation.service.detect_orphans"):
-                    with patch("apps.execution_gateway.reconciliation.service.backfill_terminal_fills"):
-                        with patch("apps.execution_gateway.reconciliation.service.reconcile_positions"):
-                            with patch("apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"):
+                    with patch(
+                        "apps.execution_gateway.reconciliation.service.backfill_terminal_fills"
+                    ):
+                        with patch(
+                            "apps.execution_gateway.reconciliation.service.reconcile_positions"
+                        ):
+                            with patch(
+                                "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
+                            ):
                                 # Should not raise, just log warning
                                 result = service._run_reconciliation("test")
 
@@ -503,9 +531,15 @@ class TestRunReconciliation:
         with patch("apps.execution_gateway.reconciliation.service.reconcile_known_orders"):
             with patch("apps.execution_gateway.reconciliation.service.reconcile_missing_orders"):
                 with patch("apps.execution_gateway.reconciliation.service.detect_orphans"):
-                    with patch("apps.execution_gateway.reconciliation.service.backfill_terminal_fills"):
-                        with patch("apps.execution_gateway.reconciliation.service.reconcile_positions"):
-                            with patch("apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"):
+                    with patch(
+                        "apps.execution_gateway.reconciliation.service.backfill_terminal_fills"
+                    ):
+                        with patch(
+                            "apps.execution_gateway.reconciliation.service.reconcile_positions"
+                        ):
+                            with patch(
+                                "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
+                            ):
                                 service._backfill_alpaca_fills = Mock(return_value={})
 
                                 result = service._run_reconciliation("test")
@@ -525,7 +559,9 @@ class TestBackfillAlpacaFills:
             dry_run=False,
         )
 
-        with patch("apps.execution_gateway.reconciliation.service.backfill_alpaca_fills") as mock_backfill:
+        with patch(
+            "apps.execution_gateway.reconciliation.service.backfill_alpaca_fills"
+        ) as mock_backfill:
             mock_backfill.return_value = {"fills_processed": 10}
 
             result = service._backfill_alpaca_fills(lookback_hours=24, recalc_all_trades=True)

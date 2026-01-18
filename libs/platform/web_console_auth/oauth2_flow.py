@@ -193,7 +193,12 @@ class OAuth2FlowHandler:
                 audit_logged = True
 
             return session_id, session_data
-        except (httpx.HTTPStatusError, httpx.RequestError, jwt.InvalidTokenError, ValueError) as exc:
+        except (
+            httpx.HTTPStatusError,
+            httpx.RequestError,
+            jwt.InvalidTokenError,
+            ValueError,
+        ) as exc:
             # OAuth2/OIDC token exchange and validation errors
             # httpx.HTTPStatusError: HTTP 4xx/5xx from Auth0 token endpoint
             # httpx.RequestError: Network errors (timeout, connection refused)
@@ -569,7 +574,12 @@ class OAuth2FlowHandler:
                 audit_logged = True
 
             return session_data
-        except (httpx.HTTPStatusError, httpx.RequestError, jwt.InvalidTokenError, ValueError) as exc:
+        except (
+            httpx.HTTPStatusError,
+            httpx.RequestError,
+            jwt.InvalidTokenError,
+            ValueError,
+        ) as exc:
             # Token refresh errors
             # httpx.HTTPStatusError: HTTP 4xx/5xx from Auth0 token endpoint
             # httpx.RequestError: Network errors (timeout, connection refused)

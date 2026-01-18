@@ -200,9 +200,7 @@ class WriteCapturingDatabaseClient:
         Note: DatabaseClient.set_reconciliation_high_water_mark doesn't support
         conn, so we capture for validation without delegating.
         """
-        self._capture_write(
-            "UPSERT", "reconciliation_state", {"args": str(args), "kwargs": kwargs}
-        )
+        self._capture_write("UPSERT", "reconciliation_state", {"args": str(args), "kwargs": kwargs})
         # Don't delegate - method doesn't support conn, and we rollback anyway
 
     def recalculate_trade_realized_pnl(
@@ -251,17 +249,20 @@ class WriteCapturingDatabaseClient:
 
         # For callable methods that might accept conn, wrap them
         if callable(attr):
+
             def wrapped(*args: Any, **kwargs: Any) -> Any:
                 # Inject transaction connection if method accepts it
                 # This ensures all DB operations use our transaction
                 try:
                     import inspect
+
                     sig = inspect.signature(attr)
                     if "conn" in sig.parameters and "conn" not in kwargs:
                         kwargs["conn"] = self._conn
                 except (ValueError, TypeError):
                     pass
                 return attr(*args, **kwargs)
+
             return wrapped
 
         return attr
@@ -429,11 +430,13 @@ def validate_writes(
         captured_count = captured_summary.get(key, 0)
         expected_count = expected_summary.get(key, 0)
         if captured_count != expected_count:
-            differences.append({
-                "operation:table": key,
-                "expected": expected_count,
-                "captured": captured_count,
-            })
+            differences.append(
+                {
+                    "operation:table": key,
+                    "expected": expected_count,
+                    "captured": captured_count,
+                }
+            )
 
     passed = len(differences) == 0
     if passed:

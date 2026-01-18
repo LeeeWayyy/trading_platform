@@ -94,7 +94,9 @@ async def test_invalidate_user_sessions_re_raises_operational_error(mock_acquire
 
 @pytest.mark.asyncio()
 @patch("libs.platform.web_console_auth.session_validation.acquire_connection")
-async def test_invalidate_user_sessions_audit_log_failure_does_not_raise(mock_acquire: Mock) -> None:
+async def test_invalidate_user_sessions_audit_log_failure_does_not_raise(
+    mock_acquire: Mock,
+) -> None:
     mock_conn = AsyncMock()
     mock_cursor = AsyncMock()
     mock_cursor.fetchone = AsyncMock(return_value=(5,))

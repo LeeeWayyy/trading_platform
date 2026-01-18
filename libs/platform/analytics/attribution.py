@@ -1112,7 +1112,9 @@ class FactorAttribution:
                         "error_type": type(e).__name__,
                     },
                 )
-                warnings_list.append(f"Factor '{factor_name}': VIF computation failed (LinAlgError)")
+                warnings_list.append(
+                    f"Factor '{factor_name}': VIF computation failed (LinAlgError)"
+                )
             except (ValueError, ZeroDivisionError) as e:
                 logger.debug(
                     "VIF computation failed due to numerical error",

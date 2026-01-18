@@ -181,7 +181,12 @@ def test_iter_breach_types() -> None:
 
     breaches = [
         FatFingerBreach(threshold_type="qty", limit=1000, actual=2000, metadata={}),
-        FatFingerBreach(threshold_type="notional", limit=Decimal("100000"), actual=Decimal("200000"), metadata={}),
+        FatFingerBreach(
+            threshold_type="notional",
+            limit=Decimal("100000"),
+            actual=Decimal("200000"),
+            metadata={},
+        ),
     ]
 
     types = list(iter_breach_types(breaches))

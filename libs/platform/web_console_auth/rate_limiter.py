@@ -116,7 +116,9 @@ class RateLimiter:
                 return False, 0
             rate_limit_checks_total.labels(action=action, result="allowed").inc()
             return True, max_requests
-        except Exception as exc:  # Generic catch justified - rate limiter should never crash requests
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - rate limiter should never crash requests
             # Unexpected errors - fail according to policy (defensive)
             rate_limit_redis_errors_total.labels(action=action).inc()
             logger.warning(
@@ -198,7 +200,9 @@ class RateLimiter:
                 action="alert_rate_limit", result="allowed" if allowed else "blocked"
             ).inc()
             return allowed
-        except Exception as exc:  # Generic catch justified - rate limiter should never crash alert system
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - rate limiter should never crash alert system
             # Unexpected errors - fail according to policy (defensive)
             rate_limit_redis_errors_total.labels(action="alert_rate_limit").inc()
             logger.warning(

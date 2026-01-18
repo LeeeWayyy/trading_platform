@@ -113,11 +113,7 @@ def backfill_alpaca_fills(
         return {"status": "ok", "fills_seen": 0, "fills_inserted": 0, "unmatched": 0}
 
     # Match fills to orders
-    broker_ids = [
-        str(fill.get("order_id"))
-        for fill in fills
-        if fill.get("order_id")
-    ]
+    broker_ids = [str(fill.get("order_id")) for fill in fills if fill.get("order_id")]
     orders_by_broker = db_client.get_orders_by_broker_ids(broker_ids)
 
     fills_by_client: dict[str, list[dict[str, Any]]] = {}
@@ -189,9 +185,7 @@ def backfill_alpaca_fills(
                     },
                     exc_info=True,
                 )
-                raise RuntimeError(
-                    f"P&L recalculation failed for {strategy_id}:{symbol}"
-                ) from exc
+                raise RuntimeError(f"P&L recalculation failed for {strategy_id}:{symbol}") from exc
 
     db_client.set_reconciliation_high_water_mark(now, name="alpaca_fills")
     logger.info(

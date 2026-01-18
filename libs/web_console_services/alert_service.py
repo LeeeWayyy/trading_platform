@@ -374,7 +374,9 @@ class AlertConfigService:
                 body=body,
                 metadata={"test_notification": "true"},
             )
-        except Exception as exc:  # Generic catch justified - safety net for unexpected channel failures
+        except (
+            Exception
+        ) as exc:  # Generic catch justified - safety net for unexpected channel failures
             error_msg = _sanitize_error_for_log(str(exc))
             await self.audit_logger.log_action(
                 user_id=user.get("user_id"),

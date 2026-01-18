@@ -27,9 +27,7 @@ def test_safe_classes_calls_element_classes() -> None:
 
     helpers.safe_classes(element, add="a", remove="b", toggle="c", replace="d")
 
-    assert element.calls == [
-        {"add": "a", "remove": "b", "toggle": "c", "replace": "d"}
-    ]
+    assert element.calls == [{"add": "a", "remove": "b", "toggle": "c", "replace": "d"}]
 
 
 @pytest.mark.parametrize("replace", [True, False])

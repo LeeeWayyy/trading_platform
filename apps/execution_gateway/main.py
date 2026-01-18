@@ -287,7 +287,9 @@ reconciliation_task: asyncio.Task[None] | None = None
 
 # Stateless components (initialized at import time)
 risk_config = RiskConfig()
-logger.info(f"Risk config initialized: max_position_size={risk_config.position_limits.max_position_size}")
+logger.info(
+    f"Risk config initialized: max_position_size={risk_config.position_limits.max_position_size}"
+)
 
 fat_finger_validator = FatFingerValidator(
     default_thresholds=FatFingerThresholds(
@@ -376,7 +378,9 @@ app.include_router(slicing_routes.router)
 logger.info("All routers mounted")
 
 # Proxy headers middleware (restrict trusted_hosts in production to prevent IP spoofing)
-TRUSTED_PROXY_HOSTS = [h.strip() for h in os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",") if h.strip()]
+TRUSTED_PROXY_HOSTS = [
+    h.strip() for h in os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",") if h.strip()
+]
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  # type: ignore[arg-type]
 app.middleware("http")(populate_user_from_headers_middleware)
 
@@ -423,7 +427,9 @@ def _build_metrics() -> dict[str, Any]:
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=ErrorResponse(error="Validation error", detail=str(exc), timestamp=datetime.now(UTC)).model_dump(mode="json"),
+        content=ErrorResponse(
+            error="Validation error", detail=str(exc), timestamp=datetime.now(UTC)
+        ).model_dump(mode="json"),
     )
 
 
@@ -431,7 +437,9 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
 async def permission_exception_handler(request: Request, exc: PermissionError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
-        content=ErrorResponse(error="Forbidden", detail=str(exc) or "Permission denied", timestamp=datetime.now(UTC)).model_dump(mode="json"),
+        content=ErrorResponse(
+            error="Forbidden", detail=str(exc) or "Permission denied", timestamp=datetime.now(UTC)
+        ).model_dump(mode="json"),
     )
 
 
@@ -439,7 +447,9 @@ async def permission_exception_handler(request: Request, exc: PermissionError) -
 async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content=ErrorResponse(error="Order validation failed", detail=str(exc), timestamp=datetime.now(UTC)).model_dump(mode="json"),
+        content=ErrorResponse(
+            error="Order validation failed", detail=str(exc), timestamp=datetime.now(UTC)
+        ).model_dump(mode="json"),
     )
 
 
@@ -447,7 +457,9 @@ async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError
 async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=ErrorResponse(error="Order rejected by broker", detail=str(exc), timestamp=datetime.now(UTC)).model_dump(mode="json"),
+        content=ErrorResponse(
+            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now(UTC)
+        ).model_dump(mode="json"),
     )
 
 
@@ -455,7 +467,9 @@ async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) 
 async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content=ErrorResponse(error="Broker connection error", detail=str(exc), timestamp=datetime.now(UTC)).model_dump(mode="json"),
+        content=ErrorResponse(
+            error="Broker connection error", detail=str(exc), timestamp=datetime.now(UTC)
+        ).model_dump(mode="json"),
     )
 
 

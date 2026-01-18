@@ -422,17 +422,32 @@ class SignalGenerator:
                             # Cache write error - log but don't fail (graceful degradation)
                             logger.warning(
                                 f"Failed to cache features for {symbol}: {e}",
-                                extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
+                                extra={
+                                    "symbol": symbol,
+                                    "date": date_str,
+                                    "error_type": type(e).__name__,
+                                },
                             )
 
                 features_list.append(fresh_features)
 
-            except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
+            except (
+                KeyError,
+                ValueError,
+                TypeError,
+                AttributeError,
+                FileNotFoundError,
+                OSError,
+            ) as e:
                 # FALLBACK: Use mock features if Qlib integration not available
                 # This allows P3 testing without full Qlib data setup
                 logger.warning(
                     f"Falling back to mock features due to error: {e}",
-                    extra={"date": date_str, "symbols": symbols_to_generate, "error_type": type(e).__name__},
+                    extra={
+                        "date": date_str,
+                        "symbols": symbols_to_generate,
+                        "error_type": type(e).__name__,
+                    },
                 )
                 try:
                     mock_features = get_mock_alpha158_features(
@@ -455,17 +470,38 @@ class SignalGenerator:
                                     )
                                     self.feature_cache.set(symbol, date_str, features_dict)
                                     logger.debug(f"Cached mock features for {symbol} on {date_str}")
-                            except (RedisError, TypeError, ValueError, KeyError, IndexError) as cache_error:
+                            except (
+                                RedisError,
+                                TypeError,
+                                ValueError,
+                                KeyError,
+                                IndexError,
+                            ) as cache_error:
                                 logger.warning(
                                     f"Failed to cache mock features for {symbol}: {cache_error}",
-                                    extra={"symbol": symbol, "date": date_str, "error_type": type(cache_error).__name__},
+                                    extra={
+                                        "symbol": symbol,
+                                        "date": date_str,
+                                        "error_type": type(cache_error).__name__,
+                                    },
                                 )
 
                     features_list.append(mock_features)
-                except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as mock_error:
+                except (
+                    KeyError,
+                    ValueError,
+                    TypeError,
+                    AttributeError,
+                    FileNotFoundError,
+                    OSError,
+                ) as mock_error:
                     logger.error(
                         f"Failed to generate mock features: {mock_error}",
-                        extra={"date": date_str, "symbols": symbols_to_generate, "error_type": type(mock_error).__name__},
+                        extra={
+                            "date": date_str,
+                            "symbols": symbols_to_generate,
+                            "error_type": type(mock_error).__name__,
+                        },
                         exc_info=True,
                     )
                     raise ValueError(
@@ -890,7 +926,11 @@ class SignalGenerator:
             # Fallback to mock features if real features fail
             logger.warning(
                 f"Feature generation failed, trying mock: {e}",
-                extra={"error_type": type(e).__name__, "date": date_str, "symbols_count": len(symbols_to_generate)},
+                extra={
+                    "error_type": type(e).__name__,
+                    "date": date_str,
+                    "symbols_count": len(symbols_to_generate),
+                },
             )
             try:
                 mock_features = get_mock_alpha158_features(
@@ -913,13 +953,28 @@ class SignalGenerator:
                         symbols_failed.append(symbol)
                         logger.warning(
                             f"Mock cache error for {symbol}: {cache_err}",
-                            extra={"symbol": symbol, "date": date_str, "error_type": type(cache_err).__name__},
+                            extra={
+                                "symbol": symbol,
+                                "date": date_str,
+                                "error_type": type(cache_err).__name__,
+                            },
                         )
 
-            except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as mock_err:
+            except (
+                KeyError,
+                ValueError,
+                TypeError,
+                AttributeError,
+                FileNotFoundError,
+                OSError,
+            ) as mock_err:
                 logger.error(
                     f"Mock feature generation also failed: {mock_err}",
-                    extra={"error_type": type(mock_err).__name__, "date": date_str, "symbols_count": len(symbols_to_generate)},
+                    extra={
+                        "error_type": type(mock_err).__name__,
+                        "date": date_str,
+                        "symbols_count": len(symbols_to_generate),
+                    },
                 )
                 symbols_failed = symbols_to_generate
 

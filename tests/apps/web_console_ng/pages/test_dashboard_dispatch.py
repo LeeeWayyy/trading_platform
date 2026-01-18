@@ -41,7 +41,9 @@ def test_dispatch_trading_state_event_success_calls_js(monkeypatch: pytest.Monke
     assert "killSwitchState" in calls[0]
 
 
-def test_dispatch_trading_state_event_circuit_breaker_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dispatch_trading_state_event_circuit_breaker_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[str] = []
 
     def record_js(js: str, *args: Any, **kwargs: Any) -> None:

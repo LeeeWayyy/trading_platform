@@ -21,7 +21,9 @@ class _DummyTOTP:
 
 
 @pytest.fixture()
-def handler(monkeypatch: pytest.MonkeyPatch) -> tuple[mfa_module.MFAHandler, SimpleNamespace, SimpleNamespace]:
+def handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[mfa_module.MFAHandler, SimpleNamespace, SimpleNamespace]:
     session_store = SimpleNamespace(
         validate_session=AsyncMock(),
         verify_cookie=Mock(return_value="session-1"),
@@ -73,9 +75,7 @@ async def test_verify_rejects_invalid_cookie_signature(
     handler: tuple[mfa_module.MFAHandler, SimpleNamespace, SimpleNamespace]
 ) -> None:
     mfa_handler, session_store, rate_limiter = handler
-    session_store.validate_session.return_value = {
-        "user": {"user_id": "mfa", "mfa_pending": True}
-    }
+    session_store.validate_session.return_value = {"user": {"user_id": "mfa", "mfa_pending": True}}
     session_store.verify_cookie.return_value = None
 
     result = await mfa_handler.verify("pending", "123456")
@@ -90,9 +90,7 @@ async def test_verify_rejects_when_mfa_not_required(
     handler: tuple[mfa_module.MFAHandler, SimpleNamespace, SimpleNamespace]
 ) -> None:
     mfa_handler, session_store, rate_limiter = handler
-    session_store.validate_session.return_value = {
-        "user": {"user_id": "mfa", "mfa_pending": False}
-    }
+    session_store.validate_session.return_value = {"user": {"user_id": "mfa", "mfa_pending": False}}
     session_store.verify_cookie.return_value = "session-1"
 
     result = await mfa_handler.verify("pending", "123456")
@@ -107,9 +105,7 @@ async def test_verify_blocks_when_rate_limited(
     handler: tuple[mfa_module.MFAHandler, SimpleNamespace, SimpleNamespace]
 ) -> None:
     mfa_handler, session_store, rate_limiter = handler
-    session_store.validate_session.return_value = {
-        "user": {"user_id": "mfa", "mfa_pending": True}
-    }
+    session_store.validate_session.return_value = {"user": {"user_id": "mfa", "mfa_pending": True}}
     session_store.verify_cookie.return_value = "session-1"
     rate_limiter.check_only.return_value = (True, 120, "account_locked")
 
@@ -127,9 +123,7 @@ async def test_verify_rejects_missing_secret(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mfa_handler, session_store, rate_limiter = handler
-    session_store.validate_session.return_value = {
-        "user": {"user_id": "mfa", "mfa_pending": True}
-    }
+    session_store.validate_session.return_value = {"user": {"user_id": "mfa", "mfa_pending": True}}
     session_store.verify_cookie.return_value = "session-1"
     monkeypatch.setattr(mfa_handler, "_get_totp_secret", lambda _user_id: None)
 
@@ -176,9 +170,7 @@ async def test_verify_invalid_code_can_lock_account(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mfa_handler, session_store, rate_limiter = handler
-    session_store.validate_session.return_value = {
-        "user": {"user_id": "mfa", "mfa_pending": True}
-    }
+    session_store.validate_session.return_value = {"user": {"user_id": "mfa", "mfa_pending": True}}
     session_store.verify_cookie.return_value = "session-1"
 
     monkeypatch.setattr(mfa_handler, "_get_totp_secret", lambda _user_id: "SECRET")
