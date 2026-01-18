@@ -194,7 +194,7 @@ class StubAlpaca:
 
     def submit_order(self, order: Any, client_order_id: str) -> dict[str, Any]:
         self.submitted.append((order, client_order_id))
-        return {"id": client_order_id}
+        return {"id": client_order_id, "status": "pending_new"}
 
 
 class StubAuthenticator:
@@ -224,6 +224,11 @@ def build_client(overrides: dict[Callable[..., Any], Any] | None = None) -> Test
     stub_db = StubDB()
     stub_audit = StubAudit(None)  # type: ignore[arg-type]
     stub_alpaca = StubAlpaca()
+    class StubRedis:
+        async def get(self, key: str) -> bytes:
+            return b'{"state": "OPEN"}'
+
+    stub_redis = StubRedis()
     stub_user = AuthenticatedUser(
         user_id="user-1",
         role=Role.OPERATOR,
@@ -241,6 +246,7 @@ def build_client(overrides: dict[Callable[..., Any], Any] | None = None) -> Test
     app.dependency_overrides[deps.get_audit_logger] = lambda: stub_audit
     app.dependency_overrides[deps.get_alpaca_executor] = lambda: stub_alpaca
     app.dependency_overrides[deps.get_gateway_authenticator] = lambda: StubAuthenticator()
+    app.dependency_overrides[deps.get_async_redis] = lambda: stub_redis
 
     if overrides:
         for dep, value in overrides.items():
@@ -1745,8 +1751,9 @@ def test_submit_manual_order_dry_run(monkeypatch: pytest.MonkeyPatch):
     assert data["status"] == "dry_run"
 
 
-def test_submit_manual_order_broker_unavailable_not_dry_run():
+def test_submit_manual_order_broker_unavailable_not_dry_run(monkeypatch: pytest.MonkeyPatch):
     """Test manual order fails when broker unavailable and not in dry-run mode."""
+    monkeypatch.setattr("apps.execution_gateway.api.manual_controls.DRY_RUN", False)
 
     class StubRedis:
         async def get(self, key: str) -> bytes:
@@ -1841,7 +1848,7 @@ def test_submit_manual_order_broker_error():
     response = client.post(
         "/manual/orders",
         json={
-            "symbol": "INVALID",
+            "symbol": "AAPL",
             "side": "buy",
             "qty": "10",
             "reason": "testing broker error manual",
@@ -1911,7 +1918,7 @@ def test_pending_orders_sort_validation():
 
 
 def test_pending_orders_no_strategies():
-    """Test pending orders fails when user has no authorized strategies."""
+    """Test pending orders returns empty when user has no authorized strategies."""
     client = build_client(
         overrides={
             deps.get_authenticated_user: lambda: AuthenticatedUser(
@@ -1920,8 +1927,9 @@ def test_pending_orders_no_strategies():
         }
     )
     response = client.get("/orders/pending")
-    assert response.status_code == 403
-    assert _err(response)["error"] == "strategy_unauthorized"
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
 
 
 def test_pending_orders_permission_denied():

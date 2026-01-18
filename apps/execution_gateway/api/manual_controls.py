@@ -107,7 +107,8 @@ REASON_MAX_LEN = 512
 
 def _sanitize_reason(reason: str) -> str:
     """Sanitize reason strings for audit logs (truncate + strip newlines)."""
-    cleaned = " ".join(reason.splitlines()).strip()
+    # Collapse all whitespace (including newlines) into single spaces.
+    cleaned = " ".join(reason.split()).strip()
     if len(cleaned) > REASON_MAX_LEN:
         return cleaned[:REASON_MAX_LEN].rstrip()
     return cleaned

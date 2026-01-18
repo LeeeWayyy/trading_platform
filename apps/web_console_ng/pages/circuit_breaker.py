@@ -65,7 +65,7 @@ def _get_cb_service() -> CircuitBreakerService | None:
             )
             return None
 
-        app.storage._cb_service = CircuitBreakerService(sync_redis, sync_pool)  # noqa: B010
+        app.storage._cb_service = CircuitBreakerService(sync_redis, sync_pool)  # type: ignore[attr-defined]  # noqa: B010
 
     service: CircuitBreakerService = getattr(app.storage, "_cb_service")  # noqa: B009
     return service

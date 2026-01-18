@@ -399,6 +399,16 @@ class SignalGenerator:
                     fit_end_date=date_str,
                     data_dir=self.data_provider.data_dir,
                 )
+                if (
+                    not fresh_features.empty
+                    and isinstance(fresh_features.index, pd.MultiIndex)
+                    and "instrument" in fresh_features.index.names
+                ):
+                    fresh_features = fresh_features.loc[
+                        fresh_features.index.get_level_values("instrument").isin(
+                            set(symbols_to_generate)
+                        )
+                    ]
 
                 # Cache the freshly generated features (per-symbol)
                 if self.feature_cache is not None and not fresh_features.empty:
@@ -456,6 +466,16 @@ class SignalGenerator:
                         end_date=date_str,
                         data_dir=self.data_provider.data_dir,
                     )
+                    if (
+                        not mock_features.empty
+                        and isinstance(mock_features.index, pd.MultiIndex)
+                        and "instrument" in mock_features.index.names
+                    ):
+                        mock_features = mock_features.loc[
+                            mock_features.index.get_level_values("instrument").isin(
+                                set(symbols_to_generate)
+                            )
+                        ]
 
                     # Cache mock features too (for consistency)
                     if self.feature_cache is not None and not mock_features.empty:
@@ -511,9 +531,14 @@ class SignalGenerator:
         # Combine all features (cached + freshly generated)
         if features_list:
             features = pd.concat(features_list, axis=0)
-            # Sort by symbol to ensure consistent ordering with input symbols
-            # This is critical for matching predictions to symbols
-            features = features.sort_index(level="instrument")
+            if not features.empty:
+                if not isinstance(features.index, pd.MultiIndex) or (
+                    "instrument" not in features.index.names
+                ):
+                    raise ValueError("Generated features missing 'instrument' MultiIndex level")
+                # Sort by symbol to ensure consistent ordering with input symbols
+                # This is critical for matching predictions to symbols
+                features = features.sort_index(level="instrument")
         else:
             features = pd.DataFrame()
 
@@ -626,19 +651,33 @@ class SignalGenerator:
         # Use nsmallest because rank 1 = best (smallest rank number)
         if self.top_n > 0:
             top_symbols = results.nsmallest(self.top_n, "rank")
-            if not top_symbols.empty:
-                # Equal weight: 1.0 / N for each long position
-                # Example: top_n=3 means each gets 0.3333 (33.3% of capital)
-                results.loc[top_symbols.index, "target_weight"] = 1.0 / self.top_n
+        else:
+            top_symbols = pd.DataFrame()
 
         # Short positions (bottom N by predicted return)
         # Use nlargest because rank N = worst (largest rank number)
         if self.bottom_n > 0:
             bottom_symbols = results.nlargest(self.bottom_n, "rank")
-            if not bottom_symbols.empty:
-                # Equal weight: -1.0 / N for each short position
-                # Example: bottom_n=3 means each gets -0.3333 (-33.3% of capital)
-                results.loc[bottom_symbols.index, "target_weight"] = -1.0 / self.bottom_n
+        else:
+            bottom_symbols = pd.DataFrame()
+
+        if not top_symbols.empty and not bottom_symbols.empty:
+            overlap = top_symbols.index.intersection(bottom_symbols.index)
+            if not overlap.empty:
+                bottom_symbols = bottom_symbols.drop(index=overlap)
+
+        long_count = len(top_symbols)
+        short_count = len(bottom_symbols)
+
+        if long_count > 0:
+            # Equal weight: 1.0 / N for each long position
+            # Example: top_n=3 means each gets 0.3333 (33.3% of capital)
+            results.loc[top_symbols.index, "target_weight"] = 1.0 / long_count
+
+        if short_count > 0:
+            # Equal weight: -1.0 / N for each short position
+            # Example: bottom_n=3 means each gets -0.3333 (-33.3% of capital)
+            results.loc[bottom_symbols.index, "target_weight"] = -1.0 / short_count
 
         # ====================================================================
         # Step 8: Sort by rank and return
@@ -764,12 +803,28 @@ class SignalGenerator:
         for offset in range(history_days):
             current_date = (end_date - timedelta(days=offset)).date()
             try:
+                current_datetime = datetime.combine(current_date, time.min, tzinfo=UTC)
+                date_str = current_datetime.strftime("%Y-%m-%d")
                 result = self.precompute_features(
                     symbols=symbols,
-                    as_of_date=datetime.combine(current_date, time.min, tzinfo=UTC),
+                    as_of_date=current_datetime,
                 )
                 total_cached += result["cached_count"]
                 total_skipped += result["skipped_count"]
+                # Treat full-cache-miss with zero cached as a failed date
+                if result["cached_count"] == 0 and result["skipped_count"] >= len(symbols):
+                    cache_ok = False
+                    if self.feature_cache is not None:
+                        try:
+                            cached = self.feature_cache.mget(symbols, date_str)
+                            cache_ok = cached is not None and all(
+                                cached.get(symbol) is not None for symbol in symbols
+                            )
+                        except (RedisError, KeyError, TypeError, ValueError):
+                            cache_ok = False
+                    if not cache_ok:
+                        dates_failed += 1
+                        continue
                 dates_succeeded += 1
             except (ValueError, KeyError, TypeError, FileNotFoundError, OSError, RedisError) as exc:
                 dates_failed += 1

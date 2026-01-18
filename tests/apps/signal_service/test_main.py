@@ -27,6 +27,7 @@ See Also:
 
 from collections import OrderedDict
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pandas as pd
@@ -65,8 +66,9 @@ class TestLifespanStartup:
         mock_settings.redis_port = 6379
         mock_settings.redis_db = 0
         mock_settings.redis_ttl = 3600
+        mock_settings.database_url = "postgresql://user:pass@localhost:5432/signal_service"
         mock_settings.default_strategy = "alpha_baseline"
-        mock_settings.data_dir = "data/adjusted"
+        mock_settings.data_dir = Path("data/adjusted")
         mock_settings.top_n = 2
         mock_settings.bottom_n = 2
         mock_settings.feature_hydration_enabled = False
@@ -115,13 +117,29 @@ class TestLifespanStartup:
                                                 with patch(
                                                     "asyncio.create_task"
                                                 ) as mock_create_task:
-                                                    # Mock tasks
-                                                    mock_reload_task = AsyncMock()
-                                                    mock_redis_task = AsyncMock()
-                                                    mock_create_task.side_effect = [
-                                                        mock_reload_task,
-                                                        mock_redis_task,
-                                                    ]
+                                                    # Mock tasks with awaitable mocks
+                                                    class _AwaitableTask:
+                                                        def __init__(self) -> None:
+                                                            self.cancel = Mock()
+
+                                                        def __await__(self):
+                                                            if False:
+                                                                yield None
+                                                            return None
+
+                                                    def _make_awaitable_task() -> _AwaitableTask:
+                                                        return _AwaitableTask()
+
+                                                    mock_reload_task = _make_awaitable_task()
+                                                    mock_redis_task = _make_awaitable_task()
+
+                                                    task_queue = [mock_reload_task, mock_redis_task]
+
+                                                    def _create_task(coro):
+                                                        coro.close()
+                                                        return task_queue.pop(0)
+
+                                                    mock_create_task.side_effect = _create_task
 
                                                     async with lifespan(app):
                                                         # Verify startup completed
@@ -139,8 +157,9 @@ class TestLifespanStartup:
         mock_settings_class = Mock()
         mock_settings = Mock()
         mock_settings.redis_enabled = False
+        mock_settings.database_url = "postgresql://user:pass@localhost:5432/signal_service"
         mock_settings.default_strategy = "alpha_baseline"
-        mock_settings.data_dir = "data/adjusted"
+        mock_settings.data_dir = Path("data/adjusted")
         mock_settings.feature_hydration_enabled = False
         mock_settings.shadow_validation_enabled = False
         mock_settings.testing = True
@@ -157,14 +176,35 @@ class TestLifespanStartup:
             with patch("apps.signal_service.main.get_optional_secret", return_value=""):
                 with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
                     with patch("asyncio.create_task") as mock_create_task:
-                        mock_reload_task = AsyncMock()
-                        mock_create_task.return_value = mock_reload_task
+                        class _AwaitableTask:
+                            def __init__(self) -> None:
+                                self.cancel = Mock()
+
+                            def __await__(self):
+                                if False:
+                                    yield None
+                                return None
+
+                        created_tasks: list[_AwaitableTask] = []
+
+                        def _make_task() -> _AwaitableTask:
+                            task = _AwaitableTask()
+                            created_tasks.append(task)
+                            return task
+
+                        def _create_task(coro):
+                            coro.close()
+                            return _make_task()
+
+                        mock_create_task.side_effect = _create_task
 
                         async with lifespan(app):
                             # Verify startup completed in testing mode without model
                             pass
 
-                        mock_reload_task.cancel.assert_called_once()
+                        assert mock_create_task.call_count == 1
+                        assert len(created_tasks) == 1
+                        created_tasks[0].cancel.assert_called_once()
 
     async def test_lifespan_production_mode_model_load_failure(
         self,
@@ -173,8 +213,12 @@ class TestLifespanStartup:
         """Test startup fails in production when model load fails."""
         mock_settings_class = Mock()
         mock_settings = Mock()
+        mock_settings.database_url = "postgresql://user:pass@localhost:5432/signal_service"
         mock_settings.default_strategy = "alpha_baseline"
         mock_settings.redis_enabled = False
+        mock_settings.data_dir = Path("data/adjusted")
+        mock_settings.top_n = 2
+        mock_settings.bottom_n = 2
         mock_settings.feature_hydration_enabled = False
         mock_settings.shadow_validation_enabled = False
         mock_settings.testing = False
@@ -205,8 +249,12 @@ class TestLifespanStartup:
         """Test startup handles ValueError during model load."""
         mock_settings_class = Mock()
         mock_settings = Mock()
+        mock_settings.database_url = "postgresql://user:pass@localhost:5432/signal_service"
         mock_settings.default_strategy = "alpha_baseline"
         mock_settings.redis_enabled = False
+        mock_settings.data_dir = Path("data/adjusted")
+        mock_settings.top_n = 2
+        mock_settings.bottom_n = 2
         mock_settings.feature_hydration_enabled = False
         mock_settings.shadow_validation_enabled = False
         mock_settings.testing = False
@@ -237,6 +285,7 @@ class TestLifespanStartup:
         mock_settings_class = Mock()
         mock_settings = Mock()
         mock_settings.redis_enabled = True
+        mock_settings.database_url = "postgresql://user:pass@localhost:5432/signal_service"
         mock_settings.redis_host = "localhost"
         mock_settings.redis_port = 6379
         mock_settings.redis_db = 0
@@ -297,22 +346,36 @@ class TestLifespanStartup:
                                                         "apps.signal_service.main.close_secret_manager"
                                                     ) as mock_close_secrets:
                                                         # Mock tasks
-                                                        mock_reload_task = AsyncMock()
-                                                        mock_redis_task = AsyncMock()
-                                                        mock_hydration_task = AsyncMock()
-                                                        mock_create_task.side_effect = [
-                                                            mock_hydration_task,
-                                                            mock_reload_task,
-                                                            mock_redis_task,
-                                                        ]
+                                                        class _AwaitableTask:
+                                                            def __init__(self) -> None:
+                                                                self.cancel = Mock()
+
+                                                            def __await__(self):
+                                                                if False:
+                                                                    yield None
+                                                                return None
+
+                                                        created_tasks: list[_AwaitableTask] = []
+
+                                                        def _make_task() -> _AwaitableTask:
+                                                            task = _AwaitableTask()
+                                                            created_tasks.append(task)
+                                                            return task
+
+                                                        def _create_task(coro):
+                                                            coro.close()
+                                                            return _make_task()
+
+                                                        mock_create_task.side_effect = _create_task
 
                                                         async with lifespan(app):
                                                             pass
 
                                                         # Verify cleanup
-                                                        mock_reload_task.cancel.assert_called_once()
-                                                        mock_redis_task.cancel.assert_called_once()
-                                                        mock_hydration_task.cancel.assert_called_once()
+                                                        assert mock_create_task.call_count == 3
+                                                        assert len(created_tasks) == 3
+                                                        for task in created_tasks:
+                                                            task.cancel.assert_called_once()
                                                         mock_redis.close.assert_called_once()
                                                         mock_registry.close.assert_called_once()
                                                         mock_close_secrets.assert_called_once()
@@ -487,8 +550,19 @@ class TestGeneratorCache:
                 response = client.post(
                     "/api/v1/signals/generate",
                     json={
-                        "symbols": ["AAPL"],
-                        "top_n": 99,  # New key not in cache
+                        "symbols": [
+                            "AAPL",
+                            "MSFT",
+                            "GOOGL",
+                            "AMZN",
+                            "TSLA",
+                            "META",
+                            "NVDA",
+                            "NFLX",
+                            "INTC",
+                            "AMD",
+                        ],
+                        "top_n": 10,  # New key not in cache, valid for symbol count
                         "bottom_n": 0,
                     },
                 )
@@ -497,7 +571,7 @@ class TestGeneratorCache:
         # Verify oldest entry was evicted
         assert (0, 0) not in test_cache
         # Verify new entry was added
-        assert (99, 0) in test_cache
+        assert (10, 0) in test_cache
         # Verify cache size maintained
         assert len(test_cache) == _MAX_GENERATOR_CACHE_SIZE
 
@@ -882,8 +956,12 @@ class TestSettingsInitialization:
         """Test lifespan uses Settings defaults in dev mode when secret unavailable."""
         mock_settings_class = Mock()
         mock_settings = Mock()
+        mock_settings.database_url = "postgresql://user:pass@localhost:5432/signal_service"
         mock_settings.default_strategy = "alpha_baseline"
         mock_settings.redis_enabled = False
+        mock_settings.data_dir = Path("data/adjusted")
+        mock_settings.top_n = 2
+        mock_settings.bottom_n = 2
         mock_settings.feature_hydration_enabled = False
         mock_settings.shadow_validation_enabled = False
         mock_settings.testing = False
@@ -904,14 +982,35 @@ class TestSettingsInitialization:
             with patch("apps.signal_service.main.get_optional_secret", return_value=""):
                 with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
                     with patch("asyncio.create_task") as mock_create_task:
-                        mock_reload_task = AsyncMock()
-                        mock_create_task.return_value = mock_reload_task
+                        class _AwaitableTask:
+                            def __init__(self) -> None:
+                                self.cancel = Mock()
+
+                            def __await__(self):
+                                if False:
+                                    yield None
+                                return None
+
+                        created_tasks: list[_AwaitableTask] = []
+
+                        def _make_task() -> _AwaitableTask:
+                            task = _AwaitableTask()
+                            created_tasks.append(task)
+                            return task
+
+                        def _create_task(coro):
+                            coro.close()
+                            return _make_task()
+
+                        mock_create_task.side_effect = _create_task
 
                         async with lifespan(app):
                             # Verify startup completed with defaults
                             pass
 
-                        mock_reload_task.cancel.assert_called_once()
+                        assert mock_create_task.call_count == 1
+                        assert len(created_tasks) == 1
+                        created_tasks[0].cancel.assert_called_once()
 
 
 # ==============================================================================

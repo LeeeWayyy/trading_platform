@@ -60,7 +60,7 @@ def _get_alert_service(db_pool: AsyncConnectionPool) -> AlertConfigService:
         from libs.web_console_services.alert_service import AlertConfigService
 
         audit_logger = AuditLogger(db_pool)
-        app.storage._alert_service = AlertConfigService(db_pool, audit_logger)  # noqa: B010
+        app.storage._alert_service = AlertConfigService(db_pool, audit_logger)  # type: ignore[attr-defined]  # noqa: B010
 
     service: AlertConfigService = getattr(app.storage, "_alert_service")  # noqa: B009
     return service

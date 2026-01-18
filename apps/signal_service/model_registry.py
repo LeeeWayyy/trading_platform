@@ -727,6 +727,11 @@ class ModelRegistry:
         """
         return self._current_model
 
+    @current_model.setter
+    def current_model(self, model: lgb.Booster | None) -> None:
+        """Set current model (primarily for tests and controlled overrides)."""
+        self._current_model = model
+
     @property
     def current_metadata(self) -> ModelMetadata | None:
         """
@@ -745,6 +750,11 @@ class ModelRegistry:
             {'ic': 0.082, 'sharpe': 1.45, 'max_drawdown': -0.12}
         """
         return self._current_metadata
+
+    @current_metadata.setter
+    def current_metadata(self, metadata: ModelMetadata | None) -> None:
+        """Set current model metadata (primarily for tests and controlled overrides)."""
+        self._current_metadata = metadata
 
     @property
     def is_loaded(self) -> bool:

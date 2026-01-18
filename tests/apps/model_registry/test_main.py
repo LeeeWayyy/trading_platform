@@ -260,19 +260,15 @@ def test_cors_with_explicit_allowed_origins(monkeypatch: pytest.MonkeyPatch):
 
 def test_cors_with_wildcard_raises_error(monkeypatch: pytest.MonkeyPatch):
     """Test CORS raises RuntimeError when wildcard is in ALLOWED_ORIGINS."""
+    from importlib import reload
+
+    import apps.model_registry.main as main_module
+
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "*")
 
-    with pytest.raises(RuntimeError) as exc_info:
-        # Need to reload module to trigger middleware setup
-        from importlib import reload
-
-        import apps.model_registry.main as main_module
-
+    with pytest.raises(RuntimeError, match="wildcard '\\*'.*credentials are enabled"):
         reload(main_module)
-
-    assert "wildcard '*'" in str(exc_info.value)
-    assert "credentials are enabled" in str(exc_info.value)
 
 
 def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
@@ -313,17 +309,15 @@ def test_cors_test_environment_defaults(monkeypatch: pytest.MonkeyPatch):
 
 def test_cors_production_without_allowed_origins_raises_error(monkeypatch: pytest.MonkeyPatch):
     """Test CORS raises RuntimeError in production without ALLOWED_ORIGINS."""
+    from importlib import reload
+
+    import apps.model_registry.main as main_module
+
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    with pytest.raises(RuntimeError) as exc_info:
-        from importlib import reload
-
-        import apps.model_registry.main as main_module
-
+    with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
         reload(main_module)
-
-    assert "ALLOWED_ORIGINS must be set for production" in str(exc_info.value)
 
 
 # =============================================================================
@@ -519,7 +513,7 @@ def test_get_settings_with_invalid_port_type():
     try:
         os.environ["MODEL_REGISTRY_PORT"] = "invalid"
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid literal for int"):
             get_settings()
     finally:
         # Restore original value

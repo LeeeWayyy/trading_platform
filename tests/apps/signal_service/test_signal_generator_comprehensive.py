@@ -57,7 +57,7 @@ def mock_model_with_registry(test_db_url, mock_model):
 
     # Load model directly and set up registry state
     model = registry.load_model_from_file(str(mock_model))
-    registry.current_model = model
+    registry.current_model = Mock(wraps=model)
 
     # Create metadata
     metadata = ModelMetadata(
