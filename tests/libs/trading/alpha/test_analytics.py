@@ -233,13 +233,30 @@ class TestAlphaAnalytics:
 
     def test_analyze_by_sector_high_and_low_groups(self, analytics):
         """Test identification of high and low IC sectors."""
-        n_stocks = 150
+        # Create data with varying IC per sector:
+        # - Tech: positive correlation (high IC)
+        # - Finance: negative correlation (low IC)
+        # - Healthcare: moderate correlation (close to overall)
+        n_per_sector = 50
+        n_stocks = n_per_sector * 3
+
+        # Tech: signal = i, return = i (positive correlation)
+        tech_signals = [float(i) for i in range(n_per_sector)]
+        tech_returns = [i / 1000 for i in range(n_per_sector)]
+
+        # Finance: signal = i, return = -i (negative correlation)
+        finance_signals = [float(i) for i in range(n_per_sector)]
+        finance_returns = [-(i / 1000) for i in range(n_per_sector)]
+
+        # Healthcare: signal = i, return = i*0.5 (moderate positive correlation)
+        health_signals = [float(i) for i in range(n_per_sector)]
+        health_returns = [i * 0.5 / 1000 for i in range(n_per_sector)]
 
         signal = pl.DataFrame(
             {
                 "permno": list(range(n_stocks)),
                 "date": [date(2024, 1, 1)] * n_stocks,
-                "signal": [float(i) for i in range(n_stocks)],
+                "signal": tech_signals + finance_signals + health_signals,
             }
         )
 
@@ -247,7 +264,7 @@ class TestAlphaAnalytics:
             {
                 "permno": list(range(n_stocks)),
                 "date": [date(2024, 1, 1)] * n_stocks,
-                "return": [i / 1000 for i in range(n_stocks)],
+                "return": tech_returns + finance_returns + health_returns,
             }
         )
 
@@ -256,14 +273,16 @@ class TestAlphaAnalytics:
                 "permno": list(range(n_stocks)),
                 "date": [date(2024, 1, 1)] * n_stocks,
                 "gics_sector": (
-                    ["Tech"] * 50 + ["Finance"] * 50 + ["Healthcare"] * 50
+                    ["Tech"] * n_per_sector
+                    + ["Finance"] * n_per_sector
+                    + ["Healthcare"] * n_per_sector
                 ),
             }
         )
 
         result = analytics.analyze_by_sector(signal, returns, sector_mapping)
 
-        # Should have both high and low IC groups
+        # Should have high IC (Tech) and/or low IC (Finance) groups
         assert len(result.high_ic_groups) > 0 or len(result.low_ic_groups) > 0
 
     # ===== analyze_by_market_cap Tests =====

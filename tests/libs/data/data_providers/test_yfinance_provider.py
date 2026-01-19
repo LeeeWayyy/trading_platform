@@ -20,9 +20,12 @@ Comprehensive test suite covering:
 from __future__ import annotations
 
 import json
+import sys
 import time
+import types
 from datetime import date
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import polars as pl
@@ -39,9 +42,11 @@ from libs.data.data_providers.yfinance_provider import (
     YFinanceProvider,
 )
 
-# Skip entire test module if yfinance is not installed
-# This allows tests to run in environments without the optional dev dependency
-pytest.importorskip("yfinance", reason="yfinance not installed - skipping tests")
+# Provide a lightweight stub when yfinance is not installed so patch() can resolve it.
+if "yfinance" not in sys.modules:
+    stub = types.ModuleType("yfinance")
+    stub.Ticker = Mock()
+    sys.modules["yfinance"] = stub
 
 # =============================================================================
 # Fixtures
@@ -267,12 +272,15 @@ class TestBasicFunctionality:
             )
 
     def test_symbols_normalized_to_uppercase(self, provider_with_cache: YFinanceProvider) -> None:
-        """Test symbols are normalized to uppercase."""
-        # Cache has SPY, query with lowercase
+        """Test symbols are normalized to uppercase.
+
+        Cache has SPY data for Jan 2-4 2024 only. Request the exact range
+        to ensure cache hit (cache requires full coverage of requested range).
+        """
         df = provider_with_cache.get_daily_prices(
             symbols=["spy"],  # lowercase
-            start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 31),
+            start_date=date(2024, 1, 2),  # Match mock data range exactly
+            end_date=date(2024, 1, 4),
         )
 
         assert df.height > 0
@@ -1401,7 +1409,12 @@ class TestFetchAndCache:
         mock_lock.release.assert_called_once_with("test_token")
 
     def test_fetch_and_cache_releases_lock_on_error(self, provider: YFinanceProvider) -> None:
-        """Test fetch_and_cache releases lock even on error."""
+        """Test fetch_and_cache releases lock even when downloads fail.
+
+        Note: fetch_and_cache gracefully handles download failures - it doesn't
+        propagate exceptions. Instead, it records failed symbols and returns them
+        in the result. This test verifies the lock is released after processing.
+        """
         mock_lock = Mock()
         mock_lock.acquire.return_value = "test_token"
 
@@ -1410,16 +1423,18 @@ class TestFetchAndCache:
                 "libs.data.data_providers.yfinance_provider.AtomicFileLock",
                 return_value=mock_lock,
             ):
-                with pytest.raises(Exception, match="Download failed"):
-                    provider.fetch_and_cache(
-                        symbols=["SPY"],
-                        start_date=date(2024, 1, 1),
-                        end_date=date(2024, 1, 5),
-                        run_drift_check=False,
-                    )
+                # fetch_and_cache handles exceptions gracefully - doesn't raise
+                result = provider.fetch_and_cache(
+                    symbols=["SPY"],
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 5),
+                    run_drift_check=False,
+                )
 
-        # Should have released lock even on error
+        # Should have released lock after processing
         mock_lock.release.assert_called_once_with("test_token")
+        # Should report SPY as failed symbol
+        assert "SPY" in result.get("failed_symbols", [])
 
     def test_fetch_and_cache_drift_check_blocks_caching_on_failure(
         self, provider_with_baseline: YFinanceProvider, mock_baseline_data_with_drift: pl.DataFrame
@@ -1602,16 +1617,18 @@ class TestAtomicWrites:
     def test_atomic_write_manifest_handles_serialization_error(
         self, provider: YFinanceProvider
     ) -> None:
-        """Test atomic manifest write handles serialization errors."""
+        """Test atomic manifest write handles circular reference errors.
 
-        # Create non-serializable data
-        class NotSerializable:
-            pass
+        Note: The manifest writer uses `default=str` which stringifies most
+        non-serializable objects. However, circular references still raise
+        ValueError.
+        """
+        # Create circular reference - this will raise ValueError
+        circular_dict: dict[str, Any] = {"dataset": "yfinance"}
+        circular_dict["self"] = circular_dict
 
-        manifest_data = {"dataset": "yfinance", "bad_data": NotSerializable()}
-
-        with pytest.raises((TypeError, ValueError)):
-            provider._atomic_write_manifest(manifest_data)
+        with pytest.raises(ValueError, match="Circular reference"):
+            provider._atomic_write_manifest(circular_dict)
 
         # Temp file should be cleaned up
         temp_path = provider._storage_path / "yfinance_manifest.json.tmp"
@@ -1847,7 +1864,12 @@ class TestCacheIntegrity:
     def test_cache_read_handles_parquet_error(
         self, provider_with_cache: YFinanceProvider, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Test cache read handles parquet read errors."""
+        """Test cache read handles parquet read errors.
+
+        Note: The cache reader first verifies checksum, then reads parquet.
+        To test parquet read errors, we must mock the checksum verification
+        to pass, then corrupt the file to trigger a read error.
+        """
         import logging
 
         # Corrupt the cache file to cause read error
@@ -1855,10 +1877,14 @@ class TestCacheIntegrity:
         with open(cache_path, "w") as f:
             f.write("not a parquet file")
 
-        with caplog.at_level(logging.WARNING):
-            result = provider_with_cache._read_from_cache(
-                "SPY", date(2024, 1, 1), date(2024, 1, 31)
-            )
+        # Mock checksum verification to pass - otherwise we get checksum mismatch
+        with patch.object(
+            provider_with_cache, "_verify_cache_integrity", return_value=True
+        ):
+            with caplog.at_level(logging.WARNING):
+                result = provider_with_cache._read_from_cache(
+                    "SPY", date(2024, 1, 1), date(2024, 1, 31)
+                )
 
         assert result is None
         assert "Failed to read cache" in caplog.text
@@ -2470,15 +2496,21 @@ class TestBaselinePath:
     def test_safe_baseline_path_prevents_traversal(
         self, provider_with_baseline: YFinanceProvider, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Test _safe_baseline_path prevents path traversal."""
-        # This test verifies the path stays within baseline directory
-        # Even with a valid symbol, we test the defense in depth check
+        """Test _safe_baseline_path prevents path traversal.
 
-        # Mock _validate_symbol to return a traversal attempt
+        Note: This tests the defense-in-depth check that catches path escape
+        even after symbol validation. We mock _validate_symbol to return a
+        traversal pattern with actual path separator characters.
+        """
+        import logging
+
+        # Mock _validate_symbol to return actual traversal pattern (not URL-encoded)
+        # The path "../evil" will cause the resolved path to escape baseline_path
         with patch.object(
-            provider_with_baseline, "_validate_symbol", return_value="..%2F..%2Fevil"
+            provider_with_baseline, "_validate_symbol", return_value="../evil"
         ):
-            result = provider_with_baseline._safe_baseline_path("test")
+            with caplog.at_level(logging.WARNING):
+                result = provider_with_baseline._safe_baseline_path("test")
 
             # Should detect path escape and return None
             assert result is None

@@ -209,3 +209,483 @@ def test_parallel_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     # Parallelism should keep elapsed close to single call delay, not 15x
     assert elapsed < 0.05
     assert len(call_log) == 15
+
+
+def test_get_stale_latencies_or_none_returns_none_when_no_cache() -> None:
+    """Test _get_stale_latencies_or_none returns None when cache key doesn't exist."""
+    client = PrometheusClient("http://prom")
+    now = datetime.now(UTC)
+    result = client._get_stale_latencies_or_none("nonexistent_key", now)
+    assert result is None
+
+
+def test_verify_histograms_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test verify_histograms when histograms exist in Prometheus."""
+    # Create responses for all 5 services with data
+    queue: deque[Any] = deque(
+        [
+            MockResponse(
+                200,
+                {"status": "success", "data": {"result": [{"value": [0, "1"]}]}},
+            )
+            for _ in range(5)
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    results = asyncio.run(client.verify_histograms())
+
+    assert len(results) == 5
+    for service in PrometheusClient.LATENCY_METRICS:
+        assert results[service] is True
+
+
+def test_verify_histograms_no_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test verify_histograms when histograms don't have data."""
+    # Create responses with empty results
+    queue: deque[Any] = deque(
+        [
+            MockResponse(200, {"status": "success", "data": {"result": []}})
+            for _ in range(5)
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    results = asyncio.run(client.verify_histograms())
+
+    assert len(results) == 5
+    for service in PrometheusClient.LATENCY_METRICS:
+        assert results[service] is False
+
+
+def test_verify_histograms_request_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test verify_histograms handles request errors gracefully."""
+    queue: deque[Any] = deque(
+        [
+            httpx.RequestError("network error", request=httpx.Request("GET", "http://prom"))
+            for _ in range(5)
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    results = asyncio.run(client.verify_histograms())
+
+    assert len(results) == 5
+    for service in PrometheusClient.LATENCY_METRICS:
+        assert results[service] is False
+
+
+def test_verify_histograms_http_status_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test verify_histograms handles HTTP status errors."""
+    queue: deque[Any] = deque(
+        [MockResponse(500, {"error": "internal server error"}) for _ in range(5)]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    results = asyncio.run(client.verify_histograms())
+
+    assert len(results) == 5
+    for service in PrometheusClient.LATENCY_METRICS:
+        assert results[service] is False
+
+
+def test_verify_histograms_timeout_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test verify_histograms handles timeout errors."""
+    queue: deque[Any] = deque([TimeoutError("timeout") for _ in range(5)])
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    results = asyncio.run(client.verify_histograms())
+
+    assert len(results) == 5
+    for service in PrometheusClient.LATENCY_METRICS:
+        assert results[service] is False
+
+
+def test_get_latency_percentile_returns_none_when_value_str_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile returns None when value string is None."""
+    queue: deque[Any] = deque(
+        [
+            MockResponse(
+                200,
+                {"status": "success", "data": {"result": [{"value": [0, None]}]}},
+            )
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_returns_none_when_no_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile returns None when results array is empty."""
+    queue: deque[Any] = deque(
+        [MockResponse(200, {"status": "success", "data": {"result": []}})]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_returns_none_when_status_not_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile returns None when status is not success."""
+    queue: deque[Any] = deque(
+        [MockResponse(200, {"status": "error", "data": {"result": []}})]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_handles_value_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile handles ValueError during parsing."""
+    queue: deque[Any] = deque(
+        [
+            MockResponse(
+                200,
+                {"status": "success", "data": {"result": [{"value": [0, "not_a_number"]}]}},
+            )
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_handles_key_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile handles KeyError during parsing."""
+    queue: deque[Any] = deque(
+        [
+            MockResponse(
+                200,
+                {"status": "success", "data": {"result": [{"no_value_key": []}]}},
+            )
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_handles_index_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile handles IndexError during parsing."""
+    queue: deque[Any] = deque(
+        [
+            MockResponse(
+                200,
+                {"status": "success", "data": {"result": [{"value": []}]}},
+            )
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_handles_type_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile handles TypeError during parsing."""
+    queue: deque[Any] = deque(
+        [
+            MockResponse(
+                200,
+                {"status": "success", "data": {"result": [{"value": "not_a_list"}]}},
+            )
+        ]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_latency_percentile_handles_timeout_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_latency_percentile handles TimeoutError."""
+    queue: deque[Any] = deque([TimeoutError("timeout")])
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+    result = asyncio.run(client.get_latency_percentile("metric", 0.5))
+    assert result is None
+
+
+def test_get_service_latencies_all_missing_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test get_service_latencies logs info when all data is missing (not errors)."""
+    # Create responses with no errors but all None values
+    queue: deque[Any] = deque(
+        [MockResponse(200, {"status": "success", "data": {"result": []}}) for _ in range(15)]
+    )
+
+    def factory(*_: Any, **__: Any) -> MockAsyncClient:
+        return MockAsyncClient(queue)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    client = PrometheusClient("http://prom")
+
+    result, is_stale, _ = asyncio.run(client.get_service_latencies())
+
+    assert len(result) == 5
+    assert is_stale is False
+    # All metrics should have None values but no errors
+    for metrics in result.values():
+        assert metrics.p50_ms is None
+        assert metrics.p95_ms is None
+        assert metrics.p99_ms is None
+        assert metrics.error is None
+
+
+def test_get_service_latencies_exception_with_stale_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_service_latencies uses stale cache when exception occurs in _fetch_latencies."""
+    client = PrometheusClient("http://prom", cache_ttl_seconds=1)
+    cached = {
+        "signal_service": LatencyMetrics(
+            service="signal_service",
+            operation="signal_generation",
+            p50_ms=10.0,
+            p95_ms=20.0,
+            p99_ms=30.0,
+            fetched_at=datetime.now(UTC) - timedelta(seconds=5),
+        )
+    }
+    # Cache is expired
+    client._cache["all_latencies"] = (cached, datetime.now(UTC) - timedelta(seconds=5))
+
+    async def _raise_timeout(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
+        raise TimeoutError("timeout")
+
+    monkeypatch.setattr(
+        PrometheusClient, "_fetch_latencies_from_prometheus", _raise_timeout
+    )
+
+    result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
+
+    assert is_stale is True
+    assert len(result) == 1
+    assert "signal_service" in result
+    assert result["signal_service"].p50_ms == 10.0
+    assert result["signal_service"].is_stale is True
+    assert stale_age is not None
+    assert stale_age >= 5.0
+
+
+def test_get_service_latencies_exception_without_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_service_latencies returns empty dict when exception occurs and no cache."""
+    client = PrometheusClient("http://prom")
+    # No cache set
+
+    async def _raise_request_error(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
+        raise httpx.RequestError("network error", request=httpx.Request("GET", "http://prom"))
+
+    monkeypatch.setattr(
+        PrometheusClient, "_fetch_latencies_from_prometheus", _raise_request_error
+    )
+
+    result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
+
+    assert result == {}
+    assert is_stale is True
+    assert stale_age is None
+
+
+def test_get_service_latencies_http_status_error_with_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_service_latencies uses stale cache on HTTP status error."""
+    client = PrometheusClient("http://prom", cache_ttl_seconds=1)
+    cached = {
+        "execution_gateway": LatencyMetrics(
+            service="execution_gateway",
+            operation="order_placement",
+            p50_ms=5.0,
+            p95_ms=15.0,
+            p99_ms=25.0,
+            fetched_at=datetime.now(UTC) - timedelta(seconds=10),
+        )
+    }
+    client._cache["all_latencies"] = (cached, datetime.now(UTC) - timedelta(seconds=10))
+
+    async def _raise_http_error(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
+        raise httpx.HTTPStatusError(
+            "500 Internal Server Error",
+            request=httpx.Request("GET", "http://prom"),
+            response=httpx.Response(500),
+        )
+
+    monkeypatch.setattr(
+        PrometheusClient, "_fetch_latencies_from_prometheus", _raise_http_error
+    )
+
+    result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
+
+    assert is_stale is True
+    assert len(result) == 1
+    assert "execution_gateway" in result
+    assert result["execution_gateway"].p50_ms == 5.0
+    assert result["execution_gateway"].is_stale is True
+
+
+def test_close_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test close method properly closes the HTTP client."""
+    close_called = False
+
+    class MockAsyncClientWithClose:
+        is_closed = False
+
+        async def aclose(self) -> None:
+            nonlocal close_called
+            close_called = True
+            self.is_closed = True
+
+    client = PrometheusClient("http://prom")
+    mock_http_client = MockAsyncClientWithClose()
+    client._client = mock_http_client  # type: ignore[assignment]
+
+    asyncio.run(client.close())
+
+    assert close_called is True
+    assert client._client is None
+
+
+def test_close_client_when_already_closed() -> None:
+    """Test close method handles already closed client."""
+
+    class MockAsyncClientAlreadyClosed:
+        is_closed = True
+
+        async def aclose(self) -> None:
+            raise AssertionError("Should not be called when already closed")
+
+    client = PrometheusClient("http://prom")
+    mock_http_client = MockAsyncClientAlreadyClosed()
+    client._client = mock_http_client  # type: ignore[assignment]
+
+    # Should not raise
+    asyncio.run(client.close())
+
+
+def test_close_client_when_none() -> None:
+    """Test close method handles None client."""
+    client = PrometheusClient("http://prom")
+    client._client = None
+
+    # Should not raise
+    asyncio.run(client.close())
+
+
+def test_get_service_latencies_all_errors_no_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_service_latencies when all queries return errors but no stale cache exists.
+
+    This tests the branch where all_errors is True but _get_stale_latencies_or_none returns None.
+    In this case, the code should proceed to cache the error results and return them.
+    """
+    client = PrometheusClient("http://prom")
+    # No cache set - ensure stale_result will be None
+
+    # Create results where all services have errors
+    error_results = {
+        service: LatencyMetrics(
+            service=service,
+            operation=config["operation"],
+            p50_ms=None,
+            p95_ms=None,
+            p99_ms=None,
+            error="Connection failed",
+            fetched_at=datetime.now(UTC),
+        )
+        for service, config in PrometheusClient.LATENCY_METRICS.items()
+    }
+
+    async def _return_all_errors(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
+        return error_results
+
+    monkeypatch.setattr(
+        PrometheusClient, "_fetch_latencies_from_prometheus", _return_all_errors
+    )
+
+    result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
+
+    # When all errors and no stale cache, results are cached and returned as fresh
+    assert len(result) == 5
+    assert is_stale is False  # No stale cache used
+    assert stale_age is None
+    # All results should have errors
+    for metrics in result.values():
+        assert metrics.error == "Connection failed"
+        assert metrics.p50_ms is None

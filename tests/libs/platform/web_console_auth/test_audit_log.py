@@ -160,6 +160,9 @@ class TestAuditLoggerWrite:
     @pytest.mark.asyncio()
     async def test_write_without_db_pool_logs_fallback(self, caplog):
         """Test _write() logs fallback when db_pool is None."""
+        import logging
+
+        caplog.set_level(logging.INFO)
         logger = AuditLogger(db_pool=None)
 
         await logger._write(

@@ -25,7 +25,9 @@ def test_callback_uses_trusted_proxy_x_forwarded_for(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When proxy is trusted, callback should use X-Forwarded-For for client IP."""
-    monkeypatch.setenv("TRUSTED_PROXY_IPS", "testclient")
+    # TestClient sets request.client to None, so get_remote_addr() returns "unknown"
+    # Set trusted proxy to "unknown" to simulate trusted proxy in test environment
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "unknown")
 
     rate_limiter = AsyncMock()
     rate_limiter.is_allowed = AsyncMock(return_value=True)

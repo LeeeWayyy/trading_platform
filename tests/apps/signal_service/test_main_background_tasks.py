@@ -491,6 +491,10 @@ class TestShadowValidationHelpers:
             correlation=0.95,
             mean_abs_diff_ratio=0.02,
             sign_change_rate=0.01,
+            sample_count=100,
+            old_range=1.5,
+            new_range=1.6,
+            message="Validation passed",
         )
 
         with patch("apps.signal_service.main.shadow_validation_total") as mock_counter:
@@ -536,6 +540,8 @@ class TestShadowValidationHelpers:
             id=1,
             strategy_name="alpha_baseline",
             version="v1.0.0",
+            mlflow_run_id=None,
+            mlflow_experiment_id=None,
             status="active",
             model_path="/path/to/model",
             activated_at=datetime.now(UTC),

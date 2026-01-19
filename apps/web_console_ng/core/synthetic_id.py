@@ -33,15 +33,16 @@ def compute_order_fingerprint(order: dict[str, Any]) -> tuple[str, str]:
     Returns:
         Tuple of (fingerprint_string, base_hash) for synthetic ID generation.
     """
+    # Use `or ""` to handle both missing keys AND explicit None values
     fingerprint_fields = [
-        order.get("symbol", ""),
-        order.get("side", ""),
-        order.get("created_at", ""),
-        order.get("account_id", ""),
+        order.get("symbol") or "",
+        order.get("side") or "",
+        order.get("created_at") or "",
+        order.get("account_id") or "",
         normalize_num(order.get("qty")),
-        order.get("type", ""),
+        order.get("type") or "",
         normalize_num(order.get("limit_price")),
-        order.get("time_in_force", ""),
+        order.get("time_in_force") or "",
     ]
     fingerprint = "|".join(fingerprint_fields)
     base_hash = hashlib.sha256(fingerprint.encode()).hexdigest()[:12]

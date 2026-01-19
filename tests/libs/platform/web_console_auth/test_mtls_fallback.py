@@ -97,7 +97,9 @@ def test_get_crl_url_default(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_crl_cache_fetches_and_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime.now(UTC)
     fake_crl = _FakeCRL(last_update=now.replace(tzinfo=None), next_update=now, revoked=[])
-    response = httpx.Response(200, content=b"fake")
+    # httpx.Response needs a request for raise_for_status() to work
+    request = httpx.Request("GET", "http://example/crl")
+    response = httpx.Response(200, content=b"fake", request=request)
     client = _DummyAsyncClient(response=response)
 
     monkeypatch.setattr(mtls_fallback.httpx, "AsyncClient", lambda timeout: client)
@@ -117,7 +119,9 @@ async def test_crl_cache_rejects_stale_crl(monkeypatch: pytest.MonkeyPatch) -> N
     now = datetime.now(UTC)
     stale = now - timedelta(days=2)
     fake_crl = _FakeCRL(last_update=stale.replace(tzinfo=None), next_update=now, revoked=[])
-    response = httpx.Response(200, content=b"fake")
+    # httpx.Response needs a request for raise_for_status() to work
+    request = httpx.Request("GET", "http://example/crl")
+    response = httpx.Response(200, content=b"fake", request=request)
     client = _DummyAsyncClient(response=response)
 
     monkeypatch.setattr(mtls_fallback.httpx, "AsyncClient", lambda timeout: client)

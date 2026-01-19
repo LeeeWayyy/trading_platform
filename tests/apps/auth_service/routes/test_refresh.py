@@ -54,7 +54,9 @@ def test_refresh_uses_binding_validation_for_standard_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Standard refresh enforces binding validation with trusted proxy IP."""
-    monkeypatch.setenv("TRUSTED_PROXY_IPS", "testclient")
+    # TestClient sets request.client to None, so get_remote_addr() returns "unknown"
+    # Set trusted proxy to "unknown" to simulate trusted proxy in test environment
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "unknown")
     monkeypatch.setattr(refresh_module, "INTERNAL_REFRESH_SECRET", None)
 
     rate_limiter = AsyncMock()

@@ -125,6 +125,7 @@ async def test_send_passes_attachments_to_smtp_only(email_channel: EmailChannel)
 
             assert result.success is True
             mock_smtp.assert_awaited_once()
-            _, kwargs = mock_smtp.call_args
-            assert kwargs["attachments"] == ["/tmp/report.csv"]
+            # Attachments passed as positional arg: _send_smtp(recipient, subject, body, attachments)
+            args, _ = mock_smtp.call_args
+            assert args[3] == ["/tmp/report.csv"]  # 4th positional arg is attachments
             mock_sendgrid.assert_awaited_once()

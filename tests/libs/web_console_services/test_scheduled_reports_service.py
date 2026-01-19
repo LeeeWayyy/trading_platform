@@ -33,17 +33,29 @@ def admin_user() -> dict[str, Any]:
     return {"user_id": "admin-1", "role": "admin"}
 
 
-def _mock_acquire_connection(mock_conn: AsyncMock) -> AsyncMock:
-    mock_cm = AsyncMock()
-    mock_cm.__aenter__.return_value = mock_conn
-    mock_cm.__aexit__.return_value = None
-    return mock_cm
+class AsyncContextManager:
+    """Helper to create proper async context managers for mocking."""
+
+    def __init__(self, return_value: Any) -> None:
+        self._return_value = return_value
+
+    async def __aenter__(self) -> Any:
+        return self._return_value
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        return None
 
 
-def _mock_cursor_conn(mock_cursor: AsyncMock) -> AsyncMock:
-    mock_conn = AsyncMock()
-    mock_conn.cursor.return_value.__aenter__.return_value = mock_cursor
-    mock_conn.cursor.return_value.__aexit__.return_value = None
+def _mock_acquire_connection(mock_conn: AsyncMock) -> AsyncContextManager:
+    """Create an async context manager that returns mock_conn."""
+    return AsyncContextManager(mock_conn)
+
+
+def _mock_cursor_conn(mock_cursor: AsyncMock) -> Mock:
+    """Create a mock connection with proper cursor async context manager."""
+    mock_conn = Mock()
+    mock_conn.cursor.return_value = AsyncContextManager(mock_cursor)
+    mock_conn.commit = AsyncMock()  # conn.commit() is awaited
     return mock_conn
 
 

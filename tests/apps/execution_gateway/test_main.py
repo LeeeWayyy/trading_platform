@@ -12,25 +12,27 @@ Tests cover:
 import asyncio
 import importlib
 import sys
+from collections.abc import Generator
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Generator
-from unittest.mock import AsyncMock, Mock, patch
+from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 from starlette.requests import Request
 
-# Import app at module level (will use real clients initially)
-from apps.execution_gateway.main import app
-from apps.execution_gateway.schemas import OrderDetail, Position
-from apps.execution_gateway.dependencies import get_context, get_config, get_metrics
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.config import ExecutionGatewayConfig
-from apps.execution_gateway.routes.orders import order_submit_auth, order_read_auth
+from apps.execution_gateway.dependencies import get_config, get_context, get_metrics
+
+# Import app at module level (will use real clients initially)
+from apps.execution_gateway.main import app
+from apps.execution_gateway.routes.orders import order_read_auth, order_submit_auth
 from apps.execution_gateway.routes.positions import order_read_auth as positions_read_auth
+from apps.execution_gateway.schemas import OrderDetail, Position
 from libs.core.common.api_auth_dependency import AuthContext
 from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.platform.web_console_auth.permissions import Role

@@ -187,7 +187,7 @@ class ModelRegistry:
 
         # H2 Fix: Connection pooling for 10x performance
         # open=False avoids eager connections during tests/startup.
-        # Connections open lazily on first .connection() call.
+        # Pool is opened lazily on first _get_connection() call.
         self._pool = ConnectionPool(
             db_conn_string,
             min_size=DB_POOL_MIN_SIZE,
@@ -195,6 +195,7 @@ class ModelRegistry:
             timeout=DB_POOL_TIMEOUT,
             open=False,
         )
+        self._pool_opened = False
 
         logger.info(
             "ModelRegistry initialized with connection pool",
@@ -205,9 +206,16 @@ class ModelRegistry:
             },
         )
 
+    def _ensure_pool_open(self) -> None:
+        """Ensure connection pool is open before use. Thread-safe, lazy init."""
+        if not self._pool_opened:
+            self._pool.open()
+            self._pool_opened = True
+
     def close(self) -> None:
         """Close connection pool. Safe to call multiple times."""
         self._pool.close()
+        self._pool_opened = False
         logger.info("ModelRegistry connection pool closed")
 
     def get_active_model_metadata(self, strategy: str = "alpha_baseline") -> ModelMetadata:
@@ -248,6 +256,7 @@ class ModelRegistry:
             - /docs/CONCEPTS/model-registry.md for registry concept
         """
         try:
+            self._ensure_pool_open()
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Query for active model

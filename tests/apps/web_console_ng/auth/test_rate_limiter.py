@@ -312,8 +312,10 @@ async def test_check_only_noscript_recovery(limiter: AuthRateLimiter, mock_redis
     assert reason == "allowed"
     # Should have called evalsha twice (first failed, second succeeded)
     assert mock_redis.evalsha.call_count == 2
-    # Should have reloaded scripts after NoScriptError
-    assert mock_redis.script_load.call_count == 2  # Initial load + force reload
+    # _load_scripts loads BOTH scripts (check + record) each time:
+    # - Initial load: 2 calls (check + record scripts)
+    # - Force reload after NoScriptError: 2 more calls
+    assert mock_redis.script_load.call_count == 4
 
 
 @pytest.mark.asyncio()
@@ -411,8 +413,10 @@ async def test_record_failure_noscript_recovery(limiter: AuthRateLimiter, mock_r
     assert is_allowed is True
     assert reason == "failure_recorded"
     assert mock_redis.evalsha.call_count == 2
-    # Should have reloaded scripts after NoScriptError
-    assert mock_redis.script_load.call_count == 2
+    # _load_scripts loads BOTH scripts (check + record) each time:
+    # - Initial load: 2 calls (check + record scripts)
+    # - Force reload after NoScriptError: 2 more calls
+    assert mock_redis.script_load.call_count == 4
 
 
 @pytest.mark.asyncio()

@@ -26,18 +26,20 @@ client = TestClient(app)
 
 def test_all_metrics_registered_in_prometheus():
     """All exported metrics should be registered in Prometheus registry."""
+    # Note: Prometheus Counter/Summary collectors return base name without _total/_sum suffixes
+    # e.g., "nicegui_ws_connects_total" Counter is registered as "nicegui_ws_connects"
     metric_names = [
         "nicegui_ws_connections",
-        "nicegui_ws_connects_total",
-        "nicegui_ws_disconnects_total",
-        "nicegui_connections_rejected_total",
-        "nicegui_auth_failures_total",
-        "nicegui_sessions_created_total",
+        "nicegui_ws_connects",  # Counter base name (not _total)
+        "nicegui_ws_disconnects",  # Counter base name (not _total)
+        "nicegui_connections_rejected",  # Counter base name (not _total)
+        "nicegui_auth_failures",  # Counter base name (not _total)
+        "nicegui_sessions_created",  # Counter base name (not _total)
         "nicegui_api_latency_seconds",
         "nicegui_redis_latency_seconds",
-        "nicegui_state_save_errors_total",
+        "nicegui_state_save_errors",  # Counter base name (not _total)
         "nicegui_circuit_breaker_state",
-        "nicegui_audit_flush_errors_total",
+        "nicegui_audit_flush_errors",  # Counter base name (not _total)
     ]
 
     registered_metrics = [collector.name for collector in REGISTRY.collect()]

@@ -38,7 +38,9 @@ def test_logout_clears_cookie_and_revokes_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Logout should validate binding, revoke session, and clear cookie."""
-    monkeypatch.setenv("TRUSTED_PROXY_IPS", "testclient")
+    # TestClient sets request.client to None, so get_remote_addr() returns "unknown"
+    # Set trusted proxy to "unknown" to simulate trusted proxy in test environment
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "unknown")
 
     handler = MagicMock()
     handler.handle_logout = AsyncMock(return_value="https://auth0.test/logout")

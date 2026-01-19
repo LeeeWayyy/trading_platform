@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apps.execution_gateway.api import dependencies as deps
+from apps.execution_gateway.api import manual_controls as manual_controls_module
 from apps.execution_gateway.api.manual_controls import router
 from apps.execution_gateway.schemas import OrderDetail, Position
 from libs.platform.web_console_auth.audit_logger import AuditLogger
@@ -219,6 +220,21 @@ class StubAuthenticator:
 def build_client(overrides: dict[Callable[..., Any], Any] | None = None) -> TestClient:
     app = FastAPI()
     app.include_router(router)
+    dependency_aliases = {
+        deps.get_authenticated_user: manual_controls_module.get_authenticated_user,
+        deps.get_db_client: manual_controls_module.get_db_client,
+        deps.get_rate_limiter: manual_controls_module.get_rate_limiter,
+        deps.get_audit_logger: manual_controls_module.get_audit_logger,
+        deps.get_alpaca_executor: manual_controls_module.get_alpaca_executor,
+        deps.get_async_redis: manual_controls_module.get_async_redis,
+        deps.get_2fa_validator: manual_controls_module.get_2fa_validator,
+    }
+
+    def _set_override(dep: Callable[..., Any], value: Any) -> None:
+        app.dependency_overrides[dep] = value
+        alias = dependency_aliases.get(dep)
+        if alias:
+            app.dependency_overrides[alias] = value
 
     # Default overrides
     stub_db = StubDB()
@@ -240,17 +256,17 @@ def build_client(overrides: dict[Callable[..., Any], Any] | None = None) -> Test
     async def user_dep() -> AuthenticatedUser:
         return stub_user
 
-    app.dependency_overrides[deps.get_authenticated_user] = user_dep
-    app.dependency_overrides[deps.get_rate_limiter] = lambda: StubRateLimiter()
-    app.dependency_overrides[deps.get_db_client] = lambda: stub_db
-    app.dependency_overrides[deps.get_audit_logger] = lambda: stub_audit
-    app.dependency_overrides[deps.get_alpaca_executor] = lambda: stub_alpaca
-    app.dependency_overrides[deps.get_gateway_authenticator] = lambda: StubAuthenticator()
-    app.dependency_overrides[deps.get_async_redis] = lambda: stub_redis
+    _set_override(deps.get_authenticated_user, user_dep)
+    _set_override(deps.get_rate_limiter, lambda: StubRateLimiter())
+    _set_override(deps.get_db_client, lambda: stub_db)
+    _set_override(deps.get_audit_logger, lambda: stub_audit)
+    _set_override(deps.get_alpaca_executor, lambda: stub_alpaca)
+    _set_override(deps.get_gateway_authenticator, lambda: StubAuthenticator())
+    _set_override(deps.get_async_redis, lambda: stub_redis)
 
     if overrides:
         for dep, value in overrides.items():
-            app.dependency_overrides[dep] = value
+            _set_override(dep, value)
 
     return TestClient(app)
 
@@ -361,6 +377,9 @@ def test_header_validation_missing_authorization(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("API_AUTH_MODE", "enforce")
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[manual_controls_module.get_authenticated_user] = (
+        deps.get_authenticated_user
+    )
     app.dependency_overrides[deps.get_gateway_authenticator] = lambda: StubAuthenticator()
     app.dependency_overrides[deps.get_rate_limiter] = lambda: StubRateLimiter()
     app.dependency_overrides[deps.get_db_client] = lambda: StubDB()
@@ -399,6 +418,9 @@ def test_jwt_error_mapping(exc: Exception, expected: str, monkeypatch: pytest.Mo
     monkeypatch.setenv("API_AUTH_MODE", "enforce")
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[manual_controls_module.get_authenticated_user] = (
+        deps.get_authenticated_user
+    )
 
     app.dependency_overrides[deps.get_gateway_authenticator] = lambda: StubAuthenticator(exc=exc)
     app.dependency_overrides[deps.get_rate_limiter] = lambda: StubRateLimiter()

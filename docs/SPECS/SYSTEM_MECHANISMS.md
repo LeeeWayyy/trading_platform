@@ -315,17 +315,17 @@ sequenceDiagram
 ### Step-by-step (Implementation-accurate)
 
 1. **Startup gate**: Execution Gateway invokes `run_startup_reconciliation()` before opening the startup gate.
-   - Code: `apps/execution_gateway/reconciliation.py` (`run_startup_reconciliation`).
+   - Code: `apps/execution_gateway/reconciliation/service.py` (`run_startup_reconciliation`).
 2. **Order pull**: Reconciler pulls open orders and recent orders from Alpaca with overlap window.
-   - Code: `apps/execution_gateway/reconciliation.py` (`_run_reconciliation`).
+   - Code: `apps/execution_gateway/reconciliation/service.py` (`_run_reconciliation`).
 3. **DB diff + CAS updates**: Broker state is applied via `update_order_status_cas(...)`, with source priority tie-breakers.
-   - Code: `apps/execution_gateway/reconciliation.py` (`SOURCE_PRIORITY_RECONCILIATION`), `apps/execution_gateway/database.py`.
+   - Code: `apps/execution_gateway/reconciliation/orders.py` (`SOURCE_PRIORITY_RECONCILIATION`), `apps/execution_gateway/database.py`.
 4. **Orphan detection**: Broker orders not present in DB are quarantined or marked for investigation.
-   - Code: `apps/execution_gateway/reconciliation.py` (`_handle_orphan_order`).
+   - Code: `apps/execution_gateway/reconciliation/orphans.py` (`handle_orphan_order`).
 5. **Position sync**: Reconciler pulls broker positions and upserts snapshots into DB.
-   - Code: `apps/execution_gateway/reconciliation.py` (`_reconcile_positions`).
+   - Code: `apps/execution_gateway/reconciliation/positions.py` (`reconcile_positions`).
 6. **High-water mark**: Updates reconciliation high-water timestamp and metrics for observability.
-   - Code: `apps/execution_gateway/reconciliation.py` (`set_reconciliation_high_water_mark`).
+   - Code: `apps/execution_gateway/reconciliation/service.py` (`set_reconciliation_high_water_mark`).
 7. **Manual controls**: Operators can trigger reconciliation via `POST /api/v1/reconciliation/run` or force-complete.
    - Code: `apps/execution_gateway/main.py`.
 
@@ -347,7 +347,10 @@ sequenceDiagram
 - `apps/execution_gateway/main.py`
 - `apps/execution_gateway/order_id_generator.py`
 - `apps/execution_gateway/webhook_security.py`
-- `apps/execution_gateway/reconciliation.py`
+- `apps/execution_gateway/reconciliation/service.py`
+- `apps/execution_gateway/reconciliation/orders.py`
+- `apps/execution_gateway/reconciliation/orphans.py`
+- `apps/execution_gateway/reconciliation/positions.py`
 - `apps/execution_gateway/database.py`
 - `apps/market_data_service/main.py`
 - `apps/market_data_service/position_sync.py`

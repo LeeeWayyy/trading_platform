@@ -112,8 +112,21 @@ def _compute_dependencies_hash() -> str:
     try:
         from importlib.metadata import distributions
 
-        packages = sorted(f"{d.name}=={d.version}" for d in distributions())
-        content = "\n".join(packages)
+        packages: list[str] = []
+        for dist in distributions():
+            try:
+                name = dist.name
+                version = dist.version
+            except Exception as e:
+                logger.warning(
+                    "Skipping distribution with unreadable metadata",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+                continue
+            if name and version:
+                packages.append(f"{name}=={version}")
+        content = "\n".join(sorted(packages))
         return hashlib.sha256(content.encode()).hexdigest()
     except (ImportError, ModuleNotFoundError) as e:
         logger.debug(

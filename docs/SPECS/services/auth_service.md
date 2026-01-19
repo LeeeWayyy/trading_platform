@@ -1,5 +1,7 @@
 # auth_service
 
+<!-- Last reviewed: 2026-01-18 - refresh.py IP fallback consistency -->
+
 ## Identity
 - **Type:** Service (FastAPI)
 - **Port:** 8001 (documented in module header; proxied by nginx for `/auth/*`)

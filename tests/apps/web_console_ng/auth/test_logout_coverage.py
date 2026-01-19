@@ -315,8 +315,12 @@ async def test_perform_logout_no_request_object() -> None:
     mock_app.storage.user = mock_user_storage
     mock_app.storage.request = None
 
+    # Must mock get_session_store since it's called before the request check
+    mock_store = MagicMock()
+
     with (
         patch("apps.web_console_ng.auth.logout.app", mock_app),
+        patch("apps.web_console_ng.auth.logout.get_session_store", return_value=mock_store),
         patch("apps.web_console_ng.auth.logout.logger") as mock_logger,
     ):
         url = await perform_logout()

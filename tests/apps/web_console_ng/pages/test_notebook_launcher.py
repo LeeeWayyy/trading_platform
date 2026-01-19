@@ -131,6 +131,9 @@ class DummyUI:
     def table(self, *args, **kwargs) -> DummyElement:
         return DummyElement()
 
+    def spinner(self, *args, **kwargs) -> DummyElement:
+        return DummyElement()
+
 
 @pytest.fixture()
 def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:

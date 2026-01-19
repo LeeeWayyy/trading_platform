@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import ModuleType, SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Request
@@ -94,9 +94,9 @@ sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)  # type: ignore[ar
 sys.modules.setdefault("jwt.utils", jwt_stub.utils)  # type: ignore[arg-type]
 
 from apps.execution_gateway import main
+from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.dependencies import get_context
-from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.services.auth_helpers import build_user_context
 
 # ---------------------------------------------------------------------------
@@ -487,7 +487,7 @@ class TestStrategyAuthorizationErrors:
         main.app.dependency_overrides[build_user_context] = override_ctx_no_strategies
 
         try:
-    
+
             response = test_client.get("/api/v1/strategies")
 
             assert response.status_code == 403
@@ -522,7 +522,7 @@ class TestStrategyAuthorizationErrors:
         main.app.dependency_overrides[build_user_context] = override_ctx_limited
 
         try:
-    
+
             response = test_client.get("/api/v1/strategies/momentum_v2")
 
             assert response.status_code == 403

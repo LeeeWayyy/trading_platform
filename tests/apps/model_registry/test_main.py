@@ -15,6 +15,7 @@ Target: 85%+ branch coverage
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -29,6 +30,21 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:8501")
 from apps.model_registry.main import app, get_settings, lifespan
 from libs.models.models import ManifestIntegrityError, RegistryManifest
 
+
+def _create_test_manifest(
+    artifact_count: int = 5,
+    production_models: dict[str, str] | None = None,
+) -> RegistryManifest:
+    """Helper to create valid RegistryManifest instances for testing."""
+    now = datetime.now(UTC)
+    return RegistryManifest(
+        artifact_count=artifact_count,
+        production_models=production_models or {},
+        created_at=now,
+        last_updated=now,
+        checksum="test_checksum_" + "0" * 48,  # SHA-256 is 64 hex chars
+    )
+
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -38,10 +54,9 @@ from libs.models.models import ManifestIntegrityError, RegistryManifest
 def mock_registry():
     """Create a mock ModelRegistry instance."""
     registry = Mock()
-    registry.get_manifest.return_value = RegistryManifest(
+    registry.get_manifest.return_value = _create_test_manifest(
         artifact_count=5,
         production_models={"risk_model": "v1.0.0"},
-        registry_dir=Path("/tmp/test_registry"),
     )
     return registry
 
@@ -197,7 +212,12 @@ async def test_lifespan_auth_disabled_raises_error(monkeypatch: pytest.MonkeyPat
 @pytest.mark.asyncio()
 async def test_lifespan_logs_shutdown(mock_registry, mock_manifest_manager, caplog):
     """Test lifespan logs shutdown message in finally block."""
+    import logging
+
     test_app = FastAPI()
+
+    # Set log level to capture INFO messages from the module
+    caplog.set_level(logging.INFO, logger="apps.model_registry.main")
 
     with (
         patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
@@ -529,14 +549,13 @@ async def test_lifespan_handles_multiple_production_models(mock_manifest_manager
     test_app = FastAPI()
 
     mock_registry = Mock()
-    mock_registry.get_manifest.return_value = RegistryManifest(
+    mock_registry.get_manifest.return_value = _create_test_manifest(
         artifact_count=10,
         production_models={
             "risk_model": "v1.0.0",
             "alpha_weights": "v2.0.0",
             "factor_model": "v1.5.0",
         },
-        registry_dir=Path("/tmp/test_registry"),
     )
 
     with (
@@ -555,10 +574,9 @@ async def test_lifespan_handles_empty_manifest(mock_manifest_manager):
     test_app = FastAPI()
 
     mock_registry = Mock()
-    mock_registry.get_manifest.return_value = RegistryManifest(
+    mock_registry.get_manifest.return_value = _create_test_manifest(
         artifact_count=0,
         production_models={},
-        registry_dir=Path("/tmp/test_registry"),
     )
 
     with (

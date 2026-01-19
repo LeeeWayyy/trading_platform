@@ -379,3 +379,619 @@ class TestDayChangeETBoundary:
         assert key1 != key2
         assert "2026-01-15" in key1
         assert "2026-01-16" in key2
+
+
+class TestExtractPositions:
+    """Tests for _extract_positions method."""
+
+    @pytest.fixture()
+    def dummy_ui(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set up mock UI components."""
+
+        def row() -> DummyRow:
+            return DummyRow()
+
+        def label(text: str = "") -> DummyLabel:
+            return DummyLabel(text)
+
+        dummy = types.SimpleNamespace(row=row, label=label)
+        monkeypatch.setattr(metrics_module, "ui", dummy)
+
+    def test_extract_positions_from_list(self, dummy_ui: None) -> None:
+        """Test extracting positions when API returns a list directly."""
+        metrics = HeaderMetrics()
+        positions = [{"symbol": "AAPL", "qty": 100}, {"symbol": "GOOGL", "qty": 50}]
+        result = metrics._extract_positions(positions)
+        assert result == positions
+
+    def test_extract_positions_from_dict_wrapper(self, dummy_ui: None) -> None:
+        """Test extracting positions when API returns dict with 'positions' key."""
+        metrics = HeaderMetrics()
+        positions_list = [{"symbol": "AAPL", "qty": 100}]
+        positions_result = {"positions": positions_list, "total": 1}
+        result = metrics._extract_positions(positions_result)
+        assert result == positions_list
+
+    def test_extract_positions_from_dict_with_non_list_positions(
+        self, dummy_ui: None
+    ) -> None:
+        """Test extracting positions when dict has non-list positions value."""
+        metrics = HeaderMetrics()
+        positions_result = {"positions": "invalid"}
+        result = metrics._extract_positions(positions_result)
+        assert result == []
+
+    def test_extract_positions_from_dict_without_positions_key(
+        self, dummy_ui: None
+    ) -> None:
+        """Test extracting positions when dict doesn't have positions key."""
+        metrics = HeaderMetrics()
+        positions_result = {"data": [{"symbol": "AAPL"}]}
+        result = metrics._extract_positions(positions_result)
+        assert result == []
+
+    def test_extract_positions_from_none(self, dummy_ui: None) -> None:
+        """Test extracting positions from None returns empty list."""
+        metrics = HeaderMetrics()
+        result = metrics._extract_positions(None)
+        assert result == []
+
+    def test_extract_positions_from_invalid_type(self, dummy_ui: None) -> None:
+        """Test extracting positions from invalid type returns empty list."""
+        metrics = HeaderMetrics()
+        result = metrics._extract_positions("invalid")
+        assert result == []
+
+
+class TestGetOrSetBaselineNLV:
+    """Tests for _get_or_set_baseline_nlv method."""
+
+    @pytest.fixture()
+    def dummy_ui(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set up mock UI components."""
+
+        def row() -> DummyRow:
+            return DummyRow()
+
+        def label(text: str = "") -> DummyLabel:
+            return DummyLabel(text)
+
+        dummy = types.SimpleNamespace(row=row, label=label)
+        monkeypatch.setattr(metrics_module, "ui", dummy)
+
+    def test_get_existing_baseline(
+        self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test getting existing baseline NLV from storage."""
+        metrics = HeaderMetrics()
+
+        # Mock app.storage.user
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = 100000.0
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+
+        # Mock the date key
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        result = metrics._get_or_set_baseline_nlv(105000.0)
+        assert result == 100000.0  # Should return existing baseline
+
+    def test_set_new_baseline(
+        self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test setting new baseline NLV when not present."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        mock_app.storage.user.__setitem__ = MagicMock()
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        result = metrics._get_or_set_baseline_nlv(100000.0)
+        assert result == 100000.0  # Should return the new baseline
+        # Verify it was set
+        mock_app.storage.user.__setitem__.assert_called_once_with(
+            "nlv_baseline_2026-01-15", 100000.0
+        )
+
+    def test_storage_exception_returns_current_nlv(
+        self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that storage exception returns current NLV as fallback."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.side_effect = RuntimeError("Storage unavailable")
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        result = metrics._get_or_set_baseline_nlv(105000.0)
+        assert result == 105000.0  # Should return current NLV as fallback
+
+
+class TestClearStale:
+    """Tests for _clear_stale method."""
+
+    @pytest.fixture()
+    def dummy_ui(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set up mock UI components."""
+
+        def row() -> DummyRow:
+            return DummyRow()
+
+        def label(text: str = "") -> DummyLabel:
+            return DummyLabel(text)
+
+        dummy = types.SimpleNamespace(row=row, label=label)
+        monkeypatch.setattr(metrics_module, "ui", dummy)
+
+    def test_clear_stale_removes_opacity(self, dummy_ui: None) -> None:
+        """Test that _clear_stale removes opacity-50 class."""
+        metrics = HeaderMetrics()
+
+        # First mark as stale
+        metrics.mark_stale()
+        assert "opacity-50" in metrics._nlv_label._classes
+        assert "opacity-50" in metrics._leverage_label._classes
+        assert "opacity-50" in metrics._day_change_label._classes
+
+        # Now clear stale
+        metrics._clear_stale()
+        assert "opacity-50" not in metrics._nlv_label._classes
+        assert "opacity-50" not in metrics._leverage_label._classes
+        assert "opacity-50" not in metrics._day_change_label._classes
+
+    def test_clear_stale_handles_none_labels(self, dummy_ui: None) -> None:
+        """Test that _clear_stale handles None labels gracefully."""
+        metrics = HeaderMetrics()
+        metrics._nlv_label = None
+        metrics._leverage_label = None
+        metrics._day_change_label = None
+
+        # Should not raise
+        metrics._clear_stale()
+
+
+class TestUpdateMethod:
+    """Tests for the async update method."""
+
+    @pytest.fixture()
+    def dummy_ui(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set up mock UI components."""
+
+        def row() -> DummyRow:
+            return DummyRow()
+
+        def label(text: str = "") -> DummyLabel:
+            return DummyLabel(text)
+
+        dummy = types.SimpleNamespace(row=row, label=label)
+        monkeypatch.setattr(metrics_module, "ui", dummy)
+
+    @pytest.fixture()
+    def mock_client(self) -> MagicMock:
+        """Create a mock trading client."""
+        client = MagicMock()
+        return client
+
+    @pytest.mark.asyncio()
+    async def test_update_successful_with_positive_nlv(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test successful update with positive NLV and positions."""
+
+        metrics = HeaderMetrics()
+
+        # Mock storage for baseline NLV
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = 100000.0
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        # Mock client responses
+        account_info = {"portfolio_value": 105000.0}
+        positions = [{"market_value": 50000}, {"market_value": 30000}]
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123", "admin", ["strategy1"])
+
+        # Verify NLV was updated
+        assert metrics._nlv_label.text == "$105.0K"
+
+        # Verify leverage was calculated and displayed (80000/105000 = 0.76x)
+        assert "0.8x" in metrics._leverage_label.text
+
+        # Verify day change was calculated (+5000 from baseline)
+        assert "+" in metrics._day_change_label.text
+
+        # Verify last_update was set
+        assert metrics._last_update is not None
+
+    @pytest.mark.asyncio()
+    async def test_update_with_zero_nlv(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test update with zero NLV displays placeholder."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+
+        account_info = {"portfolio_value": 0}
+        positions: list[dict[str, Any]] = []
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        assert metrics._nlv_label.text == "--"
+        assert metrics._day_change_label.text == "--"
+
+    @pytest.mark.asyncio()
+    async def test_update_with_negative_day_change(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test update with negative day change displays correctly."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = 100000.0
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        account_info = {"portfolio_value": 95000.0}  # Loss of 5000
+        positions = [{"market_value": 50000}]
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        # Verify day change shows negative
+        assert "-" in metrics._day_change_label.text
+        # Verify negative color class was applied
+        from apps.web_console_ng.ui.theme import DAY_CHANGE_NEGATIVE
+
+        assert DAY_CHANGE_NEGATIVE in metrics._day_change_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_with_leverage_none_displays_placeholder(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test update with None leverage shows placeholder."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+
+        # Zero NLV causes leverage to be None
+        account_info = {"portfolio_value": 0}
+        positions = [{"market_value": 50000}]
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        assert metrics._leverage_label.text == "--"
+
+    @pytest.mark.asyncio()
+    async def test_update_with_partial_leverage_shows_asterisk(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test update with partial leverage data shows asterisk."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        mock_app.storage.user.__setitem__ = MagicMock()
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        account_info = {"portfolio_value": 100000.0}
+        # One position missing market_value and qty/price
+        positions = [{"market_value": 50000}, {"symbol": "MISSING"}]
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        # Should show asterisk for partial data
+        assert "*" in metrics._leverage_label.text
+
+    @pytest.mark.asyncio()
+    async def test_update_timeout_marks_stale(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that timeout marks metrics as stale."""
+        import asyncio
+
+        metrics = HeaderMetrics()
+
+        async def slow_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            await asyncio.sleep(10)  # Sleep longer than timeout
+            return {}
+
+        mock_client.fetch_account_info = slow_fetch
+        mock_client.fetch_positions = slow_fetch
+
+        # Use a short timeout for test
+        monkeypatch.setattr(metrics_module, "METRICS_FETCH_TIMEOUT", 0.01)
+
+        await metrics.update(mock_client, "user123")
+
+        # Should be marked as stale
+        assert "opacity-50" in metrics._nlv_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_cancelled_marks_stale(
+        self, dummy_ui: None, mock_client: MagicMock
+    ) -> None:
+        """Test that cancelled task marks metrics as stale."""
+        import asyncio
+
+        metrics = HeaderMetrics()
+
+        async def cancelled_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise asyncio.CancelledError()
+
+        mock_client.fetch_account_info = cancelled_fetch
+        mock_client.fetch_positions = cancelled_fetch
+
+        await metrics.update(mock_client, "user123")
+
+        # Should be marked as stale
+        assert "opacity-50" in metrics._nlv_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_exception_marks_stale(
+        self, dummy_ui: None, mock_client: MagicMock
+    ) -> None:
+        """Test that generic exception marks metrics as stale."""
+        metrics = HeaderMetrics()
+
+        async def failing_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("API Error")
+
+        mock_client.fetch_account_info = failing_fetch
+        mock_client.fetch_positions = failing_fetch
+
+        await metrics.update(mock_client, "user123")
+
+        # Should be marked as stale
+        assert "opacity-50" in metrics._nlv_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_account_exception_propagates(
+        self, dummy_ui: None, mock_client: MagicMock
+    ) -> None:
+        """Test that account fetch exception is caught and marks stale."""
+        metrics = HeaderMetrics()
+
+        async def account_error(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise ValueError("Account API Error")
+
+        async def positions_success(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return []
+
+        mock_client.fetch_account_info = account_error
+        mock_client.fetch_positions = positions_success
+
+        await metrics.update(mock_client, "user123")
+
+        # Should be marked as stale due to account error
+        assert "opacity-50" in metrics._nlv_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_positions_exception_propagates(
+        self, dummy_ui: None, mock_client: MagicMock
+    ) -> None:
+        """Test that positions fetch exception is caught and marks stale."""
+        metrics = HeaderMetrics()
+
+        async def account_success(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"portfolio_value": 100000.0}
+
+        async def positions_error(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            raise ValueError("Positions API Error")
+
+        mock_client.fetch_account_info = account_success
+        mock_client.fetch_positions = positions_error
+
+        await metrics.update(mock_client, "user123")
+
+        # Should be marked as stale due to positions error
+        assert "opacity-50" in metrics._nlv_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_with_dict_positions_result(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test update handles dict wrapper format for positions."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        mock_app.storage.user.__setitem__ = MagicMock()
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        account_info = {"portfolio_value": 100000.0}
+        # Positions in dict wrapper format
+        positions_result = {"positions": [{"market_value": 50000}], "total": 1}
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return positions_result
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        # Should have processed positions correctly
+        assert metrics._nlv_label.text == "$100.0K"
+
+    @pytest.mark.asyncio()
+    async def test_update_leverage_color_transition(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test leverage color class transition from one color to another."""
+        metrics = HeaderMetrics()
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        mock_app.storage.user.__setitem__ = MagicMock()
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        # First update with low leverage (green)
+        account_info = {"portfolio_value": 100000.0}
+        positions = [{"market_value": 100000}]  # 1x leverage (green)
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        from apps.web_console_ng.ui.theme import LEVERAGE_GREEN, LEVERAGE_RED
+
+        # LEVERAGE_GREEN is "bg-green-600 text-white" - check all parts are present
+        for cls in LEVERAGE_GREEN.split():
+            assert cls in metrics._leverage_label._classes
+
+        # Second update with high leverage (red)
+        positions_high = [{"market_value": 400000}]  # 4x leverage (red)
+
+        async def mock_fetch_positions_high(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions_high
+
+        mock_client.fetch_positions = mock_fetch_positions_high
+
+        await metrics.update(mock_client, "user123")
+
+        # LEVERAGE_RED is "bg-red-600 text-white" - check all parts are present
+        for cls in LEVERAGE_RED.split():
+            assert cls in metrics._leverage_label._classes
+        # Green-specific classes should be removed (bg-green-600)
+        assert "bg-green-600" not in metrics._leverage_label._classes
+
+    @pytest.mark.asyncio()
+    async def test_update_with_none_account_result(
+        self, dummy_ui: None, mock_client: MagicMock
+    ) -> None:
+        """Test update handles None account result."""
+        metrics = HeaderMetrics()
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return []
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        # Should show placeholder due to 0 NLV
+        assert metrics._nlv_label.text == "--"
+
+    @pytest.mark.asyncio()
+    async def test_update_clears_stale_on_success(
+        self, dummy_ui: None, mock_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that successful update clears stale indicator."""
+        metrics = HeaderMetrics()
+
+        # First mark as stale
+        metrics.mark_stale()
+        assert "opacity-50" in metrics._nlv_label._classes
+
+        mock_app = MagicMock()
+        mock_app.storage.user.get.return_value = None
+        mock_app.storage.user.__setitem__ = MagicMock()
+        monkeypatch.setattr(metrics_module, "app", mock_app)
+        monkeypatch.setattr(
+            metrics_module, "_get_trading_date_key", lambda: "nlv_baseline_2026-01-15"
+        )
+
+        account_info = {"portfolio_value": 100000.0}
+        positions = [{"market_value": 50000}]
+
+        async def mock_fetch_account(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return account_info
+
+        async def mock_fetch_positions(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            return positions
+
+        mock_client.fetch_account_info = mock_fetch_account
+        mock_client.fetch_positions = mock_fetch_positions
+
+        await metrics.update(mock_client, "user123")
+
+        # Stale indicator should be cleared
+        assert "opacity-50" not in metrics._nlv_label._classes

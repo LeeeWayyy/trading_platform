@@ -86,7 +86,7 @@ async def test_invalidate_user_sessions_re_raises_operational_error(mock_acquire
     mock_conn.execute = AsyncMock(side_effect=OperationalError("boom"))
 
     mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_acquire.return_value.__aexit__ = AsyncMock()
+    mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
 
     with pytest.raises(OperationalError):
         await invalidate_user_sessions("user-1", db_pool=Mock())
@@ -153,6 +153,6 @@ async def test_validate_session_version_returns_false_on_db_error(mock_acquire: 
     mock_conn.execute = AsyncMock(side_effect=DatabaseError("bad"))
 
     mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_acquire.return_value.__aexit__ = AsyncMock()
+    mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
 
     assert await validate_session_version("user-1", 1, db_pool=Mock()) is False

@@ -1256,14 +1256,20 @@ class TestPathSecurityValidation(TestVersioningFixtures):
         version_manager: DatasetVersionManager,
     ) -> None:
         """Test _validate_identifier rejects empty strings."""
-        with pytest.raises(ValueError, match="Invalid.*identifier"):
+        # Empty strings fail pattern validation (must start with alphanumeric)
+        with pytest.raises(ValueError, match="Invalid test:"):
             version_manager._validate_identifier("", version_manager.snapshots_dir, "test")
 
     def test_validate_identifier_rejects_path_traversal(
         self,
         version_manager: DatasetVersionManager,
     ) -> None:
-        """Test _validate_identifier detects path traversal attempts."""
+        """Test _validate_identifier detects path traversal attempts.
+
+        Note: Path traversal attempts like '../' fail the SAFE_TAG_PATTERN check first,
+        which rejects any identifier not matching [A-Za-z0-9][A-Za-z0-9._-]*.
+        This is the intended behavior - pattern validation is the first line of defense.
+        """
         traversal_attempts = [
             "../etc",
             "../../passwd",
@@ -1271,7 +1277,8 @@ class TestPathSecurityValidation(TestVersioningFixtures):
             "foo/../../bar",
         ]
         for attempt in traversal_attempts:
-            with pytest.raises(ValueError, match="path traversal"):
+            # Pattern validation rejects these before path traversal check
+            with pytest.raises(ValueError, match="Invalid version_tag:"):
                 version_manager._validate_identifier(
                     attempt, version_manager.snapshots_dir, "version_tag"
                 )
@@ -1357,8 +1364,11 @@ class TestPathSecurityValidation(TestVersioningFixtures):
         self,
         version_manager: DatasetVersionManager,
     ) -> None:
-        """Test get_snapshot validates version_tag for path traversal."""
-        with pytest.raises(ValueError, match="path traversal"):
+        """Test get_snapshot validates version_tag for path traversal.
+
+        Note: Path traversal attempts fail pattern validation first (SAFE_TAG_PATTERN).
+        """
+        with pytest.raises(ValueError, match="Invalid version_tag:"):
             version_manager.get_snapshot("../../../etc/passwd")
 
 
@@ -1693,20 +1703,33 @@ class TestAtomicWrite(TestVersioningFixtures):
         temp_files = list(temp_dirs["data"].glob("test_*.tmp"))
         assert len(temp_files) == 0
 
-    def test_atomic_write_json_handles_type_error(
+    def test_atomic_write_json_handles_non_serializable(
         self,
         version_manager: DatasetVersionManager,
         temp_dirs: dict[str, Path],
     ) -> None:
-        """Test _atomic_write_json handles non-serializable data."""
+        """Test _atomic_write_json handles non-serializable data via default=str.
+
+        The implementation uses json.dump(..., default=str), so non-serializable
+        objects are converted to their string representation rather than raising
+        TypeError. This is intentional to allow graceful handling of complex objects.
+        """
         path = temp_dirs["data"] / "test.json"
 
         # Try to serialize non-serializable object
         class NonSerializable:
             pass
 
-        with pytest.raises(TypeError):
-            version_manager._atomic_write_json(path, {"obj": NonSerializable()})
+        # Should succeed - default=str converts the object to its string representation
+        version_manager._atomic_write_json(path, {"obj": NonSerializable()})
+
+        # Verify file was created with string representation
+        assert path.exists()
+        with open(path) as f:
+            data = json.load(f)
+        # The class instance gets converted to a string like "<...NonSerializable object at 0x...>"
+        assert "obj" in data
+        assert "NonSerializable" in data["obj"]
 
 
 # =============================================================================
@@ -1826,10 +1849,17 @@ class TestAdditionalEdgeCases(TestVersioningFixtures):
         manifest_manager: ManifestManager,
         temp_dirs: dict[str, Path],
     ) -> None:
-        """Test snapshot creation fails if manifest references missing file."""
-        # Create manifest pointing to non-existent file
-        data_file = temp_dirs["data"] / "missing.parquet"
-        # Don't create the file
+        """Test snapshot creation fails if manifest references file that gets deleted.
+
+        The manifest_manager.save_manifest validates file paths, so we must:
+        1. Create the file first
+        2. Save the manifest
+        3. Delete the file
+        4. Verify snapshot creation fails
+        """
+        # Create the file first (required for save_manifest validation)
+        data_file = temp_dirs["data"] / "to_be_deleted.parquet"
+        data_file.write_bytes(b"temporary parquet content")
 
         lock_path = temp_dirs["locks"] / "test_dataset.lock"
         now = datetime.now(UTC)
@@ -1853,13 +1883,16 @@ class TestAdditionalEdgeCases(TestVersioningFixtures):
             checksum="abc123" * 10,
             schema_version="v1.0.0",
             wrds_query_hash="def456" * 10,
-            file_paths=[str(data_file)],  # File doesn't exist
+            file_paths=[str(data_file)],
             validation_status="passed",
         )
         manifest_manager.save_manifest(manifest, token)
 
-        # Should fail with DataNotFoundError
-        with pytest.raises(DataNotFoundError, match="File not found"):
+        # Now delete the file to simulate it going missing
+        data_file.unlink()
+
+        # Should fail with DataNotFoundError when file is missing during snapshot
+        with pytest.raises(DataNotFoundError, match="not found"):
             version_manager.create_snapshot("missing-file-v1")
 
     def test_link_backtest_validates_backtest_id(
@@ -1868,20 +1901,26 @@ class TestAdditionalEdgeCases(TestVersioningFixtures):
         manifest_manager: ManifestManager,
         temp_dirs: dict[str, Path],
     ) -> None:
-        """Test link_backtest validates backtest_id for path traversal."""
+        """Test link_backtest validates backtest_id for path traversal.
+
+        Note: Path traversal attempts fail pattern validation first (SAFE_TAG_PATTERN).
+        """
         self._create_manifest_with_data(manifest_manager, "crsp_daily", temp_dirs)
         version_manager.create_snapshot("v1.0.0")
 
-        # Should reject path traversal
-        with pytest.raises(ValueError, match="path traversal"):
+        # Pattern validation rejects path traversal attempts
+        with pytest.raises(ValueError, match="Invalid backtest_id:"):
             version_manager.link_backtest("../../../etc/passwd", "v1.0.0")
 
     def test_get_snapshot_for_backtest_validates_id(
         self,
         version_manager: DatasetVersionManager,
     ) -> None:
-        """Test get_snapshot_for_backtest validates backtest_id."""
-        with pytest.raises(ValueError, match="path traversal"):
+        """Test get_snapshot_for_backtest validates backtest_id.
+
+        Note: Path traversal attempts fail pattern validation first (SAFE_TAG_PATTERN).
+        """
+        with pytest.raises(ValueError, match="Invalid backtest_id:"):
             version_manager.get_snapshot_for_backtest("../../evil")
 
     def test_is_process_alive_detects_dead_process(

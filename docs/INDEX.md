@@ -428,6 +428,7 @@ Current and future work items organized by phase. Completed tasks are archived i
 **Repository Cleanup & Maintenance:**
 - [CURRENT, 2026-01-14, Planning] [REPO_CLEANUP_PLAN.md](./TASKS/REPO_CLEANUP_PLAN.md) - Repository cleanup and organization plan (scripts reorganization, research directory, libs grouping)
 - [CURRENT, 2026-01-14, Planning] [WEB_CONSOLE_MIGRATION_PLAN.md](./TASKS/WEB_CONSOLE_MIGRATION_PLAN.md) - Web console backend migration plan (apps/web_console/ → libs/)
+- [CURRENT, 2026-01-19, Analysis] [LOW_COVERAGE_MODULES_ANALYSIS.md](./TASKS/LOW_COVERAGE_MODULES_ANALYSIS.md) - Prioritized test plan for low coverage modules and improvements
 
 **Phase 1 Tasks:**
 - [CURRENT, 2025-10-18, Task] [P1T0_DONE.md](ARCHIVE/TASKS_HISTORY/P1T0_DONE.md) - Phase 1 initialization and planning

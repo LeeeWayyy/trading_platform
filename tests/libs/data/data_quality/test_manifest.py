@@ -753,3 +753,1356 @@ class TestManifestManager:
         reason_content = (Path(quarantine_path) / "reason.txt").read_text()
         assert str(file1) in reason_content
         assert str(file2) in reason_content
+
+    def test_acquire_lock_and_context_manager(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test acquire_lock context manager acquires and releases lock."""
+        dataset = "lock_test"
+
+        with manager.acquire_lock(dataset, "test-writer") as token:
+            # Lock should be held
+            assert token.lock_path.exists()
+            assert token.writer_id == "test-writer"
+
+        # Lock should be released after context manager exits
+        lock_path = manager._lock_path(dataset)
+        assert not lock_path.exists()
+
+    def test_acquire_lock_timeout(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test acquire_lock raises LockNotHeldError on timeout."""
+        dataset = "timeout_test"
+        lock_path = manager._lock_path(dataset)
+
+        # Create lock file held by another process
+        lock_data = {
+            "pid": 99999,  # Different PID (non-existent process)
+            "hostname": "other-host",  # Different host to prevent stale lock breaking
+            "writer_id": "blocking-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            with manager.acquire_lock(dataset, "test-writer", timeout_seconds=0.3):
+                pass
+
+        assert "Failed to acquire lock" in str(exc_info.value)
+
+    def test_try_break_stale_lock_hard_timeout(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock removes lock after hard timeout (30 min)."""
+        import time
+
+        dataset = "stale_test"
+        lock_path = manager._lock_path(dataset)
+
+        # Create lock file
+        lock_data = {
+            "pid": 99999,
+            "hostname": "other-host",
+            "writer_id": "old-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Set mtime to be older than hard timeout (30 min = 1800 sec)
+        old_time = time.time() - 1900  # 31+ minutes ago
+        os.utime(lock_path, (old_time, old_time))
+
+        # Should break the stale lock
+        manager._try_break_stale_lock(lock_path, dataset)
+
+        assert not lock_path.exists()
+
+    def test_try_break_stale_lock_dead_process(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock removes lock when owner process is dead."""
+        import socket
+        import time
+
+        dataset = "dead_process_test"
+        lock_path = manager._lock_path(dataset)
+        current_hostname = socket.gethostname()
+
+        # Create lock file with current hostname but non-existent PID
+        lock_data = {
+            "pid": 99999999,  # Non-existent PID
+            "hostname": current_hostname,  # Same host
+            "writer_id": "dead-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Set mtime to be older than soft timeout (5 min = 300 sec)
+        old_time = time.time() - 350  # 5+ minutes ago
+        os.utime(lock_path, (old_time, old_time))
+
+        # Should break the stale lock since process is dead
+        manager._try_break_stale_lock(lock_path, dataset)
+
+        assert not lock_path.exists()
+
+    def test_try_break_stale_lock_remote_host_waits(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock waits for hard timeout on remote host locks."""
+        import time
+
+        dataset = "remote_host_test"
+        lock_path = manager._lock_path(dataset)
+
+        # Create lock file with different hostname
+        lock_data = {
+            "pid": 12345,
+            "hostname": "remote-host-xyz",  # Different host
+            "writer_id": "remote-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Set mtime older than soft timeout but not hard timeout
+        old_time = time.time() - 400  # 6+ minutes ago (soft timeout exceeded)
+        os.utime(lock_path, (old_time, old_time))
+
+        # Should NOT break the lock (remote host, wait for hard timeout)
+        manager._try_break_stale_lock(lock_path, dataset)
+
+        # Lock should still exist
+        assert lock_path.exists()
+
+    def test_try_break_stale_lock_unreadable_lock(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock removes unreadable lock file."""
+        import time
+
+        dataset = "unreadable_test"
+        lock_path = manager._lock_path(dataset)
+
+        # Create invalid JSON lock file
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            f.write("invalid json content{{{")
+
+        # Set mtime older than soft timeout
+        old_time = time.time() - 350
+        os.utime(lock_path, (old_time, old_time))
+
+        # Should remove the unreadable lock
+        manager._try_break_stale_lock(lock_path, dataset)
+
+        assert not lock_path.exists()
+
+    def test_try_break_stale_lock_nonexistent(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock handles non-existent lock file."""
+        dataset = "nonexistent_test"
+        lock_path = manager._lock_path(dataset)
+
+        # Should not raise, just return
+        manager._try_break_stale_lock(lock_path, dataset)
+
+    def test_release_lock_ownership_verification(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _release_lock only releases if we own the lock."""
+        lock_path = temp_dirs["locks"] / "owned_test.lock"
+
+        # Our lock data
+        our_lock_data = {
+            "pid": os.getpid(),
+            "hostname": "our-host",
+            "writer_id": "our-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+
+        # Write lock file with OUR data
+        with open(lock_path, "w") as f:
+            json.dump(our_lock_data, f)
+
+        # Try to release with matching data - should succeed
+        manager._release_lock(lock_path, our_lock_data, "owned_test")
+
+        # Lock should be deleted
+        assert not lock_path.exists()
+
+    def test_release_lock_different_owner(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _release_lock does not release lock owned by another process."""
+        lock_path = temp_dirs["locks"] / "other_owner_test.lock"
+
+        # File has different owner
+        file_lock_data = {
+            "pid": 99999,
+            "hostname": "other-host",
+            "writer_id": "other-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(file_lock_data, f)
+
+        # Our lock data
+        our_lock_data = {
+            "pid": os.getpid(),
+            "hostname": "our-host",
+            "writer_id": "our-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+
+        # Try to release - should NOT delete (different owner)
+        manager._release_lock(lock_path, our_lock_data, "other_owner_test")
+
+        # Lock should still exist
+        assert lock_path.exists()
+
+    def test_release_lock_nonexistent(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _release_lock handles non-existent lock file gracefully."""
+        lock_path = temp_dirs["locks"] / "nonexistent.lock"
+        lock_data = {"pid": os.getpid(), "hostname": "test", "writer_id": "test"}
+
+        # Should not raise
+        manager._release_lock(lock_path, lock_data, "nonexistent")
+
+    def test_assert_lock_held_fails_when_lock_missing(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test assert_lock_held fails when lock file doesn't exist."""
+        lock_path = temp_dirs["locks"] / "missing.lock"
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test",
+            writer_id="test",
+            acquired_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.assert_lock_held(token)
+
+        assert "does not exist" in str(exc_info.value)
+
+    def test_assert_lock_held_fails_with_unreadable_lock(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test assert_lock_held fails with corrupt/unreadable lock file."""
+        lock_path = temp_dirs["locks"] / "corrupt.lock"
+
+        # Create invalid JSON
+        with open(lock_path, "w") as f:
+            f.write("not valid json{{{")
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test",
+            writer_id="test",
+            acquired_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.assert_lock_held(token)
+
+        assert "Failed to read" in str(exc_info.value)
+
+    def test_assert_lock_held_fails_hostname_mismatch(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test assert_lock_held fails when hostname doesn't match."""
+        lock_path = temp_dirs["locks"] / "hostname_test.lock"
+
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "file-hostname",  # Different hostname in file
+            "writer_id": "test",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="token-hostname",  # Different hostname in token
+            writer_id="test",
+            acquired_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.assert_lock_held(token)
+
+        assert "hostname mismatch" in str(exc_info.value).lower()
+
+    def test_assert_lock_held_fails_writer_id_mismatch(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test assert_lock_held fails when writer_id doesn't match."""
+        lock_path = temp_dirs["locks"] / "writer_test.lock"
+
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "file-writer",  # Different writer_id in file
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="token-writer",  # Different writer_id in token
+            acquired_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.assert_lock_held(token)
+
+        assert "writer_id mismatch" in str(exc_info.value).lower()
+
+    def test_assert_lock_held_hard_timeout_exceeded(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test assert_lock_held fails when hard timeout exceeded."""
+        lock_path = temp_dirs["locks"] / "hard_timeout.lock"
+
+        # Lock acquired 31+ minutes ago (exceeds 30 min hard timeout)
+        acquired_at = datetime.now(UTC) - timedelta(minutes=35)
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "test-writer",
+            "acquired_at": acquired_at.isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),  # Not expired
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=acquired_at,
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.assert_lock_held(token)
+
+        assert "hard timeout" in str(exc_info.value).lower()
+
+    def test_assert_lock_held_stale_lock_warning(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test assert_lock_held logs warning for stale but valid lock."""
+        import logging
+        import time
+
+        lock_path = temp_dirs["locks"] / "stale_warning.lock"
+
+        acquired_at = datetime.now(UTC)
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "test-writer",
+            "acquired_at": acquired_at.isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Set mtime to 6 minutes ago (stale but within hard timeout)
+        old_time = time.time() - 360  # 6 minutes
+        os.utime(lock_path, (old_time, old_time))
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=acquired_at,
+            expires_at=datetime.now(UTC) + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            manager.assert_lock_held(token)
+
+        assert "stale" in caplog.text.lower()
+
+    def test_refresh_lock_success(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+    ) -> None:
+        """Test refresh_lock extends expiration."""
+        # Valid lock token already created by fixture
+        original_expires_at = valid_lock_token.expires_at
+
+        updated_token = manager.refresh_lock(valid_lock_token)
+
+        assert updated_token.expires_at > original_expires_at
+
+    def test_refresh_lock_fails_hard_timeout(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test refresh_lock fails when hard timeout exceeded."""
+        lock_path = temp_dirs["locks"] / "refresh_hard.lock"
+
+        # Lock acquired 31+ minutes ago
+        acquired_at = datetime.now(UTC) - timedelta(minutes=35)
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "test-writer",
+            "acquired_at": acquired_at.isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=acquired_at,
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.refresh_lock(token)
+
+        assert "hard timeout" in str(exc_info.value).lower()
+
+    def test_refresh_lock_fails_lock_not_held(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test refresh_lock fails when lock file doesn't exist."""
+        lock_path = temp_dirs["locks"] / "missing_refresh.lock"
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        with pytest.raises(LockNotHeldError):
+            manager.refresh_lock(token)
+
+    def test_check_disk_space_ok(self, manager: ManifestManager) -> None:
+        """Test check_disk_space returns OK when usage is low."""
+        with patch("shutil.disk_usage") as mock_usage:
+            # 50% used
+            mock_usage.return_value = MagicMock(
+                total=100_000_000_000,
+                free=50_000_000_000,
+            )
+
+            status = manager.check_disk_space(1000)
+
+            assert status.level == "ok"
+            assert 0.49 < status.used_pct < 0.51
+
+    def test_check_disk_space_insufficient(self, manager: ManifestManager) -> None:
+        """Test check_disk_space raises when free space < required."""
+        with patch("shutil.disk_usage") as mock_usage:
+            # Low usage percentage (50%) but not enough free bytes for the required amount
+            # total=100_000, free=50_000 => 50% used (below 95% blocked threshold)
+            # But free (50_000) < required (100_000)
+            mock_usage.return_value = MagicMock(
+                total=100_000,
+                free=50_000,  # 50% used, below block threshold
+            )
+
+            with pytest.raises(DiskSpaceError) as exc_info:
+                manager.check_disk_space(100_000)  # Need 100_000 bytes, only 50_000 available
+
+            assert "Insufficient disk space" in str(exc_info.value)
+
+    def test_save_manifest_missing_file_raises(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test save_manifest raises when referenced file doesn't exist."""
+        from libs.data.data_quality.exceptions import QuarantineError
+
+        dataset = "missing_file_test"
+        lock_path = temp_dirs["locks"] / f"{dataset}.lock"
+
+        # Create lock
+        now = datetime.now(UTC)
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "test-writer",
+            "acquired_at": now.isoformat(),
+            "expires_at": (now + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=now,
+            expires_at=now + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=["/nonexistent/path/file.parquet"],  # Doesn't exist
+            validation_status="passed",
+        )
+
+        with pytest.raises(QuarantineError) as exc_info:
+            manager.save_manifest(manifest, token)
+
+        assert "does not exist" in str(exc_info.value)
+
+    def test_save_manifest_empty_file_raises(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+        tmp_path: Path,
+    ) -> None:
+        """Test save_manifest raises when referenced file is empty."""
+        from libs.data.data_quality.exceptions import QuarantineError
+
+        dataset = "empty_file_test"
+        lock_path = temp_dirs["locks"] / f"{dataset}.lock"
+
+        # Create lock
+        now = datetime.now(UTC)
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "test-writer",
+            "acquired_at": now.isoformat(),
+            "expires_at": (now + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=now,
+            expires_at=now + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        # Create empty file
+        empty_file = tmp_path / "empty.parquet"
+        empty_file.touch()  # Creates empty file
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(empty_file)],  # Empty file
+            validation_status="passed",
+        )
+
+        with pytest.raises(QuarantineError) as exc_info:
+            manager.save_manifest(manifest, token)
+
+        assert "zero size" in str(exc_info.value)
+
+    def test_save_manifest_disk_full_raises(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+        tmp_path: Path,
+    ) -> None:
+        """Test save_manifest raises DiskSpaceError on ENOSPC."""
+        dataset = "disk_full_test"
+        lock_path = temp_dirs["locks"] / f"{dataset}.lock"
+
+        # Create lock
+        now = datetime.now(UTC)
+        lock_data = {
+            "pid": os.getpid(),
+            "hostname": "test-host",
+            "writer_id": "test-writer",
+            "acquired_at": now.isoformat(),
+            "expires_at": (now + timedelta(hours=4)).isoformat(),
+        }
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        token = LockToken(
+            pid=os.getpid(),
+            hostname="test-host",
+            writer_id="test-writer",
+            acquired_at=now,
+            expires_at=now + timedelta(hours=4),
+            lock_path=lock_path,
+        )
+
+        # Create test file
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+        )
+
+        # Mock _atomic_write to raise ENOSPC
+        with patch.object(manager, "_atomic_write") as mock_write:
+            enospc_error = OSError(28, "No space left on device")
+            enospc_error.errno = 28
+            mock_write.side_effect = enospc_error
+
+            with pytest.raises(DiskSpaceError) as exc_info:
+                manager.save_manifest(manifest, token)
+
+            assert "Disk full" in str(exc_info.value)
+
+    def test_rollback_fails_no_manifest(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+    ) -> None:
+        """Test rollback_on_failure returns None when no manifest exists."""
+        dataset = "nonexistent_rollback"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        result = manager.rollback_on_failure(dataset, valid_lock_token)
+
+        assert result is None
+
+    def test_rollback_fails_backup_not_found(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test rollback returns None when backup file is missing."""
+        dataset = "backup_missing"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        # Create test file
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        # Save manifest with previous_checksum set (indicating backup should exist)
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="current_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+            manifest_version=2,
+            previous_checksum="previous_checksum",
+        )
+
+        # Write manifest directly (bypassing normal save to skip backup creation)
+        manifest_path = manager._manifest_path(dataset)
+        with open(manifest_path, "w") as f:
+            json.dump(manifest.model_dump(), f, default=str)
+
+        # Rollback should fail - no backup file
+        result = manager.rollback_on_failure(dataset, valid_lock_token)
+
+        assert result is None
+
+    def test_rollback_fails_checksum_mismatch(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test rollback returns None when backup checksum doesn't match."""
+        dataset = "checksum_mismatch"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        # Create a backup file with wrong checksum
+        backup_path = manager._backup_path(dataset, 1)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_manifest = {
+            "dataset": dataset,
+            "sync_timestamp": datetime.now(UTC).isoformat(),
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "row_count": 100,
+            "checksum": "wrong_checksum",  # Different from previous_checksum
+            "schema_version": "v1.0.0",
+            "wrds_query_hash": "test_hash",
+            "file_paths": [str(test_file)],
+            "validation_status": "passed",
+            "manifest_version": 1,
+        }
+        with open(backup_path, "w") as f:
+            json.dump(backup_manifest, f)
+
+        # Create current manifest expecting "previous_checksum"
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="current_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+            manifest_version=2,
+            previous_checksum="previous_checksum",  # Expected, but backup has "wrong_checksum"
+        )
+        manifest_path = manager._manifest_path(dataset)
+        with open(manifest_path, "w") as f:
+            json.dump(manifest.model_dump(), f, default=str)
+
+        result = manager.rollback_on_failure(dataset, valid_lock_token)
+
+        assert result is None
+
+    def test_rollback_rejects_cross_dataset_lock(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test rollback rejects lock for different dataset."""
+        # Lock is for dataset_a
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "dataset_a.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        # But trying to rollback dataset_b
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.rollback_on_failure("dataset_b", valid_lock_token)
+
+        assert "Lock path mismatch" in str(exc_info.value)
+
+    def test_quarantine_rejects_cross_dataset_lock(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+    ) -> None:
+        """Test quarantine rejects lock for different dataset."""
+        # Lock is for dataset_a
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "dataset_a.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        manifest = SyncManifest(
+            dataset="dataset_b",  # Different from lock
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=["test.parquet"],
+            validation_status="failed",
+        )
+
+        with pytest.raises(LockNotHeldError) as exc_info:
+            manager.quarantine_data(manifest, "test reason", valid_lock_token)
+
+        assert "Lock path mismatch" in str(exc_info.value)
+
+    def test_quarantine_security_path_validation(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test quarantine rejects files outside data_root."""
+        from libs.data.data_quality.exceptions import QuarantineError
+
+        dataset = "security_test"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        # Create file outside data_root
+        outside_file = Path("/tmp/outside_data_root.parquet")
+        outside_file.write_text("malicious content")
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(outside_file)],
+            validation_status="failed",
+        )
+
+        try:
+            with pytest.raises(QuarantineError) as exc_info:
+                manager.quarantine_data(manifest, "security test", valid_lock_token)
+
+            assert "Security violation" in str(exc_info.value)
+        finally:
+            # Cleanup
+            if outside_file.exists():
+                outside_file.unlink()
+
+    def test_quarantine_missing_files_recorded(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+    ) -> None:
+        """Test quarantine handles and records missing files."""
+        dataset = "missing_files_test"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=["/nonexistent/path1.parquet", "/nonexistent/path2.parquet"],
+            validation_status="failed",
+        )
+
+        quarantine_path = manager.quarantine_data(manifest, "missing files test", valid_lock_token)
+
+        # Load quarantined manifest
+        with open(Path(quarantine_path) / "manifest.json") as f:
+            quarantined = json.load(f)
+
+        # Missing files should be prefixed with "MISSING:"
+        assert any("MISSING:" in p for p in quarantined["file_paths"])
+
+    def test_quarantine_oserror_cleanup(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test quarantine cleans up staging on OSError."""
+        from libs.data.data_quality.exceptions import QuarantineError
+
+        dataset = "oserror_test"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        # Create test file
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="failed",
+        )
+
+        # Mock Path.rename to raise OSError
+        with patch.object(Path, "rename") as mock_rename:
+            mock_rename.side_effect = OSError("Permission denied")
+
+            with pytest.raises(QuarantineError) as exc_info:
+                manager.quarantine_data(manifest, "oserror test", valid_lock_token)
+
+            assert "Failed to quarantine" in str(exc_info.value)
+
+    def test_list_manifests_handles_invalid_json(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test list_manifests skips files with invalid JSON."""
+        import logging
+
+        # Create invalid JSON manifest file
+        invalid_file = temp_dirs["storage"] / "invalid.json"
+        with open(invalid_file, "w") as f:
+            f.write("not valid json{{{")
+
+        with caplog.at_level(logging.WARNING):
+            _ = manager.list_manifests()
+
+        # Should return empty list (or other valid manifests)
+        # and log a warning
+        assert "Failed to load" in caplog.text
+
+    def test_list_manifests_skips_internal_files(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test list_manifests skips files starting with underscore."""
+        # Create test file
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        # Create a normal manifest
+        dataset = "normal_dataset"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+        )
+        manager.save_manifest(manifest, valid_lock_token)
+
+        # Create internal file (starts with underscore)
+        internal_file = manager.storage_path / "_internal.json"
+        with open(internal_file, "w") as f:
+            f.write('{"internal": "data"}')
+
+        manifests = manager.list_manifests()
+
+        # Should only find the normal dataset, not the internal file
+        assert len(manifests) == 1
+        assert manifests[0].dataset == dataset
+
+    def test_sanitize_dataset_prevents_path_traversal(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _sanitize_dataset extracts basename to prevent path traversal."""
+        # Path traversal attempts get sanitized to just the basename
+        assert manager._sanitize_dataset("../../../etc/passwd") == "passwd"
+        assert manager._sanitize_dataset("/etc/passwd") == "passwd"
+        assert manager._sanitize_dataset("subdir/dataset") == "dataset"
+
+    def test_sanitize_dataset_rejects_invalid_names(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _sanitize_dataset rejects empty or dot-only names."""
+        with pytest.raises(ValueError, match="Invalid dataset name"):
+            manager._sanitize_dataset("..")
+
+        with pytest.raises(ValueError, match="Invalid dataset name"):
+            manager._sanitize_dataset(".")
+
+        with pytest.raises(ValueError, match="Invalid dataset name"):
+            manager._sanitize_dataset("")
+
+    def test_validate_file_path_success(
+        self,
+        manager: ManifestManager,
+        tmp_path: Path,
+    ) -> None:
+        """Test _validate_file_path accepts files within data_root."""
+        # Create file within data_root
+        valid_file = tmp_path / "valid.parquet"
+        valid_file.touch()
+
+        assert manager._validate_file_path(valid_file) is True
+
+    def test_validate_file_path_rejects_outside_root(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _validate_file_path rejects files outside data_root."""
+        outside_file = Path("/etc/passwd")
+        assert manager._validate_file_path(outside_file) is False
+
+    def test_atomic_write_oserror_cleanup(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _atomic_write cleans up temp file on OSError."""
+        path = temp_dirs["storage"] / "oserror_test.json"
+        data = {"key": "value"}
+
+        # Mock os.fsync to raise OSError
+        with patch("os.fsync") as mock_fsync:
+            mock_fsync.side_effect = OSError("I/O error")
+
+            with pytest.raises(OSError, match="I/O error"):
+                manager._atomic_write(path, data)
+
+        # Original path should not exist (write failed)
+        assert not path.exists()
+
+    def test_atomic_write_typeerror_cleanup(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _atomic_write cleans up temp file on TypeError (serialization error)."""
+        path = temp_dirs["storage"] / "typeerror_test.json"
+        data = {"key": "value"}
+
+        # Mock json.dump to raise TypeError
+        with patch("json.dump") as mock_dump:
+            mock_dump.side_effect = TypeError("Object of type X is not JSON serializable")
+
+            with pytest.raises(TypeError):
+                manager._atomic_write(path, data)
+
+        # Original path should not exist
+        assert not path.exists()
+
+    def test_validate_file_path_handles_oserror(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _validate_file_path returns False on OSError."""
+        # Create a path object that raises OSError on resolve
+        with patch.object(Path, "resolve") as mock_resolve:
+            mock_resolve.side_effect = OSError("Permission denied")
+            result = manager._validate_file_path(Path("/some/path"))
+
+        assert result is False
+
+    def test_save_manifest_with_warning_disk_level(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test save_manifest logs warning when disk is at warning level."""
+        import logging
+
+        dataset = "warning_disk_test"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+        )
+
+        # Mock disk usage to return warning level (80%+)
+        with patch("shutil.disk_usage") as mock_usage:
+            mock_usage.return_value = MagicMock(
+                total=100_000_000_000,
+                free=19_000_000_000,  # 81% used
+            )
+            with caplog.at_level(logging.WARNING):
+                manager.save_manifest(manifest, valid_lock_token)
+
+        assert "warning" in caplog.text.lower()
+
+    def test_save_manifest_with_critical_disk_level(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test save_manifest logs critical when disk is at critical level."""
+        import logging
+
+        dataset = "critical_disk_test"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+        )
+
+        # Mock disk usage to return critical level (90%+)
+        with patch("shutil.disk_usage") as mock_usage:
+            mock_usage.return_value = MagicMock(
+                total=100_000_000_000,
+                free=9_000_000_000,  # 91% used
+            )
+            with caplog.at_level(logging.CRITICAL):
+                manager.save_manifest(manifest, valid_lock_token)
+
+        assert "critical" in caplog.text.lower()
+
+    def test_refresh_lock_fails_when_file_becomes_unreadable(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+    ) -> None:
+        """Test refresh_lock fails if lock file becomes unreadable."""
+        # First assert_lock_held will pass, then the second read in refresh_lock will fail
+        call_count = [0]
+        original_open = open
+
+        def mock_open(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:  # Second call in refresh_lock
+                raise json.JSONDecodeError("Invalid JSON", "", 0)
+            return original_open(*args, **kwargs)
+
+        # This test is complex to set up correctly, so we'll mock assert_lock_held to pass
+        # but then have the second file read fail
+        with patch.object(manager, "assert_lock_held"):
+            with patch("builtins.open") as mock_file:
+                mock_file.side_effect = OSError("Permission denied")
+
+                with pytest.raises(LockNotHeldError) as exc_info:
+                    manager.refresh_lock(valid_lock_token)
+
+                assert "Failed to read" in str(exc_info.value)
+
+    def test_try_break_stale_lock_handles_oserror_on_stat(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock handles OSError when getting stat."""
+        dataset = "stat_error_test"
+        lock_path = manager._lock_path(dataset)
+
+        # Create lock file
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text('{"pid": 1234}')
+
+        # Mock stat to raise OSError after the exists check
+        original_stat = lock_path.stat
+        call_count = [0]
+
+        def mock_stat():
+            call_count[0] += 1
+            if call_count[0] > 0:
+                raise OSError("Permission denied")
+            return original_stat()
+
+        with patch.object(type(lock_path), "stat", property(lambda self: mock_stat)):
+            # Should not raise, just log debug
+            manager._try_break_stale_lock(lock_path, dataset)
+
+    def test_release_lock_handles_json_decode_error(
+        self,
+        manager: ManifestManager,
+        temp_dirs: dict[str, Path],
+    ) -> None:
+        """Test _release_lock handles corrupt lock file gracefully."""
+        lock_path = temp_dirs["locks"] / "corrupt_release.lock"
+
+        # Create corrupt JSON
+        with open(lock_path, "w") as f:
+            f.write("not valid json{{{")
+
+        lock_data = {"pid": os.getpid(), "hostname": "test", "writer_id": "test"}
+
+        # Should not raise - handles JSONDecodeError gracefully
+        manager._release_lock(lock_path, lock_data, "corrupt_release")
+
+        # Lock file should still exist (we couldn't verify ownership)
+        assert lock_path.exists()
+
+    def test_try_break_stale_lock_with_live_process(
+        self,
+        manager: ManifestManager,
+    ) -> None:
+        """Test _try_break_stale_lock does NOT break lock when owner process is alive."""
+        import socket
+        import time
+
+        dataset = "live_process_test"
+        lock_path = manager._lock_path(dataset)
+        current_hostname = socket.gethostname()
+        current_pid = os.getpid()  # Our own PID - definitely alive!
+
+        # Create lock file with current hostname and OUR PID (a live process)
+        lock_data = {
+            "pid": current_pid,
+            "hostname": current_hostname,
+            "writer_id": "live-writer",
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+        }
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            json.dump(lock_data, f)
+
+        # Set mtime to be older than soft timeout
+        old_time = time.time() - 350  # 5+ minutes ago
+        os.utime(lock_path, (old_time, old_time))
+
+        # Should NOT break the lock since process is alive
+        manager._try_break_stale_lock(lock_path, dataset)
+
+        # Lock should still exist
+        assert lock_path.exists()
+
+    def test_save_manifest_with_expected_bytes(
+        self,
+        manager: ManifestManager,
+        valid_lock_token: LockToken,
+        tmp_path: Path,
+    ) -> None:
+        """Test save_manifest uses expected_bytes when provided."""
+        dataset = "expected_bytes_test"
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
+        with open(valid_lock_token.lock_path, "w") as f:
+            json.dump(valid_lock_token.to_dict(), f)
+
+        test_file = tmp_path / "test.parquet"
+        test_file.write_text("content")
+
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=datetime.now(UTC),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            row_count=100,
+            checksum="test_checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash="test_hash",
+            file_paths=[str(test_file)],
+            validation_status="passed",
+        )
+
+        # Should succeed with explicit expected_bytes
+        manager.save_manifest(manifest, valid_lock_token, expected_bytes=1000)
+
+        loaded = manager.load_manifest(dataset)
+        assert loaded is not None
+        assert loaded.dataset == dataset

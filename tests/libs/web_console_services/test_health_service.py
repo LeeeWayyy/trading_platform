@@ -434,10 +434,10 @@ class TestGetConnectivityPostgresChecks:
         mock_cur = AsyncMock()
         mock_cur.execute = AsyncMock(side_effect=TimeoutError("Query timeout"))
         mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
-        mock_cur.__aexit__ = AsyncMock()
+        mock_cur.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
         mock_conn.cursor = Mock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
+        mock_conn.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
         mock_db_pool.connection = Mock(return_value=mock_conn)
 
         service = HealthMonitorService(
@@ -485,10 +485,10 @@ class TestGetConnectivityPostgresChecks:
         mock_cur = AsyncMock()
         mock_cur.execute = AsyncMock(side_effect=ValueError("Unexpected DB error"))
         mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
-        mock_cur.__aexit__ = AsyncMock()
+        mock_cur.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
         mock_conn.cursor = Mock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
+        mock_conn.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
         mock_db_pool.connection = Mock(return_value=mock_conn)
 
         service = HealthMonitorService(
@@ -609,31 +609,51 @@ class TestStaleCache:
 
     @pytest.mark.asyncio()
     async def test_both_checks_fail_uses_stale_cache(self):
-        """Test get_connectivity() returns stale cache when both checks fail."""
+        """Test get_connectivity() returns stale cache when both checks fail via timeout.
+
+        Note: The health service's _check_redis and _check_postgres_async catch
+        all exceptions internally and return error tuples. The only way to trigger
+        the both_failed path (which returns stale cache) is via wait_for timeout.
+        """
         mock_health = AsyncMock()
         mock_prometheus = Mock()
         mock_redis = Mock()
         mock_redis.health_check = Mock(return_value=True)
         mock_redis.get_info = Mock(return_value={"version": "7.0.0"})
-        mock_db_pool = None
+
+        # Set up a db_pool that succeeds initially for cache population
+        mock_db_pool = Mock()
+        mock_conn = AsyncMock()
+        mock_cur = AsyncMock()
+        mock_cur.execute = AsyncMock()
+        mock_cur.fetchone = AsyncMock(return_value=(1,))
+        mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
+        mock_cur.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.cursor = Mock(return_value=mock_cur)
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_db_pool.connection = Mock(return_value=mock_conn)
 
         service = HealthMonitorService(
             health_client=mock_health,
             prometheus_client=mock_prometheus,
             redis_client=mock_redis,
             db_pool=mock_db_pool,
-            connectivity_cache_ttl_seconds=10,
+            connectivity_cache_ttl_seconds=0.1,  # Short TTL for test
         )
 
         # First call populates cache
         result1 = await service.get_connectivity()
         assert result1.redis_connected is True
+        assert result1.postgres_connected is True
 
-        # Simulate both checks failing
-        mock_redis.health_check = Mock(side_effect=ConnectionError("Redis down"))
+        # Wait for cache to expire so second call does fresh check
+        await asyncio.sleep(0.15)
 
-        # Second call should use stale cache
-        result2 = await service.get_connectivity()
+        # Simulate both checks timing out - this triggers the both_failed path
+        # that returns stale cache (normal exceptions are caught internally)
+        with patch("asyncio.wait_for", side_effect=TimeoutError("Timeout")):
+            result2 = await service.get_connectivity()
 
         assert result2.is_stale is True
         assert result2.stale_age_seconds is not None
@@ -699,31 +719,50 @@ class TestGetConnectivityTimeout:
 
     @pytest.mark.asyncio()
     async def test_checks_timeout_uses_stale_cache(self, caplog):
-        """Test get_connectivity() uses stale cache on timeout."""
+        """Test get_connectivity() uses stale cache on timeout (both checks fail)."""
         mock_health = AsyncMock()
         mock_prometheus = Mock()
         mock_redis = Mock()
         mock_redis.health_check = Mock(return_value=True)
         mock_redis.get_info = Mock(return_value={"version": "7.0.0"})
 
+        # Need a real db_pool mock so postgres check goes through wait_for
+        mock_db_pool = Mock()
+        mock_conn = AsyncMock()
+        mock_cur = AsyncMock()
+        mock_cur.execute = AsyncMock()
+        mock_cur.fetchone = AsyncMock(return_value=(1,))
+        mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
+        mock_cur.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.cursor = Mock(return_value=mock_cur)
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_db_pool.connection = Mock(return_value=mock_conn)
+
         service = HealthMonitorService(
             health_client=mock_health,
             prometheus_client=mock_prometheus,
             redis_client=mock_redis,
-            db_pool=None,
+            db_pool=mock_db_pool,
+            connectivity_cache_ttl_seconds=0.1,  # Short TTL for test
         )
 
         # Populate cache first
         result1 = await service.get_connectivity()
         assert result1.redis_connected is True
+        assert result1.postgres_connected is True
+
+        # Wait for cache to expire so second call does fresh check
+        await asyncio.sleep(0.15)
 
         # Simulate timeout by mocking wait_for to raise TimeoutError
+        # Both checks will fail via wait_for
         with patch("asyncio.wait_for", side_effect=TimeoutError("Timeout")):
             result2 = await service.get_connectivity()
 
-        # Should use stale cache
+        # Should use stale cache (both_failed path logs "Both connectivity checks failed")
         assert result2.is_stale is True
-        assert "Connectivity check timed out" in caplog.text
+        assert "Both connectivity checks failed" in caplog.text
 
     @pytest.mark.asyncio()
     async def test_checks_timeout_no_cache_returns_error(self, caplog):
@@ -731,21 +770,29 @@ class TestGetConnectivityTimeout:
         mock_health = AsyncMock()
         mock_prometheus = Mock()
 
+        # Need a real db_pool mock so postgres check goes through wait_for
+        mock_db_pool = Mock()
+        mock_conn = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(side_effect=ConnectionError("DB down"))
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_db_pool.connection = Mock(return_value=mock_conn)
+
         service = HealthMonitorService(
             health_client=mock_health,
             prometheus_client=mock_prometheus,
             redis_client=None,
-            db_pool=None,
+            db_pool=mock_db_pool,
         )
 
-        # Simulate timeout
+        # Simulate timeout - both checks fail via wait_for
         with patch("asyncio.wait_for", side_effect=TimeoutError("Timeout")):
             result = await service.get_connectivity()
 
         assert result.redis_connected is False
         assert result.postgres_connected is False
         assert "Timeout" in result.redis_error
-        assert "Connectivity check timed out" in caplog.text
+        # both_failed path logs "Both connectivity checks failed"
+        assert "Both connectivity checks failed" in caplog.text
 
     @pytest.mark.asyncio()
     async def test_unexpected_exception_uses_stale_cache(self, caplog):
@@ -756,16 +803,33 @@ class TestGetConnectivityTimeout:
         mock_redis.health_check = Mock(return_value=True)
         mock_redis.get_info = Mock(return_value={"version": "7.0.0"})
 
+        # Need a real db_pool mock for proper cache population
+        mock_db_pool = Mock()
+        mock_conn = AsyncMock()
+        mock_cur = AsyncMock()
+        mock_cur.execute = AsyncMock()
+        mock_cur.fetchone = AsyncMock(return_value=(1,))
+        mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
+        mock_cur.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.cursor = Mock(return_value=mock_cur)
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_db_pool.connection = Mock(return_value=mock_conn)
+
         service = HealthMonitorService(
             health_client=mock_health,
             prometheus_client=mock_prometheus,
             redis_client=mock_redis,
-            db_pool=None,
+            db_pool=mock_db_pool,
+            connectivity_cache_ttl_seconds=0.1,  # Short TTL for test
         )
 
         # Populate cache
         result1 = await service.get_connectivity()
         assert result1.redis_connected is True
+
+        # Wait for cache to expire so second call does fresh check
+        await asyncio.sleep(0.15)
 
         # Simulate unexpected exception
         with patch("asyncio.get_running_loop", side_effect=RuntimeError("Unexpected error")):

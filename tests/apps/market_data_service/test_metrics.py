@@ -8,14 +8,74 @@ Verifies that:
 4. Metric naming follows Prometheus conventions
 """
 
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
+
+
+def _unregister_market_data_metrics():
+    """Unregister market_data metrics to allow fresh re-registration.
+
+    This is needed because test_main.py imports the module with a patched lifespan,
+    which registers metrics. When test_metrics.py reimports, we need to allow
+    re-registration by first unregistering existing metrics.
+    """
+    # List of metric name prefixes to unregister
+    metric_prefixes = [
+        "market_data_subscription_requests",
+        "market_data_subscription_duration",
+        "market_data_processing_duration",
+        "market_data_subscribed_symbols",
+        "market_data_websocket_messages",
+        "market_data_position_syncs",
+        "market_data_websocket_connection",
+        "market_data_redis_connection",
+        "market_data_reconnect_attempts",
+    ]
+
+    # Find and unregister collectors for these metrics
+    collectors_to_unregister = []
+    for collector in list(REGISTRY._names_to_collectors.values()):
+        try:
+            if hasattr(collector, "_name"):
+                for prefix in metric_prefixes:
+                    if collector._name.startswith(prefix):
+                        if collector not in collectors_to_unregister:
+                            collectors_to_unregister.append(collector)
+                        break
+        except (AttributeError, KeyError):
+            pass
+
+    for collector in collectors_to_unregister:
+        try:
+            REGISTRY.unregister(collector)
+        except (ValueError, KeyError):
+            pass  # Already unregistered
 
 
 @pytest.fixture()
 def client():
-    """Create test client for Market Data Service."""
-    # Import here to avoid issues with module-level initialization
+    """Create test client for Market Data Service.
+
+    Force reload of the module to ensure metrics are registered fresh.
+    This handles the case where test_main.py ran first with a patched lifespan,
+    which can leave the cached module in an inconsistent state for metrics tests.
+    """
+    module_name = "apps.market_data_service.main"
+
+    # If module was already imported, unregister metrics and clear cache
+    if module_name in sys.modules:
+        _unregister_market_data_metrics()
+        del sys.modules[module_name]
+
+        # Clear parent module reference
+        parent = "apps.market_data_service"
+        if parent in sys.modules and hasattr(sys.modules[parent], "main"):
+            delattr(sys.modules[parent], "main")
+
+    # Fresh import
     from apps.market_data_service.main import app
 
     return TestClient(app)

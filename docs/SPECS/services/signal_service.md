@@ -1,6 +1,6 @@
 # Signal Service
 
-<!-- Last reviewed: 2026-01-18 - ModelRegistry DB pool lazy-open (open=False) -->
+<!-- Last reviewed: 2026-01-18 - ModelRegistry lazy pool initialization with _ensure_pool_open() -->
 
 ## Identity
 - **Type:** Service

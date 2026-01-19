@@ -37,11 +37,11 @@ from apps.execution_gateway.alpaca_client import AlpacaConnectionError
 from apps.execution_gateway.reconciliation import (
     ReconciliationService,
 )
+from apps.execution_gateway.reconciliation.fills import backfill_fill_metadata
 from apps.execution_gateway.reconciliation.helpers import (
     calculate_synthetic_fill,
     estimate_notional,
 )
-from apps.execution_gateway.reconciliation.fills import backfill_fill_metadata
 from apps.execution_gateway.reconciliation.positions import reconcile_positions
 
 # --------------------------

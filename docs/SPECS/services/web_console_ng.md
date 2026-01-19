@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-15 - P6T2 Theme constants and CSS class centralization -->
+<!-- Last reviewed: 2026-01-18 - equity_curve_chart.py and synthetic_id.py fixes -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

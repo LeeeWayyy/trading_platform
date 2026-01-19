@@ -25,10 +25,17 @@ class AsyncContext:
         return None
 
 
-def _make_pool(cursor: AsyncMock) -> AsyncMock:
-    conn = AsyncMock()
+def _make_pool(cursor: AsyncMock) -> Mock:
+    """Create a mock pool that properly simulates psycopg3 AsyncConnectionPool.
+
+    psycopg3's AsyncConnectionPool.connection() is a synchronous call that returns
+    an async context manager, NOT a coroutine. So we use Mock (not AsyncMock) for
+    the pool and connection attributes to avoid them auto-returning coroutines.
+    """
+    conn = Mock()
     conn.cursor.return_value = AsyncContext(cursor)
-    pool = AsyncMock()
+    conn.commit = AsyncMock()  # commit() is async
+    pool = Mock()
     pool.connection.return_value = AsyncContext(conn)
     return pool
 

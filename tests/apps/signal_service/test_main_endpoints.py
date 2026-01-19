@@ -470,8 +470,12 @@ class TestGenerateSignalsEndpoint:
         client: TestClient,
         mock_auth_context: Mock,
     ) -> None:
-        """Test generate_signals with overridden top_n/bottom_n parameters."""
-        mock_generator = Mock()
+        """Test generate_signals with overridden top_n/bottom_n parameters.
+
+        When top_n or bottom_n differ from defaults, the code creates a NEW
+        SignalGenerator instance using signal_generator.data_provider.data_dir.
+        We need to patch the SignalGenerator class to prevent actual instantiation.
+        """
         mock_signals = pd.DataFrame(
             {
                 "symbol": ["AAPL"],
@@ -480,24 +484,39 @@ class TestGenerateSignalsEndpoint:
                 "target_weight": [1.0],
             }
         )
+
+        # Mock the existing signal_generator
+        mock_generator = Mock()
         mock_generator.generate_signals.return_value = mock_signals
-        mock_generator.top_n = 3  # Default
+        mock_generator.top_n = 3  # Default differs from request
         mock_generator.bottom_n = 0
+        mock_generator.data_provider.data_dir = "/tmp/data"
+
+        # Mock for the new cached generator created when top_n differs
+        mock_cached_generator = Mock()
+        mock_cached_generator.generate_signals.return_value = mock_signals
 
         mock_registry = Mock()
         mock_registry.is_loaded = True
+        mock_registry.current_metadata.strategy_name = "alpha_baseline"
+        mock_registry.current_metadata.version = "v1.0.0"
 
         with patch("apps.signal_service.main.signal_generator", mock_generator):
             with patch("apps.signal_service.main.model_registry", mock_registry):
                 with patch("apps.signal_service.main._publish_signal_event_with_fallback"):
-                    response = client.post(
-                        "/api/v1/signals/generate",
-                        json={
-                            "symbols": ["AAPL", "MSFT", "GOOGL"],
-                            "top_n": 1,  # Override
-                            "bottom_n": 0,
-                        },
-                    )
+                    # Patch SignalGenerator class to return our mock instead of creating real instance
+                    with patch(
+                        "apps.signal_service.main.SignalGenerator",
+                        return_value=mock_cached_generator,
+                    ):
+                        response = client.post(
+                            "/api/v1/signals/generate",
+                            json={
+                                "symbols": ["AAPL", "MSFT", "GOOGL"],
+                                "top_n": 1,  # Override
+                                "bottom_n": 0,
+                            },
+                        )
 
         assert response.status_code == 200
 

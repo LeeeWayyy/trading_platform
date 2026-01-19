@@ -56,8 +56,9 @@ async def refresh_token(
 
     # Extract client IP with trusted proxy validation
     # Uses TRUSTED_PROXY_IPS to prevent X-Forwarded-For spoofing
+    # Fallback to "unknown" if request.client is None (test environments)
     def get_remote_addr() -> str:
-        return request.client.host if request.client else ""
+        return request.client.host if request.client else "unknown"
 
     client_ip = extract_client_ip_from_fastapi(request, get_remote_addr)
     user_agent = request.headers.get("User-Agent", "")

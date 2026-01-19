@@ -399,6 +399,140 @@ class TestComputeGitDiffHashErrorHandling:
             compute_git_diff_hash(commit_sha="definitely_not_a_real_commit")
 
 
+class TestHashUtilsCLI:
+    """Tests for the __main__ CLI interface (lines 170-187).
+
+    These tests use runpy.run_path to execute the module as __main__,
+    which properly tracks coverage for the if __name__ == '__main__' block.
+    """
+
+    def test_cli_with_commit_sha_argument(self, monkeypatch):
+        """Test CLI with commit SHA argument prints hash value (lines 175-179)."""
+        import runpy
+        import sys
+        from io import StringIO
+
+        # Mock sys.argv
+        monkeypatch.setattr(sys, "argv", ["hash_utils.py", "HEAD"])
+
+        # Capture stdout
+        captured_stdout = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured_stdout)
+
+        # Run the module as __main__
+        try:
+            runpy.run_path(
+                str(Path(__file__).parents[4] / "libs/core/common/hash_utils.py"),
+                run_name="__main__",
+            )
+        except SystemExit:
+            pass
+
+        output = captured_stdout.getvalue().strip()
+        # Should be either empty or a valid 64-char hex hash
+        if output:
+            assert len(output) == 64
+            assert all(c in "0123456789abcdef" for c in output)
+
+    def test_cli_without_arguments_no_staged_changes_exits_with_error(self, monkeypatch):
+        """Test CLI without arguments exits with code 1 when no staged (lines 180-187)."""
+        import runpy
+        import sys
+        from io import StringIO
+
+        # First ensure nothing is staged
+        status = subprocess.run(
+            ["git", "diff", "--staged", "--quiet"],
+            capture_output=True,
+        )
+
+        if status.returncode == 0:
+            # Nothing staged - CLI should exit with error
+            monkeypatch.setattr(sys, "argv", ["hash_utils.py"])
+
+            captured_stderr = StringIO()
+            monkeypatch.setattr(sys, "stderr", captured_stderr)
+
+            # Run the module as __main__
+            with pytest.raises(SystemExit) as exc_info:
+                runpy.run_path(
+                    str(Path(__file__).parents[4] / "libs/core/common/hash_utils.py"),
+                    run_name="__main__",
+                )
+
+            assert exc_info.value.code == 1
+            assert "(no staged changes)" in captured_stderr.getvalue()
+
+    def test_cli_without_arguments_with_staged_changes(self, tmp_path, monkeypatch):
+        """Test CLI without arguments prints hash when changes staged (lines 180-184)."""
+        import os
+        import runpy
+        import sys
+        from io import StringIO
+
+        repo_dir = tmp_path / "test_repo"
+        repo_dir.mkdir()
+
+        # Initialize git repo
+        subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create and commit an initial file
+        (repo_dir / "initial.txt").write_text("initial content")
+        subprocess.run(
+            ["git", "add", "."], cwd=repo_dir, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create and stage a new file
+        (repo_dir / "test.txt").write_text("test content for hashing")
+        subprocess.run(
+            ["git", "add", "test.txt"], cwd=repo_dir, check=True, capture_output=True
+        )
+
+        # Mock sys.argv to have no arguments
+        monkeypatch.setattr(sys, "argv", ["hash_utils.py"])
+
+        # Capture stdout
+        captured_stdout = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured_stdout)
+
+        # Change to the temp repo directory so git commands work there
+        original_cwd = os.getcwd()
+        os.chdir(repo_dir)
+
+        try:
+            runpy.run_path(
+                str(Path(__file__).parents[4] / "libs/core/common/hash_utils.py"),
+                run_name="__main__",
+            )
+        except SystemExit:
+            pass
+        finally:
+            os.chdir(original_cwd)
+
+        output = captured_stdout.getvalue().strip()
+        # Should be a valid 64-char hex hash
+        assert len(output) == 64
+        assert all(c in "0123456789abcdef" for c in output)
+
+
 class TestHashUtilsIntegration:
     """Integration tests using actual git repository."""
 

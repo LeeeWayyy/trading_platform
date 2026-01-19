@@ -473,3 +473,499 @@ class TestErrorHandling:
         # or going through reload_if_changed with database
         # Skip for now (covered by integration tests)
         pass
+
+
+class TestPoolManagement:
+    """Tests for connection pool management."""
+
+    def test_ensure_pool_open_opens_pool_once(self, test_db_url):
+        """Test that _ensure_pool_open only opens pool once."""
+        registry = ModelRegistry(test_db_url)
+        assert registry._pool_opened is False
+
+        registry._ensure_pool_open()
+        assert registry._pool_opened is True
+
+        # Second call should not raise
+        registry._ensure_pool_open()
+        assert registry._pool_opened is True
+
+    def test_close_closes_pool(self, test_db_url):
+        """Test that close() closes the pool."""
+        registry = ModelRegistry(test_db_url)
+        registry._pool_opened = True  # Simulate opened pool
+
+        registry.close()
+        assert registry._pool_opened is False
+
+
+class TestModelLoadingErrorPaths:
+    """Tests for error handling in load_model_from_file."""
+
+    def test_load_model_os_error_raises_value_error(self, test_db_url, temp_dir):
+        """Test OSError (e.g., permission denied) raises ValueError."""
+        registry = ModelRegistry(test_db_url)
+
+        # Create a directory instead of file (will cause OSError on read)
+        dir_path = temp_dir / "directory_not_file"
+        dir_path.mkdir()
+
+        with pytest.raises(ValueError, match="Invalid LightGBM model"):
+            registry.load_model_from_file(str(dir_path))
+
+
+class TestGracefulDegradation:
+    """Tests for graceful degradation on reload errors."""
+
+    def test_file_error_keeps_current_model(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test FileNotFoundError keeps current model when one is loaded."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata_dict["model_path"] = "/nonexistent/path/model.txt"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+
+        reloaded = registry.reload_if_changed("alpha_baseline", skip_shadow_validation=True)
+
+        assert reloaded is False
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == sample_model_metadata["version"]
+
+    def test_value_error_keeps_current_model(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test ValueError keeps current model when one is loaded."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+
+        def raise_value_error(_path):
+            raise ValueError("Invalid model format")
+
+        monkeypatch.setattr(registry, "load_model_from_file", raise_value_error)
+
+        reloaded = registry.reload_if_changed("alpha_baseline", skip_shadow_validation=True)
+
+        assert reloaded is False
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == sample_model_metadata["version"]
+
+    def test_file_error_propagates_when_no_model_loaded(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test FileNotFoundError propagates when no model loaded."""
+        registry = ModelRegistry(test_db_url)
+        # No current model
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["model_path"] = "/nonexistent/path/model.txt"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+
+        with pytest.raises(FileNotFoundError):
+            registry.reload_if_changed("alpha_baseline", skip_shadow_validation=True)
+
+
+class TestModelActivatedCallback:
+    """Tests for on_model_activated callback."""
+
+    def test_on_model_activated_called_on_success(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test on_model_activated callback is called on successful reload."""
+        registry = ModelRegistry(test_db_url)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        callback_called = {"value": False, "metadata": None}
+
+        def callback(meta):
+            callback_called["value"] = True
+            callback_called["metadata"] = meta
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            skip_shadow_validation=True,
+            on_model_activated=callback,
+        )
+
+        assert reloaded is True
+        assert callback_called["value"] is True
+        assert callback_called["metadata"].version == "v2.0.0"
+
+
+class TestShadowValidationAdvanced:
+    """Advanced tests for shadow validation scenarios."""
+
+    def test_shadow_validation_already_in_progress_skips(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that when shadow validation is already in progress, reload returns False."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        # Simulate shadow validation already in progress for same version
+        registry._pending_validation = True
+        registry._pending_metadata = ModelMetadata(**new_metadata_dict)
+        registry._pending_model = DummyModel(2, 1.0)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+
+        def validator(_old, _new):
+            return ShadowValidationResult(
+                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                message="ok",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+        )
+
+        # Should return False because validation already in progress
+        assert reloaded is False
+
+    def test_shadow_validation_supersedes_pending(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that newer version supersedes pending shadow validation."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        # v2.0.0 is pending
+        pending_metadata_dict = dict(sample_model_metadata)
+        pending_metadata_dict["version"] = "v2.0.0"
+        registry._pending_validation = True
+        registry._pending_metadata = ModelMetadata(**pending_metadata_dict)
+        registry._pending_model = DummyModel(2, 1.0)
+
+        # Now v3.0.0 arrives
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v3.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        def validator(_old, _new):
+            return ShadowValidationResult(
+                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                message="ok",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+        )
+
+        # Should have cleared pending and activated v3.0.0
+        assert reloaded is True
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == "v3.0.0"
+
+    def test_shadow_validation_no_validator_warns_and_activates(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that missing validator logs warning but activates model."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        # Enable shadow validation but provide no validator
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=None,  # No validator provided
+            shadow_validation_enabled=True,
+        )
+
+        # Should still activate the model (with warning)
+        assert reloaded is True
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == "v2.0.0"
+
+
+class TestScheduleValidation:
+    """Tests for scheduled shadow validation."""
+
+    def test_schedule_validation_defers_activation(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that schedule_validation defers activation and returns False."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        scheduled_tasks = []
+
+        def schedule_fn(task_fn):
+            scheduled_tasks.append(task_fn)
+
+        def validator(_old, _new):
+            return ShadowValidationResult(
+                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                message="ok",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+            schedule_validation=schedule_fn,
+        )
+
+        # Should return False because validation is scheduled
+        assert reloaded is False
+        assert len(scheduled_tasks) == 1
+
+        # Model should still be v1.0.0
+        assert registry.current_metadata.version == sample_model_metadata["version"]
+
+        # Now run the scheduled task
+        scheduled_tasks[0]()
+
+        # Now v2.0.0 should be active
+        assert registry.current_metadata.version == "v2.0.0"
+
+
+class TestPropertySetters:
+    """Tests for property setters."""
+
+    def test_current_model_setter(self, test_db_url):
+        """Test current_model setter."""
+        registry = ModelRegistry(test_db_url)
+        assert registry.current_model is None
+
+        mock_model = DummyModel(num_features=2)
+        registry.current_model = mock_model  # type: ignore[assignment]
+
+        assert registry.current_model is mock_model
+
+    def test_current_metadata_setter(self, test_db_url, sample_model_metadata):
+        """Test current_metadata setter."""
+        registry = ModelRegistry(test_db_url)
+        assert registry.current_metadata is None
+
+        metadata = ModelMetadata(**sample_model_metadata)
+        registry.current_metadata = metadata
+
+        assert registry.current_metadata is metadata
+
+
+class TestDatabaseErrors:
+    """Tests for database error handling in get_active_model_metadata."""
+
+    def test_database_operational_error_propagates(self, test_db_url, monkeypatch):
+        """Test OperationalError propagates from get_active_model_metadata."""
+        from psycopg import OperationalError
+
+        registry = ModelRegistry(test_db_url)
+
+        def mock_ensure_pool_open():
+            raise OperationalError("Connection failed")
+
+        monkeypatch.setattr(registry, "_ensure_pool_open", mock_ensure_pool_open)
+
+        with pytest.raises(OperationalError):
+            registry.get_active_model_metadata("alpha_baseline")
+
+    def test_database_error_graceful_degradation_on_reload(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test database error during reload keeps current model."""
+        from psycopg import OperationalError
+
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        def mock_get_metadata(_strategy):
+            raise OperationalError("Connection failed")
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", mock_get_metadata)
+
+        reloaded = registry.reload_if_changed("alpha_baseline")
+
+        assert reloaded is False
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == sample_model_metadata["version"]
+
+
+class TestPredictionTestFailure:
+    """Tests for model prediction test failure."""
+
+    def test_prediction_test_failure_raises_value_error(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that prediction test failure raises ValueError."""
+        registry = ModelRegistry(test_db_url)
+
+        new_metadata = ModelMetadata(**sample_model_metadata)
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+
+        class BrokenModel:
+            def num_feature(self):
+                return 2
+
+            def predict(self, _features):
+                raise ValueError("Prediction failed")
+
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: BrokenModel())
+
+        with pytest.raises(ValueError, match="Model prediction test failed"):
+            registry.reload_if_changed("alpha_baseline", skip_shadow_validation=True)
+
+    def test_prediction_test_type_error_raises_value_error(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that prediction TypeError raises ValueError."""
+        registry = ModelRegistry(test_db_url)
+
+        new_metadata = ModelMetadata(**sample_model_metadata)
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+
+        class BrokenModel:
+            def num_feature(self):
+                return 2
+
+            def predict(self, _features):
+                raise TypeError("Invalid type")
+
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: BrokenModel())
+
+        with pytest.raises(ValueError, match="Model prediction test failed"):
+            registry.reload_if_changed("alpha_baseline", skip_shadow_validation=True)
+
+
+class TestShadowValidationExceptions:
+    """Tests for shadow validation exception paths."""
+
+    def test_shadow_validator_raises_exception_keeps_old_model(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that validator exception keeps old model."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        def failing_validator(_old, _new):
+            raise ValueError("Validation failed")
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=failing_validator,
+            shadow_validation_enabled=True,
+        )
+
+        # Should keep old model
+        assert reloaded is False
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == sample_model_metadata["version"]
+
+    def test_on_model_activated_called_in_shadow_validation(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test on_model_activated callback is called after shadow validation passes."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        callback_called = {"value": False}
+
+        def callback(meta):
+            callback_called["value"] = True
+
+        def validator(_old, _new):
+            return ShadowValidationResult(
+                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                message="ok",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+            on_model_activated=callback,
+        )
+
+        assert reloaded is True
+        assert callback_called["value"] is True
+
+
+class TestNoVersionChange:
+    """Tests for no version change scenario."""
+
+    def test_no_version_change_returns_false(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        """Test that no version change returns False."""
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        # Same version as current
+        same_metadata = ModelMetadata(**sample_model_metadata)
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: same_metadata)
+
+        reloaded = registry.reload_if_changed("alpha_baseline", skip_shadow_validation=True)
+
+        assert reloaded is False
+        assert registry.last_check is not None

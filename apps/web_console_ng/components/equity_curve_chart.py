@@ -99,7 +99,7 @@ def render_equity_curve(
 
         ui.plotly(fig).classes("w-full")
 
-    except (ValueError, KeyError, IndexError, TypeError) as e:
+    except (ValueError, KeyError, IndexError, TypeError, pl.exceptions.InvalidOperationError) as e:
         logger.warning(
             "Equity curve rendering failed - invalid data",
             extra={"chart": "equity_curve", "error": str(e), "error_type": type(e).__name__},

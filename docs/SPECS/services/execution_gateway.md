@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-18 - DB pools lazy-open (open=False) and reconciliation loop stops promptly on stop event -->
+<!-- Last reviewed: 2026-01-19 - Reconciliation package references (legacy path cleanup) -->
 
 ## Identity
 - **Type:** Service
@@ -252,7 +252,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-16 (Reconciliation refactor: split into package; test consolidation)
+- **Last Updated:** 2026-01-19 (Reconciliation package references updated after legacy file removal)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`
@@ -263,7 +263,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
   - `apps/execution_gateway/middleware.py`
   - `apps/execution_gateway/metrics.py`
   - `apps/execution_gateway/database.py`
-  - `apps/execution_gateway/reconciliation/` (package - refactored from reconciliation.py)
+  - `apps/execution_gateway/reconciliation/` (package - refactored from legacy reconciliation module)
     - `__init__.py` (backward-compatible exports)
     - `service.py` (ReconciliationService orchestrator)
     - `state.py` (startup gate and override state)

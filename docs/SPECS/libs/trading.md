@@ -1,5 +1,7 @@
 # libs/trading
 
+<!-- Last reviewed: 2026-01-18 - portfolio_optimizer.py empty universe handling -->
+
 ## Identity
 - **Type:** Library Group (Trading Logic)
 - **Location:** `libs/trading/`
