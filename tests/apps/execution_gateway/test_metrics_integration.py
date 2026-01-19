@@ -12,16 +12,117 @@ without external dependencies.
 """
 
 import re
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
+
+
+def _unregister_execution_gateway_metrics() -> None:
+    """Unregister execution_gateway metrics to allow fresh re-registration."""
+    metric_prefixes = [
+        "execution_gateway_orders",
+        "execution_gateway_order_placement",
+        "execution_gateway_positions",
+        "execution_gateway_pnl",
+        "execution_gateway_database_connection",
+        "execution_gateway_redis_connection",
+        "execution_gateway_alpaca_connection",
+        "execution_gateway_alpaca_api",
+        "execution_gateway_webhook",
+        "execution_gateway_dry_run",
+        "execution_gateway_reconciliation",
+    ]
+
+    collectors_to_unregister = []
+    for collector in list(REGISTRY._names_to_collectors.values()):
+        try:
+            if hasattr(collector, "_name"):
+                for prefix in metric_prefixes:
+                    if collector._name.startswith(prefix):
+                        if collector not in collectors_to_unregister:
+                            collectors_to_unregister.append(collector)
+                        break
+        except (AttributeError, KeyError):
+            pass
+
+    for collector in collectors_to_unregister:
+        try:
+            REGISTRY.unregister(collector)
+        except (ValueError, KeyError):
+            pass
 
 
 @pytest.fixture()
 def client():
-    """Create test client for Execution Gateway."""
-    # Import here to avoid issues with module-level initialization
+    """Create test client for Execution Gateway.
+
+    Force reload of the module to ensure metrics are registered fresh.
+    Sets up app context manually since we reimport the app (bypassing
+    the autouse restore_main_globals fixture that ran on the old app).
+    """
+    from unittest.mock import MagicMock
+
+    from apps.execution_gateway.app_factory import create_mock_context, create_test_config
+    from apps.execution_gateway.fat_finger_validator import FatFingerValidator
+    from apps.execution_gateway.schemas import FatFingerThresholds
+    from libs.trading.risk_management import RiskConfig
+
+    module_name = "apps.execution_gateway.main"
+
+    # If module was already imported, unregister metrics and clear cache
+    if module_name in sys.modules:
+        _unregister_execution_gateway_metrics()
+        del sys.modules[module_name]
+
+        # Also clear metrics module
+        metrics_module = "apps.execution_gateway.metrics"
+        if metrics_module in sys.modules:
+            del sys.modules[metrics_module]
+
+        # Clear parent module reference
+        parent = "apps.execution_gateway"
+        if parent in sys.modules:
+            if hasattr(sys.modules[parent], "main"):
+                delattr(sys.modules[parent], "main")
+            if hasattr(sys.modules[parent], "metrics"):
+                delattr(sys.modules[parent], "metrics")
+
+    # Fresh import
     from apps.execution_gateway.main import app
+
+    # Set up app context (required for /health endpoint)
+    # This would normally be done by lifespan, but we don't run it in tests
+    mock_db = MagicMock()
+    mock_db.check_connection.return_value = True
+    mock_redis = MagicMock()
+    mock_redis.health_check.return_value = True
+    mock_recovery = MagicMock()
+    mock_recovery.needs_recovery.return_value = False
+
+    fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+    mock_context = create_mock_context(
+        db=mock_db,
+        redis=mock_redis,
+        recovery_manager=mock_recovery,
+        risk_config=RiskConfig(),
+        fat_finger_validator=fat_finger_validator,
+    )
+    app.state.context = mock_context
+    app.state.config = create_test_config(dry_run=True)
+    app.state.version = "test"
+
+    # Import the metrics building function and set up metrics
+    from apps.execution_gateway import main
+    from apps.execution_gateway.metrics import initialize_metrics
+
+    app.state.metrics = main._build_metrics()
+
+    # Explicitly initialize metrics to ensure correct values
+    # This is needed because the global cleanup may have run after main.py
+    # set the metrics values during module import
+    initialize_metrics(dry_run=True)  # Test environment uses dry_run=True
 
     return TestClient(app)
 

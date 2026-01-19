@@ -43,6 +43,46 @@ def _clear_registry() -> None:
         REGISTRY.unregister(collector)
 
 
+def _unregister_execution_gateway_metrics() -> None:
+    """Unregister execution_gateway metrics to allow fresh re-registration.
+
+    This is needed because test_main.py imports the module with mocked dependencies,
+    which registers metrics. When test_metrics.py reimports, we need to allow
+    re-registration by first unregistering existing metrics.
+    """
+    metric_prefixes = [
+        "execution_gateway_orders",
+        "execution_gateway_order_placement",
+        "execution_gateway_positions",
+        "execution_gateway_pnl",
+        "execution_gateway_database_connection",
+        "execution_gateway_redis_connection",
+        "execution_gateway_alpaca_connection",
+        "execution_gateway_alpaca_api",
+        "execution_gateway_webhook",
+        "execution_gateway_dry_run",
+        "execution_gateway_reconciliation",
+    ]
+
+    collectors_to_unregister = []
+    for collector in list(REGISTRY._names_to_collectors.values()):
+        try:
+            if hasattr(collector, "_name"):
+                for prefix in metric_prefixes:
+                    if collector._name.startswith(prefix):
+                        if collector not in collectors_to_unregister:
+                            collectors_to_unregister.append(collector)
+                        break
+        except (AttributeError, KeyError):
+            pass
+
+    for collector in collectors_to_unregister:
+        try:
+            REGISTRY.unregister(collector)
+        except (ValueError, KeyError):
+            pass  # Already unregistered
+
+
 @pytest.fixture()
 def clean_prometheus_registry() -> Iterable[None]:
     original_collectors = list(REGISTRY._collector_to_names)  # type: ignore[attr-defined]
@@ -55,9 +95,41 @@ def clean_prometheus_registry() -> Iterable[None]:
 
 @pytest.fixture()
 def client():
-    """Create test client for Execution Gateway."""
-    # Import here to avoid issues with module-level initialization
+    """Create test client for Execution Gateway.
+
+    Force reload of the module to ensure metrics are registered fresh.
+    This handles the case where test_main.py ran first with mocked dependencies,
+    which can leave the cached module in an inconsistent state for metrics tests.
+    """
+    module_name = "apps.execution_gateway.main"
+
+    # If module was already imported, unregister metrics and clear cache
+    if module_name in sys.modules:
+        _unregister_execution_gateway_metrics()
+        del sys.modules[module_name]
+
+        # Also clear metrics module to force re-initialization
+        metrics_module = "apps.execution_gateway.metrics"
+        if metrics_module in sys.modules:
+            del sys.modules[metrics_module]
+
+        # Clear parent module reference
+        parent = "apps.execution_gateway"
+        if parent in sys.modules:
+            if hasattr(sys.modules[parent], "main"):
+                delattr(sys.modules[parent], "main")
+            if hasattr(sys.modules[parent], "metrics"):
+                delattr(sys.modules[parent], "metrics")
+
+    # Fresh import - this registers metrics and sets dry_run_mode
     from apps.execution_gateway.main import app
+
+    # Explicitly initialize metrics to ensure correct values
+    # This is needed because the global cleanup may have run after main.py
+    # set the metrics values during module import
+    from apps.execution_gateway.metrics import initialize_metrics
+
+    initialize_metrics(dry_run=True)  # Test environment uses dry_run=True
 
     return TestClient(app)
 
