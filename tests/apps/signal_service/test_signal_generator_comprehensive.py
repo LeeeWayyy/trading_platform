@@ -1139,3 +1139,32 @@ class TestEdgeCases:
         short_weight = signals[signals["target_weight"] < 0]["target_weight"].sum()
         assert abs(long_weight - 1.0) < 0.01, f"Long weights should sum to 1.0, got {long_weight}"
         assert abs(short_weight + 1.0) < 0.01, f"Short weights should sum to -1.0, got {short_weight}"
+
+    @patch("apps.signal_service.signal_generator.get_alpha158_features")
+    def test_overlap_zeros_weights_when_all_shorts_removed(
+        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features, caplog
+    ):
+        """Test that when overlap removes ALL shorts, weights are zeroed for safety."""
+        import logging
+
+        # Only 2 symbols with top_n=2, bottom_n=2
+        # This will cause complete overlap and should zero all weights
+        # sample_features has MultiIndex with (datetime, instrument), filter by instrument level
+        two_symbol_mask = sample_features.index.get_level_values("instrument").isin(["AAPL", "MSFT"])
+        two_symbol_features = sample_features.loc[two_symbol_mask]
+        mock_get_features.return_value = two_symbol_features
+
+        generator = SignalGenerator(mock_model_with_registry, temp_dir, top_n=2, bottom_n=2)
+
+        with caplog.at_level(logging.ERROR):
+            signals = generator.generate_signals(
+                symbols=["AAPL", "MSFT"],
+                as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
+            )
+
+        # Verify market neutrality violation error was logged
+        error_logs = [r for r in caplog.records if "market neutrality violated" in r.message.lower()]
+        assert len(error_logs) > 0, "Expected market neutrality violation error to be logged"
+
+        # Verify all weights are zero (safety fallback)
+        assert (signals["target_weight"] == 0.0).all(), "All weights should be zero when neutrality cannot be maintained"

@@ -683,6 +683,23 @@ class SignalGenerator:
                 )
                 bottom_symbols = bottom_symbols.drop(index=overlap)
 
+                # GUARD: If all shorts were removed, market neutrality is broken
+                if bottom_symbols.empty and not top_symbols.empty:
+                    logger.error(
+                        "Market neutrality violated: all short candidates removed by overlap. "
+                        "Zeroing all weights as safety fallback. "
+                        "Fix by reducing top_n + bottom_n or increasing universe size.",
+                        extra={
+                            "overlap_count": len(overlap),
+                            "top_n": self.top_n,
+                            "bottom_n": self.bottom_n,
+                            "universe_size": len(results),
+                        },
+                    )
+                    # Reset to empty to produce all-zero weights
+                    top_symbols = pd.DataFrame()
+                    bottom_symbols = pd.DataFrame()
+
         long_count = len(top_symbols)
         short_count = len(bottom_symbols)
 
