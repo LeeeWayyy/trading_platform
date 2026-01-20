@@ -795,10 +795,10 @@ pip install types-duckdb  # if available
 
 ## Related Documents
 
-- [P0 Tasks](./P0_TASKS.md) - Completed MVP tasks (100%)
-- [T6 Retrospective](../LESSONS_LEARNED/t6-paper-run-retrospective.md) - P0 lessons learned
-- [Trading Platform Realization Plan](../trading_platform_realization_plan.md) - Original plan
-- [Task Index](./INDEX.md) - All task files and status
+- [P0 Tasks](./P0_TASKS_DONE.md) - Completed MVP tasks (100%)
+- [T6 Retrospective](../../LESSONS_LEARNED/t6-paper-run-retrospective.md) - P0 lessons learned
+- [Trading Platform Realization Plan](../../trading_platform_realization_plan.md) - Original plan
+- [Task Index](../../TASKS/INDEX.md) - All task files and status
 
 **Archived References:**
 - P1 Progress Tracker - Archived Oct 21 (merged into this file)

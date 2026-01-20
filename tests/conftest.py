@@ -5,6 +5,7 @@ This ensures:
 1. Redis module is properly initialized before test collection
 2. Execution gateway globals are mocked for lifespan-initialized variables
 3. NiceGUI web console runs in DEBUG mode (required for auth config validation)
+4. Prometheus metrics are cleaned up between tests to prevent "Duplicated timeseries" errors
 """
 
 import os
@@ -24,11 +25,54 @@ import redis  # noqa: F401
 
 # Also import redis.exceptions to ensure it's available
 import redis.exceptions  # noqa: F401
+from prometheus_client import REGISTRY
 
 # Pre-import libs.common to avoid namespace conflict with libs.core.common
 # Python's import system can get confused when libs.core.common is imported first
 # which caches 'libs.core' and then importing 'libs.common' fails
 import libs.common  # noqa: F401
+
+
+def _unregister_execution_gateway_metrics() -> None:
+    """Unregister execution_gateway metrics to allow fresh re-registration.
+
+    This is needed for test isolation when running tests in parallel (pytest-xdist)
+    or when tests reload the execution_gateway module. Without this cleanup,
+    Prometheus raises "Duplicated timeseries in CollectorRegistry" errors.
+    """
+    metric_prefixes = [
+        "execution_gateway_orders",
+        "execution_gateway_order_placement",
+        "execution_gateway_positions",
+        "execution_gateway_pnl",
+        "execution_gateway_database_connection",
+        "execution_gateway_redis_connection",
+        "execution_gateway_alpaca_connection",
+        "execution_gateway_alpaca_api",
+        "execution_gateway_webhook",
+        "execution_gateway_dry_run",
+        "execution_gateway_reconciliation",
+        "execution_gateway_fat_finger",
+        "order_placement_duration_seconds",  # Non-prefixed shared metric
+    ]
+
+    collectors_to_unregister = []
+    for collector in list(REGISTRY._names_to_collectors.values()):
+        try:
+            if hasattr(collector, "_name"):
+                for prefix in metric_prefixes:
+                    if collector._name.startswith(prefix):
+                        if collector not in collectors_to_unregister:
+                            collectors_to_unregister.append(collector)
+                        break
+        except (AttributeError, KeyError):
+            pass
+
+    for collector in collectors_to_unregister:
+        try:
+            REGISTRY.unregister(collector)
+        except (ValueError, KeyError):
+            pass  # Already unregistered
 
 
 def _create_mock_db_client() -> Mock:
@@ -83,6 +127,23 @@ def _create_mock_recovery_manager() -> Mock:
     mock.attempt_recovery = Mock()
 
     return mock
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_prometheus_metrics():
+    """Clean up Prometheus metrics before each test.
+
+    This prevents "Duplicated timeseries in CollectorRegistry" errors when tests
+    reimport the execution_gateway module. The metrics module registers metrics
+    at import time, and if a test clears sys.modules and reimports, Prometheus
+    will raise an error because the metric names are already registered.
+
+    This fixture runs before execution_gateway_globals (alphabetical order for
+    same-scope autouse fixtures) and cleans up any previously registered metrics.
+    """
+    _unregister_execution_gateway_metrics()
+    return
+    # Don't clean up after - the metrics persist for the next test
 
 
 @pytest.fixture(autouse=True)

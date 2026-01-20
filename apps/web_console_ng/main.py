@@ -83,6 +83,7 @@ async def log_unhandled_exception(request: Request, exc: Exception) -> PlainText
     traceback.print_exception(type(exc), exc, exc.__traceback__)
     return PlainTextResponse("Server error", status_code=500)
 
+
 # Static assets for AG Grid renderers (CSP-compliant). CSS loaded per-page in layout.py.
 app.add_static_files("/static", "apps/web_console_ng/static")
 ui.add_head_html('<script src="/static/js/aggrid_renderers.js"></script>')

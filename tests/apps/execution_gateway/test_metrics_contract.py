@@ -197,8 +197,7 @@ def test_metric_names_contract():
                 if isinstance(target, ast.Name) and target.id == "METRIC_NAMES":
                     if isinstance(node.value, ast.List):
                         metric_names_value = [
-                            elt.value for elt in node.value.elts
-                            if isinstance(elt, ast.Constant)
+                            elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)
                         ]
 
     assert metric_names_value is not None, "METRIC_NAMES not found or not a list"
@@ -240,8 +239,7 @@ def test_metric_labels_contract():
                         for key, value in zip(node.value.keys, node.value.values, strict=False):
                             if isinstance(key, ast.Constant) and isinstance(value, ast.List):
                                 labels = [
-                                    elt.value for elt in value.elts
-                                    if isinstance(elt, ast.Constant)
+                                    elt.value for elt in value.elts if isinstance(elt, ast.Constant)
                                 ]
                                 metric_labels_value[key.value] = labels
 
@@ -249,9 +247,9 @@ def test_metric_labels_contract():
 
     # Verify all expected metrics have correct labels
     for metric_name, expected_labels in EXPECTED_METRIC_LABELS.items():
-        assert metric_name in metric_labels_value, (
-            f"CONTRACT VIOLATION: Metric '{metric_name}' missing from METRIC_LABELS"
-        )
+        assert (
+            metric_name in metric_labels_value
+        ), f"CONTRACT VIOLATION: Metric '{metric_name}' missing from METRIC_LABELS"
         actual_labels = metric_labels_value[metric_name]
         assert actual_labels == expected_labels, (
             f"CONTRACT VIOLATION: Metric '{metric_name}' has labels {actual_labels}, "
@@ -280,13 +278,11 @@ def test_metric_names_and_labels_consistency():
                 if isinstance(target, ast.Name):
                     if target.id == "METRIC_NAMES" and isinstance(node.value, ast.List):
                         metric_names = [
-                            elt.value for elt in node.value.elts
-                            if isinstance(elt, ast.Constant)
+                            elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)
                         ]
                     elif target.id == "METRIC_LABELS" and isinstance(node.value, ast.Dict):
                         metric_labels_keys = [
-                            key.value for key in node.value.keys
-                            if isinstance(key, ast.Constant)
+                            key.value for key in node.value.keys if isinstance(key, ast.Constant)
                         ]
 
     assert metric_names is not None, "METRIC_NAMES not found"
@@ -294,15 +290,15 @@ def test_metric_names_and_labels_consistency():
 
     # Every name should have labels defined
     for name in metric_names:
-        assert name in metric_labels_keys, (
-            f"CONSISTENCY ERROR: Metric '{name}' is in METRIC_NAMES but missing from METRIC_LABELS"
-        )
+        assert (
+            name in metric_labels_keys
+        ), f"CONSISTENCY ERROR: Metric '{name}' is in METRIC_NAMES but missing from METRIC_LABELS"
 
     # Every label entry should have a corresponding name
     for key in metric_labels_keys:
-        assert key in metric_names, (
-            f"CONSISTENCY ERROR: Metric '{key}' is in METRIC_LABELS but missing from METRIC_NAMES"
-        )
+        assert (
+            key in metric_names
+        ), f"CONSISTENCY ERROR: Metric '{key}' is in METRIC_LABELS but missing from METRIC_NAMES"
 
 
 def test_business_metrics_defined():
@@ -340,9 +336,9 @@ def test_business_metrics_defined():
 
     for metric_var, expected_type in expected_types.items():
         assert metric_var in metric_types, f"Metric variable '{metric_var}' not defined"
-        assert metric_types[metric_var] == expected_type, (
-            f"Metric '{metric_var}' should be {expected_type}, got {metric_types[metric_var]}"
-        )
+        assert (
+            metric_types[metric_var] == expected_type
+        ), f"Metric '{metric_var}' should be {expected_type}, got {metric_types[metric_var]}"
 
 
 def test_service_health_metrics_defined():
@@ -372,8 +368,7 @@ def test_service_health_metrics_defined():
 
     for metric in health_metrics:
         assert metric in defined_metrics, (
-            f"Health metric '{metric}' is missing. "
-            f"Service monitoring requires this metric."
+            f"Health metric '{metric}' is missing. " f"Service monitoring requires this metric."
         )
 
 

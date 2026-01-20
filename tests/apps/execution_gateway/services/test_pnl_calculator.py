@@ -502,7 +502,11 @@ def test_compute_daily_performance_missing_closing_trade_count() -> None:
     """Test handling of rows with missing closing_trade_count."""
     rows = [
         {"trade_date": date(2024, 1, 1), "daily_realized_pl": 100},  # Missing closing_trade_count
-        {"trade_date": date(2024, 1, 2), "daily_realized_pl": 50, "closing_trade_count": None},  # Explicit None
+        {
+            "trade_date": date(2024, 1, 2),
+            "daily_realized_pl": 50,
+            "closing_trade_count": None,
+        },  # Explicit None
     ]
 
     daily, total_realized, max_drawdown = compute_daily_performance(

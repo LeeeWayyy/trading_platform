@@ -2633,3 +2633,758 @@ class TestEdgeCases:
         # This fill is before decision_time, should be flagged
         assert batch.has_fills_before_decision is True
         assert len(batch.fills_before_decision) == 1
+
+
+# =============================================================================
+# Test Class 10: Spread Stats Error Handling (lines 632-661)
+# =============================================================================
+
+
+class TestSpreadStatsErrorHandling:
+    """Tests for exception handling when fetching spread stats."""
+
+    def test_spread_stats_key_error_handled(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: KeyError in spread stats adds warning but doesn't fail."""
+        mock_micro = MagicMock()
+        mock_micro.compute_spread_depth_stats.side_effect = KeyError("missing column")
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.5,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=100,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        # Should complete successfully with warning
+        assert any("Spread data unavailable" in w for w in result.warnings)
+        assert result.mid_price_at_arrival is not None
+
+    def test_spread_stats_value_error_handled(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: ValueError in spread stats adds warning but doesn't fail."""
+        mock_micro = MagicMock()
+        mock_micro.compute_spread_depth_stats.side_effect = ValueError("invalid data")
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.5,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=100,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        assert any("Spread data unavailable" in w for w in result.warnings)
+
+    def test_spread_stats_zero_division_error_handled(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: ZeroDivisionError in spread stats adds warning but doesn't fail."""
+        mock_micro = MagicMock()
+        mock_micro.compute_spread_depth_stats.side_effect = ZeroDivisionError()
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.5,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=100,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        assert any("Spread data unavailable" in w for w in result.warnings)
+
+    def test_spread_stats_unexpected_error_handled(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Unexpected exception in spread stats adds warning but doesn't fail."""
+        mock_micro = MagicMock()
+        mock_micro.compute_spread_depth_stats.side_effect = RuntimeError("unexpected error")
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.5,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=100,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        assert any("Spread data unavailable" in w for w in result.warnings)
+
+
+# =============================================================================
+# Test Class 11: Arrival Price Edge Cases (lines 929-930)
+# =============================================================================
+
+
+class TestArrivalPriceEdgeCases:
+    """Tests for arrival price edge cases."""
+
+    def test_arrival_price_no_taq_data_returns_nan(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: No TAQ data for both decision and submission time returns NaN."""
+        # Return empty DataFrame for all calls
+        mock_taq_provider.fetch_minute_bars.return_value = pl.DataFrame()
+
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+
+        warnings: list[str] = []
+        arrival_price, source = analyzer._get_arrival_price(
+            symbol="AAPL",
+            decision_time=decision,
+            submission_time=submission,
+            as_of=None,
+            warnings=warnings,
+        )
+
+        assert math.isnan(arrival_price)
+        assert any("No TAQ data for arrival price" in w for w in warnings)
+
+    def test_arrival_price_fallback_to_submission_no_data(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Decision time has no data, submission time also has no valid bar."""
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = datetime(2024, 12, 8, 14, 31, 0, tzinfo=UTC)
+
+        # First call (decision_time) returns empty, second call (submission_time) returns
+        # bars but all after submission_time so filter returns empty
+        bars_after_submission = pl.DataFrame(
+            {
+                "ts": [submission + timedelta(minutes=1)],  # After submission
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.side_effect = [
+            pl.DataFrame(),  # First call for decision_time
+            bars_after_submission,  # Second call for submission_time
+        ]
+
+        warnings: list[str] = []
+        arrival_price, source = analyzer._get_arrival_price(
+            symbol="AAPL",
+            decision_time=decision,
+            submission_time=submission,
+            as_of=None,
+            warnings=warnings,
+        )
+
+        assert math.isnan(arrival_price)
+        assert any("No TAQ data for arrival price" in w for w in warnings)
+
+
+# =============================================================================
+# Test Class 12: Public estimate_market_impact Method (lines 1035-1062)
+# =============================================================================
+
+
+class TestEstimateMarketImpactPublic:
+    """Tests for the public estimate_market_impact method."""
+
+    def test_estimate_market_impact_no_valid_fills_returns_nan(
+        self, analyzer: ExecutionQualityAnalyzer, decision_time: datetime, submission_time: datetime
+    ) -> None:
+        """Test: No valid fills returns NaN."""
+        # Fill with mismatched side
+        fill_time = decision_time + timedelta(milliseconds=100)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="sell",  # Mismatched side (batch is buy)
+                price=100.5,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision_time,
+            submission_time=submission_time,
+            total_target_qty=100,
+        )
+
+        impact = analyzer.estimate_market_impact(batch, arrival_price=100.0)
+        assert math.isnan(impact)
+
+    def test_estimate_market_impact_with_arrival_price(
+        self, analyzer: ExecutionQualityAnalyzer,
+        mock_taq_provider: MagicMock,
+        decision_time: datetime,
+        submission_time: datetime,
+    ) -> None:
+        """Test: estimate_market_impact with explicit arrival price."""
+        fill_time = decision_time + timedelta(milliseconds=100)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=101.0,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision_time,
+            submission_time=submission_time,
+            total_target_qty=100,
+        )
+
+        impact = analyzer.estimate_market_impact(batch, arrival_price=100.0)
+        # 1 * (101 - 100) / 100 * 10000 = 100 bps
+        assert impact == pytest.approx(100.0)
+
+    def test_estimate_market_impact_derives_arrival_from_taq(
+        self, analyzer: ExecutionQualityAnalyzer,
+        mock_taq_provider: MagicMock,
+        decision_time: datetime,
+        submission_time: datetime,
+    ) -> None:
+        """Test: estimate_market_impact derives arrival from TAQ when not provided."""
+        fill_time = decision_time + timedelta(milliseconds=100)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=101.0,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision_time,
+            submission_time=submission_time,
+            total_target_qty=100,
+        )
+
+        # Mock TAQ data with arrival price = 100
+        bars = pl.DataFrame(
+            {
+                "ts": [decision_time],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        impact = analyzer.estimate_market_impact(batch, arrival_price=None)
+        # Should derive arrival = 100 from TAQ, then calculate impact
+        assert impact == pytest.approx(100.0)
+
+    def test_estimate_market_impact_no_taq_returns_nan(
+        self, analyzer: ExecutionQualityAnalyzer,
+        mock_taq_provider: MagicMock,
+        decision_time: datetime,
+        submission_time: datetime,
+    ) -> None:
+        """Test: estimate_market_impact returns NaN when no TAQ data and no arrival_price."""
+        fill_time = decision_time + timedelta(milliseconds=100)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=101.0,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision_time,
+            submission_time=submission_time,
+            total_target_qty=100,
+        )
+
+        # No TAQ data
+        mock_taq_provider.fetch_minute_bars.return_value = pl.DataFrame()
+
+        impact = analyzer.estimate_market_impact(batch, arrival_price=None)
+        assert math.isnan(impact)
+
+    def test_estimate_market_impact_with_spread_stats(
+        self, analyzer: ExecutionQualityAnalyzer,
+        mock_taq_provider: MagicMock,
+        decision_time: datetime,
+        submission_time: datetime,
+    ) -> None:
+        """Test: estimate_market_impact with spread stats for decomposition."""
+        fill_time = decision_time + timedelta(milliseconds=100)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=101.0,
+                quantity=100,
+            )
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision_time,
+            submission_time=submission_time,
+            total_target_qty=100,
+        )
+
+        spread_stats = SpreadDepthResult(
+            dataset_version_id="v1",
+            dataset_versions=None,
+            computation_timestamp=datetime.now(UTC),
+            as_of_date=None,
+            symbol="AAPL",
+            date=date(2024, 12, 8),
+            qwap_spread=0.02,  # 2 cents spread
+            ewas=0.015,
+            avg_bid_depth=1000.0,
+            avg_ask_depth=1000.0,
+            avg_total_depth=2000.0,
+            depth_imbalance=0.0,
+            quotes=10000,
+            trades=5000,
+            has_locked_markets=False,
+            has_crossed_markets=False,
+            locked_pct=0.0,
+            crossed_pct=0.0,
+            stale_quote_pct=0.0,
+            depth_is_estimated=False,
+        )
+
+        impact = analyzer.estimate_market_impact(
+            batch, arrival_price=100.0, spread_stats=spread_stats
+        )
+        # Total impact = 100 bps, half-spread = 1 bps, permanent = 99 bps
+        assert impact == pytest.approx(99.0)
+
+
+# =============================================================================
+# Test Class 13: Execution Window Recommendation (lines 1085-1202)
+# =============================================================================
+
+
+class TestExecutionWindowRecommendation:
+    """Tests for recommend_execution_window method."""
+
+    def test_recommend_window_no_historical_data(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: No historical data returns default window with warning."""
+        mock_taq_provider.fetch_minute_bars.return_value = pl.DataFrame()
+
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=1000,
+        )
+
+        assert result.symbol == "AAPL"
+        assert result.target_date == date(2024, 12, 8)
+        assert result.order_size_shares == 1000
+        # Default window: 9:30 to 11:30
+        assert result.recommended_start_time.hour == 9
+        assert result.recommended_start_time.minute == 30
+        assert result.recommended_end_time.hour == 11
+        assert result.recommended_end_time.minute == 30
+        assert result.expected_participation_rate == 0.0
+        assert math.isnan(result.avg_spread_bps)
+        assert result.liquidity_score == 0.5
+        assert any("No historical data" in w for w in result.warnings)
+
+    def test_recommend_window_zero_volume(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Zero daily volume adds warning."""
+        # Create bars with zero volume
+        bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=60)
+        bars = bars.with_columns([pl.lit(0).alias("volume")])
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=1000,
+        )
+
+        assert any("Zero daily volume" in w for w in result.warnings)
+
+    def test_recommend_window_high_participation_rate(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: High participation rate (>10%) adds TWAP warning."""
+        # Create bars with 1000 volume each, 60 bars = 60000 total volume
+        bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=60)
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        # Order size 10000 on total volume 60000 = 16.67% participation
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=10000,
+        )
+
+        assert result.expected_participation_rate > 0.10
+        assert any("High participation rate" in w and "TWAP" in w for w in result.warnings)
+
+    def test_recommend_window_finds_best_hour(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Recommends window around highest volume hour."""
+        # Create bars with varying volume per hour
+        target_date = date(2024, 12, 8)
+        timestamps = []
+        volumes = []
+
+        # Hour 9: low volume (100)
+        # Hour 10: high volume (1000)
+        # Hour 11: medium volume (500)
+        for hour in [9, 10, 11]:
+            for minute in range(60):
+                ts = datetime(target_date.year, target_date.month, target_date.day,
+                             hour, minute, tzinfo=UTC)
+                timestamps.append(ts)
+                if hour == 10:
+                    volumes.append(1000)  # Highest volume hour
+                elif hour == 11:
+                    volumes.append(500)
+                else:
+                    volumes.append(100)
+
+        bars = pl.DataFrame(
+            {
+                "ts": timestamps,
+                "symbol": ["AAPL"] * len(timestamps),
+                "open": [100.0] * len(timestamps),
+                "high": [100.1] * len(timestamps),
+                "low": [99.9] * len(timestamps),
+                "close": [100.0] * len(timestamps),
+                "volume": volumes,
+                "vwap": [100.0] * len(timestamps),
+                "date": [target_date] * len(timestamps),
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=target_date,
+            order_size_shares=1000,
+        )
+
+        # Should recommend hour 10 (highest volume)
+        assert result.recommended_start_time.hour == 10
+        assert result.recommended_end_time.hour == 11
+
+    def test_recommend_window_with_spread_data(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Integrates spread data for avg_spread_bps."""
+        mock_micro = MagicMock()
+        spread_stats = SpreadDepthResult(
+            dataset_version_id="v1",
+            dataset_versions=None,
+            computation_timestamp=datetime.now(UTC),
+            as_of_date=None,
+            symbol="AAPL",
+            date=date(2024, 12, 8),
+            qwap_spread=0.10,  # 10 cents spread
+            ewas=0.08,
+            avg_bid_depth=1000.0,
+            avg_ask_depth=1000.0,
+            avg_total_depth=2000.0,
+            depth_imbalance=0.0,
+            quotes=10000,
+            trades=5000,
+            has_locked_markets=False,
+            has_crossed_markets=False,
+            locked_pct=0.0,
+            crossed_pct=0.0,
+            stale_quote_pct=0.0,
+            depth_is_estimated=False,
+        )
+        mock_micro.compute_spread_depth_stats.return_value = spread_stats
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=60, base_price=100.0)
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=1000,
+        )
+
+        # avg_spread_bps = qwap_spread / avg_price * 10000
+        # 0.10 / ~100 * 10000 = ~10 bps
+        assert not math.isnan(result.avg_spread_bps)
+        assert result.avg_spread_bps == pytest.approx(10.0, rel=0.1)
+
+    def test_recommend_window_spread_data_error(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Spread data error is handled gracefully."""
+        mock_micro = MagicMock()
+        mock_micro.compute_spread_depth_stats.side_effect = KeyError("missing data")
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=60)
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=1000,
+        )
+
+        # Should still return result with NaN spread
+        assert math.isnan(result.avg_spread_bps)
+
+    def test_recommend_window_spread_unexpected_error(
+        self, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Unexpected spread data error is handled gracefully."""
+        mock_micro = MagicMock()
+        mock_micro.compute_spread_depth_stats.side_effect = RuntimeError("unexpected")
+
+        analyzer = ExecutionQualityAnalyzer(mock_taq_provider, mock_micro)
+
+        bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=60)
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+
+        result = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=1000,
+        )
+
+        # Should still return result with NaN spread
+        assert math.isnan(result.avg_spread_bps)
+
+    def test_recommend_window_liquidity_score_calculation(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Liquidity score decreases with higher participation rate."""
+        # High volume scenario - low participation rate
+        bars_high_vol = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=60)
+        mock_taq_provider.fetch_minute_bars.return_value = bars_high_vol
+
+        result_low_part = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=100,  # Low order size
+        )
+
+        result_high_part = analyzer.recommend_execution_window(
+            symbol="AAPL",
+            target_date=date(2024, 12, 8),
+            order_size_shares=10000,  # High order size
+        )
+
+        # Higher participation = lower liquidity score
+        assert result_low_part.liquidity_score > result_high_part.liquidity_score
+        assert 0 <= result_low_part.liquidity_score <= 1
+        assert 0 <= result_high_part.liquidity_score <= 1
+
+    def test_recommend_window_symbol_normalization(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """Test: Symbol is normalized to uppercase."""
+        mock_taq_provider.fetch_minute_bars.return_value = pl.DataFrame()
+
+        result = analyzer.recommend_execution_window(
+            symbol="aapl",  # lowercase
+            target_date=date(2024, 12, 8),
+            order_size_shares=1000,
+        )
+
+        assert result.symbol == "AAPL"

@@ -423,3 +423,47 @@ class TestCanonicalFactorsRegistry:
             assert hasattr(factor, "description")
             assert hasattr(factor, "requires_fundamentals")
             assert hasattr(factor, "compute")
+
+
+class TestSizeFactorSorting:
+    """Tests for SizeFactor price sorting behavior."""
+
+    def test_size_uses_latest_price_per_security(self, mock_prices: pl.DataFrame):
+        """Size factor uses the latest price per security (PIT correctness)."""
+        factor = SizeFactor()
+
+        # Add unsorted data to verify sorting is applied
+        unsorted_prices = mock_prices.with_row_index("idx").sort("idx", descending=True)
+
+        result = factor.compute(unsorted_prices, None, date(2023, 6, 15))
+
+        assert "permno" in result.columns
+        assert "factor_value" in result.columns
+        assert result.height > 0
+
+
+class TestBookToMarketFilingLag:
+    """Tests for BookToMarketFactor filing lag."""
+
+    def test_book_to_market_respects_filing_lag(self, mock_prices: pl.DataFrame):
+        """BookToMarket applies 90-day filing lag (PIT correctness)."""
+        from datetime import timedelta
+
+        factor = BookToMarketFactor()
+        as_of_date = date(2023, 6, 15)
+
+        # Create fundamentals with recent datadate (within 90 days)
+        # These should be excluded due to filing lag
+        recent_fundamentals = pl.DataFrame(
+            {
+                "permno": [10001],
+                "datadate": [as_of_date - timedelta(days=30)],  # Too recent
+                "ceq": [1000.0],
+                "ni": [100.0],
+            }
+        )
+
+        result = factor.compute(mock_prices, recent_fundamentals, as_of_date)
+
+        # Should be empty - fundamentals are too recent (filing lag not met)
+        assert result.height == 0

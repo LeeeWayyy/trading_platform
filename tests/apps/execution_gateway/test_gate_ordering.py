@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.routes.orders import submit_order
 from apps.execution_gateway.schemas import OrderRequest

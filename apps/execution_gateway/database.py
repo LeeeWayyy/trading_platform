@@ -13,6 +13,7 @@ See ADR-0014 for architecture decisions.
 import json
 import logging
 import os
+import threading
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
@@ -284,7 +285,8 @@ class DatabaseClient:
             ValueError: If connection string is empty
 
         Notes:
-            Pool uses lazy open (open=True default) - connections created on first use.
+            Pool uses lazy-open pattern (open=False with explicit _ensure_pool_open()).
+            Connections are created on first actual use via _connection() context manager.
             This ensures tests and scripts work without explicit pool setup.
         """
         if not db_conn_string:
@@ -293,14 +295,17 @@ class DatabaseClient:
         self.db_conn_string = db_conn_string
 
         # H2 Fix: Connection pooling for 10x performance
-        # Pool opens lazily on first .connection() call (no explicit open needed)
+        # Pool uses open=False to avoid eager connections during import/test collection.
+        # We use lazy-open pattern: pool opens on first actual use via _ensure_pool_open().
         self._pool = ConnectionPool(
             db_conn_string,
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
-            # open=True is default - pool opens lazily on first connection request
+            open=False,
         )
+        self._pool_opened = False
+        self._pool_lock = threading.Lock()
 
         logger.info(
             "DatabaseClient initialized with connection pool",
@@ -312,6 +317,38 @@ class DatabaseClient:
             },
         )
 
+    def _ensure_pool_open(self) -> None:
+        """Ensure connection pool is open before use.
+
+        Implements lazy-open pattern: pool opens on first actual use.
+        This avoids eager connections during import/test collection.
+
+        Thread-safe: uses lock to ensure only first caller opens the pool.
+        """
+        if self._pool_opened:
+            return  # Fast path - already open, no lock needed
+        with self._pool_lock:
+            # Double-check after acquiring lock (another thread may have opened)
+            if not self._pool_opened:
+                self._pool.open()
+                self._pool_opened = True
+                logger.debug("Database connection pool opened (lazy init)")
+
+    @contextmanager
+    def _connection(self) -> Generator[psycopg.Connection, None, None]:
+        """
+        Get a connection from the pool, ensuring pool is open first.
+
+        This is the preferred way to get connections throughout the codebase.
+        It handles the lazy-open pattern automatically.
+
+        Yields:
+            psycopg.Connection: Database connection from the pool
+        """
+        self._ensure_pool_open()
+        with self._pool.connection() as conn:
+            yield conn
+
     def close(self) -> None:
         """
         Close connection pool. Safe to call multiple times.
@@ -320,6 +357,7 @@ class DatabaseClient:
         FastAPI apps should call this in lifespan shutdown handler.
         """
         self._pool.close()
+        self._pool_opened = False
         logger.info("DatabaseClient connection pool closed")
 
     def _recreate_pool(self) -> None:
@@ -333,7 +371,9 @@ class DatabaseClient:
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
+            open=False,
         )
+        self._pool_opened = False
         logger.warning("DatabaseClient connection pool recreated")
 
     def _execute_with_conn(
@@ -369,7 +409,7 @@ class DatabaseClient:
         # H2 Fix: Use connection from pool instead of creating new connection
         # IMPORTANT: psycopg context manager does NOT auto-commit - it rolls back on exit
         # We must explicitly commit before the context manager exits
-        with self._pool.connection() as new_conn:
+        with self._connection() as new_conn:
             result = operation(new_conn)
             new_conn.commit()
             return result
@@ -414,7 +454,7 @@ class DatabaseClient:
         # H2 Fix: Use pool.connection() context manager for transaction control
         # psycopg_pool.ConnectionPool uses .connection() not .getconn()/.putconn()
         # Use psycopg's built-in transaction context manager for automatic commit/rollback
-        with self._pool.connection() as conn:
+        with self._connection() as conn:
             with conn.transaction():
                 try:
                     yield conn
@@ -476,7 +516,7 @@ class DatabaseClient:
             'pending_new'
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     submitted_at = datetime.now(UTC) if status != "dry_run" else None
 
@@ -858,7 +898,7 @@ class DatabaseClient:
             - Returns empty list if parent_order_id not found or has no slices
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -889,7 +929,7 @@ class DatabaseClient:
         Filters to child slices (parent_order_id IS NOT NULL) with status="pending_new".
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -917,7 +957,7 @@ class DatabaseClient:
     ) -> OrderDetail | None:
         """Update scheduled_time for a slice order."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -967,7 +1007,7 @@ class DatabaseClient:
             - Sets updated_at timestamp to NOW()
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -1030,7 +1070,7 @@ class DatabaseClient:
             ...     pass
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -1066,7 +1106,7 @@ class DatabaseClient:
             ...     print(f"Order status: {order.status}")
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -1095,7 +1135,7 @@ class DatabaseClient:
         """
         limit = max(1, min(int(limit), 500))
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -1131,7 +1171,7 @@ class DatabaseClient:
             return set()
 
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -1154,7 +1194,7 @@ class DatabaseClient:
             return {}
 
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -1184,7 +1224,11 @@ class DatabaseClient:
     ) -> dict[str, int]:
         """Recalculate realized P&L for trades of a symbol/strategy."""
         if update_sources is None:
-            update_sources = {"alpaca_activity", "reconciliation_backfill", "reconciliation_db_backfill"}
+            update_sources = {
+                "alpaca_activity",
+                "reconciliation_backfill",
+                "reconciliation_db_backfill",
+            }
 
         def _execute(connection: psycopg.Connection) -> dict[str, int]:
             with connection.cursor(row_factory=dict_row) as cur:
@@ -1250,7 +1294,7 @@ class DatabaseClient:
     def get_non_terminal_orders(self, created_before: datetime | None = None) -> list[OrderDetail]:
         """Return all non-terminal orders (optionally filtered by created_at)."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     if created_before is None:
                         cur.execute(
@@ -1278,7 +1322,7 @@ class DatabaseClient:
     def get_reconciliation_high_water_mark(self, name: str = "orders") -> datetime | None:
         """Return reconciliation high-water mark timestamp for the given name."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -1302,7 +1346,7 @@ class DatabaseClient:
     ) -> None:
         """Upsert reconciliation high-water mark timestamp."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -1334,7 +1378,7 @@ class DatabaseClient:
     ) -> None:
         """Insert a broker order that is missing from local DB into orphan_orders."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -1373,7 +1417,7 @@ class DatabaseClient:
     ) -> None:
         """Update orphan order status and optionally mark as resolved."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -1392,7 +1436,7 @@ class DatabaseClient:
     def get_orphan_exposure(self, symbol: str, strategy_id: str) -> Decimal:
         """Return total unresolved orphan notional for symbol/strategy (includes external)."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -1453,7 +1497,7 @@ class DatabaseClient:
         where_clause = " AND ".join(filters)
 
         def _execute() -> tuple[list[OrderDetail], int]:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         f"""
@@ -1540,7 +1584,7 @@ class DatabaseClient:
         where_clause = " AND ".join(filters)
 
         def _execute() -> list[dict[str, Any]]:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Filter fills by their timestamp (not just order updated_at)
                     # This prevents old fills from orders updated by reconciliation
@@ -1628,7 +1672,7 @@ class DatabaseClient:
             ... )
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     status_rank = status_rank_for(status)
                     is_terminal = status in TERMINAL_STATUSES
@@ -2125,11 +2169,7 @@ class DatabaseClient:
                 executed_at = None
 
         if executed_at is None:
-            executed_at = (
-                _get("filled_at")
-                or _get("updated_at")
-                or datetime.now(UTC)
-            )
+            executed_at = _get("filled_at") or _get("updated_at") or datetime.now(UTC)
 
         # Ensure executed_at is timezone-aware (UTC) - guard against naive datetimes
         if executed_at.tzinfo is None:
@@ -2406,7 +2446,7 @@ class DatabaseClient:
             - Closing a position (qty=0) keeps the record with realized_pl
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Get current position
                     cur.execute("SELECT * FROM positions WHERE symbol = %s", (symbol,))
@@ -2488,7 +2528,7 @@ class DatabaseClient:
     ) -> Position:
         """Upsert position from broker reconciliation snapshot."""
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -2550,7 +2590,7 @@ class DatabaseClient:
             - Used as fallback for position reservation after Redis restart
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         "SELECT qty FROM positions WHERE symbol = %s",
@@ -2584,7 +2624,7 @@ class DatabaseClient:
             ...     print(f"{pos.symbol}: {pos.qty} shares @ ${pos.avg_entry_price}")
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -2667,7 +2707,7 @@ class DatabaseClient:
             return {}
 
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
@@ -2713,7 +2753,7 @@ class DatabaseClient:
             Returns None if strategy not found (no records in orders)
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Single consolidated query with GROUP BY - more efficient than
                     # SELECT EXISTS + aggregation (avoids redundant database round-trip).
@@ -2770,7 +2810,7 @@ class DatabaseClient:
             List of unique strategy IDs
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     if filter_ids:
                         # Filter at database level for better performance
@@ -2823,7 +2863,7 @@ class DatabaseClient:
             return {}
 
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Single query with GROUP BY for all strategies
                     # - positions_count: distinct symbols with open (non-terminal) orders
@@ -2890,7 +2930,7 @@ class DatabaseClient:
             ...     print("Database is connected")
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     return True

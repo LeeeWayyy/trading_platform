@@ -30,20 +30,26 @@ class TestDrawdownChartDivisionByZero:
         # Simulate a -100% return followed by recovery
         # Create a DataFrame to properly evaluate the expression
         df = pl.DataFrame({"return": [-1.0, 0.5, 0.5]})
-        df = df.with_columns([
-            ((1 + pl.col("return")).cum_prod()).alias("cumulative"),
-        ])
-        df = df.with_columns([
-            pl.col("cumulative").cum_max().alias("running_max"),
-        ])
+        df = df.with_columns(
+            [
+                ((1 + pl.col("return")).cum_prod()).alias("cumulative"),
+            ]
+        )
+        df = df.with_columns(
+            [
+                pl.col("cumulative").cum_max().alias("running_max"),
+            ]
+        )
 
         # Apply the safe division logic from drawdown_chart.py
-        df = df.with_columns([
-            pl.when(pl.col("running_max") == 0)
-            .then(-1.0)
-            .otherwise((pl.col("cumulative") - pl.col("running_max")) / pl.col("running_max"))
-            .alias("drawdown")
-        ])
+        df = df.with_columns(
+            [
+                pl.when(pl.col("running_max") == 0)
+                .then(-1.0)
+                .otherwise((pl.col("cumulative") - pl.col("running_max")) / pl.col("running_max"))
+                .alias("drawdown")
+            ]
+        )
 
         # All values should be -1.0 (complete loss after -100%)
         dd_list = df["drawdown"].to_list()
@@ -52,20 +58,26 @@ class TestDrawdownChartDivisionByZero:
     def test_drawdown_normal_case(self) -> None:
         """Normal drawdown calculation without division by zero."""
         df = pl.DataFrame({"return": [0.1, -0.05, 0.02]})  # +10%, -5%, +2%
-        df = df.with_columns([
-            ((1 + pl.col("return")).cum_prod()).alias("cumulative"),
-        ])
-        df = df.with_columns([
-            pl.col("cumulative").cum_max().alias("running_max"),
-        ])
+        df = df.with_columns(
+            [
+                ((1 + pl.col("return")).cum_prod()).alias("cumulative"),
+            ]
+        )
+        df = df.with_columns(
+            [
+                pl.col("cumulative").cum_max().alias("running_max"),
+            ]
+        )
 
         # Safe division
-        df = df.with_columns([
-            pl.when(pl.col("running_max") == 0)
-            .then(-1.0)
-            .otherwise((pl.col("cumulative") - pl.col("running_max")) / pl.col("running_max"))
-            .alias("drawdown")
-        ])
+        df = df.with_columns(
+            [
+                pl.when(pl.col("running_max") == 0)
+                .then(-1.0)
+                .otherwise((pl.col("cumulative") - pl.col("running_max")) / pl.col("running_max"))
+                .alias("drawdown")
+            ]
+        )
 
         # First day: 0% drawdown (at peak)
         # Second day: negative drawdown (below peak)

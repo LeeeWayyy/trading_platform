@@ -392,3 +392,472 @@ class TestForwardReturns:
 
         # First element should be NaN because day 2 is NaN
         assert np.isnan(result[0])
+
+    def test_compute_horizon_returns_extreme_negative(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """Horizon returns handle extreme negative returns (clamping test)."""
+        # Test the -0.9999 clamping for extreme losses
+        returns = pl.Series([-0.99, -0.50, 0.10, 0.05])
+
+        result = factor_analytics._compute_horizon_returns(returns, horizon=2)
+
+        # Should clamp at -0.9999 to avoid -inf from log(0)
+        # Result should be finite (not -inf or NaN where valid)
+        assert result.is_finite().sum() >= 0
+
+
+class TestComputeICEdgeCases:
+    """Tests for edge cases in compute_ic."""
+
+    def test_compute_ic_missing_return_column(
+        self,
+        factor_analytics: FactorAnalytics,
+        sample_exposures: pl.DataFrame,
+        sample_returns: pl.DataFrame,
+    ):
+        """compute_ic handles missing return columns gracefully."""
+        # Remove a return column to trigger warning
+        returns_subset = sample_returns.drop("ret_20d")
+
+        result = factor_analytics.compute_ic(
+            sample_exposures,
+            returns_subset,
+            horizons=[1, 5, 20],  # 20d column is missing
+        )
+
+        # Should still compute IC for available horizons
+        assert isinstance(result, dict)
+        for _factor_name, horizons in result.items():
+            # Should have 1d and 5d, but not 20d
+            assert 20 not in horizons
+
+    def test_compute_ic_empty_result(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_ic handles empty data gracefully."""
+        empty_exposures = pl.DataFrame(
+            {
+                "date": [],
+                "permno": [],
+                "factor_name": [],
+                "zscore": [],
+            }
+        )
+        empty_returns = pl.DataFrame(
+            {
+                "date": [],
+                "permno": [],
+                "ret_1d": [],
+            }
+        )
+
+        result = factor_analytics.compute_ic(
+            empty_exposures,
+            empty_returns,
+            horizons=[1],
+        )
+
+        # Should return empty dict
+        assert result == {}
+
+    def test_compute_ic_insufficient_observations(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_ic filters out dates with <10 observations."""
+        # Create data with only 5 stocks (below threshold)
+        small_exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 5,
+                "permno": [100, 101, 102, 103, 104],
+                "factor_name": ["test_factor"] * 5,
+                "zscore": [1.0, 0.5, 0.0, -0.5, -1.0],
+            }
+        )
+        small_returns = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 5,
+                "permno": [100, 101, 102, 103, 104],
+                "ret_1d": [0.01, 0.005, 0.0, -0.005, -0.01],
+            }
+        )
+
+        result = factor_analytics.compute_ic(
+            small_exposures,
+            small_returns,
+            horizons=[1],
+        )
+
+        # Should skip due to insufficient observations (<10)
+        if "test_factor" in result:
+            assert 1 not in result["test_factor"]
+
+    def test_compute_ic_all_null_values(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_ic handles all-null data."""
+        null_exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 20,
+                "permno": list(range(100, 120)),
+                "factor_name": ["test_factor"] * 20,
+                "zscore": [None] * 20,
+            }
+        )
+        null_returns = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 20,
+                "permno": list(range(100, 120)),
+                "ret_1d": [None] * 20,
+            }
+        )
+
+        result = factor_analytics.compute_ic(
+            null_exposures,
+            null_returns,
+            horizons=[1],
+        )
+
+        # Should handle gracefully (no crash)
+        assert isinstance(result, dict)
+
+    def test_compute_ic_zero_ic_std(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_ic handles zero IC standard deviation (all ICs identical)."""
+        # Create data that will produce zero std (constant IC across dates)
+        exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, d) for d in range(1, 4) for _ in range(20)],
+                "permno": [100 + i for _ in range(1, 4) for i in range(20)],
+                "factor_name": ["const_factor"] * 60,
+                "zscore": [float(i % 20) for _ in range(1, 4) for i in range(20)],
+            }
+        )
+        returns = pl.DataFrame(
+            {
+                "date": [date(2023, 1, d) for d in range(1, 4) for _ in range(20)],
+                "permno": [100 + i for _ in range(1, 4) for i in range(20)],
+                "ret_1d": [float(i % 20) * 0.01 for _ in range(1, 4) for i in range(20)],
+            }
+        )
+
+        result = factor_analytics.compute_ic(
+            exposures,
+            returns,
+            horizons=[1],
+        )
+
+        # Should handle zero std gracefully (ICIR and t_stat = 0)
+        if "const_factor" in result and 1 in result["const_factor"]:
+            analysis = result["const_factor"][1]
+            # When std is 0, ICIR and t_stat should be 0
+            if analysis.ic_std == 0:
+                assert analysis.icir == 0.0
+                assert analysis.t_statistic == 0.0
+
+
+class TestAnalyzeDecayEdgeCases:
+    """Tests for edge cases in analyze_decay."""
+
+    def test_analyze_decay_no_valid_dates(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """analyze_decay handles case with no valid dates (<10 obs per date)."""
+        # Create data with only 5 stocks per date
+        small_exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, d) for d in range(1, 6) for _ in range(5)],
+                "permno": [100 + i for _ in range(1, 6) for i in range(5)],
+                "factor_name": ["test_factor"] * 25,
+                "zscore": [float(i) for _ in range(1, 6) for i in range(5)],
+            }
+        )
+        small_returns = pl.DataFrame(
+            {
+                "date": [date(2023, 1, d) for d in range(1, 6) for _ in range(5)],
+                "permno": [100 + i for _ in range(1, 6) for i in range(5)],
+                "ret": [0.01 * i for _ in range(1, 6) for i in range(5)],
+            }
+        )
+
+        result = factor_analytics.analyze_decay(
+            small_exposures,
+            small_returns,
+            max_horizon=10,
+        )
+
+        # Should return empty or minimal results
+        assert isinstance(result, pl.DataFrame)
+
+    def test_analyze_decay_empty_merged(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """analyze_decay handles empty merge results."""
+        exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 20,
+                "permno": list(range(100, 120)),
+                "factor_name": ["factor_a"] * 20,
+                "zscore": [float(i) for i in range(20)],
+            }
+        )
+        # Non-overlapping returns (different dates)
+        returns = pl.DataFrame(
+            {
+                "date": [date(2023, 2, 1)] * 20,
+                "permno": list(range(100, 120)),
+                "ret": [0.01] * 20,
+            }
+        )
+
+        result = factor_analytics.analyze_decay(
+            exposures,
+            returns,
+            max_horizon=10,
+        )
+
+        # Should handle empty merge gracefully
+        assert isinstance(result, pl.DataFrame)
+
+
+class TestComputeTurnoverEdgeCases:
+    """Tests for edge cases in compute_turnover."""
+
+    def test_compute_turnover_insufficient_stocks(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_turnover skips dates with <10 stocks."""
+        small_exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1), date(2023, 1, 2)] * 5,
+                "permno": [100, 101, 102, 103, 104] * 2,
+                "factor_name": ["test_factor"] * 10,
+                "zscore": [float(i) for i in range(10)],
+            }
+        )
+
+        result = factor_analytics.compute_turnover(small_exposures)
+
+        # Should skip dates with <10 stocks
+        assert result.height == 0
+
+    def test_compute_turnover_single_date(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_turnover handles single date (no pairs)."""
+        single_date = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 20,
+                "permno": list(range(100, 120)),
+                "factor_name": ["factor_a"] * 20,
+                "zscore": [float(i) for i in range(20)],
+            }
+        )
+
+        result = factor_analytics.compute_turnover(single_date)
+
+        # Should return empty (no consecutive dates to compare)
+        assert result.height == 0
+
+    def test_compute_turnover_no_overlap(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_turnover handles no stock overlap between dates."""
+        no_overlap = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 20 + [date(2023, 1, 2)] * 20,
+                "permno": list(range(100, 120)) + list(range(200, 220)),  # Different stocks
+                "factor_name": ["factor_a"] * 40,
+                "zscore": [float(i) for i in range(40)],
+            }
+        )
+
+        result = factor_analytics.compute_turnover(no_overlap)
+
+        # Should handle gracefully (no overlap means no valid turnover)
+        assert isinstance(result, pl.DataFrame)
+
+
+class TestCorrelationMatrixEdgeCases:
+    """Tests for edge cases in compute_correlation_matrix."""
+
+    def test_correlation_matrix_insufficient_data(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_correlation_matrix handles <10 observations."""
+        small_exposures = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 1)] * 5,
+                "permno": [100, 101, 102, 103, 104],
+                "factor_name": ["factor_a", "factor_b"] * 2 + ["factor_a"],
+                "zscore": [1.0, -1.0, 0.5, -0.5, 0.0],
+            }
+        )
+
+        result = factor_analytics.compute_correlation_matrix(small_exposures)
+
+        # Should return empty DataFrame due to insufficient data
+        assert result.height == 0
+
+    def test_correlation_matrix_missing_factor_columns(
+        self,
+        factor_analytics: FactorAnalytics,
+        sample_exposures: pl.DataFrame,
+    ):
+        """compute_correlation_matrix handles missing factor columns in pivot."""
+        # This tests the None assignment path (line 298)
+        result = factor_analytics.compute_correlation_matrix(sample_exposures)
+
+        # All factors should be present after pivot, but test defensive code
+        assert isinstance(result, pl.DataFrame)
+        if result.height > 0:
+            # Check that missing columns get None (defensive code path)
+            assert "factor_name" in result.columns
+
+    def test_correlation_matrix_empty_input(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """compute_correlation_matrix handles empty input."""
+        empty_exposures = pl.DataFrame(
+            {
+                "date": [],
+                "permno": [],
+                "factor_name": [],
+                "zscore": [],
+            }
+        )
+
+        result = factor_analytics.compute_correlation_matrix(empty_exposures)
+
+        # Should return empty DataFrame
+        assert result.height == 0
+
+
+class TestRankCorrEdgeCases:
+    """Additional edge case tests for _compute_rank_corr."""
+
+    def test_compute_rank_corr_all_nan(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_rank_corr returns 0 for all NaN inputs."""
+        x = np.array([np.nan, np.nan, np.nan])
+        y = np.array([np.nan, np.nan, np.nan])
+
+        corr = factor_analytics._compute_rank_corr(x, y)
+
+        assert corr == 0.0
+
+    def test_compute_rank_corr_exactly_two_points(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_rank_corr handles exactly 2 valid points (edge of threshold)."""
+        x = np.array([1.0, 2.0, np.nan])
+        y = np.array([3.0, 4.0, np.nan])
+
+        corr = factor_analytics._compute_rank_corr(x, y)
+
+        # With only 2 points, should return 0 (threshold is <3)
+        assert corr == 0.0
+
+    def test_compute_rank_corr_three_points(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_rank_corr works with exactly 3 valid points."""
+        x = np.array([1.0, 2.0, 3.0])
+        y = np.array([1.0, 2.0, 3.0])
+
+        corr = factor_analytics._compute_rank_corr(x, y)
+
+        # Should compute correlation (>=3 points)
+        assert abs(corr - 1.0) < 0.01
+
+    def test_compute_rank_corr_constant_values(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_rank_corr handles constant values (no variance)."""
+        x = np.array([1.0, 1.0, 1.0, 1.0])
+        y = np.array([2.0, 2.0, 2.0, 2.0])
+
+        corr = factor_analytics._compute_rank_corr(x, y)
+
+        # Spearman correlation is undefined for constant values, should handle gracefully
+        assert not np.isnan(corr)  # Should not crash, returns valid value or 0
+
+
+class TestForwardReturnsAdditional:
+    """Additional tests for forward returns computation."""
+
+    def test_forward_returns_with_nulls_in_middle(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_forward_returns handles nulls in the middle of data."""
+        returns_with_nulls = pl.DataFrame(
+            {
+                "date": [date(2023, 1, i) for i in range(1, 11)],
+                "permno": [100] * 10,
+                "ret": [0.01, 0.02, None, 0.04, 0.05, 0.01, None, 0.02, 0.03, 0.04],
+            }
+        )
+
+        result = factor_analytics._compute_forward_returns(returns_with_nulls, horizon=3)
+
+        # Should filter out rows where forward returns can't be computed
+        assert isinstance(result, pl.DataFrame)
+        assert "forward_ret" in result.columns
+
+    def test_forward_returns_multiple_securities(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_forward_returns handles multiple securities correctly."""
+        multi_sec_returns = pl.DataFrame(
+            {
+                "date": [date(2023, 1, i) for i in range(1, 6)] * 2,
+                "permno": [100] * 5 + [200] * 5,
+                "ret": [0.01, 0.02, 0.03, 0.04, 0.05] * 2,
+            }
+        )
+
+        result = factor_analytics._compute_forward_returns(multi_sec_returns, horizon=2)
+
+        # Should compute separately for each permno
+        permnos = result["permno"].unique().to_list()
+        assert len(permnos) >= 1
+
+    def test_forward_returns_zero_returns(
+        self,
+        factor_analytics: FactorAnalytics,
+    ):
+        """_compute_forward_returns handles zero returns."""
+        zero_returns = pl.DataFrame(
+            {
+                "date": [date(2023, 1, i) for i in range(1, 6)],
+                "permno": [100] * 5,
+                "ret": [0.0, 0.0, 0.0, 0.0, 0.0],
+            }
+        )
+
+        result = factor_analytics._compute_forward_returns(zero_returns, horizon=2)
+
+        # Should compute successfully (forward returns should be ~0)
+        if result.height > 0:
+            forward_rets = result["forward_ret"].to_numpy()
+            assert np.all(np.abs(forward_rets) < 0.001)

@@ -58,10 +58,7 @@ def test_check_freshness_missing_orphaned_deprecated(
     doc_path = tmp_repo_root / "docs/GETTING_STARTED/REPO_MAP.md"
     _write_file(
         doc_path,
-        "- `apps/foo/`\n"
-        "- `apps/qux/`\n"
-        "- `apps/baz/`\n"
-        "- `apps/baz/` [DEPRECATED]\n",
+        "- `apps/foo/`\n" "- `apps/qux/`\n" "- `apps/baz/`\n" "- `apps/baz/` [DEPRECATED]\n",
     )
 
     def fake_run(args: list[str], capture_output: bool, text: bool, cwd: Path) -> MagicMock:

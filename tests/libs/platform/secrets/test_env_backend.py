@@ -854,3 +854,123 @@ class TestEnvSecretManagerErrorHandling:
             assert "nonexistent/secret" in error_msg
             # Should NOT contain any actual secret values
             assert "sensitive_password_123" not in error_msg
+
+    def test_list_secrets_permission_error(self, clean_env, monkeypatch):
+        """Test list_secrets() handles PermissionError by raising SecretAccessError."""
+        manager = EnvSecretManager()
+
+        # Mock os.environ.keys() to raise PermissionError
+        def mock_keys():
+            raise PermissionError("Access denied")
+
+        monkeypatch.setattr(os.environ, "keys", mock_keys)
+
+        with pytest.raises(SecretAccessError) as exc_info:
+            manager.list_secrets(prefix="test/")
+
+        assert "Permission denied" in str(exc_info.value)
+        assert exc_info.value.backend == "env"
+
+    def test_list_secrets_os_error(self, clean_env, monkeypatch):
+        """Test list_secrets() handles OSError by raising SecretAccessError."""
+        manager = EnvSecretManager()
+
+        # Mock os.environ.keys() to raise OSError
+        def mock_keys():
+            raise OSError("System error")
+
+        monkeypatch.setattr(os.environ, "keys", mock_keys)
+
+        with pytest.raises(SecretAccessError) as exc_info:
+            manager.list_secrets(prefix="test/")
+
+        assert "System error" in str(exc_info.value)
+        assert exc_info.value.backend == "env"
+
+    def test_set_secret_key_error(self, clean_env, monkeypatch):
+        """Test set_secret() handles KeyError by raising SecretWriteError."""
+        from libs.platform.secrets.exceptions import SecretWriteError
+
+        manager = EnvSecretManager()
+
+        # Mock os.environ.__setitem__ to raise KeyError
+        original_setitem = os.environ.__class__.__setitem__
+
+        def mock_setitem(self, key, value):
+            if key == "TEST_SECRET":
+                raise KeyError("Invalid key")
+            return original_setitem(self, key, value)
+
+        monkeypatch.setattr(os.environ.__class__, "__setitem__", mock_setitem)
+
+        with pytest.raises(SecretWriteError) as exc_info:
+            manager.set_secret("test/secret", "value")
+
+        assert "Invalid operation" in str(exc_info.value)
+        assert exc_info.value.backend == "env"
+
+    def test_set_secret_value_error(self, clean_env, monkeypatch):
+        """Test set_secret() handles ValueError by raising SecretWriteError."""
+        from libs.platform.secrets.exceptions import SecretWriteError
+
+        manager = EnvSecretManager()
+
+        # Mock os.environ.__setitem__ to raise ValueError
+        original_setitem = os.environ.__class__.__setitem__
+
+        def mock_setitem(self, key, value):
+            if key == "TEST_SECRET":
+                raise ValueError("Invalid value")
+            return original_setitem(self, key, value)
+
+        monkeypatch.setattr(os.environ.__class__, "__setitem__", mock_setitem)
+
+        with pytest.raises(SecretWriteError) as exc_info:
+            manager.set_secret("test/secret", "value")
+
+        assert "Invalid operation" in str(exc_info.value)
+        assert exc_info.value.backend == "env"
+
+    def test_set_secret_permission_error(self, clean_env, monkeypatch):
+        """Test set_secret() handles PermissionError by raising SecretWriteError."""
+        from libs.platform.secrets.exceptions import SecretWriteError
+
+        manager = EnvSecretManager()
+
+        # Mock os.environ.__setitem__ to raise PermissionError
+        original_setitem = os.environ.__class__.__setitem__
+
+        def mock_setitem(self, key, value):
+            if key == "TEST_SECRET":
+                raise PermissionError("Access denied")
+            return original_setitem(self, key, value)
+
+        monkeypatch.setattr(os.environ.__class__, "__setitem__", mock_setitem)
+
+        with pytest.raises(SecretWriteError) as exc_info:
+            manager.set_secret("test/secret", "value")
+
+        assert "Permission denied" in str(exc_info.value)
+        assert exc_info.value.backend == "env"
+
+    def test_set_secret_os_error(self, clean_env, monkeypatch):
+        """Test set_secret() handles OSError by raising SecretWriteError."""
+        from libs.platform.secrets.exceptions import SecretWriteError
+
+        manager = EnvSecretManager()
+
+        # Mock os.environ.__setitem__ to raise OSError
+        original_setitem = os.environ.__class__.__setitem__
+
+        def mock_setitem(self, key, value):
+            if key == "TEST_SECRET":
+                raise OSError("System error")
+            return original_setitem(self, key, value)
+
+        monkeypatch.setattr(os.environ.__class__, "__setitem__", mock_setitem)
+
+        with pytest.raises(SecretWriteError) as exc_info:
+            manager.set_secret("test/secret", "value")
+
+        assert "System error" in str(exc_info.value)
+        assert exc_info.value.backend == "env"

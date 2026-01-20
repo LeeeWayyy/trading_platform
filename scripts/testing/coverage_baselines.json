@@ -1,0 +1,31 @@
+{
+  "version": 5,
+  "last_updated": "2026-01-17",
+  "updated_by": "Phase 3 coverage expansion - 51 new test files",
+  "overall": 15,
+  "modules": {
+    "libs/trading/risk_management/breaker.py": 100,
+    "libs/trading/risk_management/checker.py": 100,
+    "libs/trading/risk_management/kill_switch.py": 100,
+    "libs/trading/risk_management/exceptions.py": 100,
+    "libs/core/redis_client/client.py": 97,
+    "libs/core/redis_client/feature_cache.py": 100,
+    "libs/core/common/exceptions.py": 100,
+    "libs/core/common/hash_utils.py": 100,
+    "libs/core/common/async_utils.py": 100,
+    "libs/platform/web_console_auth/pkce.py": 100,
+    "libs/platform/web_console_auth/rate_limiter.py": 100,
+    "libs/platform/web_console_auth/session_store.py": 100,
+    "libs/web_console_services/config.py": 100,
+    "apps/execution_gateway/main.py": 98,
+    "apps/execution_gateway/alpaca_client.py": 83,
+    "apps/execution_gateway/reconciliation/helpers.py": 99,
+    "apps/execution_gateway/reconciliation/positions.py": 100,
+    "apps/execution_gateway/reconciliation/fills.py": 90,
+    "apps/execution_gateway/reconciliation/orders.py": 95,
+    "apps/execution_gateway/reconciliation/orphans.py": 95,
+    "apps/execution_gateway/reconciliation/state.py": 100,
+    "apps/execution_gateway/reconciliation/context.py": 91,
+    "apps/execution_gateway/reconciliation/service.py": 85
+  }
+}

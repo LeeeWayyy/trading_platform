@@ -156,9 +156,7 @@ class TestAlertsExceptionHandling:
     async def test_fetch_rules_handles_psycopg_error(self) -> None:
         """Verify fetch_rules catches psycopg.OperationalError."""
         mock_service = AsyncMock()
-        mock_service.get_rules = AsyncMock(
-            side_effect=psycopg.OperationalError("Database error")
-        )
+        mock_service.get_rules = AsyncMock(side_effect=psycopg.OperationalError("Database error"))
 
         with pytest.raises(psycopg.OperationalError, match="Database error"):
             await mock_service.get_rules()
@@ -207,9 +205,7 @@ class TestAlertsExceptionHandling:
     async def test_acknowledge_alert_handles_value_error(self) -> None:
         """Verify acknowledge_alert catches ValueError."""
         mock_service = AsyncMock()
-        mock_service.acknowledge_alert = AsyncMock(
-            side_effect=ValueError("Invalid event ID")
-        )
+        mock_service.acknowledge_alert = AsyncMock(side_effect=ValueError("Invalid event ID"))
 
         with pytest.raises(ValueError, match="Invalid event"):
             await mock_service.acknowledge_alert("invalid", "Note", {})

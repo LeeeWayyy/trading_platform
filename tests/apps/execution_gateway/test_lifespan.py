@@ -301,21 +301,28 @@ async def test_startup_execution_gateway_dry_run(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", DummySliceScheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.PositionReservation", lambda redis=None: object()
     )
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_settings", lambda: SimpleNamespace(
-        internal_token_required=True,
-        internal_token_secret=SimpleNamespace(get_secret_value=lambda: ""),
-    ))
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_settings",
+        lambda: SimpleNamespace(
+            internal_token_required=True,
+            internal_token_secret=SimpleNamespace(get_secret_value=lambda: ""),
+        ),
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "opt")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.close_secret_manager", lambda: None)
 
     async def _noop_recover(_: LifespanSettings, __: LifespanResources) -> None:
@@ -353,7 +360,9 @@ async def test_startup_execution_gateway_requires_redis_password(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.DatabaseClient", DummyDBClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
 
     with pytest.raises(RuntimeError, match="REDIS_AUTH_REQUIRED=true"):
         await startup_execution_gateway(app, settings, {})
@@ -372,7 +381,9 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
 
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", _redis_fail)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -381,7 +392,9 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     class DummyReconciliation:
@@ -403,7 +416,9 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     class DummyReconciliation:
         def __init__(self, **kwargs: object) -> None:
@@ -424,7 +439,9 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     class DummyReconciliation:
         def __init__(self, **kwargs: object) -> None:
@@ -445,7 +462,9 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     class DummyReconciliation:
         def __init__(self, **kwargs: object) -> None:
@@ -466,11 +485,16 @@ async def test_startup_execution_gateway_redis_error_fallback(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_settings", lambda: SimpleNamespace(
-        internal_token_required=False,
-        internal_token_secret=SimpleNamespace(get_secret_value=lambda: ""),
-    ))
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_settings",
+        lambda: SimpleNamespace(
+            internal_token_required=False,
+            internal_token_secret=SimpleNamespace(get_secret_value=lambda: ""),
+        ),
+    )
 
     async def _noop_recover(_: LifespanSettings, __: LifespanResources) -> None:
         return None
@@ -505,7 +529,9 @@ async def test_startup_execution_gateway_requires_webhook_secret(monkeypatch):
         return "secret"
 
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", _get_required)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
 
     with pytest.raises(RuntimeError, match="WEBHOOK_SECRET is required"):
         await startup_execution_gateway(app, settings, {})
@@ -520,7 +546,9 @@ async def test_startup_execution_gateway_alpaca_errors(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.DatabaseClient", DummyDBClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -529,7 +557,9 @@ async def test_startup_execution_gateway_alpaca_errors(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     class DummyReconciliation:
@@ -551,7 +581,9 @@ async def test_startup_execution_gateway_alpaca_errors(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     def _alpaca_fail(**kwargs: object) -> None:  # type: ignore[return-value]
         raise AlpacaConnectionError("alpaca down")
@@ -584,7 +616,9 @@ async def test_startup_execution_gateway_alpaca_validation_error(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.DatabaseClient", DummyDBClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -593,7 +627,9 @@ async def test_startup_execution_gateway_alpaca_validation_error(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     def _alpaca_fail(**kwargs: object) -> None:  # type: ignore[return-value]
@@ -623,7 +659,9 @@ async def test_startup_execution_gateway_alpaca_type_error(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.DatabaseClient", DummyDBClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -632,7 +670,9 @@ async def test_startup_execution_gateway_alpaca_type_error(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     def _alpaca_fail(**kwargs: object) -> None:  # type: ignore[return-value]
@@ -665,7 +705,9 @@ async def test_startup_execution_gateway_alpaca_and_reconciliation(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", DummySliceScheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -674,7 +716,9 @@ async def test_startup_execution_gateway_alpaca_and_reconciliation(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     dummy_alpaca = SimpleNamespace(check_connection=lambda: True)
@@ -700,7 +744,9 @@ async def test_startup_execution_gateway_alpaca_and_reconciliation(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     async def _noop_recover(_: LifespanSettings, __: LifespanResources) -> None:
         return None
@@ -740,7 +786,9 @@ async def test_startup_execution_gateway_missing_safety_components(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", EmptyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     class DummyReconciliation:
@@ -762,7 +810,9 @@ async def test_startup_execution_gateway_missing_safety_components(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     async def _noop_recover(_: LifespanSettings, __: LifespanResources) -> None:
         return None
@@ -795,7 +845,9 @@ async def test_startup_execution_gateway_slice_scheduler_error(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", _bad_scheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -804,7 +856,9 @@ async def test_startup_execution_gateway_slice_scheduler_error(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     async def _noop_recover(_: LifespanSettings, __: LifespanResources) -> None:
@@ -837,7 +891,9 @@ async def test_startup_execution_gateway_slice_scheduler_value_error(monkeypatch
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", _bad_scheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -846,7 +902,9 @@ async def test_startup_execution_gateway_slice_scheduler_value_error(monkeypatch
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     def _get_db_pool() -> DummyPool:
@@ -875,7 +933,9 @@ async def test_startup_execution_gateway_slice_scheduler_attribute_error(monkeyp
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", _bad_scheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -884,7 +944,9 @@ async def test_startup_execution_gateway_slice_scheduler_attribute_error(monkeyp
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     def _get_db_pool() -> DummyPool:
@@ -917,7 +979,9 @@ async def test_startup_execution_gateway_db_and_alpaca_checks(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", DummySliceScheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -927,7 +991,9 @@ async def test_startup_execution_gateway_db_and_alpaca_checks(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.AlpacaExecutor", lambda **_: dummy_alpaca)
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     class DummyReconciliation:
@@ -949,7 +1015,9 @@ async def test_startup_execution_gateway_db_and_alpaca_checks(monkeypatch):
         def startup_timed_out(self) -> bool:
             return False
 
-    monkeypatch.setattr("apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.ReconciliationService", DummyReconciliation
+    )
 
     def _get_db_pool() -> DummyPool:
         return pool
@@ -981,7 +1049,9 @@ async def test_startup_execution_gateway_slice_scheduler_running(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", RunningScheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -990,7 +1060,9 @@ async def test_startup_execution_gateway_slice_scheduler_running(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
 
     def _get_db_pool() -> DummyPool:
@@ -1021,7 +1093,9 @@ async def test_startup_execution_gateway_shutdown_on_exception(monkeypatch):
     monkeypatch.setattr("apps.execution_gateway.lifespan.RedisClient", DummyRedisClient)
     monkeypatch.setattr("apps.execution_gateway.lifespan.RecoveryManager", DummyRecoveryManager)
     monkeypatch.setattr("apps.execution_gateway.lifespan.SliceScheduler", DummySliceScheduler)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object())
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.KillSwitch", lambda redis_client=None: object()
+    )
     monkeypatch.setattr(
         "apps.execution_gateway.lifespan.CircuitBreaker", lambda redis_client=None: object()
     )
@@ -1030,10 +1104,15 @@ async def test_startup_execution_gateway_shutdown_on_exception(monkeypatch):
     )
     monkeypatch.setattr("apps.execution_gateway.lifespan.validate_required_secrets", lambda _: None)
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_required_secret", lambda _: "secret")
-    monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None)
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.get_optional_secret_or_none", lambda *_: None
+    )
     monkeypatch.setattr("apps.execution_gateway.lifespan.get_optional_secret", lambda *_: "")
     monkeypatch.setattr("apps.execution_gateway.lifespan.shutdown_execution_gateway", _shutdown)
-    monkeypatch.setattr("apps.execution_gateway.lifespan.load_config", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        "apps.execution_gateway.lifespan.load_config",
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
     def _get_db_pool() -> DummyPool:
         return pool

@@ -95,7 +95,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Performance", "/performance", "show_chart", None),  # P5T8
                     ("Reports", "/reports", "summarize", None),  # P5T8
                     ("Backtest", "/backtest", "science", None),
-                    ("Admin", "/admin", "settings", None),  # Visibility controlled by permission check
+                    (
+                        "Admin",
+                        "/admin",
+                        "settings",
+                        None,
+                    ),  # Visibility controlled by permission check
                 ]
 
                 for label, path, icon, _required_role in nav_items:
@@ -123,7 +128,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         # Header
         status_bar = StatusBar()
 
-        with ui.header().classes("bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"):
+        with ui.header().classes(
+            "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"
+        ):
             ui.button(icon="menu", on_click=lambda: drawer.toggle()).props("flat color=white")
             ui.label("Trading Console").classes("text-xl font-bold ml-2 leading-none shrink-0")
 
@@ -131,9 +138,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             header_metrics = HeaderMetrics()
 
             latency_monitor = LatencyMonitor()
-            latency_badge = ui.label("--").classes(
-                "h-6 px-2 py-0.5 rounded text-xs font-medium bg-gray-600 text-white shrink-0"
-            ).props("id=latency-badge")
+            latency_badge = (
+                ui.label("--")
+                .classes(
+                    "h-6 px-2 py-0.5 rounded text-xs font-medium bg-gray-600 text-white shrink-0"
+                )
+                .props("id=latency-badge")
+            )
             latency_badge.tooltip("API Latency: --")
 
             market_clock = MarketClock(exchanges=["NYSE"])
@@ -141,28 +152,48 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             ui.space()
 
             with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
-                kill_switch_button = ui.button(
-                    "KILL SWITCH: UNKNOWN",
-                ).classes("h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black shrink-0").props(
-                    "id=kill-switch-badge unelevated"
+                kill_switch_button = (
+                    ui.button(
+                        "KILL SWITCH: UNKNOWN",
+                    )
+                    .classes(
+                        "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black shrink-0"
+                    )
+                    .props("id=kill-switch-badge unelevated")
                 )
-                engage_button = ui.button(
-                    "Engage", icon="power_settings_new", on_click=lambda: open_kill_switch_dialog("ENGAGE")
-                ).classes("h-8 px-2 py-1 rounded text-xs bg-red-600 text-white shrink-0").props(
-                    "id=kill-switch-engage"
+                engage_button = (
+                    ui.button(
+                        "Engage",
+                        icon="power_settings_new",
+                        on_click=lambda: open_kill_switch_dialog("ENGAGE"),
+                    )
+                    .classes("h-8 px-2 py-1 rounded text-xs bg-red-600 text-white shrink-0")
+                    .props("id=kill-switch-engage")
                 )
-                disengage_button = ui.button(
-                    "Disengage", icon="power_off", on_click=lambda: open_kill_switch_dialog("DISENGAGE")
-                ).classes("h-8 px-2 py-1 rounded text-xs bg-green-600 text-white shrink-0").props(
-                    "id=kill-switch-disengage"
+                disengage_button = (
+                    ui.button(
+                        "Disengage",
+                        icon="power_off",
+                        on_click=lambda: open_kill_switch_dialog("DISENGAGE"),
+                    )
+                    .classes("h-8 px-2 py-1 rounded text-xs bg-green-600 text-white shrink-0")
+                    .props("id=kill-switch-disengage")
                 )
-                circuit_breaker_badge = ui.label("Circuit: Unknown").classes(
-                    "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black flex items-center shrink-0"
-                ).props("id=circuit-breaker-badge")
+                circuit_breaker_badge = (
+                    ui.label("Circuit: Unknown")
+                    .classes(
+                        "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black flex items-center shrink-0"
+                    )
+                    .props("id=circuit-breaker-badge")
+                )
                 # Connection status is derived from API polling + latency monitoring.
-                connection_badge = ui.label("Connected").classes(
-                    "h-8 px-2 py-1 rounded text-xs bg-green-500 text-white flex items-center shrink-0"
-                ).props("id=connection-badge")
+                connection_badge = (
+                    ui.label("Connected")
+                    .classes(
+                        "h-8 px-2 py-1 rounded text-xs bg-green-500 text-white flex items-center shrink-0"
+                    )
+                    .props("id=connection-badge")
+                )
 
                 with ui.row().classes("items-center gap-2"):
                     ui.label(user_name).classes("text-sm")
@@ -286,7 +317,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             title = "Engage Kill Switch" if action == "ENGAGE" else "Disengage Kill Switch"
             with ui.dialog() as dialog, ui.card().classes("p-6 min-w-[420px]"):
                 ui.label(title).classes("text-lg font-semibold")
-                ui.label("Provide a reason/note for audit logging.").classes("text-sm text-gray-600")
+                ui.label("Provide a reason/note for audit logging.").classes(
+                    "text-sm text-gray-600"
+                )
                 reason_input = ui.input("Reason / Notes").props("autofocus").classes("w-full")
                 confirm_input = None
                 if action == "DISENGAGE":
@@ -394,7 +427,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             user_id, role=user_role, strategies=user_strategies
                         )
                         cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
-                    except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError, TypeError) as e:
+                    except (
+                        httpx.HTTPStatusError,
+                        httpx.RequestError,
+                        ValueError,
+                        KeyError,
+                        TypeError,
+                    ) as e:
                         # Circuit breaker status fetch failed - fallback to UNKNOWN and continue
                         logger.warning(
                             "Circuit breaker status fetch failed",
@@ -548,7 +587,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         metrics_timer = ui.timer(60.0, log_grid_metrics)
         if cleanup_id:
             lifecycle_mgr = ClientLifecycleManager.get()
-            await lifecycle_mgr.register_cleanup_callback(cleanup_id, lambda: metrics_timer.cancel())
+            await lifecycle_mgr.register_cleanup_callback(
+                cleanup_id, lambda: metrics_timer.cancel()
+            )
             # Close latency monitor's persistent HTTP client on session cleanup
             await lifecycle_mgr.register_cleanup_callback(cleanup_id, latency_monitor.close)
 

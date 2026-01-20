@@ -8,6 +8,9 @@ H2 Fix: Uses connection pooling for 10x performance improvement.
 import json
 import logging
 import os
+import threading
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -102,21 +105,60 @@ class OrchestrationDatabaseClient:
         self.database_url = database_url
 
         # H2 Fix: Connection pooling for 10x performance
+        # open=False avoids eager connections during tests/startup.
+        # Pool requires explicit open() call - handled by _ensure_pool_open().
         self._pool = ConnectionPool(
             database_url,
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
+            open=False,
         )
+        self._pool_opened = False
+        self._pool_lock = threading.Lock()
 
         logger.info(
             "OrchestrationDatabaseClient initialized with connection pool",
             extra={"pool_min": DB_POOL_MIN_SIZE, "pool_max": DB_POOL_MAX_SIZE},
         )
 
+    def _ensure_pool_open(self) -> None:
+        """
+        Ensure connection pool is open before use.
+
+        Implements lazy-open pattern: pool opens on first actual use.
+        This avoids eager connections during import/test collection.
+
+        Thread-safe: uses lock to ensure only first caller opens the pool.
+        """
+        if self._pool_opened:
+            return  # Fast path - already open, no lock needed
+        with self._pool_lock:
+            # Double-check after acquiring lock (another thread may have opened)
+            if not self._pool_opened:
+                self._pool.open()
+                self._pool_opened = True
+                logger.debug("OrchestrationDatabaseClient connection pool opened (lazy init)")
+
+    @contextmanager
+    def _connection(self) -> Generator[psycopg.Connection, None, None]:
+        """
+        Get a connection from the pool, ensuring pool is open first.
+
+        This is the preferred way to get connections throughout the codebase.
+        It handles the lazy-open pattern automatically.
+
+        Yields:
+            psycopg.Connection: Database connection from the pool
+        """
+        self._ensure_pool_open()
+        with self._pool.connection() as conn:
+            yield conn
+
     def close(self) -> None:
         """Close connection pool. Safe to call multiple times."""
         self._pool.close()
+        self._pool_opened = False
         logger.info("OrchestrationDatabaseClient connection pool closed")
 
     def check_connection(self) -> bool:
@@ -127,7 +169,7 @@ class OrchestrationDatabaseClient:
             True if connection successful, False otherwise
         """
         try:
-            with self._pool.connection() as conn:
+            with self._connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     return True
@@ -168,7 +210,7 @@ class OrchestrationDatabaseClient:
             >>> print(run_id)
             42
         """
-        with self._pool.connection() as conn:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 # Prepare signal metadata
                 signal_metadata = result.signal_metadata or {}
@@ -296,7 +338,7 @@ class OrchestrationDatabaseClient:
             duration_seconds: Total duration
             error_message: Error message if failed
         """
-        with self._pool.connection() as conn:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -326,7 +368,7 @@ class OrchestrationDatabaseClient:
             >>> print(run.status)
             'completed'
         """
-        with self._pool.connection() as conn:
+        with self._connection() as conn:
             with conn.cursor(row_factory=class_row(OrchestrationRunDB)) as cur:
                 cur.execute(
                     """
@@ -388,7 +430,7 @@ class OrchestrationDatabaseClient:
             >>> print(len(runs))
             10
         """
-        with self._pool.connection() as conn:
+        with self._connection() as conn:
             with conn.cursor(row_factory=class_row(OrchestrationRunDB)) as cur:
                 # Build query
                 query = """
@@ -452,7 +494,7 @@ class OrchestrationDatabaseClient:
             >>> print(len(mappings))
             5
         """
-        with self._pool.connection() as conn:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """

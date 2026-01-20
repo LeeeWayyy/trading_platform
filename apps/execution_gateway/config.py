@@ -288,9 +288,7 @@ def get_config() -> ExecutionGatewayConfig:
     )
     fat_finger_max_notional: Decimal | None = fat_finger_max_notional_init
 
-    fat_finger_max_qty: int | None = _get_int_env(
-        "FAT_FINGER_MAX_QTY", FAT_FINGER_MAX_QTY_DEFAULT
-    )
+    fat_finger_max_qty: int | None = _get_int_env("FAT_FINGER_MAX_QTY", FAT_FINGER_MAX_QTY_DEFAULT)
 
     fat_finger_max_adv_pct_init = _get_decimal_env(
         "FAT_FINGER_MAX_ADV_PCT", FAT_FINGER_MAX_ADV_PCT_DEFAULT
@@ -368,11 +366,15 @@ def get_config() -> ExecutionGatewayConfig:
         # Performance & Caching
         performance_cache_ttl=_get_int_env("PERFORMANCE_CACHE_TTL", 300),
         max_performance_days=_get_int_env("MAX_PERFORMANCE_DAYS", 90),
-        feature_performance_dashboard=_get_bool_env_permissive("FEATURE_PERFORMANCE_DASHBOARD", False),
+        feature_performance_dashboard=_get_bool_env_permissive(
+            "FEATURE_PERFORMANCE_DASHBOARD", False
+        ),
         # Strategy Management
         reduce_only_lock_timeout_seconds=_get_int_env("REDUCE_ONLY_LOCK_TIMEOUT_SECONDS", 30),
         reduce_only_lock_blocking_seconds=_get_int_env("REDUCE_ONLY_LOCK_BLOCKING_SECONDS", 10),
-        strategy_activity_threshold_seconds=_get_int_env("STRATEGY_ACTIVITY_THRESHOLD_SECONDS", 86400),
+        strategy_activity_threshold_seconds=_get_int_env(
+            "STRATEGY_ACTIVITY_THRESHOLD_SECONDS", 86400
+        ),
         # Reconciliation (rate limiter settings for fills backfill endpoint)
         fills_backfill_limit=_get_int_env("FILLS_BACKFILL_LIMIT", 2),
         fills_backfill_window_seconds=_get_int_env("FILLS_BACKFILL_WINDOW_SECONDS", 300),

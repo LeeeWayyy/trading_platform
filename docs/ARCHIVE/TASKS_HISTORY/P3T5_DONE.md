@@ -326,8 +326,8 @@ Each component requires isolated unit tests verifying:
 
 ## References
 
-- [P3_PLANNING.md](./P3_PLANNING.md) - Track 5 details
-- [P3_ISSUES.md](./P3_ISSUES.md) - Full issue list
+- [P3_PLANNING_DONE.md](./P3_PLANNING_DONE.md) - Track 5 details
+- [P3_ISSUES_DONE.md](./P3_ISSUES_DONE.md) - Full issue list
 - External Reviewer Reports (2025-12-01)
 - Gemini continuation_id: 568e458a-6714-46fd-9129-91605e656953
 - Codex continuation_id: 08270114-1174-4b57-96c0-d86466d3640a

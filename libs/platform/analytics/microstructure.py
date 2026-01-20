@@ -401,6 +401,17 @@ class MicrostructureAnalyzer:
 
         ticks_df = ticks_df.sort("ts")
 
+        # Count zero-volume trades before filtering (for warning message)
+        all_trade_sizes = ticks_df["trade_size"].to_numpy()
+        total_trades = len(all_trade_sizes)
+        zero_vol_count = np.sum(all_trade_sizes == 0) if total_trades > 0 else 0
+
+        if zero_vol_count > 0:
+            zero_vol_pct = zero_vol_count / total_trades
+            if zero_vol_pct > 0.05:
+                warnings.append(f">{zero_vol_pct*100:.1f}% zero-volume trades skipped")
+
+        # Now filter to positive volume trades
         trade_rows = ticks_df.filter(pl.col("trade_size") > 0)
         if trade_rows.is_empty():
             warnings.append("No valid trades")
@@ -421,16 +432,6 @@ class MicrostructureAnalyzer:
         prices = trade_rows["trade_px"].to_numpy()
         sizes = trade_rows["trade_size"].to_numpy()
         timestamps = trade_rows["ts"].to_list()
-
-        zero_vol_count = np.sum(sizes == 0)
-        if zero_vol_count > 0:
-            zero_vol_pct = zero_vol_count / len(sizes)
-            if zero_vol_pct > 0.05:
-                warnings.append(f">{zero_vol_pct*100:.1f}% zero-volume trades skipped")
-            mask = sizes > 0
-            prices = prices[mask]
-            sizes = sizes[mask]
-            timestamps = [t for t, m in zip(timestamps, mask, strict=False) if m]
 
         if len(prices) < sigma_lookback + 1:
             warnings.append("Day ended during warmup period - no valid buckets")
@@ -997,12 +998,28 @@ class MicrostructureAnalyzer:
             ]
         )
 
+        # Compute raw duration first (without fallback for last row)
+        quotes_df = quotes_df.with_columns(
+            [
+                (pl.col("next_ts") - pl.col("ts")).alias("raw_duration"),
+            ]
+        )
+
+        # Check if all raw durations are zero (or null for last row)
+        # If so, all quotes have the same timestamp - return NaN
+        non_null_durations = quotes_df.filter(pl.col("raw_duration").is_not_null())
+        if non_null_durations.height > 0:
+            all_zero = (non_null_durations["raw_duration"].dt.total_seconds() == 0).all()
+            if all_zero:
+                return float("nan"), float("nan")
+
+        # Apply 1-second fallback for last row
         quotes_df = quotes_df.with_columns(
             [
                 (
                     pl.when(pl.col("next_ts").is_null())
                     .then(pl.duration(seconds=1))
-                    .otherwise(pl.col("next_ts") - pl.col("ts"))
+                    .otherwise(pl.col("raw_duration"))
                 ).alias("duration"),
             ]
         )

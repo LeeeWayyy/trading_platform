@@ -60,7 +60,13 @@ def test_generate_tasks_dry_run():
         pytest.skip("No planning file exists for P0, P1, or P2 (all archived)")
 
     result = subprocess.run(
-        ["python", "scripts/admin/tasks.py", "generate-tasks-from-phase", existing_phase, "--dry-run"],
+        [
+            "python",
+            "scripts/admin/tasks.py",
+            "generate-tasks-from-phase",
+            existing_phase,
+            "--dry-run",
+        ],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,

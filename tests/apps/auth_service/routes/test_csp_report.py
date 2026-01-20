@@ -150,7 +150,7 @@ def test_csp_report_endpoint_handles_unicode_decode_error():
     mock_request.client.host = "127.0.0.1"
 
     # Return invalid UTF-8 bytes
-    invalid_utf8 = b'\xff\xfe'
+    invalid_utf8 = b"\xff\xfe"
 
     async def stream_invalid_utf8():
         yield invalid_utf8
@@ -202,4 +202,3 @@ def test_csp_report_endpoint_handles_pydantic_validation_error(client):
     # Should return 422 with validation error message
     assert response.status_code == 422
     assert "Invalid CSP report format" in response.json()["detail"]
-

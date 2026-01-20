@@ -237,9 +237,7 @@ def _is_reconciliation_ready(ctx: AppContext, config: ExecutionGatewayConfig) ->
     return ctx.reconciliation_service.is_startup_complete()
 
 
-def _calculate_pending_order_qty(
-    open_orders: list[dict[str, Any]], order_side: str
-) -> Decimal:
+def _calculate_pending_order_qty(open_orders: list[dict[str, Any]], order_side: str) -> Decimal:
     """Calculate total pending quantity for orders of a given side.
 
     Args:

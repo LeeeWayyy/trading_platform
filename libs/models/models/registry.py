@@ -700,6 +700,9 @@ class ModelRegistry:
         """
         now = datetime.now(UTC)
 
+        # Validation errors to raise after transaction is handled
+        validation_error: ModelNotFoundError | None = None
+
         with self._get_connection() as conn:
             # Use explicit transaction to ensure atomicity
             # DuckDB uses BEGIN TRANSACTION (not BEGIN IMMEDIATE like SQLite)
@@ -715,7 +718,8 @@ class ModelRegistry:
                 ).fetchone()
                 if not current:
                     conn.execute("ROLLBACK")
-                    raise ModelNotFoundError(model_type, "production")
+                    validation_error = ModelNotFoundError(model_type, "production")
+                    raise validation_error
 
                 current_id, current_version = current
 
@@ -732,12 +736,13 @@ class ModelRegistry:
                 # Fail if no archived version to rollback to - don't leave registry without production
                 if not previous:
                     conn.execute("ROLLBACK")
-                    raise ModelNotFoundError(
+                    validation_error = ModelNotFoundError(
                         model_type,
                         "archived",
                         "Cannot rollback: no archived version available to restore. "
                         "Current production model will remain unchanged.",
                     )
+                    raise validation_error
 
                 previous_id, previous_version = previous
 
@@ -778,6 +783,9 @@ class ModelRegistry:
                 )
 
                 conn.execute("COMMIT")
+            except ModelNotFoundError:
+                # Validation errors are already rolled back, just re-raise
+                raise
             except Exception as e:
                 conn.execute("ROLLBACK")
                 logger.error(f"Rollback transaction failed: {e}")
@@ -1124,10 +1132,14 @@ class ModelRegistry:
         if not result:
             return None
 
-        status_val, artifact_path, promoted_at_str = result
+        status_val, artifact_path, promoted_at_val = result
         promoted_at = None
-        if promoted_at_str:
-            promoted_at = datetime.fromisoformat(promoted_at_str)
+        if promoted_at_val:
+            # DuckDB returns datetime objects directly for TIMESTAMP columns
+            if isinstance(promoted_at_val, datetime):
+                promoted_at = promoted_at_val
+            else:
+                promoted_at = datetime.fromisoformat(promoted_at_val)
 
         return {
             "status": status_val,
@@ -1161,10 +1173,14 @@ class ModelRegistry:
             rows = conn.execute(query, [model_type, *versions]).fetchall()
 
         info: dict[str, dict[str, Any]] = {}
-        for version, status_val, artifact_path, promoted_at_str in rows:
+        for version, status_val, artifact_path, promoted_at_val in rows:
             promoted_at = None
-            if promoted_at_str:
-                promoted_at = datetime.fromisoformat(promoted_at_str)
+            if promoted_at_val:
+                # DuckDB returns datetime objects directly for TIMESTAMP columns
+                if isinstance(promoted_at_val, datetime):
+                    promoted_at = promoted_at_val
+                else:
+                    promoted_at = datetime.fromisoformat(promoted_at_val)
             info[str(version)] = {
                 "status": status_val,
                 "artifact_path": artifact_path,

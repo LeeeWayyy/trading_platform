@@ -1,5 +1,7 @@
 # libs/platform
 
+<!-- Last reviewed: 2026-01-18 - microstructure.py VPIN zero-volume and depth edge cases -->
+
 ## Identity
 - **Type:** Library Group (Platform Services)
 - **Location:** `libs/platform/`

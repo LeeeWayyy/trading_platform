@@ -261,9 +261,7 @@ async def fetch_positions(execution_gateway_url: str) -> list[dict[str, Any]]:
                 error_detail = e.response.text[:500]
             except (OSError, ValueError) as e_other:
                 # Other errors parsing response
-                print(
-                    f"  Warning: Error reading T4 API response: {e_other}", file=sys.stderr
-                )
+                print(f"  Warning: Error reading T4 API response: {e_other}", file=sys.stderr)
                 error_detail = e.response.text[:500]
 
             raise RuntimeError(

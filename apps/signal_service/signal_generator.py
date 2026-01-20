@@ -399,6 +399,16 @@ class SignalGenerator:
                     fit_end_date=date_str,
                     data_dir=self.data_provider.data_dir,
                 )
+                if (
+                    not fresh_features.empty
+                    and isinstance(fresh_features.index, pd.MultiIndex)
+                    and "instrument" in fresh_features.index.names
+                ):
+                    fresh_features = fresh_features.loc[
+                        fresh_features.index.get_level_values("instrument").isin(
+                            set(symbols_to_generate)
+                        )
+                    ]
 
                 # Cache the freshly generated features (per-symbol)
                 if self.feature_cache is not None and not fresh_features.empty:
@@ -422,17 +432,32 @@ class SignalGenerator:
                             # Cache write error - log but don't fail (graceful degradation)
                             logger.warning(
                                 f"Failed to cache features for {symbol}: {e}",
-                                extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
+                                extra={
+                                    "symbol": symbol,
+                                    "date": date_str,
+                                    "error_type": type(e).__name__,
+                                },
                             )
 
                 features_list.append(fresh_features)
 
-            except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
+            except (
+                KeyError,
+                ValueError,
+                TypeError,
+                AttributeError,
+                FileNotFoundError,
+                OSError,
+            ) as e:
                 # FALLBACK: Use mock features if Qlib integration not available
                 # This allows P3 testing without full Qlib data setup
                 logger.warning(
                     f"Falling back to mock features due to error: {e}",
-                    extra={"date": date_str, "symbols": symbols_to_generate, "error_type": type(e).__name__},
+                    extra={
+                        "date": date_str,
+                        "symbols": symbols_to_generate,
+                        "error_type": type(e).__name__,
+                    },
                 )
                 try:
                     mock_features = get_mock_alpha158_features(
@@ -441,6 +466,16 @@ class SignalGenerator:
                         end_date=date_str,
                         data_dir=self.data_provider.data_dir,
                     )
+                    if (
+                        not mock_features.empty
+                        and isinstance(mock_features.index, pd.MultiIndex)
+                        and "instrument" in mock_features.index.names
+                    ):
+                        mock_features = mock_features.loc[
+                            mock_features.index.get_level_values("instrument").isin(
+                                set(symbols_to_generate)
+                            )
+                        ]
 
                     # Cache mock features too (for consistency)
                     if self.feature_cache is not None and not mock_features.empty:
@@ -455,17 +490,38 @@ class SignalGenerator:
                                     )
                                     self.feature_cache.set(symbol, date_str, features_dict)
                                     logger.debug(f"Cached mock features for {symbol} on {date_str}")
-                            except (RedisError, TypeError, ValueError, KeyError, IndexError) as cache_error:
+                            except (
+                                RedisError,
+                                TypeError,
+                                ValueError,
+                                KeyError,
+                                IndexError,
+                            ) as cache_error:
                                 logger.warning(
                                     f"Failed to cache mock features for {symbol}: {cache_error}",
-                                    extra={"symbol": symbol, "date": date_str, "error_type": type(cache_error).__name__},
+                                    extra={
+                                        "symbol": symbol,
+                                        "date": date_str,
+                                        "error_type": type(cache_error).__name__,
+                                    },
                                 )
 
                     features_list.append(mock_features)
-                except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as mock_error:
+                except (
+                    KeyError,
+                    ValueError,
+                    TypeError,
+                    AttributeError,
+                    FileNotFoundError,
+                    OSError,
+                ) as mock_error:
                     logger.error(
                         f"Failed to generate mock features: {mock_error}",
-                        extra={"date": date_str, "symbols": symbols_to_generate, "error_type": type(mock_error).__name__},
+                        extra={
+                            "date": date_str,
+                            "symbols": symbols_to_generate,
+                            "error_type": type(mock_error).__name__,
+                        },
                         exc_info=True,
                     )
                     raise ValueError(
@@ -475,9 +531,14 @@ class SignalGenerator:
         # Combine all features (cached + freshly generated)
         if features_list:
             features = pd.concat(features_list, axis=0)
-            # Sort by symbol to ensure consistent ordering with input symbols
-            # This is critical for matching predictions to symbols
-            features = features.sort_index(level="instrument")
+            if not features.empty:
+                if not isinstance(features.index, pd.MultiIndex) or (
+                    "instrument" not in features.index.names
+                ):
+                    raise ValueError("Generated features missing 'instrument' MultiIndex level")
+                # Sort by symbol to ensure consistent ordering with input symbols
+                # This is critical for matching predictions to symbols
+                features = features.sort_index(level="instrument")
         else:
             features = pd.DataFrame()
 
@@ -590,19 +651,85 @@ class SignalGenerator:
         # Use nsmallest because rank 1 = best (smallest rank number)
         if self.top_n > 0:
             top_symbols = results.nsmallest(self.top_n, "rank")
-            if not top_symbols.empty:
-                # Equal weight: 1.0 / N for each long position
-                # Example: top_n=3 means each gets 0.3333 (33.3% of capital)
-                results.loc[top_symbols.index, "target_weight"] = 1.0 / self.top_n
+        else:
+            top_symbols = pd.DataFrame()
 
         # Short positions (bottom N by predicted return)
         # Use nlargest because rank N = worst (largest rank number)
         if self.bottom_n > 0:
             bottom_symbols = results.nlargest(self.bottom_n, "rank")
-            if not bottom_symbols.empty:
-                # Equal weight: -1.0 / N for each short position
-                # Example: bottom_n=3 means each gets -0.3333 (-33.3% of capital)
-                results.loc[bottom_symbols.index, "target_weight"] = -1.0 / self.bottom_n
+        else:
+            bottom_symbols = pd.DataFrame()
+
+        if not top_symbols.empty and not bottom_symbols.empty:
+            overlap = top_symbols.index.intersection(bottom_symbols.index)
+            if not overlap.empty:
+                # DESIGN: When top_n + bottom_n > universe size, some symbols appear in both.
+                # Resolution: Remove overlaps from shorts (longs have priority).
+                # Market neutrality preserved via weight scaling: both sides scaled down equally.
+                # Per-position shorts capped at 1/bottom_n, longs scaled to match total short.
+                logger.warning(
+                    "Signal overlap detected: %d symbols in both top and bottom selections. "
+                    "Removed from short candidates to maintain market neutrality. "
+                    "Consider reducing top_n + bottom_n or increasing universe size.",
+                    len(overlap),
+                    extra={
+                        "overlap_count": len(overlap),
+                        "top_n": self.top_n,
+                        "bottom_n": self.bottom_n,
+                        "universe_size": len(results),
+                        "overlap_symbols": list(overlap)[:10],  # Limit log size
+                    },
+                )
+                bottom_symbols = bottom_symbols.drop(index=overlap)
+
+                # GUARD: If all shorts were removed, market neutrality is broken
+                if bottom_symbols.empty and not top_symbols.empty:
+                    logger.error(
+                        "Market neutrality violated: all short candidates removed by overlap. "
+                        "Zeroing all weights as safety fallback. "
+                        "Fix by reducing top_n + bottom_n or increasing universe size.",
+                        extra={
+                            "overlap_count": len(overlap),
+                            "top_n": self.top_n,
+                            "bottom_n": self.bottom_n,
+                            "universe_size": len(results),
+                        },
+                    )
+                    # Reset to empty to produce all-zero weights
+                    top_symbols = pd.DataFrame()
+                    bottom_symbols = pd.DataFrame()
+
+        long_count = len(top_symbols)
+        short_count = len(bottom_symbols)
+
+        # Calculate weights while maintaining market neutrality (net exposure = 0)
+        # When overlaps reduce short count, we cap per-position weights AND scale longs down
+        if short_count > 0:
+            # Cap short weight at 1/bottom_n to prevent concentration
+            max_short_weight = 1.0 / self.bottom_n
+            actual_short_weight = min(1.0 / short_count, max_short_weight)
+            total_short_exposure = actual_short_weight * short_count
+            results.loc[bottom_symbols.index, "target_weight"] = -actual_short_weight
+
+            if short_count < self.bottom_n:
+                logger.warning(
+                    "Short positions reduced: %d instead of %d due to overlap. "
+                    "Per-position capped at %.2f, total short = %.2f. "
+                    "Longs scaled to match for market neutrality.",
+                    short_count,
+                    self.bottom_n,
+                    max_short_weight,
+                    total_short_exposure,
+                )
+        else:
+            total_short_exposure = 0.0
+
+        if long_count > 0:
+            # Scale longs to match total short exposure for market neutrality
+            # If shorts reduced by overlap, longs also scale down proportionally
+            target_long_exposure = total_short_exposure if short_count > 0 else 1.0
+            results.loc[top_symbols.index, "target_weight"] = target_long_exposure / long_count
 
         # ====================================================================
         # Step 8: Sort by rank and return
@@ -728,12 +855,28 @@ class SignalGenerator:
         for offset in range(history_days):
             current_date = (end_date - timedelta(days=offset)).date()
             try:
+                current_datetime = datetime.combine(current_date, time.min, tzinfo=UTC)
+                date_str = current_datetime.strftime("%Y-%m-%d")
                 result = self.precompute_features(
                     symbols=symbols,
-                    as_of_date=datetime.combine(current_date, time.min, tzinfo=UTC),
+                    as_of_date=current_datetime,
                 )
                 total_cached += result["cached_count"]
                 total_skipped += result["skipped_count"]
+                # Treat full-cache-miss with zero cached as a failed date
+                if result["cached_count"] == 0 and result["skipped_count"] >= len(symbols):
+                    cache_ok = False
+                    if self.feature_cache is not None:
+                        try:
+                            cached = self.feature_cache.mget(symbols, date_str)
+                            cache_ok = cached is not None and all(
+                                cached.get(symbol) is not None for symbol in symbols
+                            )
+                        except (RedisError, KeyError, TypeError, ValueError):
+                            cache_ok = False
+                    if not cache_ok:
+                        dates_failed += 1
+                        continue
                 dates_succeeded += 1
             except (ValueError, KeyError, TypeError, FileNotFoundError, OSError, RedisError) as exc:
                 dates_failed += 1
@@ -890,7 +1033,11 @@ class SignalGenerator:
             # Fallback to mock features if real features fail
             logger.warning(
                 f"Feature generation failed, trying mock: {e}",
-                extra={"error_type": type(e).__name__, "date": date_str, "symbols_count": len(symbols_to_generate)},
+                extra={
+                    "error_type": type(e).__name__,
+                    "date": date_str,
+                    "symbols_count": len(symbols_to_generate),
+                },
             )
             try:
                 mock_features = get_mock_alpha158_features(
@@ -913,13 +1060,28 @@ class SignalGenerator:
                         symbols_failed.append(symbol)
                         logger.warning(
                             f"Mock cache error for {symbol}: {cache_err}",
-                            extra={"symbol": symbol, "date": date_str, "error_type": type(cache_err).__name__},
+                            extra={
+                                "symbol": symbol,
+                                "date": date_str,
+                                "error_type": type(cache_err).__name__,
+                            },
                         )
 
-            except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as mock_err:
+            except (
+                KeyError,
+                ValueError,
+                TypeError,
+                AttributeError,
+                FileNotFoundError,
+                OSError,
+            ) as mock_err:
                 logger.error(
                     f"Mock feature generation also failed: {mock_err}",
-                    extra={"error_type": type(mock_err).__name__, "date": date_str, "symbols_count": len(symbols_to_generate)},
+                    extra={
+                        "error_type": type(mock_err).__name__,
+                        "date": date_str,
+                        "symbols_count": len(symbols_to_generate),
+                    },
                 )
                 symbols_failed = symbols_to_generate
 

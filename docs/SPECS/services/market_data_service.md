@@ -148,6 +148,6 @@ curl -s -X POST http://localhost:8004/api/v1/subscribe   -H 'Content-Type: appli
 - `../libs/market_data.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from apps/market_data_service/tests/ to tests/apps/market_data_service/)
 - **Source Files:** `apps/market_data_service/main.py`, `apps/market_data_service/config.py`, `apps/market_data_service/position_sync.py`, `libs/market_data`
 - **ADRs:** N/A

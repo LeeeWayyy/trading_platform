@@ -302,7 +302,7 @@ class TestMaxSharpeOptimization:
     ):
         """Max Sharpe tilts toward high return assets."""
         # Create expected returns with clear winners
-        expected_returns = {p: 0.0001 for p in sample_universe}
+        expected_returns = dict.fromkeys(sample_universe, 0.0001)
         # Make first 5 stocks have much higher returns
         for _i, p in enumerate(sample_universe[:5]):
             expected_returns[p] = 0.01

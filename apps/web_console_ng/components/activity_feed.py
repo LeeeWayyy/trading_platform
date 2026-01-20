@@ -24,9 +24,11 @@ class ActivityFeed:
         self._item_elements: deque[ui.row] = deque(maxlen=self.MAX_ITEMS)
         self._container_id = f"activity-feed-{id(self)}"
 
-        with ui.card().classes("w-full h-64 overflow-y-auto").props(
-            f"id={self._container_id}"
-        ) as card:
+        with (
+            ui.card()
+            .classes("w-full h-64 overflow-y-auto")
+            .props(f"id={self._container_id}") as card
+        ):
             self._container = card
             ui.label("Recent Activity").classes("text-lg font-bold mb-2")
             self._items_column = ui.column().classes("w-full gap-1")

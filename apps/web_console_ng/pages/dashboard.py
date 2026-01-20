@@ -126,7 +126,9 @@ class MarketPriceCache:
             else:
                 fetch_prices = getattr(client, "fetch_market_prices", None)
                 if not callable(fetch_prices):
-                    logger.warning("market_prices_fetch_missing", extra={"reason": "method_missing"})
+                    logger.warning(
+                        "market_prices_fetch_missing", extra={"reason": "method_missing"}
+                    )
                     return [dict(p) for p in cached_prices]
                 task = asyncio.create_task(
                     fetch_prices(
@@ -201,7 +203,9 @@ async def dashboard(client: Client) -> None:
         user_strategies = [str(strategy) for strategy in strategies if strategy]
 
     if not user_id:
-        logger.warning("dashboard_missing_user_id", extra={"client_id": client.storage.get("client_id")})
+        logger.warning(
+            "dashboard_missing_user_id", extra={"client_id": client.storage.get("client_id")}
+        )
         ui.notify("Session expired - please log in again", type="negative")
         ui.navigate.to("/login")
         return
@@ -303,7 +307,11 @@ async def dashboard(client: Client) -> None:
             # Invalid timestamp format - skip time formatting
             logger.debug(
                 "Failed to parse event timestamp",
-                extra={"error": str(e), "error_type": type(e).__name__, "timestamp": event.get("timestamp")},
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "timestamp": event.get("timestamp"),
+                },
             )
         return event
 

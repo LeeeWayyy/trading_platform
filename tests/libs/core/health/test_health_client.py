@@ -143,7 +143,9 @@ def test_staleness_age_calculated_from_cache(
     )
     client._cache["svc"] = (cached, datetime.now(UTC) - timedelta(seconds=5))
 
-    queue: deque[Any] = deque([httpx.TimeoutException("timeout"), httpx.TimeoutException("timeout")])
+    queue: deque[Any] = deque(
+        [httpx.TimeoutException("timeout"), httpx.TimeoutException("timeout")]
+    )
     _make_client_with_queue(queue, monkeypatch)
 
     result = asyncio.run(client.check_service("svc"))

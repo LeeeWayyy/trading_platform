@@ -89,7 +89,9 @@ async def data_management_page() -> None:
 # === Data Sync Section ===
 
 
-async def _render_data_sync_section(user: dict[str, Any], db_pool: AsyncConnectionPool | None) -> None:
+async def _render_data_sync_section(
+    user: dict[str, Any], db_pool: AsyncConnectionPool | None
+) -> None:
     """Render Data Sync dashboard section."""
     if not has_permission(user, Permission.VIEW_DATA_SYNC):
         ui.label("Permission denied: VIEW_DATA_SYNC required").classes("text-red-500")
@@ -120,8 +122,18 @@ async def _render_sync_status(user: dict[str, Any]) -> None:
 
     # Mock data for demonstration
     statuses: list[dict[str, Any]] = [
-        {"dataset": "market_data", "last_sync": datetime.now(), "status": "success", "records": 15000},
-        {"dataset": "fundamentals", "last_sync": datetime.now(), "status": "success", "records": 5000},
+        {
+            "dataset": "market_data",
+            "last_sync": datetime.now(),
+            "status": "success",
+            "records": 15000,
+        },
+        {
+            "dataset": "fundamentals",
+            "last_sync": datetime.now(),
+            "status": "success",
+            "records": 5000,
+        },
         {"dataset": "signals", "last_sync": datetime.now(), "status": "pending", "records": 0},
     ]
 
@@ -138,12 +150,14 @@ async def _render_sync_status(user: dict[str, Any]) -> None:
         last_sync_str = "-"
         if last_sync_val is not None and hasattr(last_sync_val, "isoformat"):
             last_sync_str = last_sync_val.isoformat()
-        rows.append({
-            "dataset": s["dataset"],
-            "last_sync": last_sync_str,
-            "status": s["status"],
-            "records": s["records"],
-        })
+        rows.append(
+            {
+                "dataset": s["dataset"],
+                "last_sync": last_sync_str,
+                "status": s["status"],
+                "records": s["records"],
+            }
+        )
 
     ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -181,9 +195,24 @@ async def _render_sync_logs(user: dict[str, Any]) -> None:
 
     # Mock logs
     logs: list[dict[str, Any]] = [
-        {"timestamp": datetime.now(), "dataset": "market_data", "action": "sync_completed", "duration": "45s"},
-        {"timestamp": datetime.now(), "dataset": "fundamentals", "action": "sync_completed", "duration": "30s"},
-        {"timestamp": datetime.now(), "dataset": "signals", "action": "sync_started", "duration": "-"},
+        {
+            "timestamp": datetime.now(),
+            "dataset": "market_data",
+            "action": "sync_completed",
+            "duration": "45s",
+        },
+        {
+            "timestamp": datetime.now(),
+            "dataset": "fundamentals",
+            "action": "sync_completed",
+            "duration": "30s",
+        },
+        {
+            "timestamp": datetime.now(),
+            "dataset": "signals",
+            "action": "sync_started",
+            "duration": "-",
+        },
     ]
 
     columns: list[dict[str, Any]] = [
@@ -199,12 +228,14 @@ async def _render_sync_logs(user: dict[str, Any]) -> None:
         ts_str = "-"
         if ts_val is not None and hasattr(ts_val, "isoformat"):
             ts_str = ts_val.isoformat()
-        rows.append({
-            "timestamp": ts_str,
-            "dataset": log["dataset"],
-            "action": log["action"],
-            "duration": log["duration"],
-        })
+        rows.append(
+            {
+                "timestamp": ts_str,
+                "dataset": log["dataset"],
+                "action": log["action"],
+                "duration": log["duration"],
+            }
+        )
 
     ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -214,7 +245,9 @@ async def _render_sync_schedule(user: dict[str, Any]) -> None:
     ui.label("Sync Schedule").classes("font-bold mb-2")
 
     if not has_permission(user, Permission.MANAGE_SYNC_SCHEDULE):
-        ui.label("Schedule editing requires MANAGE_SYNC_SCHEDULE permission").classes("text-gray-500")
+        ui.label("Schedule editing requires MANAGE_SYNC_SCHEDULE permission").classes(
+            "text-gray-500"
+        )
 
     # Display current schedules
     schedules: list[dict[str, Any]] = [
@@ -236,7 +269,9 @@ async def _render_sync_schedule(user: dict[str, Any]) -> None:
 # === Data Explorer Section ===
 
 
-async def _render_data_explorer_section(user: dict[str, Any], db_pool: AsyncConnectionPool | None) -> None:
+async def _render_data_explorer_section(
+    user: dict[str, Any], db_pool: AsyncConnectionPool | None
+) -> None:
     """Render Data Explorer section."""
     if not has_permission(user, Permission.QUERY_DATA):
         ui.label("Permission denied: QUERY_DATA required").classes("text-red-500")
@@ -276,12 +311,14 @@ async def _render_data_explorer_section(user: dict[str, Any], db_pool: AsyncConn
                 ).classes("w-full font-mono")
 
                 with ui.row().classes("gap-2 mt-2"):
+
                     async def run_query() -> None:
                         ui.notify("Query executed (demo mode)", type="positive")
 
                     ui.button("Run Query", on_click=run_query, color="primary")
 
                     if has_permission(user, Permission.EXPORT_DATA):
+
                         async def export_data() -> None:
                             ui.notify("Export started (demo mode)", type="positive")
 
@@ -310,7 +347,9 @@ async def _render_data_explorer_section(user: dict[str, Any], db_pool: AsyncConn
 # === Data Quality Section ===
 
 
-async def _render_data_quality_section(user: dict[str, Any], db_pool: AsyncConnectionPool | None) -> None:
+async def _render_data_quality_section(
+    user: dict[str, Any], db_pool: AsyncConnectionPool | None
+) -> None:
     """Render Data Quality reports section."""
     if not has_permission(user, Permission.VIEW_DATA_QUALITY):
         ui.label("Permission denied: VIEW_DATA_QUALITY required").classes("text-red-500")
@@ -345,9 +384,24 @@ async def _render_validation_results() -> None:
 
     # Mock validation results
     results: list[dict[str, Any]] = [
-        {"dataset": "market_data", "check": "null_check", "status": "passed", "timestamp": datetime.now()},
-        {"dataset": "market_data", "check": "range_check", "status": "passed", "timestamp": datetime.now()},
-        {"dataset": "fundamentals", "check": "null_check", "status": "failed", "timestamp": datetime.now()},
+        {
+            "dataset": "market_data",
+            "check": "null_check",
+            "status": "passed",
+            "timestamp": datetime.now(),
+        },
+        {
+            "dataset": "market_data",
+            "check": "range_check",
+            "status": "passed",
+            "timestamp": datetime.now(),
+        },
+        {
+            "dataset": "fundamentals",
+            "check": "null_check",
+            "status": "failed",
+            "timestamp": datetime.now(),
+        },
     ]
 
     columns: list[dict[str, Any]] = [
@@ -363,12 +417,14 @@ async def _render_validation_results() -> None:
         ts_str = "-"
         if ts_val is not None and hasattr(ts_val, "isoformat"):
             ts_str = ts_val.isoformat()
-        rows.append({
-            "dataset": r["dataset"],
-            "check": r["check"],
-            "status": r["status"],
-            "timestamp": ts_str,
-        })
+        rows.append(
+            {
+                "dataset": r["dataset"],
+                "check": r["check"],
+                "status": r["status"],
+                "timestamp": ts_str,
+            }
+        )
 
     ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -379,9 +435,21 @@ async def _render_anomaly_alerts() -> None:
 
     # Mock anomalies
     anomalies: list[dict[str, Any]] = [
-        {"severity": "high", "message": "Missing data for AAPL on 2024-01-15", "detected": datetime.now()},
-        {"severity": "medium", "message": "Unusual price spike for TSLA", "detected": datetime.now()},
-        {"severity": "low", "message": "Stale data detected in fundamentals", "detected": datetime.now()},
+        {
+            "severity": "high",
+            "message": "Missing data for AAPL on 2024-01-15",
+            "detected": datetime.now(),
+        },
+        {
+            "severity": "medium",
+            "message": "Unusual price spike for TSLA",
+            "detected": datetime.now(),
+        },
+        {
+            "severity": "low",
+            "message": "Stale data detected in fundamentals",
+            "detected": datetime.now(),
+        },
     ]
 
     for anomaly in anomalies:
@@ -438,7 +506,12 @@ async def _render_data_coverage() -> None:
     columns: list[dict[str, Any]] = [
         {"name": "dataset", "label": "Dataset", "field": "dataset"},
         {"name": "coverage", "label": "Coverage %", "field": "coverage", "sortable": True},
-        {"name": "missing_days", "label": "Missing Days (30d)", "field": "missing_days", "sortable": True},
+        {
+            "name": "missing_days",
+            "label": "Missing Days (30d)",
+            "field": "missing_days",
+            "sortable": True,
+        },
     ]
 
     rows: list[dict[str, Any]] = [

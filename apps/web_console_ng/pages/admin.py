@@ -247,7 +247,9 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             try:
                 result = await _create_api_key(db_pool, user_id, name.strip(), scopes, expires_at)
                 if result:
-                    ui.notify("API key created! Copy it now - it won't be shown again.", type="positive")
+                    ui.notify(
+                        "API key created! Copy it now - it won't be shown again.", type="positive"
+                    )
                     # Show the key in a dialog
                     with ui.dialog() as dialog, ui.card():
                         ui.label("Your new API key:").classes("font-bold")
@@ -317,13 +319,15 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             else:
                 scopes_str = str(scopes)
 
-            rows.append({
-                "name": key["name"],
-                "key_prefix": key["key_prefix"],
-                "scopes": scopes_str,
-                "created_at": key["created_at"].isoformat() if key.get("created_at") else "-",
-                "status": status,
-            })
+            rows.append(
+                {
+                    "name": key["name"],
+                    "key_prefix": key["key_prefix"],
+                    "scopes": scopes_str,
+                    "created_at": key["created_at"].isoformat() if key.get("created_at") else "-",
+                    "status": status,
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -681,9 +685,15 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
 
         with ui.row().classes("gap-4 flex-wrap"):
             user_filter = ui.input(label="User ID").classes("w-40")
-            action_filter = ui.select(label="Action", options=ACTION_CHOICES, value="All").classes("w-40")
-            event_filter = ui.select(label="Event Type", options=EVENT_TYPES, value="All").classes("w-40")
-            outcome_filter = ui.select(label="Outcome", options=OUTCOMES, value="All").classes("w-40")
+            action_filter = ui.select(label="Action", options=ACTION_CHOICES, value="All").classes(
+                "w-40"
+            )
+            event_filter = ui.select(label="Event Type", options=EVENT_TYPES, value="All").classes(
+                "w-40"
+            )
+            outcome_filter = ui.select(label="Outcome", options=OUTCOMES, value="All").classes(
+                "w-40"
+            )
 
         with ui.row().classes("gap-4 mt-2"):
             use_date = ui.checkbox("Filter by date range")
@@ -717,9 +727,7 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
                     date.fromisoformat(start_date.value), time.min, tzinfo=UTC
                 )
             if end_date.value:
-                end_at = datetime.combine(
-                    date.fromisoformat(end_date.value), time.max, tzinfo=UTC
-                )
+                end_at = datetime.combine(date.fromisoformat(end_date.value), time.max, tzinfo=UTC)
 
         return AuditFilters(
             user_id=user_id,
@@ -741,9 +749,9 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
 
     @ui.refreshable
     def logs_display() -> None:
-        ui.label(f"Showing {len(logs_data)} of {total_count} records (page {current_page + 1})").classes(
-            "text-sm text-gray-500 mb-2"
-        )
+        ui.label(
+            f"Showing {len(logs_data)} of {total_count} records (page {current_page + 1})"
+        ).classes("text-sm text-gray-500 mb-2")
 
         if not logs_data:
             ui.label("No audit events found for the selected filters.").classes("text-gray-500")
@@ -761,14 +769,16 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
 
         rows: list[dict[str, Any]] = []
         for log in logs_data:
-            rows.append({
-                "timestamp": log["timestamp"].isoformat() if log.get("timestamp") else "-",
-                "user_id": log.get("user_id", "-"),
-                "action": log.get("action", "-"),
-                "event_type": log.get("event_type", "-"),
-                "resource": f"{log.get('resource_type', '-')}/{log.get('resource_id', '-')}",
-                "outcome": log.get("outcome", "-"),
-            })
+            rows.append(
+                {
+                    "timestamp": log["timestamp"].isoformat() if log.get("timestamp") else "-",
+                    "user_id": log.get("user_id", "-"),
+                    "action": log.get("action", "-"),
+                    "event_type": log.get("event_type", "-"),
+                    "resource": f"{log.get('resource_type', '-')}/{log.get('resource_id', '-')}",
+                    "outcome": log.get("outcome", "-"),
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -784,6 +794,7 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
 
     # Pagination
     with ui.row().classes("gap-4 mt-4"):
+
         async def prev_page() -> None:
             nonlocal current_page
             if current_page > 0:
@@ -855,13 +866,20 @@ async def _fetch_audit_logs(
     """
 
     params = (
-        filters.user_id, filters.user_id,
-        filters.action, filters.action,
-        filters.event_type, filters.event_type,
-        filters.outcome, filters.outcome,
-        filters.start_at, filters.start_at,
-        filters.end_at, filters.end_at,
-        limit, offset,
+        filters.user_id,
+        filters.user_id,
+        filters.action,
+        filters.action,
+        filters.event_type,
+        filters.event_type,
+        filters.outcome,
+        filters.outcome,
+        filters.start_at,
+        filters.start_at,
+        filters.end_at,
+        filters.end_at,
+        limit,
+        offset,
     )
     count_params = params[:-2]
 
@@ -897,8 +915,14 @@ async def _fetch_audit_logs(
 def _build_audit_csv(logs: list[dict[str, Any]]) -> bytes:
     """Build CSV bytes from audit logs."""
     fieldnames = [
-        "timestamp", "user_id", "action", "event_type",
-        "resource_type", "resource_id", "outcome", "details",
+        "timestamp",
+        "user_id",
+        "action",
+        "event_type",
+        "resource_type",
+        "resource_id",
+        "outcome",
+        "details",
     ]
 
     output_rows = []
@@ -907,16 +931,18 @@ def _build_audit_csv(logs: list[dict[str, Any]]) -> bytes:
         ts_str = ""
         if ts_val is not None and hasattr(ts_val, "isoformat"):
             ts_str = ts_val.isoformat()
-        output_rows.append({
-            "timestamp": ts_str,
-            "user_id": str(log.get("user_id") or ""),
-            "action": str(log.get("action") or ""),
-            "event_type": str(log.get("event_type") or ""),
-            "resource_type": str(log.get("resource_type") or ""),
-            "resource_id": str(log.get("resource_id") or ""),
-            "outcome": str(log.get("outcome") or ""),
-            "details": json.dumps(log.get("details") or {}, default=str),
-        })
+        output_rows.append(
+            {
+                "timestamp": ts_str,
+                "user_id": str(log.get("user_id") or ""),
+                "action": str(log.get("action") or ""),
+                "event_type": str(log.get("event_type") or ""),
+                "resource_type": str(log.get("resource_type") or ""),
+                "resource_id": str(log.get("resource_id") or ""),
+                "outcome": str(log.get("outcome") or ""),
+                "details": json.dumps(log.get("details") or {}, default=str),
+            }
+        )
 
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)

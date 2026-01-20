@@ -65,7 +65,9 @@ class TestVaultSecretManagerInitialization:
 
     def test_init_successful_connection(self, mock_hvac_client):
         """Test successful initialization with valid credentials."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             secret_mgr = VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -81,7 +83,9 @@ class TestVaultSecretManagerInitialization:
 
     def test_init_custom_mount_point(self, mock_hvac_client):
         """Test initialization with custom KV mount point."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             secret_mgr = VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -92,7 +96,9 @@ class TestVaultSecretManagerInitialization:
 
     def test_init_custom_cache_ttl(self, mock_hvac_client):
         """Test initialization with custom cache TTL."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             secret_mgr = VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -104,7 +110,9 @@ class TestVaultSecretManagerInitialization:
 
     def test_init_disable_tls_verification(self, mock_hvac_client):
         """Test initialization with TLS verification disabled (local dev only)."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             secret_mgr = VaultSecretManager(
                 vault_url="https://localhost:8200",
                 token="s.test_token",
@@ -503,7 +511,9 @@ class TestVaultSecretManagerContextManager:
 
     def test_context_manager_enter_exit(self, mock_hvac_client):
         """Test using VaultSecretManager as context manager."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             with VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -519,7 +529,9 @@ class TestVaultSecretManagerContextManager:
             "data": {"data": {"value": "test_value"}}
         }
 
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             with VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -547,7 +559,9 @@ class TestVaultSecretManagerContextManager:
                 secret_mgr.get_secret("test_secret")
                 raise ValueError("Test exception")
 
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             with pytest.raises(ValueError, match="Test exception"):
                 _raise_with_manager()
 
@@ -585,7 +599,9 @@ class TestVaultSecretManagerCaching:
 
     def test_cache_expiration(self, mock_hvac_client):
         """Test cache expiration after TTL."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             secret_mgr = VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -652,7 +668,9 @@ class TestVaultSecretManagerCaching:
 
     def test_cache_disabled(self, mock_hvac_client):
         """Test behavior when caching is disabled (TTL=0)."""
-        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client
+        ):
             secret_mgr = VaultSecretManager(
                 vault_url="https://vault.example.com:8200",
                 token="s.test_token",
@@ -854,3 +872,281 @@ class TestVaultSecretManagerErrorHandling:
             vault_secret_mgr.set_secret("database/password", "value")
 
         assert mock_hvac_client.secrets.kv.v2.create_or_update_secret.call_count == 3
+
+
+# ================================================================================
+# Test Initialization Edge Cases
+# ================================================================================
+
+
+class TestVaultSecretManagerInitializationEdgeCases:
+    """Test VaultSecretManager initialization edge cases and error handling."""
+
+    def test_init_token_lacks_lookup_self_capability(self):
+        """Test initialization when token lacks 'lookup-self' capability (gracefully handled)."""
+        mock_client = MagicMock()
+        # is_authenticated() raises Forbidden when token lacks 'lookup-self' capability
+        mock_client.is_authenticated.side_effect = Forbidden("permission denied")
+        mock_client.sys.is_sealed.return_value = False
+
+        # Should log warning but not fail initialization
+        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_client):
+            secret_mgr = VaultSecretManager(
+                vault_url="https://vault.example.com:8200",
+                token="s.limited_token",
+            )
+
+        # Verify manager was created successfully
+        assert secret_mgr._client == mock_client
+        assert secret_mgr._vault_url == "https://vault.example.com:8200"
+
+    def test_init_token_lacks_seal_status_capability(self):
+        """Test initialization when token lacks 'sys/seal-status' capability (gracefully handled)."""
+        mock_client = MagicMock()
+        mock_client.is_authenticated.return_value = True
+        # sys.is_sealed() raises Forbidden when token lacks 'sys/seal-status' capability
+        mock_client.sys.is_sealed.side_effect = Forbidden("permission denied")
+
+        # Should log warning but not fail initialization
+        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_client):
+            secret_mgr = VaultSecretManager(
+                vault_url="https://vault.example.com:8200",
+                token="s.limited_token",
+            )
+
+        # Verify manager was created successfully
+        assert secret_mgr._client == mock_client
+
+    def test_init_both_capabilities_missing(self):
+        """Test initialization when token lacks both 'lookup-self' and 'sys/seal-status' capabilities."""
+        mock_client = MagicMock()
+        mock_client.is_authenticated.side_effect = Forbidden("permission denied")
+        mock_client.sys.is_sealed.side_effect = Forbidden("permission denied")
+
+        # Should log warnings but not fail initialization
+        with patch("libs.platform.secrets.vault_backend.hvac.Client", return_value=mock_client):
+            secret_mgr = VaultSecretManager(
+                vault_url="https://vault.example.com:8200",
+                token="s.minimal_token",
+            )
+
+        # Verify manager was created successfully (defers validation to first secret access)
+        assert secret_mgr._client == mock_client
+
+    def test_init_generic_vault_error(self):
+        """Test initialization failure with generic VaultError."""
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client",
+            side_effect=VaultError("Internal server error"),
+        ):
+            with pytest.raises(SecretAccessError) as exc_info:
+                VaultSecretManager(
+                    vault_url="https://vault.example.com:8200",
+                    token="s.test_token",
+                )
+
+        assert "vault_init" in str(exc_info.value.secret_name)
+        assert "initialization failed" in str(exc_info.value).lower()
+
+    def test_init_invalid_configuration_value_error(self):
+        """Test initialization failure with invalid configuration (ValueError)."""
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client",
+            side_effect=ValueError("Invalid vault URL format"),
+        ):
+            with pytest.raises(SecretAccessError) as exc_info:
+                VaultSecretManager(
+                    vault_url="invalid://url",
+                    token="s.test_token",
+                )
+
+        assert "vault_init" in str(exc_info.value.secret_name)
+        assert "invalid" in str(exc_info.value).lower()
+
+    def test_init_invalid_configuration_type_error(self):
+        """Test initialization failure with invalid configuration (TypeError)."""
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client",
+            side_effect=TypeError("token must be string"),
+        ):
+            with pytest.raises(SecretAccessError) as exc_info:
+                VaultSecretManager(
+                    vault_url="https://vault.example.com:8200",
+                    token="s.test_token",
+                )
+
+        assert "vault_init" in str(exc_info.value.secret_name)
+
+    def test_init_forbidden_exception(self):
+        """Test initialization failure with Forbidden exception during client creation."""
+        with patch(
+            "libs.platform.secrets.vault_backend.hvac.Client",
+            side_effect=Forbidden("Access denied"),
+        ):
+            with pytest.raises(SecretAccessError) as exc_info:
+                VaultSecretManager(
+                    vault_url="https://vault.example.com:8200",
+                    token="s.bad_token",
+                )
+
+        assert "vault_auth" in str(exc_info.value.secret_name)
+
+
+# ================================================================================
+# Test get_secret Edge Cases
+# ================================================================================
+
+
+class TestVaultSecretManagerGetSecretEdgeCases:
+    """Test VaultSecretManager.get_secret() edge cases."""
+
+    def test_get_secret_key_error_in_response(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of KeyError when response structure is malformed."""
+        # Missing nested 'data' key - this actually raises SecretNotFoundError since data is empty
+        mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {"data": {}}
+
+        with pytest.raises(SecretNotFoundError) as exc_info:
+            vault_secret_mgr.get_secret("database/password")
+
+        assert "database/password" in str(exc_info.value.secret_name)
+        assert "no data" in str(exc_info.value).lower()
+
+    def test_get_secret_value_error_in_response(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of ValueError during secret processing."""
+        mock_hvac_client.secrets.kv.v2.read_secret_version.side_effect = ValueError(
+            "Invalid response format"
+        )
+
+        with pytest.raises(SecretAccessError) as exc_info:
+            vault_secret_mgr.get_secret("database/password")
+
+        assert "database/password" in str(exc_info.value.secret_name)
+
+
+# ================================================================================
+# Test list_secrets Edge Cases
+# ================================================================================
+
+
+class TestVaultSecretManagerListSecretsEdgeCases:
+    """Test VaultSecretManager.list_secrets() edge cases."""
+
+    def test_list_secrets_key_error_in_response(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of KeyError when list response structure is malformed."""
+        # Missing 'keys' in response - this returns empty list (graceful handling)
+        mock_hvac_client.secrets.kv.v2.list_secrets.return_value = {"data": {}}
+
+        # Should return empty list instead of raising (graceful degradation)
+        secrets = vault_secret_mgr.list_secrets()
+        assert secrets == []
+
+    def test_list_secrets_value_error_in_response(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of ValueError during list processing."""
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = ValueError(
+            "Invalid response"
+        )
+
+        with pytest.raises(SecretAccessError) as exc_info:
+            vault_secret_mgr.list_secrets()
+
+        assert "invalid response format" in str(exc_info.value).lower()
+
+    def test_list_secrets_type_error_in_response(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of TypeError during list processing."""
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = TypeError(
+            "Cannot iterate over None"
+        )
+
+        with pytest.raises(SecretAccessError) as exc_info:
+            vault_secret_mgr.list_secrets()
+
+        assert "invalid response format" in str(exc_info.value).lower()
+
+    def test_list_secrets_deeply_nested_hierarchy(self, vault_secret_mgr, mock_hvac_client):
+        """Test listing secrets with deeply nested directory structure (stack-based algorithm)."""
+        # Simulate deeply nested structure: a/b/c/d/secret
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = [
+            {"data": {"keys": ["a/"]}},  # root
+            {"data": {"keys": ["b/"]}},  # a/
+            {"data": {"keys": ["c/"]}},  # a/b/
+            {"data": {"keys": ["d/"]}},  # a/b/c/
+            {"data": {"keys": ["secret1", "secret2"]}},  # a/b/c/d/
+        ]
+
+        secrets = vault_secret_mgr.list_secrets()
+
+        assert secrets == ["a/b/c/d/secret1", "a/b/c/d/secret2"]
+
+    def test_list_secrets_mixed_files_and_directories(self, vault_secret_mgr, mock_hvac_client):
+        """Test listing secrets with mixed files and directories at same level."""
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = [
+            {"data": {"keys": ["file1", "dir1/", "file2", "dir2/"]}},  # root
+            {"data": {"keys": ["another_file"]}},  # dir2/ (processed last from stack)
+            {"data": {"keys": ["nested_file"]}},  # dir1/ (processed first from stack)
+        ]
+
+        secrets = vault_secret_mgr.list_secrets()
+
+        # Files at root + files in directories (sorted alphabetically)
+        assert sorted(secrets) == [
+            "dir1/nested_file",
+            "dir2/another_file",
+            "file1",
+            "file2",
+        ]
+
+    def test_list_secrets_with_trailing_slash_in_prefix(self, vault_secret_mgr, mock_hvac_client):
+        """Test listing secrets with prefix that has trailing slash (should be stripped)."""
+        mock_hvac_client.secrets.kv.v2.list_secrets.return_value = {
+            "data": {"keys": ["password", "host"]}
+        }
+
+        secrets = vault_secret_mgr.list_secrets(prefix="database/")
+
+        # Verify trailing slash was stripped in API call
+        mock_hvac_client.secrets.kv.v2.list_secrets.assert_called_once_with(
+            path="database",
+            mount_point="kv",
+        )
+        assert sorted(secrets) == ["database/host", "database/password"]
+
+    def test_list_secrets_vault_error(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of generic VaultError during list_secrets."""
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = VaultError("Internal error")
+
+        with pytest.raises(SecretAccessError) as exc_info:
+            vault_secret_mgr.list_secrets()
+
+        assert "vault error" in str(exc_info.value).lower()
+
+
+# ================================================================================
+# Test set_secret Edge Cases
+# ================================================================================
+
+
+class TestVaultSecretManagerSetSecretEdgeCases:
+    """Test VaultSecretManager.set_secret() edge cases."""
+
+    def test_set_secret_value_error(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of ValueError during set_secret."""
+        mock_hvac_client.secrets.kv.v2.create_or_update_secret.side_effect = ValueError(
+            "Invalid value type"
+        )
+
+        with pytest.raises(SecretWriteError) as exc_info:
+            vault_secret_mgr.set_secret("database/password", "value")
+
+        assert "database/password" in str(exc_info.value.secret_name)
+        assert "invalid" in str(exc_info.value).lower()
+
+    def test_set_secret_type_error(self, vault_secret_mgr, mock_hvac_client):
+        """Test handling of TypeError during set_secret."""
+        mock_hvac_client.secrets.kv.v2.create_or_update_secret.side_effect = TypeError(
+            "Expected string"
+        )
+
+        with pytest.raises(SecretWriteError) as exc_info:
+            vault_secret_mgr.set_secret("database/password", "value")
+
+        assert "database/password" in str(exc_info.value.secret_name)

@@ -435,32 +435,38 @@ class ScheduledReportsService:
 
         fills = fills_data.get("events", [])
 
-        positions_rows = "\n".join(
-            f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"
-            f"<td>{_fmt_value(p.get('qty'))}</td>"
-            f"<td>{_fmt_money(p.get('avg_entry_price'))}</td>"
-            f"<td>{_fmt_money(p.get('current_price'))}</td>"
-            f"<td>{_fmt_money(p.get('unrealized_pl'))}</td>"
-            f"<td>{_fmt_money(p.get('realized_pl'))}</td></tr>"
-            for p in positions
-        ) or "<tr><td colspan=\"6\">No positions</td></tr>"
+        positions_rows = (
+            "\n".join(
+                f"<tr><td>{_fmt_value(p.get('symbol'))}</td>"
+                f"<td>{_fmt_value(p.get('qty'))}</td>"
+                f"<td>{_fmt_money(p.get('avg_entry_price'))}</td>"
+                f"<td>{_fmt_money(p.get('current_price'))}</td>"
+                f"<td>{_fmt_money(p.get('unrealized_pl'))}</td>"
+                f"<td>{_fmt_money(p.get('realized_pl'))}</td></tr>"
+                for p in positions
+            )
+            or '<tr><td colspan="6">No positions</td></tr>'
+        )
 
-        fills_rows = "\n".join(
-            f"<tr><td>{_fmt_value(f.get('timestamp'))}</td>"
-            f"<td>{_fmt_value(f.get('symbol'))}</td>"
-            f"<td>{_fmt_value(f.get('side'))}</td>"
-            f"<td>{_fmt_value(f.get('qty'))}</td>"
-            f"<td>{_fmt_money(f.get('price'))}</td>"
-            f"<td>{_fmt_money(f.get('realized_pl'))}</td>"
-            f"<td>{_fmt_value(f.get('status'))}</td></tr>"
-            for f in fills
-        ) or "<tr><td colspan=\"7\">No recent fills</td></tr>"
+        fills_rows = (
+            "\n".join(
+                f"<tr><td>{_fmt_value(f.get('timestamp'))}</td>"
+                f"<td>{_fmt_value(f.get('symbol'))}</td>"
+                f"<td>{_fmt_value(f.get('side'))}</td>"
+                f"<td>{_fmt_value(f.get('qty'))}</td>"
+                f"<td>{_fmt_money(f.get('price'))}</td>"
+                f"<td>{_fmt_money(f.get('realized_pl'))}</td>"
+                f"<td>{_fmt_value(f.get('status'))}</td></tr>"
+                for f in fills
+            )
+            or '<tr><td colspan="7">No recent fills</td></tr>'
+        )
 
         error_block = ""
         if data_errors:
             escaped_errors = [html.escape(str(e)[:200]) for e in data_errors]
             error_block = (
-                "<div style=\"color:#b91c1c; margin-bottom:12px;\">"
+                '<div style="color:#b91c1c; margin-bottom:12px;">'
                 "<strong>Data warnings:</strong><ul>"
                 + "".join(f"<li>{e}</li>" for e in escaped_errors)
                 + "</ul></div>"
@@ -520,9 +526,7 @@ class ScheduledReportsService:
         current_user_id = self._user.get("user_id")
         role = self._user.get("role")
         strategies = (
-            self._user.get("strategies")
-            if isinstance(self._user.get("strategies"), list)
-            else None
+            self._user.get("strategies") if isinstance(self._user.get("strategies"), list) else None
         )
         has_manage = has_permission(self._user, Permission.MANAGE_REPORTS)
 

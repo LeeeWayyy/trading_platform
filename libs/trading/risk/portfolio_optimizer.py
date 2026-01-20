@@ -789,14 +789,20 @@ class PortfolioOptimizer:
             Tuple of (sigma, aligned_permnos, factor_loadings)
 
         Raises:
-            InsufficientUniverseCoverageError: If coverage below threshold
+            InsufficientUniverseCoverageError: If coverage below threshold or universe is empty
         """
+        # Handle empty universe early
+        if not universe:
+            raise InsufficientUniverseCoverageError(
+                "Empty universe provided. Cannot optimize with no securities."
+            )
+
         # Filter to covered permnos (have both loadings and specific risk)
         loadings_permnos = set(self.risk_model.factor_loadings["permno"].to_list())
         specific_permnos = set(self.risk_model.specific_risks["permno"].to_list())
         covered = [p for p in universe if p in loadings_permnos and p in specific_permnos]
 
-        coverage = len(covered) / len(universe) if universe else 1.0
+        coverage = len(covered) / len(universe)  # universe is non-empty here
         if coverage < self.config.min_coverage:
             raise InsufficientUniverseCoverageError(
                 f"Universe coverage {coverage:.1%} below minimum {self.config.min_coverage:.1%}. "

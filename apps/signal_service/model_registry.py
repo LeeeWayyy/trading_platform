@@ -186,12 +186,16 @@ class ModelRegistry:
         self._shadow_state_lock = Lock()
 
         # H2 Fix: Connection pooling for 10x performance
+        # open=False avoids eager connections during tests/startup.
+        # Pool is opened lazily on first _get_connection() call.
         self._pool = ConnectionPool(
             db_conn_string,
             min_size=DB_POOL_MIN_SIZE,
             max_size=DB_POOL_MAX_SIZE,
             timeout=DB_POOL_TIMEOUT,
+            open=False,
         )
+        self._pool_opened = False
 
         logger.info(
             "ModelRegistry initialized with connection pool",
@@ -202,9 +206,16 @@ class ModelRegistry:
             },
         )
 
+    def _ensure_pool_open(self) -> None:
+        """Ensure connection pool is open before use. Thread-safe, lazy init."""
+        if not self._pool_opened:
+            self._pool.open()
+            self._pool_opened = True
+
     def close(self) -> None:
         """Close connection pool. Safe to call multiple times."""
         self._pool.close()
+        self._pool_opened = False
         logger.info("ModelRegistry connection pool closed")
 
     def get_active_model_metadata(self, strategy: str = "alpha_baseline") -> ModelMetadata:
@@ -245,6 +256,7 @@ class ModelRegistry:
             - /docs/CONCEPTS/model-registry.md for registry concept
         """
         try:
+            self._ensure_pool_open()
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Query for active model
@@ -724,6 +736,11 @@ class ModelRegistry:
         """
         return self._current_model
 
+    @current_model.setter
+    def current_model(self, model: lgb.Booster | None) -> None:
+        """Set current model (primarily for tests and controlled overrides)."""
+        self._current_model = model
+
     @property
     def current_metadata(self) -> ModelMetadata | None:
         """
@@ -742,6 +759,11 @@ class ModelRegistry:
             {'ic': 0.082, 'sharpe': 1.45, 'max_drawdown': -0.12}
         """
         return self._current_metadata
+
+    @current_metadata.setter
+    def current_metadata(self, metadata: ModelMetadata | None) -> None:
+        """Set current model metadata (primarily for tests and controlled overrides)."""
+        self._current_metadata = metadata
 
     @property
     def is_loaded(self) -> bool:

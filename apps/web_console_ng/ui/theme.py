@@ -29,9 +29,7 @@ LATENCY_POOR = "bg-red-600 text-white"
 LATENCY_DISCONNECTED = "bg-gray-500 text-white"
 
 # All latency badge classes for removal during state transitions
-LATENCY_BADGE_REMOVE_CLASSES = (
-    "bg-green-600 bg-orange-500 bg-red-600 bg-gray-500 text-white"
-)
+LATENCY_BADGE_REMOVE_CLASSES = "bg-green-600 bg-orange-500 bg-red-600 bg-gray-500 text-white"
 
 # =============================================================================
 # Header Metrics Colors
@@ -61,8 +59,7 @@ MARKET_DEFAULT = "bg-slate-700 text-white"
 
 # All market clock classes for removal during state transitions
 MARKET_CLOCK_REMOVE_CLASSES = (
-    "bg-slate-700 bg-blue-600 bg-green-600 bg-yellow-500 bg-gray-600 "
-    "text-white text-black"
+    "bg-slate-700 bg-blue-600 bg-green-600 bg-yellow-500 bg-gray-600 " "text-white text-black"
 )
 
 

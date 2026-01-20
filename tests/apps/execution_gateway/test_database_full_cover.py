@@ -135,6 +135,10 @@ class FakePool:
         )
         return FakeConnection(fresh_cursor)
 
+    def open(self):
+        """No-op for compatibility with lazy-open pattern."""
+        return None
+
     def close(self):
         return None
 

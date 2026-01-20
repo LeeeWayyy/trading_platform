@@ -10,7 +10,7 @@ created: 2025-12-24
 dependencies: [T6.1, T2.8, T2.1, T6.2, T6.5]
 estimated_effort: "14-19 days"
 related_adrs: [ADR-0030-reporting-architecture]
-related_docs: [P4_PLANNING.md]
+related_docs: [P4_PLANNING_DONE.md]
 features: [T9.1, T9.2, T9.3, T9.4, T9.5, T9.6]
 ---
 
@@ -22,7 +22,7 @@ features: [T9.1, T9.2, T9.3, T9.4, T9.5, T9.6]
 **Owner:** @development-team
 **Created:** 2025-12-24
 **Estimated Effort:** 14-19 days
-**Track:** Track 9 from P4_PLANNING.md
+**Track:** Track 9 from P4_PLANNING_DONE.md
 
 ---
 
@@ -630,7 +630,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 
 ### Must Update
 - [ ] `docs/GETTING_STARTED/PROJECT_STATUS.md` when complete
-- [ ] `docs/TASKS/P4_PLANNING.md` - Mark Track 9 complete
+- [ ] `docs/ARCHIVE/TASKS_HISTORY/P4_PLANNING_DONE.md` - Mark Track 9 complete
 
 ---
 
@@ -643,8 +643,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
   - Scope: Cost basis methods, wash sale handling
 
 **Documentation:**
-- [P4_PLANNING.md](./P4_PLANNING.md) - Track 9 specification
-- [P4T5_TASK.md](./P4T5_TASK.md) - Reference for component structure
+- [P4_PLANNING_DONE.md](./P4_PLANNING_DONE.md) - Track 9 specification
+- [P4T5_DONE.md](./P4T5_DONE.md) - Reference for component structure
 
 **Tasks:**
 - Depends on: T6.1 (Auth), T2.8 (Model Registry), T2.1 (Factor Builder), T6.2 (Performance), T6.5 (Journal)
@@ -693,7 +693,7 @@ T9.3 (Notebook Launcher) and T9.6 (Tax Lot Advanced) are marked STRETCH:
 
 ## Task Creation Review Checklist
 
-See [./AI/Workflows/02-planning.md](../AI/Workflows/02-planning.md) for workflow details.
+See [./AI/Workflows/02-planning.md](../../AI/Workflows/02-planning.md) for workflow details.
 
 **Review validates:**
 - [x] Objective is clear and measurable (with SLAs)

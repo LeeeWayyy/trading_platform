@@ -459,7 +459,9 @@ def _build_dev_fallback_user(request: Request) -> AuthenticatedUser:
     SECURITY: Defaults to OPERATOR role (not ADMIN) as defense-in-depth.
     """
 
-    user_id: str = request.headers.get("X-User-ID") or os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev") or "dev"
+    user_id: str = (
+        request.headers.get("X-User-ID") or os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev") or "dev"
+    )
     role_value = os.getenv("WEB_CONSOLE_DEV_ROLE", "operator")  # Default to operator, not admin
     try:
         role = Role(role_value)

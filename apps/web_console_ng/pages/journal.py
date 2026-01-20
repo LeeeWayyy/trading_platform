@@ -58,12 +58,10 @@ async def trade_journal_page() -> None:
     # Feature flag check
     if not FEATURE_TRADE_JOURNAL:
         with ui.card().classes("w-full p-6"):
-            ui.label("Trade Journal feature is not available.").classes(
-                "text-gray-500 text-center"
+            ui.label("Trade Journal feature is not available.").classes("text-gray-500 text-center")
+            ui.label("Set FEATURE_TRADE_JOURNAL=true to enable this feature.").classes(
+                "text-gray-400 text-sm text-center"
             )
-            ui.label(
-                "Set FEATURE_TRADE_JOURNAL=true to enable this feature."
-            ).classes("text-gray-400 text-sm text-center")
         logger.info("trade_journal_feature_disabled")
         return
 
@@ -71,9 +69,7 @@ async def trade_journal_page() -> None:
     if not has_permission(user, Permission.VIEW_TRADES):
         ui.notify("Permission denied: VIEW_TRADES required", type="negative")
         with ui.card().classes("w-full p-6"):
-            ui.label("Permission denied: VIEW_TRADES required.").classes(
-                "text-red-500 text-center"
-            )
+            ui.label("Permission denied: VIEW_TRADES required.").classes("text-red-500 text-center")
         logger.warning(
             "trade_journal_permission_denied",
             extra={"user_id": user.get("user_id"), "permission": "VIEW_TRADES"},
@@ -97,9 +93,9 @@ async def trade_journal_page() -> None:
         with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("info", color="amber-700")
-                ui.label(
-                    "Demo Mode: Database not configured. Configure DATABASE_URL."
-                ).classes("text-amber-700")
+                ui.label("Demo Mode: Database not configured. Configure DATABASE_URL.").classes(
+                    "text-amber-700"
+                )
 
         _render_demo_mode()
         return
@@ -186,8 +182,8 @@ async def _render_trade_journal(
             ).classes("w-20")
 
             # Search button
-            search_btn = ui.button("Search", icon="search").classes("self-end").props(
-                "color=primary"
+            search_btn = (
+                ui.button("Search", icon="search").classes("self-end").props("color=primary")
             )
 
     # Statistics container
@@ -213,8 +209,14 @@ async def _render_trade_journal(
         preset = preset_select.value
         if preset == "Custom":
             try:
-                start_date = date.fromisoformat(from_input.value) if from_input.value else state["start_date"]
-                end_date = date.fromisoformat(to_input.value) if to_input.value else state["end_date"]
+                start_date = (
+                    date.fromisoformat(from_input.value)
+                    if from_input.value
+                    else state["start_date"]
+                )
+                end_date = (
+                    date.fromisoformat(to_input.value) if to_input.value else state["end_date"]
+                )
             except ValueError:
                 with trades_container:
                     ui.label("Invalid date format.").classes("text-red-500 p-4")
@@ -274,7 +276,9 @@ async def _render_trade_journal(
             )
             stats_container.clear()
             with stats_container:
-                ui.label("Failed to load statistics: Database connection error").classes("text-red-500 p-2")
+                ui.label("Failed to load statistics: Database connection error").classes(
+                    "text-red-500 p-2"
+                )
             ui.notify("Database connection error", type="negative")
         except (ValueError, KeyError, TypeError) as exc:
             logger.error(
@@ -289,7 +293,9 @@ async def _render_trade_journal(
             )
             stats_container.clear()
             with stats_container:
-                ui.label("Failed to load statistics: Data processing error").classes("text-red-500 p-2")
+                ui.label("Failed to load statistics: Data processing error").classes(
+                    "text-red-500 p-2"
+                )
             ui.notify("Data processing error", type="negative")
 
         # Load trades
@@ -340,7 +346,9 @@ async def _render_trade_journal(
             )
             trades_container.clear()
             with trades_container:
-                ui.label("Failed to load trades: Database connection error").classes("text-red-500 p-4")
+                ui.label("Failed to load trades: Database connection error").classes(
+                    "text-red-500 p-4"
+                )
             ui.notify("Database connection error", type="negative")
         except (ValueError, KeyError, TypeError) as exc:
             logger.error(
@@ -441,15 +449,17 @@ def _render_trade_table(trades: list[dict[str, Any]], page_size: int, page: int)
             pnl = trade.get("realized_pnl", 0)
             pnl_str = f"${pnl:,.2f}" if pnl else "-"
 
-            rows.append({
-                "date": date_str,
-                "symbol": trade.get("symbol", "-"),
-                "side": trade.get("side", "-"),
-                "qty": trade.get("qty", 0),
-                "price": f"${trade.get('price', 0):,.2f}",
-                "pnl": pnl_str,
-                "strategy": trade.get("strategy_id", "-"),
-            })
+            rows.append(
+                {
+                    "date": date_str,
+                    "symbol": trade.get("symbol", "-"),
+                    "side": trade.get("side", "-"),
+                    "qty": trade.get("qty", 0),
+                    "price": f"${trade.get('price', 0):,.2f}",
+                    "pnl": pnl_str,
+                    "strategy": trade.get("strategy_id", "-"),
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -599,15 +609,17 @@ async def _export_csv(
         date_to=end_date + timedelta(days=1),
         **filters,
     ):
-        writer.writerow([
-            trade.get("executed_at"),
-            trade.get("symbol"),
-            trade.get("side"),
-            trade.get("qty"),
-            trade.get("price"),
-            trade.get("realized_pnl"),
-            trade.get("strategy_id"),
-        ])
+        writer.writerow(
+            [
+                trade.get("executed_at"),
+                trade.get("symbol"),
+                trade.get("side"),
+                trade.get("qty"),
+                trade.get("price"),
+                trade.get("realized_pnl"),
+                trade.get("strategy_id"),
+            ]
+        )
         row_count += 1
 
     return output.getvalue().encode("utf-8"), row_count
@@ -639,15 +651,17 @@ async def _export_excel(
         date_to=end_date + timedelta(days=1),
         **filters,
     ):
-        ws.append([
-            trade.get("executed_at"),
-            trade.get("symbol"),
-            trade.get("side"),
-            trade.get("qty"),
-            trade.get("price"),
-            trade.get("realized_pnl"),
-            trade.get("strategy_id"),
-        ])
+        ws.append(
+            [
+                trade.get("executed_at"),
+                trade.get("symbol"),
+                trade.get("side"),
+                trade.get("qty"),
+                trade.get("price"),
+                trade.get("realized_pnl"),
+                trade.get("strategy_id"),
+            ]
+        )
         row_count += 1
 
     # Offload CPU-intensive workbook save to process pool
@@ -673,9 +687,33 @@ def _render_demo_mode() -> None:
         ui.label("Trade History").classes("text-lg font-bold mb-2")
 
         demo_trades = [
-            {"date": "2026-01-03 14:30:00", "symbol": "AAPL", "side": "buy", "qty": 100, "price": "$185.50", "pnl": "$250.00", "strategy": "momentum_v1"},
-            {"date": "2026-01-03 14:25:00", "symbol": "MSFT", "side": "sell", "qty": 50, "price": "$375.25", "pnl": "-$125.00", "strategy": "value_v2"},
-            {"date": "2026-01-03 14:20:00", "symbol": "GOOGL", "side": "buy", "qty": 25, "price": "$142.75", "pnl": "$75.00", "strategy": "momentum_v1"},
+            {
+                "date": "2026-01-03 14:30:00",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": "$185.50",
+                "pnl": "$250.00",
+                "strategy": "momentum_v1",
+            },
+            {
+                "date": "2026-01-03 14:25:00",
+                "symbol": "MSFT",
+                "side": "sell",
+                "qty": 50,
+                "price": "$375.25",
+                "pnl": "-$125.00",
+                "strategy": "value_v2",
+            },
+            {
+                "date": "2026-01-03 14:20:00",
+                "symbol": "GOOGL",
+                "side": "buy",
+                "qty": 25,
+                "price": "$142.75",
+                "pnl": "$75.00",
+                "strategy": "momentum_v1",
+            },
         ]
 
         columns = [

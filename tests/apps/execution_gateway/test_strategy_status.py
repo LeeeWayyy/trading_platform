@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import ModuleType, SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Request
@@ -94,18 +94,14 @@ sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)  # type: ignore[ar
 sys.modules.setdefault("jwt.utils", jwt_stub.utils)  # type: ignore[arg-type]
 
 from apps.execution_gateway import main
+from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.services.auth_helpers import build_user_context
 
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def test_client() -> TestClient:
-    """FastAPI test client bound to execution gateway app."""
-    return TestClient(main.app)
 
 
 @pytest.fixture()
@@ -116,6 +112,29 @@ def mock_db() -> MagicMock:
     db.get_strategy_status.return_value = None
     db.get_bulk_strategy_status.return_value = {}
     return db
+
+
+@pytest.fixture()
+def mock_context(mock_db: MagicMock) -> MagicMock:
+    """Create a mock AppContext for dependency injection."""
+    ctx = MagicMock(spec=AppContext)
+    ctx.db = mock_db
+    ctx.redis = None
+    ctx.alpaca = None
+    ctx.recovery_manager = MagicMock()
+    ctx.recovery_manager.needs_recovery.return_value = False
+    return ctx
+
+
+@pytest.fixture()
+def test_client(mock_context: MagicMock) -> TestClient:
+    """FastAPI test client with mocked dependencies."""
+    def override_context():
+        return mock_context
+
+    main.app.dependency_overrides[get_context] = override_context
+    yield TestClient(main.app)
+    main.app.dependency_overrides.pop(get_context, None)
 
 
 @pytest.fixture(autouse=True)
@@ -170,8 +189,7 @@ class TestListStrategies:
         """Returns empty list when no strategies exist."""
         mock_db.get_all_strategy_ids.return_value = []
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies")
+        response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
         data = response.json()
@@ -196,8 +214,7 @@ class TestListStrategies:
             }
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies")
+        response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
         data = response.json()
@@ -235,8 +252,8 @@ class TestListStrategies:
             },
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies")
+
+        response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
         data = response.json()
@@ -268,8 +285,8 @@ class TestListStrategies:
             }
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies")
+
+        response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
         data = response.json()
@@ -292,8 +309,8 @@ class TestListStrategies:
             }
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies")
+
+        response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
         data = response.json()
@@ -317,8 +334,8 @@ class TestListStrategies:
             "bad_strategy": None,  # Simulates missing/invalid data
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies")
+
+        response = test_client.get("/api/v1/strategies")
 
         # Should return 200 with only the good strategy
         assert response.status_code == 200
@@ -349,8 +366,8 @@ class TestGetStrategyStatus:
             "last_signal_at": now - timedelta(minutes=30),
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies/alpha_baseline")
+
+        response = test_client.get("/api/v1/strategies/alpha_baseline")
 
         assert response.status_code == 200
         data = response.json()
@@ -370,8 +387,8 @@ class TestGetStrategyStatus:
         """Returns 404 when strategy not found."""
         mock_db.get_strategy_status.return_value = None
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies/nonexistent")
+
+        response = test_client.get("/api/v1/strategies/nonexistent")
 
         assert response.status_code == 404
         data = response.json()
@@ -390,8 +407,8 @@ class TestGetStrategyStatus:
             "last_signal_at": None,
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies/dormant_strategy")
+
+        response = test_client.get("/api/v1/strategies/dormant_strategy")
 
         assert response.status_code == 200
         data = response.json()
@@ -410,8 +427,8 @@ class TestGetStrategyStatus:
             "last_signal_at": None,
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies/active_orders")
+
+        response = test_client.get("/api/v1/strategies/active_orders")
 
         assert response.status_code == 200
         data = response.json()
@@ -430,8 +447,8 @@ class TestGetStrategyStatus:
             "last_signal_at": datetime.now(UTC),
         }
 
-        with patch.object(main.app.state.context, "db", mock_db):
-            response = test_client.get("/api/v1/strategies/momentum_reversion_v2")
+
+        response = test_client.get("/api/v1/strategies/momentum_reversion_v2")
 
         assert response.status_code == 200
         data = response.json()
@@ -470,8 +487,8 @@ class TestStrategyAuthorizationErrors:
         main.app.dependency_overrides[build_user_context] = override_ctx_no_strategies
 
         try:
-            with patch.object(main.app.state.context, "db", mock_db):
-                response = test_client.get("/api/v1/strategies")
+
+            response = test_client.get("/api/v1/strategies")
 
             assert response.status_code == 403
             data = response.json()
@@ -505,8 +522,8 @@ class TestStrategyAuthorizationErrors:
         main.app.dependency_overrides[build_user_context] = override_ctx_limited
 
         try:
-            with patch.object(main.app.state.context, "db", mock_db):
-                response = test_client.get("/api/v1/strategies/momentum_v2")
+
+            response = test_client.get("/api/v1/strategies/momentum_v2")
 
             assert response.status_code == 403
             data = response.json()

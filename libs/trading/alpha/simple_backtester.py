@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 # Buffer days for data fetching to ensure sufficient lookback/forward data
 _LOOKBACK_BUFFER_DAYS = 90  # Buffer before start_date for returns calculation
-_FORWARD_BUFFER_DAYS = 90   # Buffer after end_date for forward returns
+_FORWARD_BUFFER_DAYS = 90  # Buffer after end_date for forward returns
 
 
 class SimpleBacktester:
@@ -116,9 +116,7 @@ class SimpleBacktester:
             self._permno_map[permno] = symbol
         return self._symbol_map[symbol]
 
-    def _prepare_data(
-        self, start_date: date, end_date: date, symbols: list[str]
-    ) -> pl.DataFrame:
+    def _prepare_data(self, start_date: date, end_date: date, symbols: list[str]) -> pl.DataFrame:
         """Fetch and prepare data with pseudo-permnos and returns.
 
         Fetches price data with a buffer period for returns calculation,
@@ -138,8 +136,7 @@ class SimpleBacktester:
         fetch_end = end_date + timedelta(days=_FORWARD_BUFFER_DAYS)
 
         logger.info(
-            "Fetching data from %s to %s for %d symbols",
-            fetch_start, fetch_end, len(symbols)
+            "Fetching data from %s to %s for %d symbols", fetch_start, fetch_end, len(symbols)
         )
 
         raw_df = self._fetcher.get_daily_prices(symbols, fetch_start, fetch_end)
@@ -153,26 +150,20 @@ class SimpleBacktester:
 
         # Calculate daily return: (adj_close / prev_adj_close) - 1
         # Use adj_close for returns to handle splits/dividends
-        df = df.with_columns([
-            pl.col("adj_close").pct_change().over("symbol").alias("calculated_ret")
-        ])
+        df = df.with_columns(
+            [pl.col("adj_close").pct_change().over("symbol").alias("calculated_ret")]
+        )
 
         # Use calculated ret if 'ret' is null or missing
         if "ret" not in df.columns:
             df = df.with_columns(pl.col("calculated_ret").alias("ret"))
         else:
-            df = df.with_columns(
-                pl.coalesce(["ret", "calculated_ret"]).alias("ret")
-            )
+            df = df.with_columns(pl.coalesce(["ret", "calculated_ret"]).alias("ret"))
 
         # Map symbols to permnos efficiently using join
         unique_symbols = df["symbol"].unique().to_list()
-        permno_rows = [
-            {"symbol": s, "permno": self._get_permno(s)} for s in unique_symbols
-        ]
-        mapping_df = pl.DataFrame(
-            permno_rows, schema={"symbol": pl.Utf8, "permno": pl.Int64}
-        )
+        permno_rows = [{"symbol": s, "permno": self._get_permno(s)} for s in unique_symbols]
+        mapping_df = pl.DataFrame(permno_rows, schema={"symbol": pl.Utf8, "permno": pl.Int64})
 
         df = df.join(mapping_df, on="symbol", how="left")
 
@@ -253,9 +244,7 @@ class SimpleBacktester:
         )
 
         if len(future_dates) < horizon:
-            raise MissingForwardReturnError(
-                f"Insufficient future data after {as_of_date}"
-            )
+            raise MissingForwardReturnError(f"Insufficient future data after {as_of_date}")
 
         target_date = future_dates[horizon - 1]
 
@@ -343,7 +332,9 @@ class SimpleBacktester:
 
         backtest_id = str(uuid.uuid4())
         # Deterministic snapshot_id for reproducibility (hash of config, not timestamp)
-        snapshot_content = f"{alpha.name}|{start_date}|{end_date}|{sorted(universe)}|{weight_method}"
+        snapshot_content = (
+            f"{alpha.name}|{start_date}|{end_date}|{sorted(universe)}|{weight_method}"
+        )
         snapshot_hash = hashlib.sha256(snapshot_content.encode()).hexdigest()[:16]
         snapshot_id = f"yfinance-simple-{snapshot_hash}"
         logger.info("Starting simple backtest %s for %s", backtest_id, alpha.name)
@@ -372,9 +363,7 @@ class SimpleBacktester:
             end_idx_by_date[sorted_dates[-1]] = None
 
         # Get trading days within range
-        trading_days = [
-            d for d in sorted_dates if start_date <= d <= end_date
-        ]
+        trading_days = [d for d in sorted_dates if start_date <= d <= end_date]
 
         if not trading_days:
             raise ValueError(f"No trading days found between {start_date} and {end_date}")
@@ -421,14 +410,11 @@ class SimpleBacktester:
                 processed_days += 1
                 current_pct = int((processed_days / total_days) * 100)
                 last_callback_time = self._invoke_callbacks(
-                    progress_callback, cancel_check, last_callback_time,
-                    current_pct, as_of_date
+                    progress_callback, cancel_check, last_callback_time, current_pct, as_of_date
                 )
 
             except MissingForwardReturnError:
-                logger.warning(
-                    "Stopping backtest at %s: forward returns unavailable", as_of_date
-                )
+                logger.warning("Stopping backtest at %s: forward returns unavailable", as_of_date)
                 break
 
         if not all_signals:
@@ -471,11 +457,9 @@ class SimpleBacktester:
             dr = daily_returns.filter(pl.col("date") == d)
             if ds.height >= 2:  # Min obs for correlation
                 ic_res = self._metrics.compute_ic(ds, dr)
-                daily_ic_list.append({
-                    "date": d,
-                    "ic": ic_res.pearson_ic,
-                    "rank_ic": ic_res.rank_ic
-                })
+                daily_ic_list.append(
+                    {"date": d, "ic": ic_res.pearson_ic, "rank_ic": ic_res.rank_ic}
+                )
 
         daily_ic = (
             pl.DataFrame(daily_ic_list)
@@ -490,9 +474,8 @@ class SimpleBacktester:
         hit_rate = self._metrics.compute_hit_rate(daily_signals, daily_returns)
 
         # Coverage
-        daily_cov = (
-            daily_signals.group_by("date")
-            .agg(pl.col("signal").is_not_null().mean().alias("cov"))
+        daily_cov = daily_signals.group_by("date").agg(
+            pl.col("signal").is_not_null().mean().alias("cov")
         )
         _coverage_raw = daily_cov["cov"].mean() if not daily_cov.is_empty() else 0.0
         coverage: float = float(_coverage_raw) if isinstance(_coverage_raw, int | float) else 0.0
@@ -532,9 +515,7 @@ class SimpleBacktester:
         decay_result = self._metrics.compute_decay_curve(daily_signals, returns_by_horizon)
 
         # Autocorrelation
-        mean_signal_ts = daily_signals.group_by("date").agg(
-            pl.col("signal").mean().alias("signal")
-        )
+        mean_signal_ts = daily_signals.group_by("date").agg(pl.col("signal").mean().alias("signal"))
         autocorr = self._metrics.compute_autocorrelation(mean_signal_ts)
 
         # Get actual number of symbols with data

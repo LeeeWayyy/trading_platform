@@ -226,9 +226,7 @@ def test_generate_obsidian_canvas_structure(minimal_config: architecture.Config)
 
     assert set(payload.keys()) == {"nodes", "edges"}
     # Check for layer-based groups
-    group_labels = {
-        node["label"] for node in payload["nodes"] if node.get("type") == "group"
-    }
+    group_labels = {node["label"] for node in payload["nodes"] if node.get("type") == "group"}
     assert "Core Services" in group_labels
     assert "Domain Logic" in group_labels
 
@@ -425,29 +423,20 @@ def test_resolve_virtual_edge_id() -> None:
 
     # Component reference
     assert (
-        architecture.resolve_virtual_edge_id(
-            "apps/signal_service", components, external_nodes
-        )
+        architecture.resolve_virtual_edge_id("apps/signal_service", components, external_nodes)
         == "svc_signal_service"
     )
 
     # External node reference
     assert (
-        architecture.resolve_virtual_edge_id("ext_redis", components, external_nodes)
-        == "ext_redis"
+        architecture.resolve_virtual_edge_id("ext_redis", components, external_nodes) == "ext_redis"
     )
 
     # Unknown component reference
-    assert (
-        architecture.resolve_virtual_edge_id("apps/unknown", components, external_nodes)
-        is None
-    )
+    assert architecture.resolve_virtual_edge_id("apps/unknown", components, external_nodes) is None
 
     # Unknown external reference (should warn and return None)
-    assert (
-        architecture.resolve_virtual_edge_id("ext_unknown", components, external_nodes)
-        is None
-    )
+    assert architecture.resolve_virtual_edge_id("ext_unknown", components, external_nodes) is None
 
 
 def test_canvas_edge_colors_by_type() -> None:
@@ -495,6 +484,7 @@ def test_canvas_edge_colors_by_type() -> None:
     ]
 
     import json
+
     canvas_json = architecture.render_canvas(components, set(), config)
     payload = json.loads(canvas_json)
 

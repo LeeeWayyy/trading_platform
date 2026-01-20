@@ -121,8 +121,12 @@ async def health_check(
             # Factories only called when components verified available by RecoveryManager
             ctx.recovery_manager.attempt_recovery(
                 kill_switch_factory=lambda: KillSwitch(redis_client=cast(RedisClient, ctx.redis)),
-                circuit_breaker_factory=lambda: CircuitBreaker(redis_client=cast(RedisClient, ctx.redis)),
-                position_reservation_factory=lambda: PositionReservation(redis=cast(RedisClient, ctx.redis)),
+                circuit_breaker_factory=lambda: CircuitBreaker(
+                    redis_client=cast(RedisClient, ctx.redis)
+                ),
+                position_reservation_factory=lambda: PositionReservation(
+                    redis=cast(RedisClient, ctx.redis)
+                ),
                 slice_scheduler_factory=lambda: SliceScheduler(
                     kill_switch=cast(KillSwitch, ctx.recovery_manager.kill_switch),
                     breaker=cast(CircuitBreaker, ctx.recovery_manager.circuit_breaker),

@@ -96,7 +96,11 @@ class PositionBasedSubscription:
                 except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
                     logger.error(
                         "Initial subscription sync failed - Network error",
-                        extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "gateway_url": self.gateway_url,
+                        },
                         exc_info=True,
                     )
                 except Exception as e:
@@ -151,7 +155,11 @@ class PositionBasedSubscription:
                 except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
                     logger.error(
                         "Subscription sync error - Network error",
-                        extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "gateway_url": self.gateway_url,
+                        },
                         exc_info=True,
                     )
                     # Continue loop even on error
@@ -299,7 +307,11 @@ class PositionBasedSubscription:
         except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
             logger.error(
                 "Subscription sync failed - Network error",
-                extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "gateway_url": self.gateway_url,
+                },
                 exc_info=True,
             )
         except Exception as e:
@@ -364,7 +376,11 @@ class PositionBasedSubscription:
         except Exception as e:
             logger.error(
                 "Error fetching positions - Unexpected error",
-                extra={"error": str(e), "error_type": type(e).__name__, "gateway_url": self.gateway_url},
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "gateway_url": self.gateway_url,
+                },
                 exc_info=True,
             )
             return None

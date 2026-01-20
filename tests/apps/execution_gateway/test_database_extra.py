@@ -83,6 +83,10 @@ class FakePool:
 
         return Ctx(self.conn)
 
+    def open(self):
+        """No-op for compatibility with lazy-open pattern."""
+        pass
+
     def close(self):
         self.closed = True
 

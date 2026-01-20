@@ -807,11 +807,19 @@ class TestProviderRouting:
 
             def run_backtest(self, *args, **kwargs):
                 return types.SimpleNamespace(
-                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
-                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
-                    snapshot_id="snap", dataset_version_ids={"ds": 1},
-                    daily_signals=MagicMock(), daily_weights=MagicMock(),
-                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
                 )
 
         redis_pipeline = MagicMock()
@@ -873,11 +881,19 @@ class TestProviderRouting:
 
             def run_backtest(self, *args, **kwargs):
                 return types.SimpleNamespace(
-                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
-                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
-                    snapshot_id="snap", dataset_version_ids={"ds": 1},
-                    daily_signals=MagicMock(), daily_weights=MagicMock(),
-                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
                 )
 
         redis_pipeline = MagicMock()
@@ -1053,11 +1069,19 @@ class TestProviderRouting:
             def run_backtest(self, *args, universe=None, **kwargs):
                 captured_universe.extend(universe or [])
                 return types.SimpleNamespace(
-                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
-                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
-                    snapshot_id="snap", dataset_version_ids={"ds": 1},
-                    daily_signals=MagicMock(), daily_weights=MagicMock(),
-                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
                 )
 
         redis_pipeline = MagicMock()

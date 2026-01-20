@@ -791,3 +791,388 @@ class TestAWSSecretsManagerThreadSafety:
         assert all(r == "cached_value" for r in results)
         # AWS should have been called only once (during cache population)
         assert mock_client.get_secret_value.call_count == 1
+
+
+# ================================================================================
+# Additional Error Handling Tests (Missing Coverage)
+# ================================================================================
+
+
+class TestAWSSecretsManagerInitializationErrors:
+    """Test suite for initialization error paths."""
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_init_client_error(self, mock_boto_client: Mock) -> None:
+        """Test initialization fails with ClientError (e.g., invalid credentials)."""
+        # Arrange
+        mock_boto_client.side_effect = ClientError(
+            {"Error": {"Code": "InvalidClientTokenId"}},
+            "CreateClient",
+        )
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            AWSSecretsManager(region_name="us-east-1")
+
+        assert "AWS authentication failed" in str(exc_info.value)
+        assert "InvalidClientTokenId" in str(exc_info.value)
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_init_botocore_error(self, mock_boto_client: Mock) -> None:
+        """Test initialization fails with BotoCoreError (e.g., network error)."""
+        # Arrange
+        from botocore.exceptions import EndpointConnectionError
+
+        mock_boto_client.side_effect = EndpointConnectionError(endpoint_url="https://secretsmanager.us-east-1.amazonaws.com")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            AWSSecretsManager(region_name="us-east-1")
+
+        assert "AWS SDK error during initialization" in str(exc_info.value)
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_init_value_error(self, mock_boto_client: Mock) -> None:
+        """Test initialization fails with ValueError (e.g., invalid region format)."""
+        # Arrange
+        mock_boto_client.side_effect = ValueError("Invalid region name")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            AWSSecretsManager(region_name="invalid-region!")
+
+        assert "Invalid AWS configuration" in str(exc_info.value)
+
+
+class TestAWSSecretsManagerGetSecretAdditionalErrors:
+    """Test suite for additional get_secret error paths."""
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_get_secret_generic_client_error(self, mock_boto_client: Mock) -> None:
+        """Test get_secret with generic ClientError (not specifically handled)."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_client.get_secret_value.side_effect = ClientError(
+            {"Error": {"Code": "InternalFailure"}},
+            "GetSecretValue",
+        )
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            secret_mgr.get_secret("test/secret")
+
+        assert "AWS API error" in str(exc_info.value)
+        assert "InternalFailure" in str(exc_info.value)
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_get_secret_botocore_error(self, mock_boto_client: Mock) -> None:
+        """Test get_secret with BotoCoreError (network timeout)."""
+        # Arrange
+        from botocore.exceptions import ReadTimeoutError
+
+        mock_client = MagicMock()
+        mock_client.get_secret_value.side_effect = ReadTimeoutError(endpoint_url="https://secretsmanager.us-east-1.amazonaws.com")
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            secret_mgr.get_secret("test/secret")
+
+        assert "AWS SDK error retrieving secret" in str(exc_info.value)
+
+
+class TestAWSSecretsManagerListSecretsAdditionalErrors:
+    """Test suite for additional list_secrets error paths."""
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_list_secrets_generic_client_error(self, mock_boto_client: Mock) -> None:
+        """Test list_secrets with generic ClientError."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.side_effect = ClientError(
+            {"Error": {"Code": "InternalServiceError"}},
+            "ListSecrets",
+        )
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            secret_mgr.list_secrets()
+
+        assert "AWS API error" in str(exc_info.value)
+        assert "InternalServiceError" in str(exc_info.value)
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_list_secrets_botocore_error(self, mock_boto_client: Mock) -> None:
+        """Test list_secrets with BotoCoreError."""
+        # Arrange
+        from botocore.exceptions import ConnectionError as BotocoreConnectionError
+
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.side_effect = BotocoreConnectionError(error="Connection refused")
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError) as exc_info:
+            secret_mgr.list_secrets()
+
+        assert "AWS SDK error listing secrets" in str(exc_info.value)
+
+
+class TestAWSSecretsManagerSetSecretAdditionalErrors:
+    """Test suite for additional set_secret error paths."""
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_set_secret_generic_client_error(self, mock_boto_client: Mock) -> None:
+        """Test set_secret with generic ClientError."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_client.put_secret_value.side_effect = ClientError(
+            {"Error": {"Code": "LimitExceededException"}},
+            "PutSecretValue",
+        )
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretWriteError) as exc_info:
+            secret_mgr.set_secret("test/secret", "value")
+
+        assert "AWS error writing secret" in str(exc_info.value)
+        assert "LimitExceededException" in str(exc_info.value)
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_set_secret_botocore_error(self, mock_boto_client: Mock) -> None:
+        """Test set_secret with BotoCoreError."""
+        # Arrange
+        from botocore.exceptions import NoCredentialsError
+
+        mock_client = MagicMock()
+        mock_client.put_secret_value.side_effect = NoCredentialsError()
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretWriteError) as exc_info:
+            secret_mgr.set_secret("test/secret", "value")
+
+        assert "AWS SDK error writing secret" in str(exc_info.value)
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_set_secret_value_error(self, mock_boto_client: Mock) -> None:
+        """Test set_secret with ValueError (e.g., invalid secret format)."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_client.put_secret_value.side_effect = ValueError("Secret value exceeds size limit")
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretWriteError) as exc_info:
+            secret_mgr.set_secret("test/secret", "x" * 100000)
+
+        assert "Invalid secret value or configuration" in str(exc_info.value)
+
+
+class TestAWSSecretsManagerSetSecretRetry:
+    """Test suite for set_secret retry logic."""
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_set_secret_retries_on_transient_error(self, mock_boto_client: Mock) -> None:
+        """Test set_secret retries on transient errors (e.g., ThrottlingException)."""
+        # Arrange
+        mock_client = MagicMock()
+        throttling_error = ClientError({"Error": {"Code": "ThrottlingException"}}, "PutSecretValue")
+        mock_client.put_secret_value.side_effect = [
+            throttling_error,
+            {"VersionId": "v1"},
+        ]
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act
+        secret_mgr.set_secret("test/secret", "value")
+
+        # Assert
+        # Should be called twice: once for the failure, once for the success
+        assert mock_client.put_secret_value.call_count == 2
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_set_secret_does_not_retry_on_permanent_error(self, mock_boto_client: Mock) -> None:
+        """Test set_secret does NOT retry on permanent errors (e.g., AccessDeniedException)."""
+        # Arrange
+        mock_client = MagicMock()
+        access_denied_error = ClientError(
+            {"Error": {"Code": "AccessDeniedException"}}, "PutSecretValue"
+        )
+        mock_client.put_secret_value.side_effect = access_denied_error
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretWriteError):
+            secret_mgr.set_secret("test/secret", "value")
+
+        # Should be called only once, as permanent errors are not retried
+        assert mock_client.put_secret_value.call_count == 1
+
+    @pytest.mark.unit()
+    @patch("libs.platform.secrets.aws_backend.boto3.client")
+    def test_set_secret_exhausts_retries_raises_original_exception(
+        self, mock_boto_client: Mock
+    ) -> None:
+        """Test set_secret raises original exception (not RetryError) when retries exhausted."""
+        # Arrange
+        mock_client = MagicMock()
+        throttling_error = ClientError({"Error": {"Code": "TooManyRequestsException"}}, "PutSecretValue")
+        # Always fail with transient error to exhaust retries
+        mock_client.put_secret_value.side_effect = throttling_error
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        # Should raise SecretWriteError (NOT RetryError)
+        with pytest.raises(SecretWriteError) as exc_info:
+            secret_mgr.set_secret("test/secret", "value")
+
+        # Verify it's the expected domain exception with context
+        assert "AWS error writing secret" in str(exc_info.value)
+        assert "TooManyRequestsException" in str(exc_info.value)
+
+        # Should be called 3 times (initial + 2 retries)
+        assert mock_client.put_secret_value.call_count == 3
+
+
+class TestAWSSecretsManagerTransientErrorDetection:
+    """Test suite for _is_transient_aws_error function."""
+
+    @pytest.mark.unit()
+    def test_is_transient_throttling_exception(self) -> None:
+        """Test ThrottlingException is identified as transient."""
+        # Arrange
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = ClientError({"Error": {"Code": "ThrottlingException"}}, "Operation")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is True
+
+    @pytest.mark.unit()
+    def test_is_transient_service_unavailable(self) -> None:
+        """Test ServiceUnavailable is identified as transient."""
+        # Arrange
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = ClientError({"Error": {"Code": "ServiceUnavailable"}}, "Operation")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is True
+
+    @pytest.mark.unit()
+    def test_is_transient_internal_service_error(self) -> None:
+        """Test InternalServiceError is identified as transient."""
+        # Arrange
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = ClientError({"Error": {"Code": "InternalServiceError"}}, "Operation")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is True
+
+    @pytest.mark.unit()
+    def test_is_not_transient_access_denied(self) -> None:
+        """Test AccessDeniedException is identified as permanent."""
+        # Arrange
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = ClientError({"Error": {"Code": "AccessDeniedException"}}, "Operation")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is False
+
+    @pytest.mark.unit()
+    def test_is_not_transient_resource_not_found(self) -> None:
+        """Test ResourceNotFoundException is identified as permanent."""
+        # Arrange
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = ClientError({"Error": {"Code": "ResourceNotFoundException"}}, "Operation")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is False
+
+    @pytest.mark.unit()
+    def test_is_transient_botocore_error(self) -> None:
+        """Test BotoCoreError is identified as transient."""
+        # Arrange
+        from botocore.exceptions import EndpointConnectionError
+
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = EndpointConnectionError(endpoint_url="https://test.com")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is True
+
+    @pytest.mark.unit()
+    def test_is_not_transient_other_exception(self) -> None:
+        """Test non-AWS exceptions are identified as permanent."""
+        # Arrange
+        from libs.platform.secrets.aws_backend import _is_transient_aws_error
+
+        error = ValueError("Some error")
+
+        # Act
+        result = _is_transient_aws_error(error)
+
+        # Assert
+        assert result is False

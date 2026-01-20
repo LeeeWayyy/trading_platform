@@ -135,6 +135,7 @@ class _FakeUI:
         class _DarkMode:
             def enable(self) -> None:
                 return None
+
         return _DarkMode()
 
     class navigate:

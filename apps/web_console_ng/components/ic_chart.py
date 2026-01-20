@@ -29,9 +29,7 @@ def render_ic_chart(
         height: Chart height in pixels
     """
     if daily_ic is None or daily_ic.is_empty():
-        ui.label("No IC data available for this signal.").classes(
-            "text-gray-500 text-center p-4"
-        )
+        ui.label("No IC data available for this signal.").classes("text-gray-500 text-center p-4")
         return
 
     # Validate required columns

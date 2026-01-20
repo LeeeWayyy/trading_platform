@@ -120,12 +120,27 @@ class BacktestWorker:
 
     # SECURITY: Whitelist of allowed column names for dynamic updates
     # Prevents SQL injection via kwargs keys
-    _ALLOWED_UPDATE_COLUMNS = frozenset({
-        "status", "started_at", "completed_at", "error_message", "result_path",
-        "mean_ic", "icir", "hit_rate", "coverage", "long_short_spread",
-        "average_turnover", "decay_half_life", "snapshot_id", "dataset_version_ids",
-        "progress_pct", "worker_id", "retry_count",
-    })
+    _ALLOWED_UPDATE_COLUMNS = frozenset(
+        {
+            "status",
+            "started_at",
+            "completed_at",
+            "error_message",
+            "result_path",
+            "mean_ic",
+            "icir",
+            "hit_rate",
+            "coverage",
+            "long_short_spread",
+            "average_turnover",
+            "decay_half_life",
+            "snapshot_id",
+            "dataset_version_ids",
+            "progress_pct",
+            "worker_id",
+            "retry_count",
+        }
+    )
 
     def update_db_status(self, job_id: str, status: str, **kwargs: Any) -> None:
         """Update job status in Postgres (sync).
@@ -401,11 +416,19 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
 
                 # Default universe if not provided (immutable tuple to prevent accidental modification)
                 DEFAULT_YFINANCE_UNIVERSE: tuple[str, ...] = (
-                    "SPY", "QQQ", "IWM", "AAPL", "MSFT",
-                    "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+                    "SPY",
+                    "QQQ",
+                    "IWM",
+                    "AAPL",
+                    "MSFT",
+                    "GOOGL",
+                    "AMZN",
+                    "NVDA",
+                    "META",
+                    "TSLA",
                 )
-                raw_universe: str | list[str] | tuple[str, ...] | None = job_config.extra_params.get(
-                    "universe", DEFAULT_YFINANCE_UNIVERSE
+                raw_universe: str | list[str] | tuple[str, ...] | None = (
+                    job_config.extra_params.get("universe", DEFAULT_YFINANCE_UNIVERSE)
                 )
 
                 # Normalize universe input: strip whitespace, uppercase, filter empties
@@ -414,7 +437,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         s.strip().upper() for s in raw_universe.split(",") if s.strip()
                     ]
                 elif isinstance(raw_universe, list | tuple):
-                    universe = [s.strip().upper() for s in raw_universe if isinstance(s, str) and s.strip()]
+                    universe = [
+                        s.strip().upper() for s in raw_universe if isinstance(s, str) and s.strip()
+                    ]
                 else:
                     universe = []
 

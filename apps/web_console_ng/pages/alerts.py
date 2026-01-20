@@ -60,7 +60,7 @@ def _get_alert_service(db_pool: AsyncConnectionPool) -> AlertConfigService:
         from libs.web_console_services.alert_service import AlertConfigService
 
         audit_logger = AuditLogger(db_pool)
-        setattr(app.storage, "_alert_service", AlertConfigService(db_pool, audit_logger))  # noqa: B010
+        app.storage._alert_service = AlertConfigService(db_pool, audit_logger)  # type: ignore[attr-defined]  # noqa: B010
 
     service: AlertConfigService = getattr(app.storage, "_alert_service")  # noqa: B009
     return service
@@ -173,6 +173,7 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
 
                 with ui.row().classes("gap-2 mt-2"):
                     if can_delete:
+
                         async def delete_rule(rule_id: str = str(rule.id)) -> None:
                             try:
                                 await alert_service.delete_rule(rule_id, user)
@@ -182,19 +183,31 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
                             except PermissionError as e:
                                 logger.exception(
                                     "rule_delete_permission_denied",
-                                    extra={"rule_id": rule_id, "error": str(e), "operation": "delete_rule"},
+                                    extra={
+                                        "rule_id": rule_id,
+                                        "error": str(e),
+                                        "operation": "delete_rule",
+                                    },
                                 )
                                 ui.notify(f"Permission denied: {e}", type="negative")
                             except psycopg.OperationalError as e:
                                 logger.exception(
                                     "rule_delete_db_error",
-                                    extra={"rule_id": rule_id, "error": str(e), "operation": "delete_rule"},
+                                    extra={
+                                        "rule_id": rule_id,
+                                        "error": str(e),
+                                        "operation": "delete_rule",
+                                    },
                                 )
                                 ui.notify("Database error. Please try again.", type="negative")
                             except ValueError as e:
                                 logger.exception(
                                     "rule_delete_validation_error",
-                                    extra={"rule_id": rule_id, "error": str(e), "operation": "delete_rule"},
+                                    extra={
+                                        "rule_id": rule_id,
+                                        "error": str(e),
+                                        "operation": "delete_rule",
+                                    },
                                 )
                                 ui.notify(f"Invalid rule ID: {e}", type="negative")
 
@@ -214,9 +227,9 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
         ui.label("Create New Rule").classes("text-xl font-bold mb-2")
 
         with ui.card().classes("w-full p-4"):
-            name_input = ui.input(label="Rule Name", placeholder="e.g., High Drawdown Alert").classes(
-                "w-full"
-            )
+            name_input = ui.input(
+                label="Rule Name", placeholder="e.g., High Drawdown Alert"
+            ).classes("w-full")
 
             with ui.row().classes("gap-4"):
                 condition_select = ui.select(
@@ -243,9 +256,9 @@ async def _render_alert_rules(user: dict[str, Any], alert_service: AlertConfigSe
 
             # Simple channel configuration
             with ui.row().classes("gap-4"):
-                email_input = ui.input(label="Email (optional)", placeholder="alert@company.com").classes(
-                    "w-64"
-                )
+                email_input = ui.input(
+                    label="Email (optional)", placeholder="alert@company.com"
+                ).classes("w-64")
                 slack_input = ui.input(
                     label="Slack Webhook (optional)", placeholder="https://hooks.slack.com/..."
                 ).classes("w-64")
@@ -366,13 +379,15 @@ async def _render_alert_history(user: dict[str, Any], alert_service: AlertConfig
             # Use getattr for fields that may not exist on all event models
             severity = getattr(event, "severity", "medium") or "medium"
             message = getattr(event, "message", "") or ""
-            rows.append({
-                "timestamp": event.triggered_at.isoformat() if event.triggered_at else "-",
-                "rule_name": event.rule_name or "-",
-                "severity": severity,
-                "status": status,
-                "message": message[:50] + "..." if len(message) > 50 else message,
-            })
+            rows.append(
+                {
+                    "timestamp": event.triggered_at.isoformat() if event.triggered_at else "-",
+                    "rule_name": event.rule_name or "-",
+                    "severity": severity,
+                    "status": status,
+                    "message": message[:50] + "..." if len(message) > 50 else message,
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 
@@ -387,7 +402,9 @@ async def _render_alert_history(user: dict[str, Any], alert_service: AlertConfig
                 return
 
             event_options = {
-                str(e.id): f"{e.rule_name} @ {e.triggered_at.isoformat() if e.triggered_at else 'Unknown'}"
+                str(
+                    e.id
+                ): f"{e.rule_name} @ {e.triggered_at.isoformat() if e.triggered_at else 'Unknown'}"
                 for e in pending_events
             }
 
@@ -423,19 +440,31 @@ async def _render_alert_history(user: dict[str, Any], alert_service: AlertConfig
                 except PermissionError as e:
                     logger.exception(
                         "alert_acknowledge_permission_denied",
-                        extra={"event_id": event_select.value, "error": str(e), "operation": "acknowledge_alert"},
+                        extra={
+                            "event_id": event_select.value,
+                            "error": str(e),
+                            "operation": "acknowledge_alert",
+                        },
                     )
                     ui.notify(f"Permission denied: {e}", type="negative")
                 except psycopg.OperationalError as e:
                     logger.exception(
                         "alert_acknowledge_db_error",
-                        extra={"event_id": event_select.value, "error": str(e), "operation": "acknowledge_alert"},
+                        extra={
+                            "event_id": event_select.value,
+                            "error": str(e),
+                            "operation": "acknowledge_alert",
+                        },
                     )
                     ui.notify("Database error. Please try again.", type="negative")
                 except ValueError as e:
                     logger.exception(
                         "alert_acknowledge_validation_error",
-                        extra={"event_id": event_select.value, "error": str(e), "operation": "acknowledge_alert"},
+                        extra={
+                            "event_id": event_select.value,
+                            "error": str(e),
+                            "operation": "acknowledge_alert",
+                        },
                     )
                     ui.notify(f"Invalid input: {e}", type="negative")
 

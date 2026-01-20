@@ -168,6 +168,6 @@ stress_results = await risk_service.run_stress_test(strategy_id="alpha_baseline"
 | Runtime import | LOW | scheduled_reports_service has runtime import of apps.web_console_ng (inside try/except) | Migration cleanup |
 
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated: 2026-01-18
 - **Source Files:** `libs/web_console_services/__init__.py`, `libs/web_console_services/alert_service.py`, `libs/web_console_services/alpha_explorer_service.py`, `libs/web_console_services/cb_metrics.py`, `libs/web_console_services/cb_rate_limiter.py`, `libs/web_console_services/cb_service.py`, `libs/web_console_services/comparison_service.py`, `libs/web_console_services/config.py`, `libs/web_console_services/data_explorer_service.py`, `libs/web_console_services/data_quality_service.py`, `libs/web_console_services/data_sync_service.py`, `libs/web_console_services/duckdb_connection.py`, `libs/web_console_services/health_service.py`, `libs/web_console_services/notebook_launcher_service.py`, `libs/web_console_services/risk_service.py`, `libs/web_console_services/scheduled_reports_service.py`, `libs/web_console_services/sql_validator.py`, `libs/web_console_services/tax_lot_service.py`, `libs/web_console_services/user_management.py`, `libs/web_console_services/schemas/`
 - **ADRs:** N/A

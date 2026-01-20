@@ -185,7 +185,9 @@ class TestAlgorithmPinning:
             "iss": "https://test.us.auth0.com/",
             "exp": int(time.time()) + 3600,
         }
-        token = jwt.encode(claims, secret, algorithm="HS256", headers={"kid": "fake-kid", "alg": "HS256"})
+        token = jwt.encode(
+            claims, secret, algorithm="HS256", headers={"kid": "fake-kid", "alg": "HS256"}
+        )
 
         with patch.object(validator, "get_jwks", new_callable=AsyncMock) as mock_jwks:
             mock_jwks.return_value = {"keys": []}
@@ -217,7 +219,11 @@ class TestAlgorithmPinning:
         import base64
         import json
 
-        header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "kid": "fake"}).encode()).decode().rstrip("=")
+        header = (
+            base64.urlsafe_b64encode(json.dumps({"alg": "none", "kid": "fake"}).encode())
+            .decode()
+            .rstrip("=")
+        )
         payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
         token = f"{header}.{payload}."
 

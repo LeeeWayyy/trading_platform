@@ -188,9 +188,20 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	poetry run ruff check .
 	$(call ci_step_header,Step 7/9,Checking layer violations)
 	@poetry run python scripts/dev/check_layering.py || { $(call ci_error,Layer violation detected!,libs/ should never import from apps/. Use dependency injection or move shared code to libs/.); }
-	$(call ci_step_header,Step 8/9,Running tests (integration and e2e tests skipped; timeout: 2 min per stall))
+	$(call ci_step_header,Step 8/9,Running tests (parallel with pytest-xdist; integration/e2e skipped; timeout: 2 min per stall))
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
-	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/hooks/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=50 || { \
+	# Exclude quarantined tests dynamically from tests/quarantine.txt
+	@DESELECT_ARGS=""; \
+	if [ -f tests/quarantine.txt ]; then \
+		DESELECT_ARGS=$$(grep -v '^#' tests/quarantine.txt 2>/dev/null | cut -d'|' -f1 | xargs -I{} echo "--deselect {}" | tr '\n' ' ' || true); \
+	fi; \
+	HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/hooks/ci_with_timeout.sh poetry run pytest \
+		-m "not integration and not e2e" \
+		-n auto \
+		$$DESELECT_ARGS \
+		--cov=libs --cov=apps --cov-branch \
+		--cov-report=term-missing \
+		--cov-fail-under=50 || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; echo "$(SEPARATOR)"; echo "❌ Tests TIMED OUT (no progress for 2 minutes)!"; echo "$(SEPARATOR)"; echo ""; \

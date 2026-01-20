@@ -170,9 +170,7 @@ async def _render_reports_page(
             ui.label("No schedules configured yet.").classes("text-gray-500 p-4")
         else:
             # Schedule selector
-            schedule_options = {
-                s.id: f"{s.name} ({s.report_type})" for s in schedules
-            }
+            schedule_options = {s.id: f"{s.name} ({s.report_type})" for s in schedules}
             schedule_select = ui.select(
                 label="Select Schedule",
                 options=schedule_options,
@@ -229,13 +227,13 @@ async def _render_reports_page(
                     )
 
                     ui.label("Last Run:").classes("font-medium")
-                    ui.label(
-                        _format_dt(selected.last_run_at) if selected.last_run_at else "Never"
-                    )
+                    ui.label(_format_dt(selected.last_run_at) if selected.last_run_at else "Never")
 
                     ui.label("Next Run:").classes("font-medium")
                     ui.label(
-                        _format_dt(selected.next_run_at) if selected.next_run_at else "Not scheduled"
+                        _format_dt(selected.next_run_at)
+                        if selected.next_run_at
+                        else "Not scheduled"
                     )
 
                 if can_manage:
@@ -278,7 +276,9 @@ async def _render_reports_page(
                                 extra={"schedule_id": selected.id, "error": str(exc)},
                                 exc_info=True,
                             )
-                            ui.notify("Failed to delete: Database connection error", type="negative")
+                            ui.notify(
+                                "Failed to delete: Database connection error", type="negative"
+                            )
                         except (ValueError, KeyError, TypeError) as exc:
                             logger.error(
                                 "schedule_delete_data_error",
@@ -297,7 +297,9 @@ async def _render_reports_page(
                         "Delete Schedule",
                         icon="delete",
                         on_click=delete_schedule,
-                    ).props("color=negative").classes("mt-4")
+                    ).props(
+                        "color=negative"
+                    ).classes("mt-4")
 
             ui.separator().classes("my-4")
 
@@ -355,10 +357,14 @@ async def _render_schedule_form(
             "Pick a human-friendly schedule. Use Custom only if you already know cron."
         ).classes("text-gray-500 text-xs")
 
-        time_input = ui.input(
-            label="Run Time (local)",
-            value="06:00",
-        ).props("type=time").classes("w-full max-w-md")
+        time_input = (
+            ui.input(
+                label="Run Time (local)",
+                value="06:00",
+            )
+            .props("type=time")
+            .classes("w-full max-w-md")
+        )
 
         weekday_select = ui.select(
             label="Day of Week",
@@ -366,10 +372,14 @@ async def _render_schedule_form(
             value="Mon",
         ).classes("w-full max-w-md")
 
-        monthday_input = ui.input(
-            label="Day of Month",
-            value="1",
-        ).classes("w-full max-w-md").props("type=number min=1 max=31")
+        monthday_input = (
+            ui.input(
+                label="Day of Month",
+                value="1",
+            )
+            .classes("w-full max-w-md")
+            .props("type=number min=1 max=31")
+        )
 
         cron_input = ui.input(
             label="Cron Expression (advanced)",
@@ -460,15 +470,21 @@ async def _render_schedule_form(
             "Turn this on to allow the scheduler to run. Turn it off to pause without deleting."
         ).classes("text-gray-500 text-xs")
 
-        params_text = json.dumps(schedule.params, indent=2) if schedule and schedule.params else "{}"
-        params_input = ui.textarea(
-            label="Report Parameters (JSON)",
-            value=params_text,
-        ).classes("w-full max-w-md").props("rows=4")
+        params_text = (
+            json.dumps(schedule.params, indent=2) if schedule and schedule.params else "{}"
+        )
+        params_input = (
+            ui.textarea(
+                label="Report Parameters (JSON)",
+                value=params_text,
+            )
+            .classes("w-full max-w-md")
+            .props("rows=4")
+        )
         ui.label(
             "Optional JSON settings for the report. Must be a JSON object (key/value pairs). "
-            "Example: {\"timezone\": \"America/Los_Angeles\", \"include_charts\": true, "
-            "\"lookback_days\": 7}. Leave {} if you are not sure."
+            'Example: {"timezone": "America/Los_Angeles", "include_charts": true, '
+            '"lookback_days": 7}. Leave {} if you are not sure.'
         ).classes("text-gray-500 text-xs")
 
         async def submit_form() -> None:
@@ -546,7 +562,9 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
                 extra={"schedule_id": schedule_id, "error": str(exc)},
                 exc_info=True,
             )
-            ui.label("Failed to load history: Database connection error").classes("text-red-500 p-2")
+            ui.label("Failed to load history: Database connection error").classes(
+                "text-red-500 p-2"
+            )
             return
         except (ValueError, KeyError, TypeError) as exc:
             logger.error(
@@ -636,7 +654,9 @@ async def _render_run_history(service: Any, schedule_id: str) -> None:
                 f"Download {r.run_key}",
                 icon="download",
                 on_click=download_report,
-            ).props("size=sm").classes("mr-2 mb-2")
+            ).props(
+                "size=sm"
+            ).classes("mr-2 mb-2")
 
 
 def _render_demo_mode(user: dict[str, Any]) -> None:
@@ -646,9 +666,7 @@ def _render_demo_mode(user: dict[str, Any]) -> None:
     with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("info", color="amber-700")
-            ui.label(
-                "Demo Mode: Database connection unavailable."
-            ).classes("text-amber-700")
+            ui.label("Demo Mode: Database connection unavailable.").classes("text-amber-700")
 
     # Demo schedules
     demo_schedules = [

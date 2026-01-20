@@ -159,6 +159,7 @@ async def get_config_endpoint(
         timestamp=datetime.now(UTC),
     )
 
+
 @router.get(
     "/api/v1/fat-finger/thresholds",
     response_model=FatFingerThresholdsResponse,
@@ -221,6 +222,7 @@ async def update_fat_finger_thresholds(
     )
 
     return create_fat_finger_thresholds_snapshot(ctx.fat_finger_validator)
+
 
 # =============================================================================
 # Strategy Status Endpoints
@@ -383,6 +385,7 @@ async def get_strategy_status(
         today_pnl=db_status["today_pnl"],
         timestamp=now,
     )
+
 
 # =============================================================================
 # Kill-Switch Endpoints

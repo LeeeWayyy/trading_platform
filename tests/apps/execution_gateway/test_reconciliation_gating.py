@@ -161,9 +161,7 @@ async def test_reconciliation_gate_blocks_position_increasing_during_startup():
     config = SimpleNamespace(dry_run=False)
 
     with pytest.raises(HTTPException) as exc_info:
-        await _require_reconciliation_ready_or_reduce_only(
-            order, ctx, config, "test-order-id"
-        )
+        await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
     assert exc_info.value.status_code == 503
     assert "Reconciliation in progress" in exc_info.value.detail["error"]
@@ -191,9 +189,7 @@ async def test_reconciliation_gate_allows_reduce_only_during_startup():
     config = SimpleNamespace(dry_run=False)
 
     # Should NOT raise because it's a reduce-only order
-    await _require_reconciliation_ready_or_reduce_only(
-        order, ctx, config, "test-order-id"
-    )
+    await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
 
 @pytest.mark.asyncio()
@@ -212,18 +208,14 @@ async def test_reconciliation_gate_blocks_when_pending_orders_would_flip():
     # Mock Alpaca client - long position of 10 with pending sell of 8
     alpaca_client = Mock()
     alpaca_client.get_open_position.return_value = {"qty": 10, "symbol": "AAPL"}
-    alpaca_client.get_orders.return_value = [
-        {"side": "sell", "qty": 8, "filled_qty": 0}
-    ]
+    alpaca_client.get_orders.return_value = [{"side": "sell", "qty": 8, "filled_qty": 0}]
 
     ctx = SimpleNamespace(reconciliation_service=reconciliation_service, alpaca=alpaca_client)
     config = SimpleNamespace(dry_run=False)
 
     # Should raise because selling 5 more when only 2 available would flip position
     with pytest.raises(HTTPException) as exc_info:
-        await _require_reconciliation_ready_or_reduce_only(
-            order, ctx, config, "test-order-id"
-        )
+        await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
     assert exc_info.value.status_code == 503
     assert "Reconciliation in progress" in exc_info.value.detail["error"]
@@ -249,9 +241,7 @@ async def test_reconciliation_gate_blocks_when_broker_unavailable():
     config = SimpleNamespace(dry_run=False)
 
     with pytest.raises(HTTPException) as exc_info:
-        await _require_reconciliation_ready_or_reduce_only(
-            order, ctx, config, "test-order-id"
-        )
+        await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
     assert exc_info.value.status_code == 503
     assert "Broker unavailable" in exc_info.value.detail["error"]
@@ -272,9 +262,7 @@ async def test_reconciliation_gate_blocks_when_alpaca_client_none():
     config = SimpleNamespace(dry_run=False)
 
     with pytest.raises(HTTPException) as exc_info:
-        await _require_reconciliation_ready_or_reduce_only(
-            order, ctx, config, "test-order-id"
-        )
+        await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
     assert exc_info.value.status_code == 503
     assert "Broker unavailable" in exc_info.value.detail["error"]
@@ -293,9 +281,7 @@ async def test_reconciliation_gate_allows_after_completion():
     config = SimpleNamespace(dry_run=False)
 
     # Should not raise
-    await _require_reconciliation_ready_or_reduce_only(
-        order, ctx, config, "test-order-id"
-    )
+    await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
 
 @pytest.mark.asyncio()
@@ -311,9 +297,7 @@ async def test_reconciliation_gate_allows_in_dry_run():
     config = SimpleNamespace(dry_run=True)  # Dry run mode
 
     # Should not raise because dry_run=True
-    await _require_reconciliation_ready_or_reduce_only(
-        order, ctx, config, "test-order-id"
-    )
+    await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")
 
 
 @pytest.mark.asyncio()
@@ -331,6 +315,4 @@ async def test_reconciliation_gate_allows_with_override():
     config = SimpleNamespace(dry_run=False)
 
     # Should not raise because override is active
-    await _require_reconciliation_ready_or_reduce_only(
-        order, ctx, config, "test-order-id"
-    )
+    await _require_reconciliation_ready_or_reduce_only(order, ctx, config, "test-order-id")

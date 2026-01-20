@@ -36,6 +36,7 @@ def _validate_metrics_keys(data: dict[str, Any] | None, required_keys: frozenset
         return False
     return all(key in data and data[key] is not None for key in required_keys)
 
+
 # Required keys for stress test results
 STRESS_TEST_REQUIRED_KEYS = frozenset({"scenario_name", "portfolio_pnl"})
 

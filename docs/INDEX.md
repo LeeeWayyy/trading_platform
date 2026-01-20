@@ -428,6 +428,7 @@ Current and future work items organized by phase. Completed tasks are archived i
 **Repository Cleanup & Maintenance:**
 - [CURRENT, 2026-01-14, Planning] [REPO_CLEANUP_PLAN.md](./TASKS/REPO_CLEANUP_PLAN.md) - Repository cleanup and organization plan (scripts reorganization, research directory, libs grouping)
 - [CURRENT, 2026-01-14, Planning] [WEB_CONSOLE_MIGRATION_PLAN.md](./TASKS/WEB_CONSOLE_MIGRATION_PLAN.md) - Web console backend migration plan (apps/web_console/ → libs/)
+- [CURRENT, 2026-01-19, Analysis] [LOW_COVERAGE_MODULES_ANALYSIS.md](./TASKS/LOW_COVERAGE_MODULES_ANALYSIS.md) - Prioritized test plan for low coverage modules and improvements
 
 **Phase 1 Tasks:**
 - [CURRENT, 2025-10-18, Task] [P1T0_DONE.md](ARCHIVE/TASKS_HISTORY/P1T0_DONE.md) - Phase 1 initialization and planning
@@ -531,7 +532,8 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2026-01-13, Task] [P6T18_TASK.md](./TASKS/P6T18_TASK.md) - P6T18: Performance Optimization
 
 **Test Improvement Tasks:**
-- [CURRENT, 2026-01-15, Task] [REFACTOR_EXECUTION_GATEWAY_TASK.md](./TASKS/REFACTOR_EXECUTION_GATEWAY_TASK.md) - Refactor Execution Gateway for Testability
+- [DONE, 2026-01-19, Plan] [TEST_IMPROVEMENT_PLAN_DONE.md](./ARCHIVE/TASKS_HISTORY/TEST_IMPROVEMENT_PLAN_DONE.md) - Test Improvement Plan for coverage and parallel CI
+- [DONE, 2026-01-17, Task] [REFACTOR_EXECUTION_GATEWAY_DONE.md](./ARCHIVE/TASKS_HISTORY/REFACTOR_EXECUTION_GATEWAY_DONE.md) - Refactor Execution Gateway for Testability
 
 **Backlog Tasks (B0):**
 - [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./ARCHIVE/TASKS_HISTORY/B0T1_DONE.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis

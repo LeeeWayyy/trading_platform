@@ -568,7 +568,9 @@ def cmd_record_commit(args):
 
         if not current:
             print("Error: No current component set", file=sys.stderr)
-            print("   Use: ./scripts/admin/workflow_gate.py set-component '<name>'", file=sys.stderr)
+            print(
+                "   Use: ./scripts/admin/workflow_gate.py set-component '<name>'", file=sys.stderr
+            )
             print(
                 "   See @docs/AI/Workflows/12-component-cycle.md for component workflow",
                 file=sys.stderr,
@@ -735,7 +737,8 @@ def cmd_subtask_create(args):
         if not pr_number:
             print("Error: No PR number set", file=sys.stderr)
             print(
-                "   Use: ./scripts/admin/workflow_gate.py start-pr-phase --pr-url <url>", file=sys.stderr
+                "   Use: ./scripts/admin/workflow_gate.py start-pr-phase --pr-url <url>",
+                file=sys.stderr,
             )
             print("   See @docs/AI/Workflows/01-git.md for PR workflow", file=sys.stderr)
             return 1

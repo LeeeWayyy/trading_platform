@@ -12,19 +12,19 @@
 
 This task addresses 11 medium-priority issues identified during the triple-reviewer analysis in P3T0. These fixes improve code quality, type safety, lifecycle management, and performance without blocking production deployment.
 
-**Reference:** [P3_ISSUES.md](./P3_ISSUES.md) (M1-M11)
+**Reference:** [P3_ISSUES_DONE.md](./P3_ISSUES_DONE.md) (M1-M11)
 
 ---
 
 ## Scope Clarification
 
 **In Scope (M1-M11):**
-- M1-M6: New issues from Round 2 review (detailed in P3_ISSUES.md)
+- M1-M6: New issues from Round 2 review (detailed in P3_ISSUES_DONE.md)
 - M7: Web console connection pooling (from Round 1)
 - M8-M11: Code cleanup items (TODOs, zen_review, rate limiting, validation)
 
 **Out of Scope (Deferred):**
-The following items mentioned in P3_ISSUES.md as "Previous Medium Issues" from Round 1 are deferred to a future sprint or already addressed in earlier tracks:
+The following items mentioned in P3_ISSUES_DONE.md as "Previous Medium Issues" from Round 1 are deferred to a future sprint or already addressed in earlier tracks:
 - Redis coupling (architectural, requires larger refactor)
 - Single strategy limitation (P4 feature scope)
 - Magic numbers cleanup (overlaps with TODO audit)
@@ -253,11 +253,11 @@ class KillSwitchRequest(BaseModel):
 
 ## Related Documents
 
-- [P3_PLANNING.md](./P3_PLANNING.md) - Full P3 planning
-- [P3_ISSUES.md](./P3_ISSUES.md) - Complete issue list
-- [P3T1_TASK.md](./P3T1_TASK.md) - Workflow Modernization (Complete)
-- [P3T2_TASK.md](./P3T2_TASK.md) - Critical Fixes (Complete)
-- [P3T3_TASK.md](./P3T3_TASK.md) - High Priority Fixes (Complete)
+- [P3_PLANNING_DONE.md](./P3_PLANNING_DONE.md) - Full P3 planning
+- [P3_ISSUES_DONE.md](./P3_ISSUES_DONE.md) - Complete issue list
+- [P3T1_DONE.md](./P3T1_DONE.md) - Workflow Modernization (Complete)
+- [P3T2_DONE.md](./P3T2_DONE.md) - Critical Fixes (Complete)
+- [P3T3_DONE.md](./P3T3_DONE.md) - High Priority Fixes (Complete)
 
 ---
 

@@ -89,7 +89,7 @@ def restore_main_globals():
                 is_authenticated=True,
             )
 
-        def _mock_user_context() -> dict[str, Any]:
+        def _mock_user_context(request: Request) -> dict[str, Any]:
             """Return a mock user context for RBAC tests."""
             return {
                 "role": "admin",

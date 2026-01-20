@@ -104,11 +104,11 @@ async def test_activity_feed_add_item_and_max_items(dummy_ui: DummyElement) -> N
     assert payload["top"] == 0
 
 
-def test_activity_feed_malformed_event_handled(dummy_ui: DummyElement, caplog: pytest.LogCaptureFixture) -> None:
+def test_activity_feed_malformed_event_handled(
+    dummy_ui: DummyElement, caplog: pytest.LogCaptureFixture
+) -> None:
     feed = feed_module.ActivityFeed()
 
     feed._render_item("bad-event", highlight=False)  # type: ignore[arg-type]
 
-    assert any(
-        record.message == "activity_feed_malformed_event" for record in caplog.records
-    )
+    assert any(record.message == "activity_feed_malformed_event" for record in caplog.records)

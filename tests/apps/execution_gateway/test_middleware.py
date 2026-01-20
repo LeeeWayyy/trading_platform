@@ -56,7 +56,9 @@ def mock_settings_with_validation():
     return settings
 
 
-def create_valid_token(user_id: str, role: str, strategies: str, timestamp_str: str, secret: str) -> str:
+def create_valid_token(
+    user_id: str, role: str, strategies: str, timestamp_str: str, secret: str
+) -> str:
     """Helper to create valid HMAC token."""
     payload_data = {
         "uid": user_id.strip(),
@@ -445,7 +447,9 @@ def test_verify_token_within_tolerance_boundary(mock_settings_with_validation):
     role = "trader"
     strategies = "alpha_baseline"
 
-    valid_token = create_valid_token(user_id, role, strategies, boundary_timestamp, "test_secret_key")
+    valid_token = create_valid_token(
+        user_id, role, strategies, boundary_timestamp, "test_secret_key"
+    )
 
     is_valid, error = _verify_internal_token(
         token=valid_token,

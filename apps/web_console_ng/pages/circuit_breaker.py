@@ -65,7 +65,7 @@ def _get_cb_service() -> CircuitBreakerService | None:
             )
             return None
 
-        setattr(app.storage, "_cb_service", CircuitBreakerService(sync_redis, sync_pool))  # noqa: B010
+        app.storage._cb_service = CircuitBreakerService(sync_redis, sync_pool)  # type: ignore[attr-defined]  # noqa: B010
 
     service: CircuitBreakerService = getattr(app.storage, "_cb_service")  # noqa: B009
     return service
@@ -86,9 +86,7 @@ async def circuit_breaker_page() -> None:
 
     # Permission check
     if not has_permission(user, Permission.VIEW_CIRCUIT_BREAKER):
-        ui.label("Permission denied: VIEW_CIRCUIT_BREAKER required").classes(
-            "text-red-500 text-lg"
-        )
+        ui.label("Permission denied: VIEW_CIRCUIT_BREAKER required").classes("text-red-500 text-lg")
         return
 
     # Get service (sync - will use run.io_bound for calls)
@@ -250,7 +248,9 @@ async def circuit_breaker_page() -> None:
                             "circuit_breaker_trip_failed",
                             extra={"error": str(e), "operation": "trip", "reason": final_reason},
                         )
-                        ui.notify("Circuit breaker service error. Please try again.", type="negative")
+                        ui.notify(
+                            "Circuit breaker service error. Please try again.", type="negative"
+                        )
                     except ValueError as e:
                         logger.exception(
                             "circuit_breaker_trip_invalid_data",
@@ -312,9 +312,7 @@ async def circuit_breaker_page() -> None:
                             dict(user),
                             acknowledged=acknowledged.value,
                         )
-                        ui.notify(
-                            "Circuit breaker RESET - entering quiet period", type="positive"
-                        )
+                        ui.notify("Circuit breaker RESET - entering quiet period", type="positive")
                         await fetch_status()
                         await fetch_history()
                         status_section.refresh()
@@ -328,13 +326,23 @@ async def circuit_breaker_page() -> None:
                     except RuntimeError as e:
                         logger.exception(
                             "circuit_breaker_reset_failed",
-                            extra={"error": str(e), "operation": "reset", "reason": reset_reason.value},
+                            extra={
+                                "error": str(e),
+                                "operation": "reset",
+                                "reason": reset_reason.value,
+                            },
                         )
-                        ui.notify("Circuit breaker service error. Please try again.", type="negative")
+                        ui.notify(
+                            "Circuit breaker service error. Please try again.", type="negative"
+                        )
                     except ValueError as e:
                         logger.exception(
                             "circuit_breaker_reset_invalid_data",
-                            extra={"error": str(e), "operation": "reset", "reason": reset_reason.value},
+                            extra={
+                                "error": str(e),
+                                "operation": "reset",
+                                "reason": reset_reason.value,
+                            },
                         )
                         ui.notify("Invalid data provided. Please check inputs.", type="negative")
 
@@ -368,13 +376,15 @@ async def circuit_breaker_page() -> None:
         # Convert history to rows
         rows = []
         for entry in history_data:
-            rows.append({
-                "tripped_at": entry.get("tripped_at", ""),
-                "reason": entry.get("reason", ""),
-                "reset_at": entry.get("reset_at", ""),
-                "reset_by": entry.get("reset_by", ""),
-                "reset_reason": entry.get("reset_reason", ""),
-            })
+            rows.append(
+                {
+                    "tripped_at": entry.get("tripped_at", ""),
+                    "reason": entry.get("reason", ""),
+                    "reset_at": entry.get("reset_at", ""),
+                    "reset_by": entry.get("reset_by", ""),
+                    "reset_reason": entry.get("reset_reason", ""),
+                }
+            )
 
         ui.table(columns=columns, rows=rows).classes("w-full")
 

@@ -171,14 +171,16 @@ async def login_page() -> None:
 
     # Hidden form for HTTP POST login (cookies can only be set in HTTP responses)
     next_url = _get_redirect_destination(request)
-    ui.html(f"""
+    ui.html(
+        f"""
         <form id="login-form" action="/auth/login" method="post" style="display:none">
             <input name="username" />
             <input name="password" />
             <input name="auth_type" />
             <input name="next" value="{next_url}" />
         </form>
-    """)
+    """
+    )
 
     with ui.card().classes("absolute-center w-96 p-8"):
         ui.label("Trading Console").classes("text-2xl font-bold text-center mb-2 w-full")
@@ -254,7 +256,8 @@ async def login_page() -> None:
                 # json.dumps prevents XSS by properly escaping values
                 # Fire-and-forget to avoid server-side timeout if the browser is busy.
                 try:
-                    ui.run_javascript(f"""
+                    ui.run_javascript(
+                        f"""
                         console.log('Form submission starting...');
                         const f = document.getElementById('login-form');
                         if (!f) {{
@@ -268,7 +271,8 @@ async def login_page() -> None:
                         f.auth_type.value = {json.dumps(selected_auth)};
                         console.log('Submitting form...');
                         f.submit();
-                    """)
+                    """
+                    )
                 except TypeError as e:
                     logger.error(
                         "Login form submission failed - invalid input type",
@@ -311,7 +315,9 @@ async def login_page() -> None:
                         extra={"error": str(e), "page": "login"},
                         exc_info=True,
                     )
-                    ui.notify("OAuth2 configuration error. Please contact support.", type="negative")
+                    ui.notify(
+                        "OAuth2 configuration error. Please contact support.", type="negative"
+                    )
                 except ValueError as e:
                     logger.error(
                         "OAuth2 init failed - invalid configuration",

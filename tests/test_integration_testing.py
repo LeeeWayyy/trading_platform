@@ -178,26 +178,36 @@ class TestE2ETestFiles:
 
 
 class TestCIWorkflowIntegration:
-    """Test CI workflow integration test job configuration."""
+    """Test CI workflow integration test job configuration.
 
-    def test_ci_workflow_has_integration_tests_job(self, project_root: Path) -> None:
-        """Test that CI workflow includes integration-tests job."""
+    Note: E2E tests with Docker stack are in ci-tests-coverage.yml (renamed to 'CI - E2E Tests').
+    Unit tests and integration tests are in ci-tests-parallel.yml.
+    """
+
+    def test_ci_workflow_has_e2e_tests_job(self, project_root: Path) -> None:
+        """Test that E2E CI workflow includes e2e-tests job."""
         workflow_path = project_root / ".github" / "workflows" / "ci-tests-coverage.yml"
         assert workflow_path.exists(), "ci-tests-coverage.yml not found"
 
         with open(workflow_path) as f:
             content = f.read()
 
-        # Check for integration-tests job
-        assert "integration-tests:" in content, "CI workflow missing 'integration-tests' job"
+        # Check for e2e-tests job (renamed from integration-tests)
+        assert "e2e-tests:" in content, "CI workflow missing 'e2e-tests' job"
 
-        # Check that it depends on test-and-coverage
-        assert (
-            "needs: test-and-coverage" in content
-        ), "integration-tests job should depend on test-and-coverage"
+    def test_parallel_ci_workflow_has_integration_tests_job(self, project_root: Path) -> None:
+        """Test that parallel CI workflow includes integration-tests job."""
+        workflow_path = project_root / ".github" / "workflows" / "ci-tests-parallel.yml"
+        assert workflow_path.exists(), "ci-tests-parallel.yml not found"
+
+        with open(workflow_path) as f:
+            content = f.read()
+
+        # Check for integration-tests job in parallel workflow
+        assert "integration-tests:" in content, "Parallel CI workflow missing 'integration-tests' job"
 
     def test_ci_workflow_uses_docker_compose_ci(self, project_root: Path) -> None:
-        """Test that CI workflow uses docker-compose.ci.yml."""
+        """Test that E2E CI workflow uses docker-compose.ci.yml."""
         workflow_path = project_root / ".github" / "workflows" / "ci-tests-coverage.yml"
 
         with open(workflow_path) as f:
@@ -207,7 +217,7 @@ class TestCIWorkflowIntegration:
         assert "docker-compose.ci.yml" in content, "CI workflow should use docker-compose.ci.yml"
 
     def test_ci_workflow_captures_logs_on_failure(self, project_root: Path) -> None:
-        """Test that CI workflow captures service logs on failure."""
+        """Test that E2E CI workflow captures service logs on failure."""
         workflow_path = project_root / ".github" / "workflows" / "ci-tests-coverage.yml"
 
         with open(workflow_path) as f:
@@ -283,10 +293,10 @@ Component 3 Test Coverage:
    - Tests use @pytest.mark.e2e marker
 
 3. CI Workflow Integration (4 tests)
-   - integration-tests job exists
+   - e2e-tests job exists in ci-tests-coverage.yml
+   - integration-tests job exists in ci-tests-parallel.yml
    - Uses docker-compose.ci.yml
    - Captures logs on failure
-   - Depends on test-and-coverage job
 
 4. Integration Tests (1 test, marked slow/integration)
    - docker-compose.ci.yml syntax validation

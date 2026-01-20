@@ -56,7 +56,11 @@ See [libs/redis_client.md](./redis_client.md) for detailed specification.
 - Individual library specs listed above
 - [../infrastructure/redis.md](../infrastructure/redis.md) - Redis infrastructure
 
+## Testing
+- **Test Files:** `tests/libs/core/` (centralized test directory)
+- **Run Tests:** `pytest tests/libs/core -v`
+
 ## Metadata
-- **Last Updated:** 2026-01-14 (Web Console Migration: Added db.py, db_pool.py, sync_db_pool.py, validators.py to libs/core/common/)
+- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from collocated directories to tests/libs/core/)
 - **Source Files:** `libs/core/` (group index)
 - **ADRs:** N/A

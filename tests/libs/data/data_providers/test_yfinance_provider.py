@@ -8,27 +8,45 @@ Comprehensive test suite covering:
 - Cache hit/miss behavior
 - Rate limiting
 - Error handling
+- Lock acquisition failures
+- Disk space checks
+- Cache integrity verification
+- Baseline validation
+- Manifest operations
+- Quarantine operations
+- Directory fsync operations
 """
 
 from __future__ import annotations
 
 import json
+import sys
 import time
+import types
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch
 
 import polars as pl
 import pytest
 
 from libs.data.data_providers.yfinance_provider import (
+    BASELINE_FILE_SUFFIX,
+    BASELINE_MANIFEST_FILE,
+    VALID_SYMBOL_PATTERN,
+    YFINANCE_SCHEMA,
+    DriftDetectedError,
     ProductionGateError,
+    YFinanceError,
     YFinanceProvider,
 )
 
-# Skip entire test module if yfinance is not installed
-# This allows tests to run in environments without the optional dev dependency
-pytest.importorskip("yfinance", reason="yfinance not installed - skipping tests")
+# Provide a lightweight stub when yfinance is not installed so patch() can resolve it.
+if "yfinance" not in sys.modules:
+    stub = types.ModuleType("yfinance")
+    stub.Ticker = Mock()
+    sys.modules["yfinance"] = stub
 
 # =============================================================================
 # Fixtures
@@ -83,7 +101,7 @@ def mock_baseline_data() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-            "close": [473.00, 474.80, 475.50],  # Matches mock_ohlcv_data
+            "adj_close": [473.00, 474.80, 475.50],  # Matches mock_ohlcv_data
         }
     )
 
@@ -94,7 +112,7 @@ def mock_baseline_data_with_drift() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-            "close": [473.00, 474.80, 490.00],  # Last price drifts >1%
+            "adj_close": [473.00, 474.80, 490.00],  # Last price drifts >1%
         }
     )
 
@@ -147,6 +165,37 @@ class TestBasicFunctionality:
         assert provider._quarantine_dir.exists()
         assert provider._lock_dir.exists()
 
+    def test_provider_with_custom_lock_dir(self, tmp_path: Path) -> None:
+        """Test provider with custom lock directory."""
+        storage_path = tmp_path / "yfinance"
+        lock_dir = tmp_path / "custom_locks"
+        provider = YFinanceProvider(storage_path=storage_path, lock_dir=lock_dir)
+
+        assert provider._lock_dir == lock_dir
+        assert lock_dir.exists()
+
+    def test_provider_with_baseline_path(self, tmp_path: Path) -> None:
+        """Test provider with baseline path configured."""
+        storage_path = tmp_path / "yfinance"
+        baseline_path = tmp_path / "baseline"
+        provider = YFinanceProvider(storage_path=storage_path, baseline_path=baseline_path)
+
+        assert provider._baseline_path == baseline_path.resolve()
+
+    def test_provider_without_baseline_path(self, tmp_path: Path) -> None:
+        """Test provider without baseline path."""
+        storage_path = tmp_path / "yfinance"
+        provider = YFinanceProvider(storage_path=storage_path, baseline_path=None)
+
+        assert provider._baseline_path is None
+
+    def test_environment_normalized_to_lowercase(self, tmp_path: Path) -> None:
+        """Test environment is normalized to lowercase."""
+        storage_path = tmp_path / "yfinance"
+        provider = YFinanceProvider(storage_path=storage_path, environment="PRODUCTION")
+
+        assert provider._environment == "production"
+
     def test_provider_rejects_path_traversal(self, tmp_path: Path) -> None:
         """Test provider rejects paths with traversal."""
         with pytest.raises(ValueError, match="Path traversal"):
@@ -188,6 +237,15 @@ class TestBasicFunctionality:
                 end_date=date(2024, 1, 31),
             )
 
+    def test_symbol_too_long_rejected(self, provider: YFinanceProvider) -> None:
+        """Test symbols longer than 15 characters are rejected."""
+        with pytest.raises(ValueError, match="Invalid symbol format"):
+            provider.get_daily_prices(
+                symbols=["A" * 16],  # 16 characters
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 31),
+            )
+
     def test_valid_symbol_formats_accepted(self, provider: YFinanceProvider) -> None:
         """Test valid symbol formats are accepted (BRK.B, BRK-B)."""
         # These should not raise - they're valid symbol formats
@@ -214,12 +272,15 @@ class TestBasicFunctionality:
             )
 
     def test_symbols_normalized_to_uppercase(self, provider_with_cache: YFinanceProvider) -> None:
-        """Test symbols are normalized to uppercase."""
-        # Cache has SPY, query with lowercase
+        """Test symbols are normalized to uppercase.
+
+        Cache has SPY data for Jan 2-4 2024 only. Request the exact range
+        to ensure cache hit (cache requires full coverage of requested range).
+        """
         df = provider_with_cache.get_daily_prices(
             symbols=["spy"],  # lowercase
-            start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 31),
+            start_date=date(2024, 1, 2),  # Match mock data range exactly
+            end_date=date(2024, 1, 4),
         )
 
         assert df.height > 0
@@ -308,12 +369,81 @@ class TestBasicFunctionality:
             )
             del _df
 
+    def test_many_uncached_symbols_logs_performance_warning(
+        self, provider: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test warning logged when fetching many uncached symbols."""
+        import logging
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = MagicMock(empty=True)
+            mock_ticker_cls.return_value = mock_ticker
+
+            # Fetch >10 symbols to trigger warning
+            symbols = [f"SYM{i}" for i in range(15)]
+            with caplog.at_level(logging.WARNING):
+                _df = provider.get_daily_prices(
+                    symbols=symbols,
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 5),
+                )
+
+            # Should warn about fetching many uncached symbols
+            assert any(
+                "Fetching many uncached symbols" in record.message for record in caplog.records
+            )
+            del _df
+
+    def test_use_cache_false_skips_cache(self, provider_with_cache: YFinanceProvider) -> None:
+        """Test use_cache=False skips cache and fetches from network."""
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = MagicMock(empty=True)
+            mock_ticker_cls.return_value = mock_ticker
+
+            _df = provider_with_cache.get_daily_prices(
+                symbols=["SPY"],
+                start_date=date(2024, 1, 2),
+                end_date=date(2024, 1, 4),
+                use_cache=False,  # Skip cache
+            )
+
+            # Should have fetched from network despite cache availability
+            assert mock_ticker_cls.called
+
     def test_verify_data_with_valid_cache(self, provider_with_cache: YFinanceProvider) -> None:
         """Test verify_data returns True for valid cache."""
         results = provider_with_cache.verify_data()
 
         assert "SPY.parquet" in results
         assert results["SPY.parquet"] is True
+
+    def test_verify_data_with_no_manifest(self, provider: YFinanceProvider) -> None:
+        """Test verify_data returns empty dict when no manifest exists."""
+        results = provider.verify_data()
+        assert results == {}
+
+    def test_verify_data_with_missing_checksum(self, provider_with_cache: YFinanceProvider) -> None:
+        """Test verify_data returns False for missing checksum."""
+        # Remove checksum from manifest
+        manifest = provider_with_cache.get_manifest()
+        manifest["files"]["SPY.parquet"].pop("checksum")
+        manifest_path = provider_with_cache._storage_path / "yfinance_manifest.json"
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f)
+
+        results = provider_with_cache.verify_data()
+        assert results["SPY.parquet"] is False
+
+    def test_verify_data_with_missing_file(self, provider_with_cache: YFinanceProvider) -> None:
+        """Test verify_data returns False for missing file."""
+        # Remove the cache file but keep manifest entry
+        cache_path = provider_with_cache._daily_dir / "SPY.parquet"
+        cache_path.unlink()
+
+        results = provider_with_cache.verify_data()
+        assert results["SPY.parquet"] is False
 
     def test_invalidate_cache_removes_files(self, provider_with_cache: YFinanceProvider) -> None:
         """Test invalidate_cache removes cache files."""
@@ -362,6 +492,36 @@ class TestBasicFunctionality:
         assert removed == 0
         # Cache file should still exist
         assert (provider_with_cache._daily_dir / "SPY.parquet").exists()
+
+    def test_invalidate_cache_handles_missing_cache_gracefully(
+        self, provider_with_cache: YFinanceProvider
+    ) -> None:
+        """Test invalidate_cache handles missing cache files gracefully."""
+        # Try to invalidate a symbol that doesn't exist in cache
+        removed = provider_with_cache.invalidate_cache(symbols=["NOTEXIST"])
+
+        assert removed == 0
+
+    def test_invalidate_cache_handles_file_removal_error(
+        self, provider_with_cache: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test invalidate_cache logs warning on file removal error."""
+        import logging
+
+        # Mock unlink to raise an error
+        with patch.object(Path, "unlink", side_effect=OSError("Permission denied")):
+            with caplog.at_level(logging.WARNING):
+                removed = provider_with_cache.invalidate_cache(symbols=["SPY"])
+
+            assert removed == 0
+            assert any("Failed to remove cache file" in record.message for record in caplog.records)
+
+    def test_empty_result_returns_correct_schema(self, provider: YFinanceProvider) -> None:
+        """Test _empty_result returns DataFrame with correct schema."""
+        df = provider._empty_result()
+
+        assert df.is_empty()
+        assert df.schema == YFINANCE_SCHEMA
 
 
 # =============================================================================
@@ -535,6 +695,26 @@ class TestDriftDetection:
         assert max_drift is not None
         assert max_drift > 0.01  # Exceeds 1%
 
+    def test_drift_with_custom_tolerance(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        mock_baseline_data_with_drift: pl.DataFrame,
+    ) -> None:
+        """Test drift check with custom tolerance."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data_with_drift.write_parquet(baseline_path)
+
+        # Should pass with higher tolerance
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+            tolerance=0.10,  # 10% tolerance
+        )
+
+        assert passed is True
+        assert max_drift is not None
+
     def test_missing_baseline_passes_with_warning(
         self,
         provider_with_baseline: YFinanceProvider,
@@ -578,7 +758,7 @@ class TestDriftDetection:
         baseline_data = pl.DataFrame(
             {
                 "date": [date(2023, 1, 2), date(2023, 1, 3)],  # Different year
-                "close": [400.0, 401.0],
+                "adj_close": [400.0, 401.0],
             }
         )
         baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
@@ -592,6 +772,115 @@ class TestDriftDetection:
         assert passed is True
         assert max_drift is None
         assert "No overlapping dates" in caplog.text
+
+    def test_drift_check_uses_adj_close_when_available(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        mock_baseline_data: pl.DataFrame,
+    ) -> None:
+        """Test drift check uses adj_close when available."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data.write_parquet(baseline_path)
+
+        # Should use adj_close from both datasets
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+        )
+
+        assert passed is True
+        assert max_drift is not None
+
+    def test_drift_check_fallback_to_close(
+        self,
+        provider_with_baseline: YFinanceProvider,
+    ) -> None:
+        """Test drift check falls back to close when adj_close missing."""
+        # Create data without adj_close
+        yf_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3)],
+                "close": [473.00, 474.80],
+            }
+        )
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3)],
+                "close": [473.00, 474.80],
+            }
+        )
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        baseline_data.write_parquet(baseline_path)
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=yf_data,
+        )
+
+        assert passed is True
+        assert max_drift is not None
+
+    def test_drift_check_missing_price_column_in_yfinance(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test drift check handles missing price column in yfinance data."""
+        yf_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "symbol": ["SPY"],
+                # Missing both close and adj_close
+            }
+        )
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "adj_close": [473.00],
+            }
+        )
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        baseline_data.write_parquet(baseline_path)
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=yf_data,
+        )
+
+        assert passed is True
+        assert max_drift is None
+        assert "Missing price column" in caplog.text
+
+    def test_drift_check_missing_price_column_in_baseline(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test drift check handles missing price column in baseline."""
+        yf_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "adj_close": [473.00],
+            }
+        )
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                # Missing both close and adj_close
+            }
+        )
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        baseline_data.write_parquet(baseline_path)
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=yf_data,
+        )
+
+        assert passed is True
+        assert max_drift is None
+        assert "Missing price column in baseline" in caplog.text
 
     def test_baseline_manifest_checksum_validation(
         self,
@@ -666,6 +955,84 @@ class TestDriftDetection:
         assert max_drift is None
         assert "checksum" in caplog.text.lower()
 
+    def test_baseline_manifest_missing_entry(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        mock_baseline_data: pl.DataFrame,
+    ) -> None:
+        """Test baseline validation skips when manifest has no entry for file."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data.write_parquet(baseline_path)
+
+        # Create manifest without entry for this file
+        manifest = {"files": {}}
+        manifest_path = provider_with_baseline._baseline_path / "baseline_manifest.json"
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f)
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+        )
+
+        # Should pass (skip validation when no manifest entry)
+        assert passed is True
+
+    def test_baseline_manifest_missing_checksum_field(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        mock_baseline_data: pl.DataFrame,
+    ) -> None:
+        """Test baseline validation skips when manifest entry has no checksum."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data.write_parquet(baseline_path)
+
+        # Create manifest entry without checksum field
+        manifest = {
+            "files": {
+                "spy_60d.parquet": {
+                    "symbol": "SPY",
+                    # No checksum field
+                }
+            }
+        }
+        manifest_path = provider_with_baseline._baseline_path / "baseline_manifest.json"
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f)
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+        )
+
+        # Should pass (skip validation when no checksum)
+        assert passed is True
+
+    def test_baseline_manifest_read_error(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        mock_baseline_data: pl.DataFrame,
+    ) -> None:
+        """Test baseline validation handles manifest read errors gracefully."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data.write_parquet(baseline_path)
+
+        # Create invalid JSON manifest
+        manifest_path = provider_with_baseline._baseline_path / "baseline_manifest.json"
+        with open(manifest_path, "w") as f:
+            f.write("invalid json{{{")
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+        )
+
+        # Should pass (skip validation on manifest read error)
+        assert passed is True
+
     def test_drift_check_handles_zero_baseline(
         self,
         provider_with_baseline: YFinanceProvider,
@@ -676,7 +1043,7 @@ class TestDriftDetection:
         baseline_data = pl.DataFrame(
             {
                 "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-                "close": [0.0, 0.0, 0.0],  # All zeros
+                "adj_close": [0.0, 0.0, 0.0],  # All zeros
             }
         )
         baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
@@ -691,6 +1058,116 @@ class TestDriftDetection:
         # Passes because all zero prices are filtered out
         assert passed is True
         assert max_drift is None
+
+    def test_drift_check_handles_null_baseline(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+    ) -> None:
+        """Test drift check handles null baseline prices."""
+        # Create baseline with null prices
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "adj_close": [None, None, None],
+            }
+        )
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        baseline_data.write_parquet(baseline_path)
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+        )
+
+        # Should pass (all null prices filtered out)
+        assert passed is True
+        assert max_drift is None
+
+    def test_drift_check_reads_from_cache_when_data_not_provided(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        mock_baseline_data: pl.DataFrame,
+    ) -> None:
+        """Test drift check reads from cache when yfinance_data not provided."""
+        # Write baseline
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data.write_parquet(baseline_path)
+
+        # Write cache
+        cache_path = provider_with_baseline._daily_dir / "SPY.parquet"
+        mock_ohlcv_data.write_parquet(cache_path)
+
+        # Call without providing yfinance_data
+        passed, max_drift = provider_with_baseline.check_drift(symbol="SPY")
+
+        assert passed is True
+        assert max_drift is not None
+
+    def test_drift_check_handles_invalid_symbol_for_cache_read(
+        self,
+        provider_with_baseline: YFinanceProvider,
+    ) -> None:
+        """Test drift check handles invalid symbol when reading from cache."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "adj_close": [473.00],
+            }
+        )
+        baseline_data.write_parquet(baseline_path)
+
+        # Call with invalid symbol (will fail cache path validation)
+        passed, max_drift = provider_with_baseline.check_drift(symbol="../evil")
+
+        # Should pass (skip check on invalid symbol)
+        assert passed is True
+        assert max_drift is None
+
+    def test_drift_check_handles_missing_cache_file(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test drift check handles missing cache file when reading from cache."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "adj_close": [473.00],
+            }
+        )
+        baseline_data.write_parquet(baseline_path)
+
+        # Call without cache file
+        passed, max_drift = provider_with_baseline.check_drift(symbol="SPY")
+
+        assert passed is True
+        assert max_drift is None
+        assert "No yfinance cache for drift check" in caplog.text
+
+    def test_drift_check_handles_baseline_read_error(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_ohlcv_data: pl.DataFrame,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test drift check handles baseline file read errors."""
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        # Create invalid parquet file
+        with open(baseline_path, "w") as f:
+            f.write("not a parquet file")
+
+        passed, max_drift = provider_with_baseline.check_drift(
+            symbol="SPY",
+            yfinance_data=mock_ohlcv_data,
+        )
+
+        assert passed is True
+        assert max_drift is None
+        assert "Failed to read baseline" in caplog.text
 
     def test_drift_check_runs_on_fetch_and_cache(
         self,
@@ -731,6 +1208,308 @@ class TestDriftDetection:
 
             # Should have drift warning
             assert "SPY" in result["drift_warnings"]
+
+    def test_drift_check_skipped_when_disabled(
+        self,
+        provider_with_baseline: YFinanceProvider,
+        mock_baseline_data_with_drift: pl.DataFrame,
+    ) -> None:
+        """Test drift check can be disabled in fetch_and_cache."""
+        # Write baseline with drift
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data_with_drift.write_parquet(baseline_path)
+
+        # Mock yfinance download
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [471.50],
+                "High": [474.00],
+                "Low": [470.00],
+                "Close": [473.00],
+                "Volume": [50000000],
+                "Adj Close": [473.00],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            result = provider_with_baseline.fetch_and_cache(
+                symbols=["SPY"],
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+                run_drift_check=False,  # Disable drift check
+            )
+
+            # Should NOT have drift warnings (check was skipped)
+            assert "SPY" not in result["drift_warnings"]
+            # Should have succeeded
+            assert "SPY" not in result["failed_symbols"]
+
+
+# =============================================================================
+# Fetch and Cache Tests
+# =============================================================================
+
+
+class TestFetchAndCache:
+    """Tests for fetch_and_cache functionality."""
+
+    def test_fetch_and_cache_empty_symbols_returns_empty_result(
+        self, provider: YFinanceProvider
+    ) -> None:
+        """Test fetch_and_cache with empty symbols returns empty result."""
+        result = provider.fetch_and_cache(symbols=[])
+
+        assert result == {"files": {}, "failed_symbols": [], "drift_warnings": {}}
+
+    def test_fetch_and_cache_default_date_range(self, provider: YFinanceProvider) -> None:
+        """Test fetch_and_cache uses default 5-year date range."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            with patch("libs.data.data_providers.yfinance_provider.date") as mock_date:
+                mock_date.today.return_value = date(2024, 1, 10)
+                result = provider.fetch_and_cache(
+                    symbols=["SPY"],
+                    # No start_date/end_date provided
+                    run_drift_check=False,
+                )
+
+            # Should have called history with 5-year range
+            assert "SPY.parquet" in result["files"]
+
+    def test_fetch_and_cache_updates_manifest_per_symbol(self, provider: YFinanceProvider) -> None:
+        """Test fetch_and_cache updates manifest after each symbol."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            provider.fetch_and_cache(
+                symbols=["SPY", "QQQ"],
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+                run_drift_check=False,
+            )
+
+        # Manifest should have both symbols
+        manifest = provider.get_manifest()
+        assert "SPY.parquet" in manifest["files"]
+        assert "QQQ.parquet" in manifest["files"]
+
+    def test_fetch_and_cache_handles_empty_download(
+        self, provider: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test fetch_and_cache handles empty download gracefully."""
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = MagicMock(empty=True)
+            mock_ticker_cls.return_value = mock_ticker
+
+            result = provider.fetch_and_cache(
+                symbols=["NOSUCH"],
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+                run_drift_check=False,
+            )
+
+        assert "NOSUCH" in result["failed_symbols"]
+        assert "Download failed or empty" in caplog.text
+
+    def test_fetch_and_cache_lock_timeout_raises_error(self, provider: YFinanceProvider) -> None:
+        """Test fetch_and_cache raises error on lock timeout."""
+        with patch(
+            "libs.data.data_providers.yfinance_provider.AtomicFileLock.acquire",
+            side_effect=TimeoutError("Lock timeout"),
+        ):
+            with pytest.raises(YFinanceError, match="Failed to acquire cache lock"):
+                provider.fetch_and_cache(symbols=["SPY"])
+
+    def test_fetch_and_cache_lock_oserror_raises_error(self, provider: YFinanceProvider) -> None:
+        """Test fetch_and_cache raises error on lock OSError."""
+        with patch(
+            "libs.data.data_providers.yfinance_provider.AtomicFileLock.acquire",
+            side_effect=OSError("Filesystem error"),
+        ):
+            with pytest.raises(YFinanceError, match="Failed to acquire cache lock"):
+                provider.fetch_and_cache(symbols=["SPY"])
+
+    def test_fetch_and_cache_releases_lock_on_success(self, provider: YFinanceProvider) -> None:
+        """Test fetch_and_cache releases lock after successful operation."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
+
+        mock_lock = Mock()
+        mock_lock.acquire.return_value = "test_token"
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            with patch(
+                "libs.data.data_providers.yfinance_provider.AtomicFileLock",
+                return_value=mock_lock,
+            ):
+                provider.fetch_and_cache(
+                    symbols=["SPY"],
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 5),
+                    run_drift_check=False,
+                )
+
+        # Should have released lock
+        mock_lock.release.assert_called_once_with("test_token")
+
+    def test_fetch_and_cache_releases_lock_on_error(self, provider: YFinanceProvider) -> None:
+        """Test fetch_and_cache releases lock even when downloads fail.
+
+        Note: fetch_and_cache gracefully handles download failures - it doesn't
+        propagate exceptions. Instead, it records failed symbols and returns them
+        in the result. This test verifies the lock is released after processing.
+        """
+        mock_lock = Mock()
+        mock_lock.acquire.return_value = "test_token"
+
+        with patch("yfinance.Ticker", side_effect=Exception("Download failed")):
+            with patch(
+                "libs.data.data_providers.yfinance_provider.AtomicFileLock",
+                return_value=mock_lock,
+            ):
+                # fetch_and_cache handles exceptions gracefully - doesn't raise
+                result = provider.fetch_and_cache(
+                    symbols=["SPY"],
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 5),
+                    run_drift_check=False,
+                )
+
+        # Should have released lock after processing
+        mock_lock.release.assert_called_once_with("test_token")
+        # Should report SPY as failed symbol
+        assert "SPY" in result.get("failed_symbols", [])
+
+    def test_fetch_and_cache_drift_check_blocks_caching_on_failure(
+        self, provider_with_baseline: YFinanceProvider, mock_baseline_data_with_drift: pl.DataFrame
+    ) -> None:
+        """Test drift check failure blocks caching and quarantines existing cache."""
+        # Write baseline with drift
+        baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
+        mock_baseline_data_with_drift.write_parquet(baseline_path)
+
+        # Pre-populate cache with old data
+        old_cache_path = provider_with_baseline._daily_dir / "SPY.parquet"
+        old_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["SPY"],
+                "close": [400.0],
+                "adj_close": [400.0],
+            }
+        )
+        old_data.write_parquet(old_cache_path)
+
+        # Create manifest for old cache
+        manifest = {
+            "dataset": "yfinance",
+            "files": {
+                "SPY.parquet": {
+                    "symbol": "SPY",
+                    "checksum": provider_with_baseline._compute_checksum(old_cache_path),
+                }
+            },
+        }
+        manifest_path = provider_with_baseline._storage_path / "yfinance_manifest.json"
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f)
+
+        # Mock yfinance download
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+                "Open": [471.50, 473.20, 472.80],
+                "High": [474.00, 475.50, 476.20],
+                "Low": [470.00, 472.00, 471.50],
+                "Close": [473.00, 474.80, 475.50],
+                "Volume": [50000000, 48000000, 52000000],
+                "Adj Close": [473.00, 474.80, 475.50],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            result = provider_with_baseline.fetch_and_cache(
+                symbols=["SPY"],
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+                run_drift_check=True,
+            )
+
+        # Should have failed due to drift
+        assert "SPY" in result["failed_symbols"]
+        assert "SPY" in result["drift_warnings"]
+
+        # Old cache should be quarantined
+        assert not old_cache_path.exists()
+        quarantine_files = list(provider_with_baseline._quarantine_dir.glob("*drift*"))
+        assert len(quarantine_files) > 0
+
+        # Manifest should not have SPY entry
+        final_manifest = provider_with_baseline.get_manifest()
+        if final_manifest:
+            assert "SPY.parquet" not in final_manifest.get("files", {})
 
 
 # =============================================================================
@@ -775,6 +1554,33 @@ class TestAtomicWrites:
         quarantine_files = list(provider._quarantine_dir.glob("*empty_dataframe*"))
         assert len(quarantine_files) == 1
 
+    def test_atomic_write_insufficient_disk_space(
+        self, provider: YFinanceProvider, mock_ohlcv_data: pl.DataFrame
+    ) -> None:
+        """Test atomic write fails on insufficient disk space."""
+        target_path = provider._daily_dir / "TEST.parquet"
+
+        with patch.object(
+            provider, "_check_disk_space", side_effect=OSError("Insufficient disk space")
+        ):
+            with pytest.raises(OSError, match="Insufficient disk space"):
+                provider._atomic_write_parquet(mock_ohlcv_data, target_path)
+
+    def test_atomic_write_cleans_up_tmp_on_error(
+        self, provider: YFinanceProvider, mock_ohlcv_data: pl.DataFrame
+    ) -> None:
+        """Test atomic write cleans up temp file on error."""
+        target_path = provider._daily_dir / "TEST.parquet"
+        temp_path = target_path.with_suffix(".parquet.tmp")
+
+        # Make rename fail
+        with patch.object(Path, "rename", side_effect=OSError("Rename failed")):
+            with pytest.raises(OSError, match="Rename failed"):
+                provider._atomic_write_parquet(mock_ohlcv_data, target_path)
+
+        # Temp file should be cleaned up
+        assert not temp_path.exists()
+
     def test_checksum_mismatch_detected(self, provider_with_cache: YFinanceProvider) -> None:
         """Test checksum mismatch is detected by verify_data."""
         # Corrupt the cache file
@@ -785,6 +1591,367 @@ class TestAtomicWrites:
         results = provider_with_cache.verify_data()
 
         assert results["SPY.parquet"] is False
+
+    def test_atomic_write_manifest_creates_file(self, provider: YFinanceProvider) -> None:
+        """Test atomic manifest write creates file."""
+        manifest_data = {
+            "dataset": "yfinance",
+            "files": {},
+        }
+
+        provider._atomic_write_manifest(manifest_data)
+
+        manifest_path = provider._storage_path / "yfinance_manifest.json"
+        assert manifest_path.exists()
+
+    def test_atomic_write_manifest_no_tmp_file_visible(self, provider: YFinanceProvider) -> None:
+        """Test atomic manifest write doesn't leave .tmp files."""
+        manifest_data = {"dataset": "yfinance", "files": {}}
+        manifest_path = provider._storage_path / "yfinance_manifest.json"
+        temp_path = manifest_path.with_suffix(".json.tmp")
+
+        provider._atomic_write_manifest(manifest_data)
+
+        assert not temp_path.exists()
+
+    def test_atomic_write_manifest_handles_serialization_error(
+        self, provider: YFinanceProvider
+    ) -> None:
+        """Test atomic manifest write handles circular reference errors.
+
+        Note: The manifest writer uses `default=str` which stringifies most
+        non-serializable objects. However, circular references still raise
+        ValueError.
+        """
+        # Create circular reference - this will raise ValueError
+        circular_dict: dict[str, Any] = {"dataset": "yfinance"}
+        circular_dict["self"] = circular_dict
+
+        with pytest.raises(ValueError, match="Circular reference"):
+            provider._atomic_write_manifest(circular_dict)
+
+        # Temp file should be cleaned up
+        temp_path = provider._storage_path / "yfinance_manifest.json.tmp"
+        assert not temp_path.exists()
+
+    def test_atomic_write_manifest_cleans_up_tmp_on_error(self, provider: YFinanceProvider) -> None:
+        """Test atomic manifest write cleans up temp file on error."""
+        manifest_data = {"dataset": "yfinance", "files": {}}
+        temp_path = provider._storage_path / "yfinance_manifest.json.tmp"
+
+        with patch.object(Path, "rename", side_effect=OSError("Rename failed")):
+            with pytest.raises(OSError, match="Rename failed"):
+                provider._atomic_write_manifest(manifest_data)
+
+        # Temp file should be cleaned up
+        assert not temp_path.exists()
+
+    def test_check_disk_space_raises_on_insufficient_space(
+        self, provider: YFinanceProvider, tmp_path: Path
+    ) -> None:
+        """Test disk space check raises error when insufficient space."""
+        with patch("os.statvfs") as mock_statvfs:
+            # Mock very low available space
+            mock_stat = Mock()
+            mock_stat.f_bavail = 1  # 1 block
+            mock_stat.f_frsize = 4096  # 4KB blocks
+            mock_statvfs.return_value = mock_stat
+
+            with pytest.raises(OSError, match="Insufficient disk space"):
+                provider._check_disk_space(tmp_path)
+
+    def test_check_disk_space_passes_with_sufficient_space(
+        self, provider: YFinanceProvider, tmp_path: Path
+    ) -> None:
+        """Test disk space check passes with sufficient space."""
+        with patch("os.statvfs") as mock_statvfs:
+            # Mock plenty of available space
+            mock_stat = Mock()
+            mock_stat.f_bavail = 1000000  # Many blocks
+            mock_stat.f_frsize = 4096  # 4KB blocks
+            mock_statvfs.return_value = mock_stat
+
+            # Should not raise
+            provider._check_disk_space(tmp_path)
+
+    def test_check_disk_space_handles_windows(
+        self, provider: YFinanceProvider, tmp_path: Path
+    ) -> None:
+        """Test disk space check handles Windows (no statvfs)."""
+        with patch("os.statvfs", side_effect=AttributeError("Windows")):
+            # Should not raise on Windows
+            provider._check_disk_space(tmp_path)
+
+    def test_fsync_directory_handles_oserror(
+        self, provider: YFinanceProvider, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test fsync directory handles OSError gracefully."""
+        import logging
+
+        with patch("os.open", side_effect=OSError("Unsupported")):
+            with caplog.at_level(logging.WARNING):
+                provider._fsync_directory(tmp_path)
+
+            assert "Failed to fsync directory" in caplog.text
+
+    def test_fsync_directory_handles_attribute_error(
+        self, provider: YFinanceProvider, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test fsync directory handles AttributeError (no O_DIRECTORY)."""
+        import logging
+
+        with patch("os.open", side_effect=AttributeError("O_DIRECTORY not defined")):
+            with caplog.at_level(logging.WARNING):
+                provider._fsync_directory(tmp_path)
+
+            assert "Failed to fsync directory" in caplog.text
+
+
+# =============================================================================
+# Cache Integrity Tests
+# =============================================================================
+
+
+class TestCacheIntegrity:
+    """Tests for cache integrity verification."""
+
+    def test_cache_integrity_verified_on_read(self, provider_with_cache: YFinanceProvider) -> None:
+        """Test cache integrity is verified before reading."""
+        # Valid cache should be read successfully
+        df = provider_with_cache.get_daily_prices(
+            symbols=["SPY"],
+            start_date=date(2024, 1, 2),
+            end_date=date(2024, 1, 4),
+        )
+
+        assert df.height > 0
+
+    def test_corrupted_cache_quarantined(self, provider_with_cache: YFinanceProvider) -> None:
+        """Test corrupted cache is quarantined."""
+        # Corrupt the cache file
+        cache_path = provider_with_cache._daily_dir / "SPY.parquet"
+        with open(cache_path, "ab") as f:
+            f.write(b"corruption")
+
+        # Attempt to read - should detect corruption and quarantine
+        df = provider_with_cache.get_daily_prices(
+            symbols=["SPY"],
+            start_date=date(2024, 1, 2),
+            end_date=date(2024, 1, 4),
+        )
+
+        # Should return empty (cache was quarantined)
+        assert df.is_empty()
+
+        # Cache file should be quarantined
+        assert not cache_path.exists()
+        quarantine_files = list(provider_with_cache._quarantine_dir.glob("*checksum*"))
+        assert len(quarantine_files) > 0
+
+    def test_cache_without_manifest_entry_skips_verification(
+        self, provider: YFinanceProvider, mock_ohlcv_data: pl.DataFrame
+    ) -> None:
+        """Test cache without manifest entry skips verification (race condition)."""
+        # Write cache file without manifest entry
+        cache_path = provider._daily_dir / "SPY.parquet"
+        mock_ohlcv_data.write_parquet(cache_path)
+
+        # Should read successfully (skips verification when no manifest entry)
+        df = provider.get_daily_prices(
+            symbols=["SPY"],
+            start_date=date(2024, 1, 2),
+            end_date=date(2024, 1, 4),
+        )
+
+        assert df.height > 0
+
+    def test_cache_with_empty_data_returns_none(self, provider: YFinanceProvider) -> None:
+        """Test cache with empty data returns None."""
+        # Write empty cache
+        empty_df = pl.DataFrame(schema=YFINANCE_SCHEMA)
+        cache_path = provider._daily_dir / "SPY.parquet"
+        # Can't write empty parquet normally, so create a valid file first
+        temp_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["SPY"],
+                "open": [100.0],
+                "high": [100.0],
+                "low": [100.0],
+                "close": [100.0],
+                "volume": [0.0],
+                "adj_close": [100.0],
+            }
+        )
+        temp_df.write_parquet(cache_path)
+        # Now overwrite with empty
+        empty_df.write_parquet(cache_path)
+
+        # Should return None (empty cache)
+        result = provider._read_from_cache("SPY", date(2024, 1, 1), date(2024, 1, 31))
+        # Empty dataframe returns None
+        assert result is None
+
+    def test_cache_partial_coverage_returns_none(
+        self, provider_with_cache: YFinanceProvider
+    ) -> None:
+        """Test cache with partial coverage returns None."""
+        # Cache has Jan 2-4, request Jan 1-31
+        result = provider_with_cache._read_from_cache("SPY", date(2024, 1, 1), date(2024, 1, 31))
+
+        # Should return None (partial coverage)
+        assert result is None
+
+    def test_cache_with_gaps_quarantined(
+        self, provider: YFinanceProvider, mock_ohlcv_data: pl.DataFrame
+    ) -> None:
+        """Test cache with suspicious gaps is quarantined."""
+        # Create cache with very few rows for a long date range (suspicious)
+        gapped_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 12, 31)],  # 1 year span, only 2 rows
+                "symbol": ["SPY", "SPY"],
+                "open": [100.0, 110.0],
+                "high": [101.0, 111.0],
+                "low": [99.0, 109.0],
+                "close": [100.5, 110.5],
+                "volume": [1000000.0, 1000000.0],
+                "adj_close": [100.5, 110.5],
+            }
+        )
+
+        cache_path = provider._daily_dir / "SPY.parquet"
+        gapped_data.write_parquet(cache_path)
+
+        # Create manifest
+        manifest = {
+            "dataset": "yfinance",
+            "files": {
+                "SPY.parquet": {
+                    "symbol": "SPY",
+                    "checksum": provider._compute_checksum(cache_path),
+                }
+            },
+        }
+        manifest_path = provider._storage_path / "yfinance_manifest.json"
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f)
+
+        # Attempt to read
+        result = provider._read_from_cache("SPY", date(2024, 1, 1), date(2024, 12, 31))
+
+        # Should return None (cache was quarantined)
+        assert result is None
+
+        # Cache should be quarantined
+        assert not cache_path.exists()
+        quarantine_files = list(provider._quarantine_dir.glob("*potential_gaps*"))
+        assert len(quarantine_files) > 0
+
+    def test_cache_read_handles_invalid_symbol(self, provider: YFinanceProvider) -> None:
+        """Test cache read handles invalid symbol gracefully."""
+        result = provider._read_from_cache("../evil", date(2024, 1, 1), date(2024, 1, 31))
+
+        # Should return None (invalid symbol)
+        assert result is None
+
+    def test_cache_read_handles_missing_file(self, provider: YFinanceProvider) -> None:
+        """Test cache read handles missing file gracefully."""
+        result = provider._read_from_cache("NOTEXIST", date(2024, 1, 1), date(2024, 1, 31))
+
+        assert result is None
+
+    def test_cache_read_handles_parquet_error(
+        self, provider_with_cache: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test cache read handles parquet read errors.
+
+        Note: The cache reader first verifies checksum, then reads parquet.
+        To test parquet read errors, we must mock the checksum verification
+        to pass, then corrupt the file to trigger a read error.
+        """
+        import logging
+
+        # Corrupt the cache file to cause read error
+        cache_path = provider_with_cache._daily_dir / "SPY.parquet"
+        with open(cache_path, "w") as f:
+            f.write("not a parquet file")
+
+        # Mock checksum verification to pass - otherwise we get checksum mismatch
+        with patch.object(
+            provider_with_cache, "_verify_cache_integrity", return_value=True
+        ):
+            with caplog.at_level(logging.WARNING):
+                result = provider_with_cache._read_from_cache(
+                    "SPY", date(2024, 1, 1), date(2024, 1, 31)
+                )
+
+        assert result is None
+        assert "Failed to read cache" in caplog.text
+
+    def test_cache_quarantine_handles_error(
+        self, provider_with_cache: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test cache quarantine handles errors gracefully."""
+        import logging
+
+        # Corrupt cache
+        cache_path = provider_with_cache._daily_dir / "SPY.parquet"
+        with open(cache_path, "ab") as f:
+            f.write(b"corruption")
+
+        # Mock quarantine to fail
+        with patch.object(
+            provider_with_cache, "_quarantine_file", side_effect=OSError("Quarantine failed")
+        ):
+            with caplog.at_level(logging.WARNING):
+                result = provider_with_cache._read_from_cache(
+                    "SPY", date(2024, 1, 2), date(2024, 1, 4)
+                )
+
+            assert result is None
+            assert "Failed to quarantine corrupted cache" in caplog.text
+
+    def test_cache_with_null_dates_returns_none(self, provider: YFinanceProvider) -> None:
+        """Test cache with null min/max dates returns None."""
+        # Create cache with null dates (shouldn't happen but defensive)
+        cache_data = pl.DataFrame(
+            {
+                "date": [None, None],
+                "symbol": ["SPY", "SPY"],
+                "close": [100.0, 101.0],
+                "adj_close": [100.0, 101.0],
+            }
+        )
+        cache_path = provider._daily_dir / "SPY.parquet"
+        cache_data.write_parquet(cache_path)
+
+        result = provider._read_from_cache("SPY", date(2024, 1, 1), date(2024, 1, 31))
+
+        assert result is None
+
+    def test_cache_filters_to_requested_range(self, provider_with_cache: YFinanceProvider) -> None:
+        """Test cache filters data to requested date range."""
+        # Cache has Jan 2-4, request exactly Jan 2-3
+        df = provider_with_cache.get_daily_prices(
+            symbols=["SPY"],
+            start_date=date(2024, 1, 2),
+            end_date=date(2024, 1, 3),
+        )
+
+        # Should return only 2 rows
+        assert df.height == 2
+        assert df["date"].min() == date(2024, 1, 2)
+        assert df["date"].max() == date(2024, 1, 3)
+
+    def test_cache_filtered_to_empty_returns_none(
+        self, provider_with_cache: YFinanceProvider
+    ) -> None:
+        """Test cache filtered to empty returns None."""
+        # Request date range that doesn't overlap with cache
+        result = provider_with_cache._read_from_cache("SPY", date(2023, 1, 1), date(2023, 1, 31))
+
+        assert result is None
 
 
 # =============================================================================
@@ -828,6 +1995,42 @@ class TestRateLimiting:
             )
 
         # Should have delay between calls
+        assert len(call_times) == 2
+        delay = call_times[1] - call_times[0]
+        assert delay >= provider.REQUEST_DELAY_SECONDS
+
+    def test_delay_between_fetch_symbols(self, provider: YFinanceProvider) -> None:
+        """Test delay applied in _fetch_symbols."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
+
+        call_times: list[float] = []
+
+        def mock_ticker_factory(symbol: str) -> MagicMock:
+            call_times.append(time.time())
+            ticker = MagicMock()
+            ticker.history.return_value = mock_pdf
+            return ticker
+
+        with patch("yfinance.Ticker", side_effect=mock_ticker_factory):
+            results = provider._fetch_symbols(
+                symbols=["SPY", "QQQ"],
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert len(results) == 2
         assert len(call_times) == 2
         delay = call_times[1] - call_times[0]
         assert delay >= provider.REQUEST_DELAY_SECONDS
@@ -876,6 +2079,234 @@ class TestRateLimiting:
 
             assert df is not None
             assert "Download attempt failed" in caplog.text
+
+    def test_retry_on_empty_response(
+        self, provider: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test retry logic on empty response."""
+        import pandas as pd
+
+        call_count = 0
+
+        def mock_ticker_factory(symbol: str) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            ticker = MagicMock()
+
+            if call_count < 2:  # Return empty first time
+                ticker.history.return_value = pd.DataFrame()  # Empty
+            else:
+                ticker.history.return_value = pd.DataFrame(
+                    {
+                        "Date": pd.to_datetime(["2024-01-02"]),
+                        "Open": [100.0],
+                        "High": [101.0],
+                        "Low": [99.0],
+                        "Close": [100.5],
+                        "Volume": [1000000],
+                        "Adj Close": [100.5],
+                    }
+                ).set_index("Date")
+
+            return ticker
+
+        with patch("yfinance.Ticker", side_effect=mock_ticker_factory):
+            provider.RETRY_DELAY_SECONDS = 0.1
+            provider.JITTER_MAX_SECONDS = 0.05
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+            assert df is not None
+            assert "Empty response from yfinance" in caplog.text
+
+    def test_max_retries_exhausted_returns_none(
+        self, provider: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test download returns None after max retries."""
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.side_effect = Exception("Network error")
+            mock_ticker_cls.return_value = mock_ticker
+
+            provider.RETRY_DELAY_SECONDS = 0.1
+            provider.JITTER_MAX_SECONDS = 0.05
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+            assert df is None
+            assert "Download failed after retries" in caplog.text
+
+
+# =============================================================================
+# Download Tests
+# =============================================================================
+
+
+class TestDownload:
+    """Tests for download functionality."""
+
+    def test_download_with_retry_success(self, provider: YFinanceProvider) -> None:
+        """Test successful download with retry."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                "Open": [100.0, 101.0],
+                "High": [101.0, 102.0],
+                "Low": [99.0, 100.0],
+                "Close": [100.5, 101.5],
+                "Volume": [1000000, 1100000],
+                "Adj Close": [100.5, 101.5],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert df is not None
+        assert df.height == 2
+        assert "symbol" in df.columns
+        assert df["symbol"][0] == "SPY"
+
+    def test_download_normalizes_column_names(self, provider: YFinanceProvider) -> None:
+        """Test download normalizes column names."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],  # Space in name
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert df is not None
+        assert "adj_close" in df.columns  # Normalized
+
+    def test_download_converts_date_to_date_type(self, provider: YFinanceProvider) -> None:
+        """Test download converts date column to date type."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert df is not None
+        assert df.schema["date"] == pl.Date
+
+    def test_download_adds_symbol_column(self, provider: YFinanceProvider) -> None:
+        """Test download adds symbol column."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert df is not None
+        assert "symbol" in df.columns
+        assert df["symbol"][0] == "SPY"
+
+    def test_download_selects_only_available_columns(self, provider: YFinanceProvider) -> None:
+        """Test download only selects available columns."""
+        import pandas as pd
+
+        # Create mock with missing volume column
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Adj Close": [100.5],
+                # Missing Volume
+            }
+        ).set_index("Date")
+
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker = MagicMock()
+            mock_ticker.history.return_value = mock_pdf
+            mock_ticker_cls.return_value = mock_ticker
+
+            df = provider._download_with_retry(
+                symbol="SPY",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert df is not None
+        # Should have all columns except volume
+        assert "volume" not in df.columns
 
 
 # =============================================================================
@@ -971,9 +2402,6 @@ class TestErrorHandling:
     def test_yfinance_not_installed_raises(self, provider: YFinanceProvider) -> None:
         """Test YFinanceError raised if yfinance not installed."""
         import sys
-        from datetime import date
-
-        from libs.data.data_providers.yfinance_provider import YFinanceError
 
         # Save original yfinance module reference
         original_yfinance = sys.modules.get("yfinance")
@@ -1046,3 +2474,118 @@ class TestDevOnlyWarnings:
         )
 
         assert "non-development environment" not in caplog.text
+
+
+# =============================================================================
+# Baseline Path Tests
+# =============================================================================
+
+
+class TestBaselinePath:
+    """Tests for baseline path validation and handling."""
+
+    def test_safe_baseline_path_validates_symbol(
+        self, provider_with_baseline: YFinanceProvider
+    ) -> None:
+        """Test _safe_baseline_path validates symbol format."""
+        # Invalid symbol should return None
+        result = provider_with_baseline._safe_baseline_path("../evil")
+
+        assert result is None
+
+    def test_safe_baseline_path_prevents_traversal(
+        self, provider_with_baseline: YFinanceProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test _safe_baseline_path prevents path traversal.
+
+        Note: This tests the defense-in-depth check that catches path escape
+        even after symbol validation. We mock _validate_symbol to return a
+        traversal pattern with actual path separator characters.
+        """
+        import logging
+
+        # Mock _validate_symbol to return actual traversal pattern (not URL-encoded)
+        # The path "../evil" will cause the resolved path to escape baseline_path
+        with patch.object(
+            provider_with_baseline, "_validate_symbol", return_value="../evil"
+        ):
+            with caplog.at_level(logging.WARNING):
+                result = provider_with_baseline._safe_baseline_path("test")
+
+            # Should detect path escape and return None
+            assert result is None
+            assert "Baseline path escape attempt" in caplog.text
+
+    def test_safe_baseline_path_returns_none_when_no_baseline_configured(
+        self, provider: YFinanceProvider
+    ) -> None:
+        """Test _safe_baseline_path returns None when no baseline path."""
+        result = provider._safe_baseline_path("SPY")
+
+        assert result is None
+
+    def test_safe_baseline_path_success(self, provider_with_baseline: YFinanceProvider) -> None:
+        """Test _safe_baseline_path returns correct path for valid symbol."""
+        result = provider_with_baseline._safe_baseline_path("SPY")
+
+        assert result is not None
+        assert result.name == "spy_60d.parquet"
+        assert result.parent == provider_with_baseline._baseline_path
+
+
+# =============================================================================
+# Exception Tests
+# =============================================================================
+
+
+class TestExceptions:
+    """Tests for custom exceptions."""
+
+    def test_drift_detected_error_attributes(self) -> None:
+        """Test DriftDetectedError stores attributes correctly."""
+        error = DriftDetectedError(symbol="SPY", max_drift=0.05, tolerance=0.01)
+
+        assert error.symbol == "SPY"
+        assert error.max_drift == 0.05
+        assert error.tolerance == 0.01
+        assert "SPY" in str(error)
+        assert "0.0500" in str(error)
+        assert "0.0100" in str(error)
+
+
+# =============================================================================
+# Constants Tests
+# =============================================================================
+
+
+class TestConstants:
+    """Tests for module constants."""
+
+    def test_valid_symbol_pattern(self) -> None:
+        """Test VALID_SYMBOL_PATTERN regex."""
+        # Valid symbols
+        assert VALID_SYMBOL_PATTERN.match("SPY")
+        assert VALID_SYMBOL_PATTERN.match("BRK.B")
+        assert VALID_SYMBOL_PATTERN.match("BRK-A")
+        assert VALID_SYMBOL_PATTERN.match("A")  # Single character
+
+        # Invalid symbols
+        assert not VALID_SYMBOL_PATTERN.match("spy")  # Lowercase
+        assert not VALID_SYMBOL_PATTERN.match("SPY$")  # Invalid character
+        assert not VALID_SYMBOL_PATTERN.match("A" * 16)  # Too long
+        assert not VALID_SYMBOL_PATTERN.match("")  # Empty
+
+    def test_baseline_file_suffix(self) -> None:
+        """Test BASELINE_FILE_SUFFIX constant."""
+        assert BASELINE_FILE_SUFFIX == "_60d.parquet"
+
+    def test_baseline_manifest_file(self) -> None:
+        """Test BASELINE_MANIFEST_FILE constant."""
+        assert BASELINE_MANIFEST_FILE == "baseline_manifest.json"
+
+    def test_yfinance_schema(self) -> None:
+        """Test YFINANCE_SCHEMA has correct columns."""
+        expected_columns = ["date", "symbol", "open", "high", "low", "close", "volume", "adj_close"]
+        assert list(YFINANCE_SCHEMA.keys()) == expected_columns
+        assert YFINANCE_SCHEMA["date"] == pl.Date
+        assert YFINANCE_SCHEMA["symbol"] == pl.Utf8

@@ -118,9 +118,7 @@ class HeaderMetrics:
             # NLV display
             with ui.row().classes("items-center gap-1"):
                 ui.label("NLV").classes("text-xs text-gray-400")
-                self._nlv_label = ui.label("--").classes(
-                    "text-sm font-medium text-white"
-                )
+                self._nlv_label = ui.label("--").classes("text-sm font-medium text-white")
 
             # Separator
             ui.label("|").classes("text-gray-500 text-xs")
@@ -138,9 +136,7 @@ class HeaderMetrics:
             # Day change display
             with ui.row().classes("items-center gap-1"):
                 ui.label("Day").classes("text-xs text-gray-400")
-                self._day_change_label = ui.label("--").classes(
-                    "text-sm font-medium text-white"
-                )
+                self._day_change_label = ui.label("--").classes("text-sm font-medium text-white")
 
     def _get_leverage_color_class(self, leverage: float) -> str:
         """Get the appropriate color class for leverage value."""
@@ -342,13 +338,9 @@ class HeaderMetrics:
             if self._day_change_label and nlv > 0:
                 baseline_nlv = self._get_or_set_baseline_nlv(nlv)
                 day_change = nlv - baseline_nlv
-                day_change_pct = (
-                    (day_change / baseline_nlv * 100) if baseline_nlv > 0 else None
-                )
+                day_change_pct = (day_change / baseline_nlv * 100) if baseline_nlv > 0 else None
 
-                self._day_change_label.set_text(
-                    _format_day_change(day_change, day_change_pct)
-                )
+                self._day_change_label.set_text(_format_day_change(day_change, day_change_pct))
 
                 # Color based on positive/negative using consistent add/remove pattern
                 if day_change >= 0:

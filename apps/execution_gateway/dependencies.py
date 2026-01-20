@@ -26,6 +26,7 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 0 for design decisions.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import Depends, Request
@@ -86,6 +87,20 @@ def get_context(request: Request) -> AppContext:
             "If you see this error, check that app_factory.py or lifespan.py properly "
             "initializes app.state.context during startup."
         )
+    # Test-mode sync: allow module-level mocks to drive AppContext for tests that patch
+    # apps.execution_gateway.main.db_client/redis_client without rebuilding app.state.context.
+    if os.getenv("ENVIRONMENT") == "test":
+        try:
+            from apps.execution_gateway import main as main_module
+
+            if getattr(main_module, "db_client", None) is not None:
+                ctx.db = main_module.db_client
+            if getattr(main_module, "redis_client", None) is not None:
+                ctx.redis = main_module.redis_client
+        except Exception:
+            # Fail open in tests; context remains unchanged
+            pass
+
     return cast(AppContextType, ctx)
 
 

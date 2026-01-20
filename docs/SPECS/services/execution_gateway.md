@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-17 - PR review fixes: reduce-only orders with pending order accounting, rate limiter, cleanup -->
+<!-- Last reviewed: 2026-01-19 - Reconciliation package references (legacy path cleanup) -->
 
 ## Identity
 - **Type:** Service
@@ -142,6 +142,10 @@
 - Webhook signatures are required when `WEBHOOK_SECRET` is configured.
 - During startup reconciliation gating, reduce-only orders are allowed (per ADR-0020).
 
+### Database Pooling & Reconciliation Loop
+- Database pools are initialized with `open=False` to avoid eager connections during startup/tests.
+- Periodic reconciliation waits on the stop event to exit promptly between polls.
+
 ## Data Flow
 ```
 OrderRequest -> Auth/RL -> Risk Checks -> DB Write -> Alpaca Submit (if DRY_RUN=false)
@@ -248,7 +252,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-17
+- **Last Updated:** 2026-01-19 (Reconciliation package references updated after legacy file removal)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`
@@ -259,7 +263,16 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
   - `apps/execution_gateway/middleware.py`
   - `apps/execution_gateway/metrics.py`
   - `apps/execution_gateway/database.py`
-  - `apps/execution_gateway/reconciliation.py`
+  - `apps/execution_gateway/reconciliation/` (package - refactored from legacy reconciliation module)
+    - `__init__.py` (backward-compatible exports)
+    - `service.py` (ReconciliationService orchestrator)
+    - `state.py` (startup gate and override state)
+    - `context.py` (dependency injection context)
+    - `orders.py` (order sync and CAS updates)
+    - `fills.py` (fill backfill logic)
+    - `positions.py` (position reconciliation)
+    - `orphans.py` (orphan detection and quarantine)
+    - `helpers.py` (pure utility functions)
   - `apps/execution_gateway/alpaca_client.py`
   - `apps/execution_gateway/fat_finger_validator.py`
   - `apps/execution_gateway/liquidity_service.py`

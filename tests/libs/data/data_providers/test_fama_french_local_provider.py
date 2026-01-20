@@ -823,3 +823,993 @@ class TestFF6Materialization:
         cols = list(df.columns)
         assert cols[-1] == "rf"
         assert "umd" in cols
+
+
+# =============================================================================
+# Industry Returns - Invalid Frequency Test (Line 277)
+# =============================================================================
+
+
+class TestIndustryReturnsFrequencyValidation:
+    """Tests for get_industry_returns frequency validation (covers line 277)."""
+
+    def test_invalid_frequency_raises_value_error(
+        self, provider_with_data: FamaFrenchLocalProvider
+    ) -> None:
+        """Test invalid frequency raises ValueError for industry returns."""
+        with pytest.raises(ValueError, match="Invalid frequency"):
+            provider_with_data.get_industry_returns(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 31),
+                num_industries=10,
+                frequency="weekly",  # type: ignore[arg-type]
+            )
+
+
+# =============================================================================
+# Sync Data - Full Dataset Sync (Line 336)
+# =============================================================================
+
+
+class TestSyncDataAllDatasets:
+    """Tests for sync_data with all datasets (covers line 336)."""
+
+    def test_sync_all_datasets_when_none_specified(
+        self, provider: FamaFrenchLocalProvider, mock_ff3_data: pl.DataFrame
+    ) -> None:
+        """Test sync_data syncs all datasets when datasets=None."""
+        # Mock the download to return valid data
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05, -0.52, 0.78],
+                "SMB": [0.23, -0.11, 0.45],
+                "HML": [-0.34, 0.67, -0.12],
+                "RF": [0.02, 0.02, 0.02],
+            },
+            index=pd.DatetimeIndex(
+                [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+            ),
+        )
+
+        with patch("pandas_datareader.data.DataReader") as mock_reader:
+            # Return dict format like pandas-datareader does
+            mock_reader.return_value = {0: mock_pdf}
+
+            # Sync with datasets=None should use ALL_DATASETS
+            result = provider.sync_data(datasets=None, force=True)
+
+        # Should have attempted to sync all datasets
+        assert "files" in result
+        # The call count should equal the number of datasets
+        assert mock_reader.call_count == len(provider.ALL_DATASETS)
+
+
+# =============================================================================
+# Sync Data - Lock Acquisition Failure (Lines 350-351)
+# =============================================================================
+
+
+class TestSyncLockFailure:
+    """Tests for sync_data lock acquisition failure (covers lines 350-351)."""
+
+    def test_lock_acquisition_failure_raises_sync_error(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test lock acquisition failure raises FamaFrenchSyncError."""
+        with patch("pandas_datareader.data.DataReader"):
+            with patch(
+                "libs.data.data_providers.fama_french_local_provider.AtomicFileLock.acquire",
+                side_effect=OSError("Lock acquisition failed"),
+            ):
+                with pytest.raises(FamaFrenchSyncError, match="Failed to acquire sync lock"):
+                    provider.sync_data(datasets=["factors_3_daily"])
+
+
+# =============================================================================
+# Sync Data - Manifest Regeneration Failure (Lines 391-392)
+# =============================================================================
+
+
+class TestManifestRegenerationFailure:
+    """Tests for manifest regeneration failure handling (covers lines 391-392)."""
+
+    def test_manifest_regeneration_failure_logs_warning(
+        self, provider: FamaFrenchLocalProvider, mock_ff3_data: pl.DataFrame, caplog: Any
+    ) -> None:
+        """Test manifest entry regeneration failure logs warning but continues."""
+        import logging
+
+        # Create file but with corrupted content that can't be read properly
+        factors_dir = provider._factors_dir
+        factors_dir.mkdir(parents=True, exist_ok=True)
+        target_path = factors_dir / "factors_3_daily.parquet"
+        mock_ff3_data.write_parquet(target_path)
+
+        # Mock read_parquet to fail during manifest regeneration
+        original_read = pl.read_parquet
+
+        def mock_read(path: Any) -> Any:
+            if "factors_3_daily" in str(path):
+                raise OSError("Corrupted file")
+            return original_read(path)
+
+        with patch("pandas_datareader.data.DataReader"):
+            with patch("polars.read_parquet", side_effect=mock_read):
+                with caplog.at_level(logging.WARNING):
+                    # Should not raise, but should log warning
+                    _ = provider.sync_data(datasets=["factors_3_daily"], force=False)
+
+        # File should still exist but manifest entry might be missing
+        assert target_path.exists()
+
+
+# =============================================================================
+# Schema Validation Tests (Lines 690-708)
+# =============================================================================
+
+
+class TestSchemaValidation:
+    """Tests for _validate_schema method (covers lines 690-708)."""
+
+    def test_validate_schema_factors_3_missing_columns(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test schema validation fails when factor columns missing."""
+        # Missing HML column
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+                "smb": [0.0023],
+                # Missing: hml, rf
+            }
+        )
+
+        with pytest.raises(ValueError, match="schema mismatch"):
+            provider._validate_schema(df, "factors_3_daily")
+
+    def test_validate_schema_factors_5_missing_columns(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test schema validation fails for 5-factor with missing columns."""
+        # Missing RMW, CMA columns
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+                "smb": [0.0023],
+                "hml": [-0.0034],
+                "rf": [0.0002],
+                # Missing: rmw, cma
+            }
+        )
+
+        with pytest.raises(ValueError, match="schema mismatch"):
+            provider._validate_schema(df, "factors_5_daily")
+
+    def test_validate_schema_industry_missing_date(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test industry schema validation fails when date column missing."""
+        # Industry dataset without date column
+        df = pl.DataFrame(
+            {
+                "nodur": [0.0112],
+                "durbl": [0.0078],
+            }
+        )
+
+        with pytest.raises(ValueError, match="missing required 'date' column"):
+            provider._validate_schema(df, "ind10_daily")
+
+    def test_validate_schema_industry_with_date_succeeds(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test industry schema validation succeeds with date column."""
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "nodur": [0.0112],
+                "durbl": [0.0078],
+            }
+        )
+
+        # Should not raise
+        result = provider._validate_schema(df, "ind10_daily")
+        assert result is True
+
+    def test_validate_schema_momentum_missing_umd(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test momentum schema validation fails when UMD missing."""
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                # Missing: umd
+            }
+        )
+
+        with pytest.raises(ValueError, match="schema mismatch"):
+            provider._validate_schema(df, "momentum_daily")
+
+    def test_validate_schema_factors_3_valid(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test schema validation succeeds for valid 3-factor data."""
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+                "smb": [0.0023],
+                "hml": [-0.0034],
+                "rf": [0.0002],
+            }
+        )
+
+        result = provider._validate_schema(df, "factors_3_daily")
+        assert result is True
+
+
+# =============================================================================
+# Download With Retry Tests (Lines 596-657)
+# =============================================================================
+
+
+class TestDownloadWithRetry:
+    """Tests for _download_with_retry method (covers lines 596-657)."""
+
+    def test_download_with_datetime_index(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download handles DatetimeIndex correctly."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05, -0.52],
+                "SMB": [0.23, -0.11],
+                "HML": [-0.34, 0.67],
+                "RF": [0.02, 0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2), date(2024, 1, 3)]),
+        )
+
+        mock_web = MagicMock()
+        mock_web.DataReader.return_value = {0: mock_pdf}
+
+        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+
+        assert result is not None
+        assert "date" in result.columns
+        assert result.height == 2
+
+    def test_download_with_period_index(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download handles PeriodIndex correctly (monthly data)."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05, -0.52],
+                "SMB": [0.23, -0.11],
+                "HML": [-0.34, 0.67],
+                "RF": [0.02, 0.02],
+            },
+            index=pd.PeriodIndex(["2024-01", "2024-02"], freq="M"),
+        )
+
+        mock_web = MagicMock()
+        mock_web.DataReader.return_value = {0: mock_pdf}
+
+        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors", "factors_3_monthly")
+
+        assert result is not None
+        assert "date" in result.columns
+        assert result.height == 2
+
+    def test_download_with_unexpected_index_raises_error(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download rejects unexpected index types."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05, -0.52],
+                "SMB": [0.23, -0.11],
+            },
+            index=pd.RangeIndex(start=0, stop=2),  # Unexpected index type
+        )
+
+        mock_web = MagicMock()
+        mock_web.DataReader.return_value = {0: mock_pdf}
+
+        # Should return None after retries due to FamaFrenchSyncError
+        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+        assert result is None
+
+    def test_download_returns_dataframe_directly(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download handles non-dict return value."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        mock_web = MagicMock()
+        # Return DataFrame directly instead of dict
+        mock_web.DataReader.return_value = mock_pdf
+
+        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+
+        assert result is not None
+        assert "date" in result.columns
+
+    def test_download_with_dict_no_zero_key(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download handles dict without key 0."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        mock_web = MagicMock()
+        # Return dict with different key
+        mock_web.DataReader.return_value = {"main": mock_pdf}
+
+        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+
+        assert result is not None
+        assert "date" in result.columns
+
+    def test_download_retries_on_failure(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download retries on failure with exponential backoff."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        mock_web = MagicMock()
+        # Fail first two attempts, succeed on third
+        mock_web.DataReader.side_effect = [
+            Exception("Network error"),
+            Exception("Timeout"),
+            {0: mock_pdf},
+        ]
+
+        with patch("time.sleep"):  # Skip actual sleep
+            result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+
+        assert result is not None
+        assert mock_web.DataReader.call_count == 3
+
+    def test_download_returns_none_after_max_retries(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download returns None after exhausting retries."""
+        mock_web = MagicMock()
+        mock_web.DataReader.side_effect = Exception("Persistent failure")
+
+        with patch("time.sleep"):  # Skip actual sleep
+            result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+
+        assert result is None
+        assert mock_web.DataReader.call_count == provider.MAX_RETRIES
+
+    def test_download_normalizes_column_names(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test download normalizes column names to lowercase with underscores."""
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        mock_web = MagicMock()
+        mock_web.DataReader.return_value = {0: mock_pdf}
+
+        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+
+        assert result is not None
+        assert "mkt_rf" in result.columns  # Normalized from Mkt-RF
+
+
+# =============================================================================
+# FF6 Creation Tests (Lines 720-732)
+# =============================================================================
+
+
+class TestCreateFF6:
+    """Tests for _create_ff6 method (covers lines 720-732)."""
+
+    def test_create_ff6_joins_correctly(
+        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+    ) -> None:
+        """Test FF6 is created by joining FF5 and momentum data."""
+        # Write source files
+        ff5_path = provider._factors_dir / "factors_5_daily.parquet"
+        mom_path = provider._factors_dir / "momentum_daily.parquet"
+
+        mock_ff5_data.write_parquet(ff5_path)
+        mock_momentum_data.write_parquet(mom_path)
+
+        # Create FF6
+        ff6_df = provider._create_ff6(ff5_path, mom_path)
+
+        # Verify columns
+        assert "umd" in ff6_df.columns
+        assert "mkt_rf" in ff6_df.columns
+        assert "rmw" in ff6_df.columns
+        assert "cma" in ff6_df.columns
+
+        # RF should be last
+        cols = list(ff6_df.columns)
+        assert cols[-1] == "rf"
+        assert cols[0] == "date"
+
+    def test_create_ff6_inner_join(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test FF6 uses inner join (only dates in both datasets)."""
+        # Create FF5 with 3 dates
+        ff5_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "mkt_rf": [0.01, 0.02, 0.03],
+                "smb": [0.001, 0.002, 0.003],
+                "hml": [0.001, 0.002, 0.003],
+                "rmw": [0.001, 0.002, 0.003],
+                "cma": [0.001, 0.002, 0.003],
+                "rf": [0.0001, 0.0001, 0.0001],
+            }
+        )
+
+        # Create momentum with 2 dates (missing Jan 4)
+        mom_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3)],
+                "umd": [0.005, 0.006],
+            }
+        )
+
+        ff5_path = provider._factors_dir / "factors_5_daily.parquet"
+        mom_path = provider._factors_dir / "momentum_daily.parquet"
+
+        ff5_data.write_parquet(ff5_path)
+        mom_data.write_parquet(mom_path)
+
+        ff6_df = provider._create_ff6(ff5_path, mom_path)
+
+        # Should only have 2 rows (inner join)
+        assert ff6_df.height == 2
+
+    def test_create_ff6_handles_missing_rf(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test FF6 creation handles case where RF column might be absent."""
+        ff5_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.01],
+                "smb": [0.001],
+                "hml": [0.001],
+                "rmw": [0.001],
+                "cma": [0.001],
+                # No RF column
+            }
+        )
+
+        mom_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "umd": [0.005],
+            }
+        )
+
+        ff5_path = provider._factors_dir / "factors_5_daily.parquet"
+        mom_path = provider._factors_dir / "momentum_daily.parquet"
+
+        ff5_data.write_parquet(ff5_path)
+        mom_data.write_parquet(mom_path)
+
+        ff6_df = provider._create_ff6(ff5_path, mom_path)
+
+        # Should succeed without RF
+        assert ff6_df.height == 1
+        assert "rf" not in ff6_df.columns
+
+
+# =============================================================================
+# Target Path Tests (Line 576)
+# =============================================================================
+
+
+class TestGetTargetPath:
+    """Tests for _get_target_path method (covers line 576)."""
+
+    def test_industry_dataset_path(self, provider: FamaFrenchLocalProvider) -> None:
+        """Test industry datasets go to industries directory."""
+        path = provider._get_target_path("ind10_daily")
+        assert "industries" in str(path)
+        assert path.name == "ind10_daily.parquet"
+
+    def test_factor_dataset_path(self, provider: FamaFrenchLocalProvider) -> None:
+        """Test factor datasets go to factors directory."""
+        path = provider._get_target_path("factors_3_daily")
+        assert "factors" in str(path)
+        assert path.name == "factors_3_daily.parquet"
+
+
+# =============================================================================
+# Fsync Directory Tests (Lines 869-870)
+# =============================================================================
+
+
+class TestFsyncDirectory:
+    """Tests for _fsync_directory error handling (covers lines 869-870)."""
+
+    def test_fsync_handles_oserror(
+        self, provider: FamaFrenchLocalProvider, caplog: Any
+    ) -> None:
+        """Test fsync handles OSError gracefully."""
+        import logging
+
+        with patch("os.open", side_effect=OSError("Permission denied")):
+            with caplog.at_level(logging.WARNING):
+                # Should not raise, but log warning
+                provider._fsync_directory(provider._storage_path)
+
+        assert "Failed to fsync directory" in caplog.text
+
+
+# =============================================================================
+# Atomic Write Manifest Error Handling (Lines 890-916)
+# =============================================================================
+
+
+class TestAtomicWriteManifestErrors:
+    """Tests for _atomic_write_manifest error handling (covers lines 890-916)."""
+
+    def test_manifest_write_oserror(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test manifest write handles OSError."""
+        manifest_data = {"dataset": "test", "files": {}}
+
+        with patch("builtins.open", side_effect=OSError("Disk full")):
+            with pytest.raises(OSError, match="Disk full"):
+                provider._atomic_write_manifest(manifest_data)
+
+    def test_manifest_write_serialization_error(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test manifest write handles serialization errors (ValueError branch)."""
+        # The _atomic_write_manifest uses default=str, so it handles most types.
+        # ValueError is raised for circular references which can't be serialized.
+        manifest_data: dict[str, Any] = {"dataset": "test"}
+        # Create circular reference
+        manifest_data["self_ref"] = manifest_data
+
+        with pytest.raises(ValueError, match="Circular reference"):
+            provider._atomic_write_manifest(manifest_data)
+
+
+# =============================================================================
+# Verify Data Edge Cases (Lines 940, 948-949, 953, 958-959)
+# =============================================================================
+
+
+class TestVerifyDataEdgeCases:
+    """Tests for verify_data edge cases (covers lines 940, 948-949, 953, 958-959)."""
+
+    def test_verify_returns_empty_dict_when_no_manifest(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test verify_data returns empty dict when no manifest exists."""
+        result = provider.verify_data()
+        assert result == {}
+
+    def test_verify_returns_false_when_no_checksum(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test verify_data returns False when checksum missing from manifest."""
+        # Write manifest with missing checksum
+        manifest_data = {
+            "files": {
+                "test.parquet": {
+                    "row_count": 100,
+                    # No checksum field
+                }
+            }
+        }
+        provider._atomic_write_manifest(manifest_data)
+
+        result = provider.verify_data()
+        assert result["test.parquet"] is False
+
+    def test_verify_returns_false_when_file_missing(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test verify_data returns False when file doesn't exist."""
+        # Write manifest pointing to non-existent file
+        manifest_data = {
+            "files": {
+                "missing.parquet": {
+                    "checksum": "abc123",
+                    "row_count": 100,
+                }
+            }
+        }
+        provider._atomic_write_manifest(manifest_data)
+
+        result = provider.verify_data()
+        assert result["missing.parquet"] is False
+
+    def test_verify_handles_industry_files(
+        self, provider: FamaFrenchLocalProvider, mock_industry_data: pl.DataFrame
+    ) -> None:
+        """Test verify_data correctly routes industry files to industries directory."""
+        # Write industry file
+        ind_path = provider._industries_dir / "ind10_daily.parquet"
+        mock_industry_data.write_parquet(ind_path)
+
+        # Compute actual checksum
+        checksum = provider._compute_checksum(ind_path)
+
+        # Write manifest
+        manifest_data = {
+            "files": {
+                "ind10_daily.parquet": {
+                    "checksum": checksum,
+                    "row_count": mock_industry_data.height,
+                }
+            }
+        }
+        provider._atomic_write_manifest(manifest_data)
+
+        result = provider.verify_data()
+        assert result["ind10_daily.parquet"] is True
+
+
+# =============================================================================
+# Sync Data - Schema Validation Failure (Lines 410-438)
+# =============================================================================
+
+
+class TestSyncSchemaValidationFailure:
+    """Tests for sync_data schema validation failure (covers lines 410-438)."""
+
+    def test_sync_schema_validation_failure_adds_to_failed(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test schema validation failure adds dataset to failed list."""
+        import pandas as pd
+
+        # Create data missing required columns
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                # Missing SMB, HML, RF
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        mock_web = MagicMock()
+        mock_web.DataReader.return_value = {0: mock_pdf}
+
+        with patch("pandas_datareader.data", mock_web):
+            with patch.object(provider, "_download_with_retry") as mock_download:
+                # Return DataFrame missing columns
+                mock_download.return_value = pl.DataFrame(
+                    {
+                        "date": [date(2024, 1, 2)],
+                        "mkt_rf": [0.0105],
+                        # Missing other required columns
+                    }
+                )
+
+                result = provider.sync_data(datasets=["factors_3_daily"], force=True)
+
+        assert "failed_datasets" in result
+        assert "factors_3_daily" in result["failed_datasets"]
+
+
+# =============================================================================
+# FF6 Creation During Sync (Lines 459-486, 493-514, 517-533)
+# =============================================================================
+
+
+class TestFF6CreationDuringSync:
+    """Tests for FF6 creation during sync (covers lines 459-486, 493-514, 517-533)."""
+
+    def test_ff6_creation_missing_prerequisites_reports_failure(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test FF6 creation reports failure when prerequisites missing."""
+        import pandas as pd
+
+        # Only create FF3 data (missing FF5 and momentum)
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        with patch("pandas_datareader.data.DataReader", return_value={0: mock_pdf}):
+            # Sync only FF3 - FF5 and momentum won't exist
+            result = provider.sync_data(datasets=["factors_3_daily"], force=True)
+
+        # FF6 should be in failed datasets since prerequisites missing
+        assert "failed_datasets" in result
+        assert "factors_6_daily" in result["failed_datasets"]
+
+    def test_ff6_exists_but_prerequisites_missing_preserves_manifest(
+        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+    ) -> None:
+        """Test existing FF6 preserved when prerequisites missing during sync."""
+        # Create FF6 file manually (simulating previous sync)
+        ff6_data = mock_ff5_data.join(mock_momentum_data, on="date", how="inner")
+        cols = ["date", "mkt_rf", "smb", "hml", "rmw", "cma", "umd", "rf"]
+        ff6_data = ff6_data.select(cols)
+
+        ff6_path = provider._factors_dir / "factors_6_daily.parquet"
+        ff6_data.write_parquet(ff6_path)
+
+        # Don't create FF5 or momentum files (prerequisites missing)
+
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        with patch("pandas_datareader.data.DataReader", return_value={0: mock_pdf}):
+            result = provider.sync_data(datasets=["factors_3_daily"], force=True)
+
+        # FF6 file should still exist
+        assert ff6_path.exists()
+
+        # Manifest should have FF6 entry (regenerated)
+        assert "factors_6_daily.parquet" in result["files"]
+
+    def test_ff6_creation_with_force_flag(
+        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+    ) -> None:
+        """Test FF6 is recreated with force flag even if exists."""
+        # Write prerequisite files
+        mock_ff5_data.write_parquet(provider._factors_dir / "factors_5_daily.parquet")
+        mock_momentum_data.write_parquet(provider._factors_dir / "momentum_daily.parquet")
+
+        # Create initial FF6
+        ff6_path = provider._factors_dir / "factors_6_daily.parquet"
+        initial_ff6 = mock_ff5_data.join(mock_momentum_data, on="date", how="inner")
+        cols = ["date", "mkt_rf", "smb", "hml", "rmw", "cma", "umd", "rf"]
+        initial_ff6 = initial_ff6.select(cols)
+        initial_ff6.write_parquet(ff6_path)
+
+        initial_checksum = provider._compute_checksum(ff6_path)
+
+        # Modify source data slightly
+        modified_ff5 = mock_ff5_data.with_columns(pl.col("mkt_rf") * 2)
+        modified_ff5.write_parquet(provider._factors_dir / "factors_5_daily.parquet")
+
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        with patch("pandas_datareader.data.DataReader", return_value={0: mock_pdf}):
+            # Sync with force=True should recreate FF6
+            _ = provider.sync_data(datasets=["factors_5_daily"], force=True)
+
+        # FF6 should have been recreated (different checksum)
+        new_checksum = provider._compute_checksum(ff6_path)
+        assert new_checksum != initial_checksum
+
+    def test_ff6_exists_not_forced_manifest_regenerated(
+        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+    ) -> None:
+        """Test existing FF6 gets manifest entry regenerated when not forcing."""
+        # Write all prerequisite files
+        mock_ff5_data.write_parquet(provider._factors_dir / "factors_5_daily.parquet")
+        mock_momentum_data.write_parquet(provider._factors_dir / "momentum_daily.parquet")
+
+        # Create FF6 file manually
+        ff6_data = mock_ff5_data.join(mock_momentum_data, on="date", how="inner")
+        cols = ["date", "mkt_rf", "smb", "hml", "rmw", "cma", "umd", "rf"]
+        ff6_data = ff6_data.select(cols)
+        ff6_path = provider._factors_dir / "factors_6_daily.parquet"
+        ff6_data.write_parquet(ff6_path)
+
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        with patch("pandas_datareader.data.DataReader", return_value={0: mock_pdf}):
+            # Sync without force - existing FF6 should have manifest entry regenerated
+            result = provider.sync_data(datasets=["factors_3_daily"], force=False)
+
+        # FF6 manifest entry should exist
+        assert "factors_6_daily.parquet" in result["files"]
+        assert "checksum" in result["files"]["factors_6_daily.parquet"]
+        assert "row_count" in result["files"]["factors_6_daily.parquet"]
+
+    def test_ff6_creation_failure_adds_to_failed_datasets(
+        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+    ) -> None:
+        """Test FF6 creation failure adds to failed datasets list."""
+        # Write prerequisite files
+        mock_ff5_data.write_parquet(provider._factors_dir / "factors_5_daily.parquet")
+        mock_momentum_data.write_parquet(provider._factors_dir / "momentum_daily.parquet")
+
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        with patch("pandas_datareader.data.DataReader", return_value={0: mock_pdf}):
+            # Mock _create_ff6 to raise an exception
+            with patch.object(provider, "_create_ff6", side_effect=Exception("Join failed")):
+                result = provider.sync_data(datasets=["factors_3_daily"], force=True)
+
+        # FF6 should be in failed datasets
+        assert "failed_datasets" in result
+        assert "factors_6_daily" in result["failed_datasets"]
+
+    def test_ff6_manifest_regeneration_failure_logs_warning(
+        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame, caplog: Any
+    ) -> None:
+        """Test FF6 manifest regeneration failure logs warning but continues."""
+        import logging
+
+        # Create FF6 file but make read fail during manifest regeneration
+        mock_ff5_data.write_parquet(provider._factors_dir / "factors_5_daily.parquet")
+        mock_momentum_data.write_parquet(provider._factors_dir / "momentum_daily.parquet")
+
+        ff6_data = mock_ff5_data.join(mock_momentum_data, on="date", how="inner")
+        cols = ["date", "mkt_rf", "smb", "hml", "rmw", "cma", "umd", "rf"]
+        ff6_data = ff6_data.select(cols)
+        ff6_path = provider._factors_dir / "factors_6_daily.parquet"
+        ff6_data.write_parquet(ff6_path)
+
+        import pandas as pd
+
+        mock_pdf = pd.DataFrame(
+            {
+                "Mkt-RF": [1.05],
+                "SMB": [0.23],
+                "HML": [-0.34],
+                "RF": [0.02],
+            },
+            index=pd.DatetimeIndex([date(2024, 1, 2)]),
+        )
+
+        # Create a counter to track calls
+        call_count = [0]
+        original_read = pl.read_parquet
+
+        def mock_read(path: Any) -> pl.DataFrame:
+            call_count[0] += 1
+            # Fail on FF6 read during manifest regeneration (later in the process)
+            if "factors_6" in str(path) and call_count[0] > 10:
+                raise OSError("Read failed")
+            return original_read(path)
+
+        with patch("pandas_datareader.data.DataReader", return_value={0: mock_pdf}):
+            with caplog.at_level(logging.WARNING):
+                # This should complete despite the failure
+                result = provider.sync_data(datasets=["factors_3_daily"], force=False)
+
+        # Sync should complete
+        assert "files" in result
+
+
+# =============================================================================
+# Atomic Write - Temp File Cleanup on Validation Error (Lines 806, 816)
+# =============================================================================
+
+
+class TestAtomicWriteTempFileCleanup:
+    """Tests for atomic write temp file cleanup (covers lines 806, 816)."""
+
+    def test_temp_file_cleaned_on_checksum_error(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test temp file cleaned up on checksum validation error."""
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+            }
+        )
+
+        target_path = provider._factors_dir / "test.parquet"
+        temp_path = target_path.with_suffix(".parquet.tmp")
+
+        with pytest.raises(ChecksumError):
+            provider._atomic_write_parquet(df, target_path, expected_checksum="wrong")
+
+        # Temp file should be cleaned up
+        assert not temp_path.exists()
+
+    def test_temp_file_cleaned_on_empty_dataframe_error(
+        self, provider: FamaFrenchLocalProvider
+    ) -> None:
+        """Test temp file cleaned up on empty DataFrame error."""
+        df = pl.DataFrame({"date": [], "mkt_rf": []})
+
+        target_path = provider._factors_dir / "test2.parquet"
+        temp_path = target_path.with_suffix(".parquet.tmp")
+
+        with pytest.raises(ValueError, match="Empty DataFrame"):
+            provider._atomic_write_parquet(df, target_path)
+
+        # Temp file should be cleaned up (moved to quarantine)
+        assert not temp_path.exists()

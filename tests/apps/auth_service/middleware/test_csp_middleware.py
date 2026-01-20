@@ -411,4 +411,3 @@ def test_csp_middleware_handles_runtime_error():
     # Should return 500 with CSP header
     assert response.status_code == 500
     assert "Content-Security-Policy" in response.headers
-
