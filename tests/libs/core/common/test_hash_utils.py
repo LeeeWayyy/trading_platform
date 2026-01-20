@@ -182,9 +182,12 @@ class TestComputeGitDiffHashCommit:
 
     def test_compute_git_diff_hash_for_head_tilde_1(self):
         """Test compute_git_diff_hash can hash HEAD~1 commit."""
-        result = compute_git_diff_hash(commit_sha="HEAD~1")
-
-        assert isinstance(result, str)
+        try:
+            result = compute_git_diff_hash(commit_sha="HEAD~1")
+            assert isinstance(result, str)
+        except subprocess.CalledProcessError:
+            # Shallow clone may not have HEAD~1 available
+            pytest.skip("HEAD~1 not available (likely shallow clone)")
 
     def test_compute_git_diff_hash_raises_for_invalid_commit(self):
         """Test compute_git_diff_hash raises for non-existent commit."""
