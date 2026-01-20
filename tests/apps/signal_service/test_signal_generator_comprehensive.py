@@ -1110,3 +1110,32 @@ class TestEdgeCases:
         short_count = (signals["target_weight"] < 0).sum()
         # Can't have more than 3 positions
         assert long_count + short_count <= 3
+
+    @patch("apps.signal_service.signal_generator.get_alpha158_features")
+    def test_overlap_logs_warning(
+        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features, caplog
+    ):
+        """Test that overlap between top and bottom selections logs a warning."""
+        import logging
+
+        # Only 3 symbols but requesting top_n=2, bottom_n=2
+        # This will cause 1 symbol to overlap
+        mock_get_features.return_value = sample_features
+
+        generator = SignalGenerator(mock_model_with_registry, temp_dir, top_n=2, bottom_n=2)
+
+        with caplog.at_level(logging.WARNING):
+            signals = generator.generate_signals(
+                symbols=["AAPL", "MSFT", "GOOGL"],
+                as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
+            )
+
+        # Verify overlap warning was logged
+        overlap_warnings = [r for r in caplog.records if "overlap detected" in r.message.lower()]
+        assert len(overlap_warnings) > 0, "Expected overlap warning to be logged"
+
+        # Verify market neutrality is maintained
+        long_weight = signals[signals["target_weight"] > 0]["target_weight"].sum()
+        short_weight = signals[signals["target_weight"] < 0]["target_weight"].sum()
+        assert abs(long_weight - 1.0) < 0.01, f"Long weights should sum to 1.0, got {long_weight}"
+        assert abs(short_weight + 1.0) < 0.01, f"Short weights should sum to -1.0, got {short_weight}"

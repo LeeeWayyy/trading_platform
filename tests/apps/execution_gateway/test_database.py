@@ -59,6 +59,81 @@ class TestDatabaseClientInitialization:
         db = DatabaseClient("postgresql://user:pass@localhost:5432/trading_platform")
         assert db.db_conn_string is not None
 
+    def test_pool_not_opened_on_init(self):
+        """Test that pool is not opened during initialization (lazy-open pattern)."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+            db = DatabaseClient("postgresql://localhost/trading_platform")
+            assert db._pool_opened is False
+            # Pool.open() should NOT be called during __init__
+            mock_pool.return_value.open.assert_not_called()
+
+
+class TestPoolLazyOpen:
+    """Tests for connection pool lazy-open pattern."""
+
+    def test_ensure_pool_open_opens_pool_once(self):
+        """Test that _ensure_pool_open only opens pool once."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+            db = DatabaseClient("postgresql://localhost/trading_platform")
+            assert db._pool_opened is False
+
+            db._ensure_pool_open()
+            assert db._pool_opened is True
+            mock_pool.return_value.open.assert_called_once()
+
+            # Second call should NOT open again
+            db._ensure_pool_open()
+            assert db._pool_opened is True
+            mock_pool.return_value.open.assert_called_once()  # Still only once
+
+    def test_close_resets_pool_opened_flag(self):
+        """Test that close() resets _pool_opened flag."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+            db = DatabaseClient("postgresql://localhost/trading_platform")
+            db._pool_opened = True  # Simulate opened pool
+
+            db.close()
+
+            assert db._pool_opened is False
+            mock_pool.return_value.close.assert_called_once()
+
+    def test_recreate_pool_resets_pool_opened_flag(self):
+        """Test that _recreate_pool() resets _pool_opened flag."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+            db = DatabaseClient("postgresql://localhost/trading_platform")
+            db._pool_opened = True  # Simulate opened pool
+
+            db._recreate_pool()
+
+            assert db._pool_opened is False
+
+    def test_execute_with_conn_calls_ensure_pool_open(self):
+        """Test that _execute_with_conn calls _ensure_pool_open when conn is None."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+            mock_conn = MagicMock()
+            mock_pool.return_value.connection.return_value.__enter__.return_value = mock_conn
+
+            db = DatabaseClient("postgresql://localhost/trading_platform")
+            assert db._pool_opened is False
+
+            # Execute with conn=None should trigger pool open
+            db._execute_with_conn(None, lambda conn: None)
+
+            assert db._pool_opened is True
+            mock_pool.return_value.open.assert_called_once()
+
+    def test_execute_with_conn_skips_pool_open_when_conn_provided(self):
+        """Test that _execute_with_conn skips pool open when connection is provided."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+            db = DatabaseClient("postgresql://localhost/trading_platform")
+            external_conn = MagicMock()
+
+            # Execute with external conn should NOT open pool
+            db._execute_with_conn(external_conn, lambda conn: None)
+
+            assert db._pool_opened is False
+            mock_pool.return_value.open.assert_not_called()
+
 
 class TestCreateOrder:
     """Tests for create_order method."""
