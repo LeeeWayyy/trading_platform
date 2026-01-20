@@ -11,12 +11,13 @@ QUARANTINE_FILE = Path("tests/quarantine.txt")
 TODAY = datetime.now().date()
 
 
-def main():
+def main() -> int:
     if not QUARANTINE_FILE.exists():
         print("✓ No quarantine file found")
         return 0
 
     expired = []
+    invalid_format = []
     with open(QUARANTINE_FILE) as f:
         for line in f:
             line = line.strip()
@@ -29,10 +30,21 @@ def main():
             try:
                 exp_date = datetime.strptime(expiration_date, "%Y-%m-%d").date()
             except ValueError:
-                print(f"ERROR: Invalid expiration date format in: {line}")
+                invalid_format.append((test_path, expiration_date))
                 continue
             if exp_date < TODAY:
                 expired.append((test_path, expiration_date))
+
+    has_errors = False
+
+    if invalid_format:
+        print("ERROR: Invalid date format in quarantine entries!")
+        print("Date format must be YYYY-MM-DD (e.g., 2025-03-15)")
+        print()
+        for test, date_str in invalid_format:
+            print(f"  INVALID DATE '{date_str}': {test}")
+        print()
+        has_errors = True
 
     if expired:
         print("ERROR: Expired quarantine entries found!")
@@ -40,6 +52,9 @@ def main():
         print()
         for test, exp in expired:
             print(f"  EXPIRED ({exp}): {test}")
+        has_errors = True
+
+    if has_errors:
         return 1
 
     total_entries = sum(

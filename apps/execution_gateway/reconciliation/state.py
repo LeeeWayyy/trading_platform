@@ -142,9 +142,14 @@ class ReconciliationState:
             self._last_reconciliation_result = result
 
     def get_last_reconciliation_result(self) -> dict[str, Any] | None:
-        """Get the last reconciliation result."""
+        """Get the last reconciliation result.
+
+        Returns a shallow copy to prevent external mutation.
+        """
         with self._lock:
-            return self._last_reconciliation_result
+            if self._last_reconciliation_result is None:
+                return None
+            return dict(self._last_reconciliation_result)
 
     def open_gate_after_successful_run(self, mode: str) -> bool:
         """Open the startup gate after a successful reconciliation run.

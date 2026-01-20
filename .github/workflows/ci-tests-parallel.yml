@@ -391,7 +391,7 @@ jobs:
             $DESELECT_ARGS \
             --cov=libs --cov=apps --cov-branch \
             --cov-report=term-missing \
-            --durations=50 || true
+            --durations=50
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -469,10 +469,15 @@ jobs:
 
       - name: Run integration tests (no coverage)
         run: |
-          PYTHONPATH=. poetry run pytest tests/integration/ \
-            --no-cov \
-            -p no:randomly \
-            -v || echo "⚠️  Integration tests not yet available"
+          # Only run if integration tests directory has test files
+          if [ -d "tests/integration" ] && find tests/integration -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+            PYTHONPATH=. poetry run pytest tests/integration/ \
+              --no-cov \
+              -p no:randomly \
+              -v
+          else
+            echo "⚠️  No integration tests found in tests/integration/ - skipping"
+          fi
 
   # ============================================================================
   # Stage 4: Coverage aggregation (unit tests only)
