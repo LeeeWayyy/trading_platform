@@ -1115,12 +1115,12 @@ class TestEdgeCases:
     def test_overlap_logs_warning(
         self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features, caplog
     ):
-        """Test that overlap between top and bottom selections logs a warning and caps weights."""
+        """Test that overlap scales weights to maintain market neutrality."""
         import logging
 
         # Only 3 symbols but requesting top_n=2, bottom_n=2
         # This will cause 1 symbol to overlap (removed from shorts)
-        # After overlap: 2 longs (each 0.5), 1 short (capped at -0.5)
+        # After overlap: 1 short capped at 0.5, 2 longs scaled down to 0.25 each (total 0.5)
         mock_get_features.return_value = sample_features
 
         generator = SignalGenerator(mock_model_with_registry, temp_dir, top_n=2, bottom_n=2)
@@ -1135,13 +1135,15 @@ class TestEdgeCases:
         overlap_warnings = [r for r in caplog.records if "overlap detected" in r.message.lower()]
         assert len(overlap_warnings) > 0, "Expected overlap warning to be logged"
 
-        # Verify short exposure reduced warning was logged
-        reduced_warnings = [r for r in caplog.records if "short exposure reduced" in r.message.lower()]
-        assert len(reduced_warnings) > 0, "Expected short exposure reduced warning"
+        # Verify short positions reduced warning was logged
+        reduced_warnings = [r for r in caplog.records if "short positions reduced" in r.message.lower()]
+        assert len(reduced_warnings) > 0, "Expected short positions reduced warning"
 
-        # Verify longs sum to 1.0
+        # Verify market neutrality: long + short weights should sum to 0 (net exposure)
         long_weight = signals[signals["target_weight"] > 0]["target_weight"].sum()
-        assert abs(long_weight - 1.0) < 0.01, f"Long weights should sum to 1.0, got {long_weight}"
+        short_weight = signals[signals["target_weight"] < 0]["target_weight"].sum()
+        net_exposure = long_weight + short_weight
+        assert abs(net_exposure) < 0.01, f"Net exposure should be ~0, got {net_exposure}"
 
         # Verify per-position short weight is capped at 1/bottom_n to prevent concentration
         max_short_per_position = 1.0 / 2  # bottom_n = 2

@@ -666,8 +666,8 @@ class SignalGenerator:
             if not overlap.empty:
                 # DESIGN: When top_n + bottom_n > universe size, some symbols appear in both.
                 # Resolution: Remove overlaps from shorts (longs have priority).
-                # Market neutrality preserved: longs sum to +1.0, shorts sum to -1.0.
-                # Note: This reduces short position count but maintains net exposure = 0.
+                # Market neutrality preserved via weight scaling: both sides scaled down equally.
+                # Per-position shorts capped at 1/bottom_n, longs scaled to match total short.
                 logger.warning(
                     "Signal overlap detected: %d symbols in both top and bottom selections. "
                     "Removed from short candidates to maintain market neutrality. "
@@ -703,27 +703,33 @@ class SignalGenerator:
         long_count = len(top_symbols)
         short_count = len(bottom_symbols)
 
-        if long_count > 0:
-            # Equal weight: 1.0 / N for each long position
-            # Example: top_n=3 means each gets 0.3333 (33.3% of capital)
-            results.loc[top_symbols.index, "target_weight"] = 1.0 / long_count
-
+        # Calculate weights while maintaining market neutrality (net exposure = 0)
+        # When overlaps reduce short count, we cap per-position weights AND scale longs down
         if short_count > 0:
-            # Cap weight at -1/bottom_n to prevent concentration when overlaps reduce count
-            # Example: bottom_n=3, each gets -0.3333 max; if 2 remain, still -0.3333 each
-            # Total short exposure may be < -1.0, but per-position risk is bounded
+            # Cap short weight at 1/bottom_n to prevent concentration
             max_short_weight = 1.0 / self.bottom_n
             actual_short_weight = min(1.0 / short_count, max_short_weight)
+            total_short_exposure = actual_short_weight * short_count
             results.loc[bottom_symbols.index, "target_weight"] = -actual_short_weight
+
             if short_count < self.bottom_n:
                 logger.warning(
-                    "Short exposure reduced: %d positions instead of %d due to overlap. "
-                    "Total short = %.2f instead of -1.0. Per-position capped at %.2f.",
+                    "Short positions reduced: %d instead of %d due to overlap. "
+                    "Per-position capped at %.2f, total short = %.2f. "
+                    "Longs scaled to match for market neutrality.",
                     short_count,
                     self.bottom_n,
-                    -actual_short_weight * short_count,
                     max_short_weight,
+                    total_short_exposure,
                 )
+        else:
+            total_short_exposure = 0.0
+
+        if long_count > 0:
+            # Scale longs to match total short exposure for market neutrality
+            # If shorts reduced by overlap, longs also scale down proportionally
+            target_long_exposure = total_short_exposure if short_count > 0 else 1.0
+            results.loc[top_symbols.index, "target_weight"] = target_long_exposure / long_count
 
         # ====================================================================
         # Step 8: Sort by rank and return

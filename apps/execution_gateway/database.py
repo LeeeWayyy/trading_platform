@@ -285,7 +285,8 @@ class DatabaseClient:
             ValueError: If connection string is empty
 
         Notes:
-            Pool uses lazy open (open=True default) - connections created on first use.
+            Pool uses lazy-open pattern (open=False with explicit _ensure_pool_open()).
+            Connections are created on first actual use via _connection() context manager.
             This ensures tests and scripts work without explicit pool setup.
         """
         if not db_conn_string:
