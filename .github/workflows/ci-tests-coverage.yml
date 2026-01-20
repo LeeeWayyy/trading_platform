@@ -1,35 +1,27 @@
-name: CI - Tests & Coverage
+name: CI - E2E Tests
 
-# Run tests and check coverage on all PRs and pushes to master
-# Ensures code quality and test completeness before merge
+# Run E2E tests that require full Docker service stack
+# Unit tests and integration tests are handled by ci-tests-parallel.yml
 #
-# IMPORTANT: This workflow uses a Personal Access Token (PAT) for coverage comments
-# to authenticate as your user account instead of github-actions[bot].
-#
-# Setup required (one-time):
-# 1. Create a fine-grained PAT at: https://github.com/settings/tokens?type=beta
-#    - Repository access: Select this repository only
-#    - Permissions: "Pull requests" → Read and write, "Contents" → Read
-#    - Expiration: 90 days (set calendar reminder to rotate)
-#
-# 2. Store the PAT as a repository secret:
-#    - Go to: Settings → Secrets and variables → Actions → New repository secret
-#    - Name: USER_PR_TOKEN
-#    - Value: <paste your PAT>
-#
-# 3. Security: Never commit the PAT directly. Rotate every 90 days.
-#
-# NOTE: This workflow has been REPLACED by ci-tests-parallel.yml which runs
-# tests in parallel for faster CI. This workflow is kept for manual runs only.
-# To run manually: Actions → CI - Tests & Coverage → Run workflow
+# This workflow runs E2E tests which:
+# - Build Docker images for all services
+# - Start the full service stack (signal_service, execution_gateway, etc.)
+# - Run tests in tests/e2e/ with @pytest.mark.e2e marker
 
 on:
-  workflow_dispatch:  # Manual trigger only - replaced by ci-tests-parallel.yml
-  # Disabled automatic triggers (now handled by ci-tests-parallel.yml):
-  # pull_request:
-  #   branches: [master, main]
-  # push:
-  #   branches: [master, main]
+  pull_request:
+    branches: [master, main]
+    paths:
+      # Only run e2e tests when relevant code changes
+      - 'apps/**'
+      - 'libs/**'
+      - 'tests/e2e/**'
+      - 'docker-compose*.yml'
+      - 'Dockerfile*'
+      - '.github/workflows/ci-tests-coverage.yml'
+  push:
+    branches: [master, main]
+  workflow_dispatch:  # Manual trigger
 
 permissions:
   contents: read
@@ -37,210 +29,12 @@ permissions:
   checks: write
 
 jobs:
-  test-and-coverage:
-    name: Run tests and check coverage
+  # Unit tests, linting, and coverage are handled by ci-tests-parallel.yml
+  # This workflow only runs E2E tests that require full Docker service stack
+
+  e2e-tests:
+    name: Run E2E tests (Docker stack)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      checks: write
-
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: trading_platform
-          POSTGRES_PASSWORD: dev_password
-          POSTGRES_DB: trading_platform_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Fetch full history for workflow gate compliance check
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install poetry
-          poetry config virtualenvs.create false
-          poetry install --with dev
-
-      - name: Check documentation freshness
-        run: |
-          echo "::group::Checking documentation freshness"
-          python scripts/dev/check_doc_freshness.py
-          echo "::endgroup::"
-
-      - name: Check architecture map drift
-        run: |
-          echo "::group::Checking architecture map drift"
-          python scripts/dev/generate_architecture.py --check
-          echo "::endgroup::"
-
-      - name: Verify workflow gate compliance
-        run: |
-          echo "::group::Verifying commits followed workflow gates"
-          PYTHONPATH=. python3 scripts/testing/verify_gate_compliance.py
-          echo "::endgroup::"
-        continue-on-error: true  # Non-blocking: warns about missing review markers but doesn't fail build
-
-      - name: Verify branch protection configuration
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "::group::Checking branch protection status"
-          python3 scripts/testing/verify_branch_protection.py
-          echo "::endgroup::"
-        continue-on-error: true  # Non-blocking: warns but doesn't fail build
-
-      - name: Run mypy type checking
-        run: |
-          echo "::group::Running mypy type checks"
-          mypy libs/ apps/ --strict
-          echo "::endgroup::"
-
-      - name: Run ruff linter
-        run: |
-          echo "::group::Running ruff linter"
-          ruff check libs/ apps/
-          echo "::endgroup::"
-
-      - name: Run database migrations
-        env:
-          DATABASE_URL: postgresql://trading_platform:dev_password@localhost:5432/trading_platform_test
-        run: |
-          echo "::group::Running database migrations"
-          # Install psql client for running migrations
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-
-          # Run foundational migrations first (001-003), then newer migrations (0001+)
-          # Legacy migrations create base tables: model_registry, orders, positions, orchestration_runs
-          for migration in db/legacy/migrations_pre_alembic/*.sql; do
-            echo "Running legacy migration: $migration"
-            PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
-          done
-
-          # Newer migrations extend the schema with additional columns and tables
-          for migration in db/migrations/*.sql; do
-            echo "Running migration: $migration"
-            PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
-          done
-          echo "::endgroup::"
-
-      - name: Run tests with coverage
-        env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql://trading_platform:dev_password@localhost:5432/trading_platform_test
-        run: |
-          # Skip integration and e2e tests that require external services
-          # Integration tests: marked with @pytest.mark.integration (require model_registry data)
-          # E2E tests: marked with @pytest.mark.e2e (require running services)
-          # Run them locally with: pytest -m integration  or  pytest -m e2e
-          pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=xml --cov-report=term-missing --cov-report=html
-
-      - name: Check coverage threshold
-        run: |
-          # Change the coverage to 50% to prevent the CI test failure for now
-          # Will set it back to 80 in the final staging.
-          coverage report --fail-under=50
-
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-      - name: Check PR diff size
-        if: github.event_name == 'pull_request'
-        id: diff_check
-        run: |
-          # Get actual line count (insertions + deletions) using --numstat
-          # --numstat outputs: additions deletions filename (per file)
-          # Sum all additions and deletions for total changed lines
-          DIFF_LINES=$(git diff --numstat origin/${{ github.base_ref }}...HEAD | awk '{ adds += $1; dels += $2 } END { print adds + dels }' || echo "0")
-          # Handle empty output (no changes)
-          if [ -z "$DIFF_LINES" ]; then
-            DIFF_LINES=0
-          fi
-          echo "Diff lines (insertions + deletions): $DIFF_LINES"
-          echo "diff_lines=$DIFF_LINES" >> $GITHUB_OUTPUT
-          # Skip coverage comment if diff exceeds 15000 lines (action limit is 20000)
-          if [ "$DIFF_LINES" -gt 15000 ]; then
-            echo "skip_comment=true" >> $GITHUB_OUTPUT
-            echo "⚠️ Skipping coverage comment: PR diff ($DIFF_LINES lines) exceeds 15000 line threshold"
-          else
-            echo "skip_comment=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Comment coverage on PR
-        if: github.event_name == 'pull_request' && steps.diff_check.outputs.skip_comment != 'true'
-        uses: py-cov-action/python-coverage-comment-action@v3
-        with:
-          GITHUB_TOKEN: ${{ secrets.USER_PR_TOKEN || github.token }}
-          MINIMUM_GREEN: 90
-          MINIMUM_ORANGE: 80
-
-      - name: Add coverage skip notice to PR
-        if: github.event_name == 'pull_request' && steps.diff_check.outputs.skip_comment == 'true'
-        run: |
-          echo "## Coverage Comment Skipped 📊" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Coverage comment was skipped because the PR diff (${{ steps.diff_check.outputs.diff_lines }} lines) exceeds the 15,000 line threshold." >> $GITHUB_STEP_SUMMARY
-          echo "This is to avoid the python-coverage-comment-action 406 error on large PRs." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "View the coverage report in the uploaded artifacts instead." >> $GITHUB_STEP_SUMMARY
-
-      - name: Archive coverage HTML report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: htmlcov/
-          retention-days: 14
-
-      - name: Test summary
-        if: success()
-        run: |
-          echo "## Test Results 🧪" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Type checking (mypy): Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Linting (ruff): Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Tests: Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Coverage: $(coverage report --precision=2 | tail -1 | awk '{print $NF}')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "View detailed coverage report in artifacts." >> $GITHUB_STEP_SUMMARY
-
-  integration-tests:
-    name: Run integration tests
-    runs-on: ubuntu-latest
-    needs: test-and-coverage  # Run after unit tests pass
 
     steps:
       - name: Maximize disk space on runner
