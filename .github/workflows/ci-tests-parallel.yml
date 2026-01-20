@@ -462,7 +462,7 @@ jobs:
         run: |
           # Use Alembic for migrations if available
           if [ -f db/alembic.ini ]; then
-            poetry run alembic upgrade head
+            poetry run alembic -c db/alembic.ini upgrade head
           else
             echo "⚠️  Alembic not configured, skipping migrations"
           fi

@@ -8,8 +8,12 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+from pathlib import Path
 
 import pytest
+
+# Calculate project root dynamically (tests/apps/web_console_ng/test_config.py -> root)
+PROJECT_ROOT = str(Path(__file__).parent.parent.parent.parent.resolve())
 
 
 class TestBase64KeyDecoding:
@@ -404,7 +408,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "NICEGUI_STORAGE_SECRET must be set" in result.stderr
@@ -428,7 +432,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "SESSION_COOKIE_SAMESITE must be one of" in result.stderr
@@ -452,7 +456,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "AUDIT_LOG_SINK must be one of" in result.stderr
@@ -477,7 +481,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "WEB_CONSOLE_AUTH_TYPE must be explicitly set" in result.stderr
@@ -501,7 +505,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "WEB_CONSOLE_AUTH_TYPE must be one of" in result.stderr
@@ -526,7 +530,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "AUTH_TYPE='dev' is not allowed in production" in result.stderr
@@ -550,7 +554,7 @@ class TestModuleLevelConfigValidation:
             },
             capture_output=True,
             text=True,
-            cwd="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+            cwd=PROJECT_ROOT,
         )
         assert result.returncode != 0
         assert "Invalid TRUSTED_PROXY_IPS entry" in result.stderr

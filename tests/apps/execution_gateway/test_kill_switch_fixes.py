@@ -26,6 +26,9 @@ from fastapi.testclient import TestClient
 from apps.execution_gateway import main
 from apps.execution_gateway.config import get_config as load_config
 from apps.execution_gateway.fat_finger_validator import FatFingerThresholds, FatFingerValidator
+from apps.execution_gateway.routes import admin as admin_routes
+from apps.execution_gateway.routes import orders as orders_routes
+from apps.execution_gateway.routes import slicing as slicing_routes
 from libs.trading.risk_management import RiskConfig
 
 
@@ -149,9 +152,9 @@ class TestFailClosedBehaviorExecutionGateway:
                 is_authenticated=True,
             )
 
-        main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
-        main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
-        main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
+        main.app.dependency_overrides[orders_routes.order_submit_auth] = _mock_auth_context
+        main.app.dependency_overrides[slicing_routes.order_slice_auth] = _mock_auth_context
+        main.app.dependency_overrides[orders_routes.order_cancel_auth] = _mock_auth_context
         yield
         main.app.dependency_overrides.clear()
 
@@ -384,7 +387,7 @@ class TestKillSwitchJSONBodyHandling:
                 is_authenticated=True,
             )
 
-        main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
+        main.app.dependency_overrides[admin_routes.kill_switch_auth] = _mock_auth_context
         yield
         main.app.dependency_overrides.clear()
 
@@ -644,7 +647,7 @@ class TestKillSwitchEndToEnd:
                 is_authenticated=True,
             )
 
-        main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
+        main.app.dependency_overrides[admin_routes.kill_switch_auth] = _mock_auth_context
         yield
         main.app.dependency_overrides.clear()
 
