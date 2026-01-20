@@ -275,22 +275,10 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --with dev
 
-      - name: Collect all unit tests
-        run: |
-          # Collect with same selection criteria as unit test shards
-          DESELECT_ARGS=""
-          if [ -f tests/quarantine.txt ]; then
-            DESELECT_ARGS=$(grep -v '^#' tests/quarantine.txt | cut -d'|' -f1 | xargs -I{} echo "--deselect {}" | tr '\n' ' ')
-          fi
-          PYTHONPATH=. pytest --collect-only -q \
-            -m "not integration and not e2e" \
-            $DESELECT_ARGS \
-            tests/ > all_tests.txt || true
-
       - name: Verify shard coverage
         run: |
           if [ -f scripts/testing/verify_shard_coverage.py ]; then
-            python scripts/testing/verify_shard_coverage.py
+            PYTHONPATH=. python scripts/testing/verify_shard_coverage.py
           else
             echo "⚠️  verify_shard_coverage.py not found, skipping validation"
           fi
@@ -333,9 +321,9 @@ jobs:
       matrix:
         test-group:
           - name: libs-core
-            paths: "tests/libs/core/"
+            paths: "tests/libs/core/ tests/libs/common/ tests/libs/test_*.py"
           - name: libs-platform
-            paths: "tests/libs/platform/"
+            paths: "tests/libs/platform/ tests/libs/models/ tests/libs/web_console_data/ tests/libs/web_console_services/"
           - name: libs-trading
             paths: "tests/libs/trading/ tests/libs/data/"
           - name: apps-services

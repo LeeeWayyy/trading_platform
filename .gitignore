@@ -42,6 +42,7 @@ htmlcov/
 .tox/
 playwright-report/
 test-results/
+all_tests.txt
 
 # Type checking
 .mypy_cache/
