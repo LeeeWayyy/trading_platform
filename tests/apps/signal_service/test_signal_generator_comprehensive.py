@@ -257,10 +257,20 @@ class TestSignalGeneration:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_generate_signals_weights_sum_correctly(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features
+        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry
     ):
-        """Portfolio weights sum to 1.0 (long) and -1.0 (short)."""
-        mock_get_features.return_value = sample_features
+        """Portfolio weights sum to 1.0 (long) and -1.0 (short) without overlap."""
+        # Create features with enough symbols to avoid overlap (5 symbols for top_n=2, bottom_n=2)
+        date_str = "2024-01-15"
+        symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
+        index = pd.MultiIndex.from_product([[date_str], symbols], names=["datetime", "instrument"])
+        np.random.seed(42)
+        features = pd.DataFrame(
+            np.random.randn(5, 10),  # 5 symbols, 10 features
+            index=index,
+            columns=[f"feature_{i:03d}" for i in range(10)],
+        )
+        mock_get_features.return_value = features
 
         generator = SignalGenerator(
             mock_model_with_registry,
@@ -270,31 +280,19 @@ class TestSignalGeneration:
         )
 
         signals = generator.generate_signals(
-            symbols=["AAPL", "MSFT", "GOOGL"],
+            symbols=symbols,
             as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
         )
 
-        # Only 3 symbols but top_n=2, bottom_n=2 -> 2 long, 2 short, but we only have 3
-        # So we expect fewer positions or all to be allocated
+        # With 5 symbols and top_n=2, bottom_n=2, no overlap expected
         long_weights = signals[signals["target_weight"] > 0]["target_weight"]
         short_weights = signals[signals["target_weight"] < 0]["target_weight"]
 
-        # With 3 symbols and top_n=2, bottom_n=2, only 2 longs and 1 short possible
-        # Actually, top 2 and bottom 2 with 3 symbols means top 2 long, bottom 2 short
-        # But there are only 3 ranks total (1, 2, 3), so:
-        # - Rank 1, 2: long (top 2)
-        # - Rank 3, 2 (from bottom): short? No, bottom 2 means ranks 2 and 3
-        # This creates overlap. Let's check actual behavior.
-
-        # Actually looking at code: nsmallest(top_n, "rank") for long (ranks 1, 2)
-        # and nlargest(bottom_n, "rank") for short (ranks 2, 3)
-        # So rank 2 gets assigned both long and short weight? No, second assignment overwrites.
-
-        # Better approach: just check sums are correct for actual positions
-        if len(long_weights) > 0:
-            assert np.isclose(long_weights.sum(), 1.0, atol=1e-6)
-        if len(short_weights) > 0:
-            assert np.isclose(short_weights.sum(), -1.0, atol=1e-6)
+        # Without overlap, weights should sum to 1.0 and -1.0
+        assert len(long_weights) == 2, f"Expected 2 longs, got {len(long_weights)}"
+        assert len(short_weights) == 2, f"Expected 2 shorts, got {len(short_weights)}"
+        assert np.isclose(long_weights.sum(), 1.0, atol=1e-6), f"Long weights sum: {long_weights.sum()}"
+        assert np.isclose(short_weights.sum(), -1.0, atol=1e-6), f"Short weights sum: {short_weights.sum()}"
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_generate_signals_with_no_features_raises_error(

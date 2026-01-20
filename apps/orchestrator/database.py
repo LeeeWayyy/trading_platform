@@ -9,10 +9,11 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Generator
+from typing import Any
 from uuid import UUID
 
 import psycopg

@@ -99,7 +99,7 @@ class TestPoolLazyOpen:
 
     def test_recreate_pool_resets_pool_opened_flag(self):
         """Test that _recreate_pool() resets _pool_opened flag."""
-        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+        with patch("apps.execution_gateway.database.ConnectionPool"):
             db = DatabaseClient("postgresql://localhost/trading_platform")
             db._pool_opened = True  # Simulate opened pool
 
