@@ -18,12 +18,18 @@ name: CI - Tests & Coverage
 #    - Value: <paste your PAT>
 #
 # 3. Security: Never commit the PAT directly. Rotate every 90 days.
+#
+# NOTE: This workflow has been REPLACED by ci-tests-parallel.yml which runs
+# tests in parallel for faster CI. This workflow is kept for manual runs only.
+# To run manually: Actions → CI - Tests & Coverage → Run workflow
 
 on:
-  pull_request:
-    branches: [master, main]
-  push:
-    branches: [master, main]
+  workflow_dispatch:  # Manual trigger only - replaced by ci-tests-parallel.yml
+  # Disabled automatic triggers (now handled by ci-tests-parallel.yml):
+  # pull_request:
+  #   branches: [master, main]
+  # push:
+  #   branches: [master, main]
 
 permissions:
   contents: read
