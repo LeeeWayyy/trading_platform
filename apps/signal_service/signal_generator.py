@@ -664,6 +664,23 @@ class SignalGenerator:
         if not top_symbols.empty and not bottom_symbols.empty:
             overlap = top_symbols.index.intersection(bottom_symbols.index)
             if not overlap.empty:
+                # DESIGN: When top_n + bottom_n > universe size, some symbols appear in both.
+                # Resolution: Remove overlaps from shorts (longs have priority).
+                # Market neutrality preserved: longs sum to +1.0, shorts sum to -1.0.
+                # Note: This reduces short position count but maintains net exposure = 0.
+                logger.warning(
+                    "Signal overlap detected: %d symbols in both top and bottom selections. "
+                    "Removed from short candidates to maintain market neutrality. "
+                    "Consider reducing top_n + bottom_n or increasing universe size.",
+                    len(overlap),
+                    extra={
+                        "overlap_count": len(overlap),
+                        "top_n": self.top_n,
+                        "bottom_n": self.bottom_n,
+                        "universe_size": len(results),
+                        "overlap_symbols": list(overlap)[:10],  # Limit log size
+                    },
+                )
                 bottom_symbols = bottom_symbols.drop(index=overlap)
 
         long_count = len(top_symbols)

@@ -293,8 +293,8 @@ class DatabaseClient:
         self.db_conn_string = db_conn_string
 
         # H2 Fix: Connection pooling for 10x performance
-        # Pool uses open=False to avoid eager connections during tests/startup.
-        # Connections open lazily on first .connection() call.
+        # Pool uses open=False to avoid eager connections during import/test collection.
+        # We use lazy-open pattern: pool opens on first actual use via _ensure_pool_open().
         self._pool = ConnectionPool(
             db_conn_string,
             min_size=DB_POOL_MIN_SIZE,
@@ -302,6 +302,7 @@ class DatabaseClient:
             timeout=DB_POOL_TIMEOUT,
             open=False,
         )
+        self._pool_opened = False
 
         logger.info(
             "DatabaseClient initialized with connection pool",
@@ -313,6 +314,19 @@ class DatabaseClient:
             },
         )
 
+    def _ensure_pool_open(self) -> None:
+        """Ensure connection pool is open before use.
+
+        Implements lazy-open pattern: pool opens on first actual use.
+        This avoids eager connections during import/test collection.
+
+        Thread-safe: multiple calls are safe, only first call opens the pool.
+        """
+        if not self._pool_opened:
+            self._pool.open()
+            self._pool_opened = True
+            logger.debug("Database connection pool opened (lazy init)")
+
     def close(self) -> None:
         """
         Close connection pool. Safe to call multiple times.
@@ -321,6 +335,7 @@ class DatabaseClient:
         FastAPI apps should call this in lifespan shutdown handler.
         """
         self._pool.close()
+        self._pool_opened = False
         logger.info("DatabaseClient connection pool closed")
 
     def _recreate_pool(self) -> None:
@@ -336,6 +351,7 @@ class DatabaseClient:
             timeout=DB_POOL_TIMEOUT,
             open=False,
         )
+        self._pool_opened = False
         logger.warning("DatabaseClient connection pool recreated")
 
     def _execute_with_conn(
@@ -371,6 +387,7 @@ class DatabaseClient:
         # H2 Fix: Use connection from pool instead of creating new connection
         # IMPORTANT: psycopg context manager does NOT auto-commit - it rolls back on exit
         # We must explicitly commit before the context manager exits
+        self._ensure_pool_open()
         with self._pool.connection() as new_conn:
             result = operation(new_conn)
             new_conn.commit()
@@ -416,6 +433,7 @@ class DatabaseClient:
         # H2 Fix: Use pool.connection() context manager for transaction control
         # psycopg_pool.ConnectionPool uses .connection() not .getconn()/.putconn()
         # Use psycopg's built-in transaction context manager for automatic commit/rollback
+        self._ensure_pool_open()
         with self._pool.connection() as conn:
             with conn.transaction():
                 try:
