@@ -13,6 +13,7 @@ See ADR-0014 for architecture decisions.
 import json
 import logging
 import os
+import threading
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
@@ -303,6 +304,7 @@ class DatabaseClient:
             open=False,
         )
         self._pool_opened = False
+        self._pool_lock = threading.Lock()
 
         logger.info(
             "DatabaseClient initialized with connection pool",
@@ -320,12 +322,16 @@ class DatabaseClient:
         Implements lazy-open pattern: pool opens on first actual use.
         This avoids eager connections during import/test collection.
 
-        Thread-safe: multiple calls are safe, only first call opens the pool.
+        Thread-safe: uses lock to ensure only first caller opens the pool.
         """
-        if not self._pool_opened:
-            self._pool.open()
-            self._pool_opened = True
-            logger.debug("Database connection pool opened (lazy init)")
+        if self._pool_opened:
+            return  # Fast path - already open, no lock needed
+        with self._pool_lock:
+            # Double-check after acquiring lock (another thread may have opened)
+            if not self._pool_opened:
+                self._pool.open()
+                self._pool_opened = True
+                logger.debug("Database connection pool opened (lazy init)")
 
     @contextmanager
     def _connection(self) -> Generator[psycopg.Connection, None, None]:

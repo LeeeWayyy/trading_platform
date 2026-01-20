@@ -709,9 +709,21 @@ class SignalGenerator:
             results.loc[top_symbols.index, "target_weight"] = 1.0 / long_count
 
         if short_count > 0:
-            # Equal weight: -1.0 / N for each short position
-            # Example: bottom_n=3 means each gets -0.3333 (-33.3% of capital)
-            results.loc[bottom_symbols.index, "target_weight"] = -1.0 / short_count
+            # Cap weight at -1/bottom_n to prevent concentration when overlaps reduce count
+            # Example: bottom_n=3, each gets -0.3333 max; if 2 remain, still -0.3333 each
+            # Total short exposure may be < -1.0, but per-position risk is bounded
+            max_short_weight = 1.0 / self.bottom_n
+            actual_short_weight = min(1.0 / short_count, max_short_weight)
+            results.loc[bottom_symbols.index, "target_weight"] = -actual_short_weight
+            if short_count < self.bottom_n:
+                logger.warning(
+                    "Short exposure reduced: %d positions instead of %d due to overlap. "
+                    "Total short = %.2f instead of -1.0. Per-position capped at %.2f.",
+                    short_count,
+                    self.bottom_n,
+                    -actual_short_weight * short_count,
+                    max_short_weight,
+                )
 
         # ====================================================================
         # Step 8: Sort by rank and return

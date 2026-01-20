@@ -8,6 +8,7 @@ H2 Fix: Uses connection pooling for 10x performance improvement.
 import json
 import logging
 import os
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
@@ -113,6 +114,7 @@ class OrchestrationDatabaseClient:
             open=False,
         )
         self._pool_opened = False
+        self._pool_lock = threading.Lock()
 
         logger.info(
             "OrchestrationDatabaseClient initialized with connection pool",
@@ -125,11 +127,17 @@ class OrchestrationDatabaseClient:
 
         Implements lazy-open pattern: pool opens on first actual use.
         This avoids eager connections during import/test collection.
+
+        Thread-safe: uses lock to ensure only first caller opens the pool.
         """
-        if not self._pool_opened:
-            self._pool.open()
-            self._pool_opened = True
-            logger.debug("OrchestrationDatabaseClient connection pool opened (lazy init)")
+        if self._pool_opened:
+            return  # Fast path - already open, no lock needed
+        with self._pool_lock:
+            # Double-check after acquiring lock (another thread may have opened)
+            if not self._pool_opened:
+                self._pool.open()
+                self._pool_opened = True
+                logger.debug("OrchestrationDatabaseClient connection pool opened (lazy init)")
 
     @contextmanager
     def _connection(self) -> Generator[psycopg.Connection, None, None]:

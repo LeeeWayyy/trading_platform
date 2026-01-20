@@ -1115,11 +1115,12 @@ class TestEdgeCases:
     def test_overlap_logs_warning(
         self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features, caplog
     ):
-        """Test that overlap between top and bottom selections logs a warning."""
+        """Test that overlap between top and bottom selections logs a warning and caps weights."""
         import logging
 
         # Only 3 symbols but requesting top_n=2, bottom_n=2
-        # This will cause 1 symbol to overlap
+        # This will cause 1 symbol to overlap (removed from shorts)
+        # After overlap: 2 longs (each 0.5), 1 short (capped at -0.5)
         mock_get_features.return_value = sample_features
 
         generator = SignalGenerator(mock_model_with_registry, temp_dir, top_n=2, bottom_n=2)
@@ -1134,11 +1135,21 @@ class TestEdgeCases:
         overlap_warnings = [r for r in caplog.records if "overlap detected" in r.message.lower()]
         assert len(overlap_warnings) > 0, "Expected overlap warning to be logged"
 
-        # Verify market neutrality is maintained
+        # Verify short exposure reduced warning was logged
+        reduced_warnings = [r for r in caplog.records if "short exposure reduced" in r.message.lower()]
+        assert len(reduced_warnings) > 0, "Expected short exposure reduced warning"
+
+        # Verify longs sum to 1.0
         long_weight = signals[signals["target_weight"] > 0]["target_weight"].sum()
-        short_weight = signals[signals["target_weight"] < 0]["target_weight"].sum()
         assert abs(long_weight - 1.0) < 0.01, f"Long weights should sum to 1.0, got {long_weight}"
-        assert abs(short_weight + 1.0) < 0.01, f"Short weights should sum to -1.0, got {short_weight}"
+
+        # Verify per-position short weight is capped at 1/bottom_n to prevent concentration
+        max_short_per_position = 1.0 / 2  # bottom_n = 2
+        short_positions = signals[signals["target_weight"] < 0]
+        assert len(short_positions) == 1, "Should have 1 short after overlap removal"
+        actual_short_weight = abs(short_positions["target_weight"].iloc[0])
+        assert actual_short_weight <= max_short_per_position + 0.01, \
+            f"Short weight should be capped at {max_short_per_position}, got {actual_short_weight}"
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_overlap_zeros_weights_when_all_shorts_removed(
