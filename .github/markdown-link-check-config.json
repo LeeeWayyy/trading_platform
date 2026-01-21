@@ -230,6 +230,9 @@
     },
     {
       "pattern": "^https://megamorf.gitlab.io"
+    },
+    {
+      "pattern": "^https://www.iso.org"
     }
   ],
   "replacementPatterns": [
