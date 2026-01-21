@@ -279,6 +279,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0029](./ADRs/ADR-0029-alerting-system.md) | Alerting system architecture (multi-channel delivery, rate limiting) | 🚧 Proposed |
 | [ADR-0030](./ADRs/ADR-0030-reporting-architecture.md) | Reporting architecture for scheduled reports and PDF generation | 🚧 Proposed |
 | [ADR-0031](./ADRs/ADR-0031-nicegui-migration.md) | NiceGUI migration from Streamlit for web console | ✅ Accepted |
+| [ADR-0032](./ADRs/ADR-0032-notification-and-hotkey-system.md) | Notification routing and keyboard hotkey system for web console | ✅ Accepted |
 | [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**

@@ -14,14 +14,19 @@ import httpx
 from nicegui import app, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user
+from apps.web_console_ng.components.command_palette import CommandPalette
 from apps.web_console_ng.components.header_metrics import HeaderMetrics
+from apps.web_console_ng.components.log_drawer import LogDrawer
 from apps.web_console_ng.components.market_clock import MarketClock
 from apps.web_console_ng.components.status_bar import StatusBar
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
 from apps.web_console_ng.core.grid_performance import get_all_monitors
+from apps.web_console_ng.core.hotkey_manager import HotkeyManager
 from apps.web_console_ng.core.latency_monitor import LatencyMonitor
+from apps.web_console_ng.core.notification_router import NotificationRouter
+from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.dark_theme import enable_dark_mode
 from apps.web_console_ng.ui.theme import (
     CONNECTION_BADGE_REMOVE_CLASSES,
@@ -45,7 +50,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         # Trading state listener JS extracted to separate file for maintainability
         ui.add_head_html('<script src="/static/js/trading_state_listener.js"></script>')
         ui.add_head_html('<script src="/static/js/grid_throttle.js"></script>')
+        ui.add_head_html('<script src="/static/js/cell_flash.js"></script>')
         ui.add_head_html('<script src="/static/js/grid_state_manager.js"></script>')
+        ui.add_head_html('<script src="/static/js/hotkey_handler.js"></script>')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/density.css">')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
 
@@ -73,6 +80,71 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         if request is not None:
             current_path = getattr(getattr(request, "url", None), "path", "//") or "/"
         app.storage.user["current_path"] = current_path
+
+        state_manager = UserStateManager(
+            user_id=user_id,
+            role=user_role,
+            strategies=user_strategies,
+        )
+        notification_router = NotificationRouter(state_manager=state_manager)
+        await notification_router.load_preferences()
+        # Store in client storage (per-tab) to avoid multi-tab conflicts
+        app.storage.client["notification_router"] = notification_router
+        existing_hotkey_manager = app.storage.client.get("hotkey_manager")
+        if isinstance(existing_hotkey_manager, HotkeyManager):
+            hotkey_manager = existing_hotkey_manager
+        else:
+            hotkey_manager = HotkeyManager()
+            # Store in client storage (per-tab) to avoid multi-tab conflicts
+            app.storage.client["hotkey_manager"] = hotkey_manager
+
+        command_palette = CommandPalette(hotkey_manager)
+        command_palette.create()
+
+        def show_hotkey_help() -> None:
+            with ui.dialog() as help_dialog:
+                with ui.card().classes("p-6 bg-surface-2"):
+                    ui.label("Keyboard Shortcuts").classes(
+                        "text-xl font-bold text-white mb-4"
+                    )
+                    for binding in hotkey_manager.get_bindings():
+                        if not binding.enabled:
+                            continue
+                        with ui.row().classes("items-center justify-between py-1"):
+                            ui.label(binding.description).classes("text-white")
+                            parts = [mod.upper() for mod in binding.modifiers]
+                            parts.append(binding.key.upper())
+                            ui.label("+".join(parts)).classes(
+                                "text-xs bg-surface-1 px-2 py-1 rounded font-mono"
+                            )
+                    ui.button("Close", on_click=help_dialog.close).classes("mt-4")
+            help_dialog.open()
+
+        command_palette.register_command(
+            "open_palette", "Open Command Palette", lambda: None
+        )
+        command_palette.register_command("show_help", "Show Hotkey Reference", show_hotkey_help)
+
+        hotkey_manager.register_handler("open_palette", command_palette.open)
+        hotkey_manager.register_handler("show_help", show_hotkey_help)
+
+        # Register hotkey handlers on every page load (NiceGUI ui.on handlers are per-page)
+        # The JS side has its own guard against duplicate keydown listeners
+        bindings_list = hotkey_manager.get_bindings_json()
+        bindings_json_str = json.dumps(bindings_list)
+
+        async def init_hotkeys() -> None:
+            await ui.run_javascript(f"window.HotkeyHandler.init({bindings_json_str})")
+
+        ui.on("connect", init_hotkeys)
+
+        async def on_hotkey_action(detail: dict[str, Any]) -> None:
+            action = detail.get("action")
+            if action:
+                hotkey_manager.handle_action(action)
+
+        # NiceGUI's type hints don't fully cover the args parameter pattern
+        ui.on("hotkey_action", on_hotkey_action, args=["detail"])  # type: ignore[arg-type]
 
         client = AsyncTradingClient.get()
 
@@ -149,6 +221,30 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
             market_clock = MarketClock(exchanges=["NYSE"])
 
+            quiet_mode_btn: ui.button | None = None
+
+            async def toggle_quiet_mode() -> None:
+                enabled = not notification_router.quiet_mode
+                await notification_router.set_quiet_mode(enabled)
+                if quiet_mode_btn:
+                    quiet_mode_btn.props(
+                        f"icon={'notifications_off' if enabled else 'notifications_active'}"
+                    )
+                    quiet_mode_btn.tooltip("Quiet Mode: ON" if enabled else "Quiet Mode: OFF")
+
+            initial_icon = (
+                "notifications_off"
+                if notification_router.quiet_mode
+                else "notifications_active"
+            )
+            initial_tooltip = (
+                "Quiet Mode: ON" if notification_router.quiet_mode else "Quiet Mode: OFF"
+            )
+            quiet_mode_btn = ui.button(icon=initial_icon, on_click=toggle_quiet_mode).props(
+                "flat color=white"
+            )
+            quiet_mode_btn.tooltip(initial_tooltip)
+
             ui.space()
 
             with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
@@ -194,6 +290,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     )
                     .props("id=connection-badge")
                 )
+
+                log_drawer = LogDrawer(notification_router)
+                log_drawer.create()
 
                 with ui.row().classes("items-center gap-2"):
                     ui.label(user_name).classes("text-sm")

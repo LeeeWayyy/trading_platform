@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from apps.web_console_ng.auth import middleware as auth_middleware
+from apps.web_console_ng.components.action_button import ButtonState
 from apps.web_console_ng.pages import manual_order as manual_order_module
 
 
@@ -107,6 +108,58 @@ class FakeTimer:
 
     def cancel(self) -> None:
         self.cancelled = True
+
+
+class FakeActionButton:
+    """Fake ActionButton for testing without NiceGUI slot context."""
+
+    # Class-level reference to the FakeUI instance, set by fixture
+    _fake_ui: FakeUI | None = None
+
+    def __init__(
+        self,
+        label: str,
+        on_click: Callable[..., Any],
+        icon: str | None = None,
+        color: str = "primary",
+        manual_lifecycle: bool = False,
+    ) -> None:
+        self.label = label
+        self.on_click = on_click
+        self.icon = icon
+        self.color = color
+        self.manual_lifecycle = manual_lifecycle
+        self._element: FakeElement | None = None
+        self._state = ButtonState.DEFAULT
+
+    @property
+    def state(self) -> ButtonState:
+        """Get current button state."""
+        return self._state
+
+    def create(self) -> FakeElement:
+        """Create a fake button element and add to FakeUI.elements."""
+        self._element = FakeElement("button", text=self.label)
+        self._element._click_cb = self.on_click
+        # Add to fake_ui.elements so tests can find it
+        if FakeActionButton._fake_ui is not None:
+            FakeActionButton._fake_ui.elements.append(self._element)
+        return self._element
+
+    def reset(self) -> None:
+        """Reset button state."""
+        self._state = ButtonState.DEFAULT
+        if self._element:
+            self._element.enable()
+
+    def set_external_state(self, state: ButtonState) -> None:
+        """Set external state for manual lifecycle mode."""
+        self._state = state
+        if self._element:
+            if state in (ButtonState.SENDING, ButtonState.CONFIRMING, ButtonState.TIMEOUT):
+                self._element.disable()
+            else:
+                self._element.enable()
 
 
 class FakeUI:
@@ -248,8 +301,12 @@ def fake_ui(monkeypatch: pytest.MonkeyPatch) -> FakeUI:
     ui = FakeUI()
     monkeypatch.setattr(manual_order_module, "ui", ui)
     monkeypatch.setattr(
-        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={}))
+        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={}, client={}))
     )
+    # Mock ActionButton to avoid NiceGUI slot context issues
+    # Set class-level reference so FakeActionButton.create() can add elements to ui.elements
+    FakeActionButton._fake_ui = ui
+    monkeypatch.setattr(manual_order_module, "ActionButton", FakeActionButton)
     return ui
 
 
@@ -903,7 +960,7 @@ async def test_read_only_mode_blocks_preview(
         lambda: {"user_id": "u1", "role": "operator"},
     )
     monkeypatch.setattr(
-        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={"read_only": True}))
+        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={"read_only": True}, client={}))
     )
     client = SimpleNamespace(storage={})
 
@@ -932,7 +989,7 @@ async def test_read_only_mode_blocks_confirm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that read-only mode blocks confirmation."""
-    app_storage = SimpleNamespace(user={})
+    app_storage = SimpleNamespace(user={}, client={})
     monkeypatch.setattr(
         manual_order_module,
         "get_current_user",

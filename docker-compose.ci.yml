@@ -112,6 +112,8 @@ services:
     build:
       context: .
       dockerfile: apps/execution_gateway/Dockerfile
+      args:
+        BUILD_MODE: ci  # Use pinned root requirements.txt for CI reproducibility
     container_name: ci_execution_gateway
     environment:
       # Service config
