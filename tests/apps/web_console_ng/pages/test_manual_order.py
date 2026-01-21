@@ -109,6 +109,46 @@ class FakeTimer:
         self.cancelled = True
 
 
+class FakeActionButton:
+    """Fake ActionButton for testing without NiceGUI slot context."""
+
+    # Class-level reference to the FakeUI instance, set by fixture
+    _fake_ui: FakeUI | None = None
+
+    def __init__(
+        self,
+        label: str,
+        on_click: Callable[..., Any],
+        icon: str | None = None,
+        color: str = "primary",
+        manual_lifecycle: bool = False,
+    ) -> None:
+        self.label = label
+        self.on_click = on_click
+        self.icon = icon
+        self.color = color
+        self.manual_lifecycle = manual_lifecycle
+        self._element: FakeElement | None = None
+
+    def create(self) -> FakeElement:
+        """Create a fake button element and add to FakeUI.elements."""
+        self._element = FakeElement("button", text=self.label)
+        self._element._click_cb = self.on_click
+        # Add to fake_ui.elements so tests can find it
+        if FakeActionButton._fake_ui is not None:
+            FakeActionButton._fake_ui.elements.append(self._element)
+        return self._element
+
+    def reset(self) -> None:
+        """Reset button state."""
+        if self._element:
+            self._element.enable()
+
+    def set_external_state(self, success: bool) -> None:
+        """Set external state for manual lifecycle mode."""
+        pass
+
+
 class FakeUI:
     def __init__(self) -> None:
         self.elements: list[FakeElement] = []
@@ -248,8 +288,12 @@ def fake_ui(monkeypatch: pytest.MonkeyPatch) -> FakeUI:
     ui = FakeUI()
     monkeypatch.setattr(manual_order_module, "ui", ui)
     monkeypatch.setattr(
-        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={}))
+        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={}, client={}))
     )
+    # Mock ActionButton to avoid NiceGUI slot context issues
+    # Set class-level reference so FakeActionButton.create() can add elements to ui.elements
+    FakeActionButton._fake_ui = ui
+    monkeypatch.setattr(manual_order_module, "ActionButton", FakeActionButton)
     return ui
 
 
@@ -903,7 +947,7 @@ async def test_read_only_mode_blocks_preview(
         lambda: {"user_id": "u1", "role": "operator"},
     )
     monkeypatch.setattr(
-        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={"read_only": True}))
+        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={"read_only": True}, client={}))
     )
     client = SimpleNamespace(storage={})
 
@@ -932,7 +976,7 @@ async def test_read_only_mode_blocks_confirm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that read-only mode blocks confirmation."""
-    app_storage = SimpleNamespace(user={})
+    app_storage = SimpleNamespace(user={}, client={})
     monkeypatch.setattr(
         manual_order_module,
         "get_current_user",

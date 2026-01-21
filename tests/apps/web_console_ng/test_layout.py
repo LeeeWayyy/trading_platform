@@ -138,6 +138,9 @@ class _FakeUI:
     class navigate:
         to = staticmethod(lambda *_args, **_kwargs: None)
 
+    def on(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
 
 async def _run_layout(
     monkeypatch: pytest.MonkeyPatch,
@@ -148,7 +151,7 @@ async def _run_layout(
 ) -> _FakeUI:
     fake_ui = _FakeUI()
     storage = SimpleNamespace(
-        user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
+        user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
     )
     fake_app = SimpleNamespace(storage=storage)
 

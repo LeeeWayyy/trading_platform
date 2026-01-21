@@ -102,6 +102,10 @@ class _DummyUI:
     def run_javascript(self, *_args: Any, **_kwargs: Any) -> None:
         return None
 
+    def on(self, event: str, handler: Any, **_kwargs: Any) -> None:
+        """Mock event handler registration."""
+        return None
+
 
 class _DummyMarketClock:
     def __init__(self, exchanges: list[str] | None = None) -> None:
@@ -204,13 +208,86 @@ class _DummyClient:
         return {"state": "OPEN"}
 
 
+class _DummyNotificationRouter:
+    """Mock NotificationRouter for layout tests."""
+
+    quiet_mode = False
+
+    def __init__(self, state_manager: Any = None) -> None:
+        self._state_manager = state_manager
+
+    async def load_preferences(self) -> None:
+        return None
+
+    async def set_quiet_mode(self, enabled: bool) -> None:
+        self.quiet_mode = enabled
+
+
+class _DummyHotkeyManager:
+    """Mock HotkeyManager for layout tests."""
+
+    def get_bindings_json(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_bindings(self) -> list[Any]:
+        return []
+
+    def register_handler(self, action: str, handler: Any) -> None:
+        return None
+
+    def handle_action(self, action: str) -> None:
+        return None
+
+
+class _DummyCommandPalette:
+    """Mock CommandPalette for layout tests."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    def create(self) -> None:
+        return None
+
+    def register_command(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def open(self) -> None:
+        return None
+
+
+class _DummyLogDrawer:
+    """Mock LogDrawer for layout tests."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    def create(self) -> None:
+        return None
+
+
+class _DummyUserStateManager:
+    """Mock UserStateManager for layout tests."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    async def restore_state(self) -> dict[str, Any]:
+        return {}
+
+    async def save_preferences(self, key: str, value: Any) -> None:
+        return None
+
+
 async def _run_layout(
     monkeypatch: pytest.MonkeyPatch, *, current_path: str
 ) -> tuple[_DummyUI, _DummyLifecycleManager]:
     dummy_ui = _DummyUI()
+    # Include both user and client storage (client for per-tab isolation)
     dummy_app = SimpleNamespace(
         storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
+            user={},
+            client={},
+            request=SimpleNamespace(url=SimpleNamespace(path=current_path)),
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -228,6 +305,13 @@ async def _run_layout(
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
     monkeypatch.setattr(layout_module, "ConnectionMonitor", _DummyConnectionMonitor)
+
+    # Mock P6T3 components (notifications, hotkeys)
+    monkeypatch.setattr(layout_module, "NotificationRouter", _DummyNotificationRouter)
+    monkeypatch.setattr(layout_module, "HotkeyManager", _DummyHotkeyManager)
+    monkeypatch.setattr(layout_module, "CommandPalette", _DummyCommandPalette)
+    monkeypatch.setattr(layout_module, "LogDrawer", _DummyLogDrawer)
+    monkeypatch.setattr(layout_module, "UserStateManager", _DummyUserStateManager)
 
     class _LifecycleWrapper:
         @classmethod
@@ -489,9 +573,12 @@ async def _run_extended_layout(
 ) -> tuple[_ExtendedDummyUI, _DummyLifecycleManager, dict[str, Any]]:
     """Extended layout runner that returns components for testing."""
     dummy_ui = _ExtendedDummyUI()
+    # Include both user and client storage (client for per-tab isolation)
     dummy_app = SimpleNamespace(
         storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
+            user={},
+            client={},
+            request=SimpleNamespace(url=SimpleNamespace(path=current_path)),
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -531,6 +618,13 @@ async def _run_extended_layout(
     monkeypatch.setattr(layout_module, "HeaderMetrics", lambda: header_metrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", lambda: latency_monitor)
     monkeypatch.setattr(layout_module, "ConnectionMonitor", lambda: connection_monitor)
+
+    # Mock P6T3 components (notifications, hotkeys)
+    monkeypatch.setattr(layout_module, "NotificationRouter", _DummyNotificationRouter)
+    monkeypatch.setattr(layout_module, "HotkeyManager", _DummyHotkeyManager)
+    monkeypatch.setattr(layout_module, "CommandPalette", _DummyCommandPalette)
+    monkeypatch.setattr(layout_module, "LogDrawer", _DummyLogDrawer)
+    monkeypatch.setattr(layout_module, "UserStateManager", _DummyUserStateManager)
 
     class _LifecycleWrapper:
         @classmethod
@@ -852,8 +946,7 @@ async def test_log_grid_metrics_with_monitors(monkeypatch: pytest.MonkeyPatch) -
 
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -921,8 +1014,7 @@ async def test_cleanup_id_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test behavior when client ID is None."""
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -971,7 +1063,7 @@ async def test_request_url_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test handling when request URL is None."""
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, request=SimpleNamespace(url=None))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=None))
     )
 
     monkeypatch.setattr(layout_module, "ui", dummy_ui)
@@ -1016,7 +1108,7 @@ async def test_request_url_none(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_request_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test handling when request is None."""
     dummy_ui = _ExtendedDummyUI()
-    dummy_app = SimpleNamespace(storage=SimpleNamespace(user={}, request=None))
+    dummy_app = SimpleNamespace(storage=SimpleNamespace(user={}, client={}, request=None))
 
     monkeypatch.setattr(layout_module, "ui", dummy_ui)
     monkeypatch.setattr(layout_module, "app", dummy_app)
@@ -1097,8 +1189,7 @@ async def test_dispatch_trading_state_exception(monkeypatch: pytest.MonkeyPatch)
 
     dummy_ui = _FailingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
 
@@ -1190,8 +1281,7 @@ async def test_log_grid_metrics_executes_for_monitors(monkeypatch: pytest.Monkey
 
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1282,8 +1372,7 @@ async def test_status_poll_lock_prevents_concurrent_updates(
 
     dummy_ui = _TimerCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1370,8 +1459,7 @@ async def test_kill_switch_engaged_notification_on_state_change(
 
     dummy_ui = _TimerCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1448,8 +1536,7 @@ async def test_connection_state_read_only_change(monkeypatch: pytest.MonkeyPatch
 
     dummy_ui = _TimerCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1537,8 +1624,7 @@ async def test_logout_button_normal_execution(monkeypatch: pytest.MonkeyPatch) -
     """Test logout button executes JavaScript."""
     dummy_ui = _ButtonCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1610,8 +1696,7 @@ async def test_logout_button_runtime_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     dummy_ui = _FailingJSUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1670,8 +1755,7 @@ async def test_logout_button_timeout_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     dummy_ui = _TimeoutJSUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1735,8 +1819,7 @@ async def test_engage_kill_switch_button_opens_dialog(
 
     dummy_ui = _DialogTrackingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1802,8 +1885,7 @@ async def test_disengage_kill_switch_button_opens_dialog(
 
     dummy_ui = _DialogTrackingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(
-            user={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()

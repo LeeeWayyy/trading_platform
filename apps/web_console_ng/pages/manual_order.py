@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,9 +11,11 @@ import httpx
 from nicegui import Client, app, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.components.action_button import ActionButton, ButtonState
 from apps.web_console_ng.core.audit import audit_log
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.hotkey_manager import HotkeyManager
 from apps.web_console_ng.core.realtime import RealtimeUpdater, kill_switch_channel
 from apps.web_console_ng.ui.layout import main_layout
 
@@ -52,8 +55,10 @@ async def manual_order_page(client: Client) -> None:
     realtime = RealtimeUpdater(client_id, client)
     submitting = False
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
+    submit_action_button: ActionButton | None = None
+    submit_button_element: ui.button | None = None
 
-    with ui.card().classes("w-full max-w-lg mx-auto"):
+    with ui.card().classes("w-full max-w-lg mx-auto").props("data-order-form"):
         ui.label("Manual Order Entry").classes("text-2xl font-bold mb-4")
 
         # Form fields
@@ -115,13 +120,7 @@ async def manual_order_page(client: Client) -> None:
             validation={"Min 10 characters": lambda v: bool(v and len(v.strip()) >= 10)},
         ).classes("w-full mb-4")
 
-        submit_btn = (
-            ui.button("Preview Order", color="primary")
-            .classes("w-full")
-            .props(
-                "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
-            )
-        )
+        submit_container = ui.row().classes("w-full")
 
     def is_read_only_mode() -> bool:
         return bool(app.storage.user.get("read_only"))
@@ -214,26 +213,40 @@ async def manual_order_page(client: Client) -> None:
 
         return order_data
 
+    def reset_form() -> None:
+        symbol_input.value = ""
+        qty_input.value = 0
+        reason_input.value = ""
+        order_type_select.value = "market"
+        side_select.value = "buy"
+        tif_select.value = "day"
+        limit_price_input.value = None
+        limit_price_container.set_visibility(False)
+
     async def show_preview() -> None:
         nonlocal submitting
         if submitting:
+            if submit_action_button:
+                submit_action_button.reset()
             return
 
         if is_read_only_mode():
             ui.notify("Read-only mode: connection lost", type="warning")
+            if submit_action_button:
+                submit_action_button.reset()
             return
 
         order_data = validate_form()
         if order_data is None:
+            if submit_action_button:
+                submit_action_button.reset()
             return
-
-        # Disable button to prevent double-click
-        submit_btn.disable()
 
         # Check kill switch BEFORE showing preview using cached real-time state
         # This provides instant UI response; fresh check happens at confirmation
         if not await check_kill_switch(use_cache=True):
-            submit_btn.enable()
+            if submit_action_button:
+                submit_action_button.reset()
             return
 
         reason = (reason_input.value or "").strip()
@@ -241,8 +254,8 @@ async def manual_order_page(client: Client) -> None:
         with ui.dialog() as dialog, ui.card().classes("p-6 min-w-[400px]"):
 
             def on_dialog_close() -> None:
-                if not submitting:
-                    submit_btn.enable()
+                if not submitting and submit_button_element:
+                    submit_button_element.enable()
 
             dialog.on("close", on_dialog_close)
             ui.label("Order Preview").classes("text-xl font-bold mb-4")
@@ -269,14 +282,16 @@ async def manual_order_page(client: Client) -> None:
 
                     submitting = True
                     confirm_btn.disable()
-                    submit_btn.disable()
+                    if submit_button_element:
+                        submit_button_element.disable()
 
                     try:
                         if is_read_only_mode():
                             ui.notify("Read-only mode: connection lost", type="warning")
                             submitting = False
                             confirm_btn.enable()
-                            submit_btn.enable()
+                            if submit_button_element:
+                                submit_button_element.enable()
                             return
                         # FRESH kill switch check at confirmation time
                         if not await check_kill_switch():
@@ -316,14 +331,7 @@ async def manual_order_page(client: Client) -> None:
                         dialog.close()
 
                         # Reset form
-                        symbol_input.value = ""
-                        qty_input.value = 0
-                        reason_input.value = ""
-                        order_type_select.value = "market"
-                        side_select.value = "buy"
-                        tif_select.value = "day"
-                        limit_price_input.value = None
-                        limit_price_container.set_visibility(False)
+                        reset_form()
 
                     except httpx.HTTPStatusError as exc:
                         error_detail = ""
@@ -387,14 +395,72 @@ async def manual_order_page(client: Client) -> None:
                     finally:
                         submitting = False
                         confirm_btn.enable()
-                        submit_btn.enable()
+                        if submit_button_element:
+                            submit_button_element.enable()
 
                 confirm_btn = ui.button("Confirm", on_click=confirm_order, color="primary")
                 ui.button("Cancel", on_click=dialog.close)
 
+        if submit_action_button:
+            submit_action_button.reset()
+        if submit_button_element:
+            submit_button_element.disable()
+
         dialog.open()
 
-    submit_btn.on("click", show_preview)
+    submit_action_button = ActionButton(
+        "Preview Order",
+        show_preview,
+        color="primary",
+        manual_lifecycle=True,
+    )
+    with submit_container:
+        submit_button_element = (
+            submit_action_button.create()
+            .classes("w-full")
+            .props(
+                "data-readonly-disable=true data-readonly-tooltip='Connection lost - read-only mode'"
+            )
+        )
+
+    def _register_order_form_hotkeys(
+        hotkey_manager: HotkeyManager,
+        quantity_input: ui.number,
+        side_selector: ui.select,
+        submit_button: ActionButton,
+        clear_form_callback: Callable[[], None],
+    ) -> None:
+        """Register order form hotkey handlers."""
+
+        def _focus_buy() -> None:
+            side_selector.value = "buy"
+            quantity_input.run_method("focus")
+
+        def _focus_sell() -> None:
+            side_selector.value = "sell"
+            quantity_input.run_method("focus")
+
+        hotkey_manager.register_handler("focus_buy", _focus_buy)
+        hotkey_manager.register_handler("focus_sell", _focus_sell)
+
+        async def submit_via_hotkey() -> None:
+            if submit_button.state == ButtonState.DEFAULT:
+                await submit_button.trigger()
+
+        hotkey_manager.register_handler("submit_order", submit_via_hotkey)
+        hotkey_manager.register_handler("cancel_form", clear_form_callback)
+
+    hotkey_manager = app.storage.client.get("hotkey_manager")
+    if isinstance(hotkey_manager, HotkeyManager):
+        _register_order_form_hotkeys(
+            hotkey_manager,
+            qty_input,
+            side_select,
+            submit_action_button,
+            reset_form,
+        )
+    else:
+        logger.warning("hotkey_manager_not_available", extra={"user_id": user_id})
 
     # Subscribe to real-time kill switch updates for instant UI responses
     async def on_kill_switch_update(data: dict[str, Any]) -> None:

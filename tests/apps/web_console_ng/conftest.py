@@ -171,3 +171,81 @@ async def trading_client():
     yield client
     await client._http_client.aclose()
     client._http_client = None
+
+
+@pytest.fixture(autouse=True)
+def mock_p6t3_components(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Auto-mock P6T3 components (notifications, hotkeys) to avoid Redis connections.
+
+    This fixture prevents tests from connecting to Redis when UserStateManager
+    is instantiated via layout module imports.
+    """
+    from typing import Any
+
+    # Create lightweight mock classes
+    class MockNotificationRouter:
+        quiet_mode = False
+
+        def __init__(self, state_manager: Any = None) -> None:
+            self._state_manager = state_manager
+
+        async def load_preferences(self) -> None:
+            return None
+
+        async def set_quiet_mode(self, enabled: bool) -> None:
+            self.quiet_mode = enabled
+
+    class MockHotkeyManager:
+        def get_bindings_json(self) -> list[dict[str, Any]]:
+            return []
+
+        def get_bindings(self) -> list[Any]:
+            return []
+
+        def register_handler(self, action: str, handler: Any) -> None:
+            return None
+
+        def handle_action(self, action: str) -> None:
+            return None
+
+    class MockUserStateManager:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def restore_state(self) -> dict[str, Any]:
+            return {}
+
+        async def save_preferences(self, key: str, value: Any) -> None:
+            return None
+
+    class MockCommandPalette:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def create(self) -> None:
+            return None
+
+        def register_command(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        def open(self) -> None:
+            return None
+
+    class MockLogDrawer:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def create(self) -> None:
+            return None
+
+    # Patch at module import level for apps.web_console_ng.ui.layout
+    try:
+        from apps.web_console_ng.ui import layout as layout_module
+
+        monkeypatch.setattr(layout_module, "NotificationRouter", MockNotificationRouter)
+        monkeypatch.setattr(layout_module, "HotkeyManager", MockHotkeyManager)
+        monkeypatch.setattr(layout_module, "UserStateManager", MockUserStateManager)
+        monkeypatch.setattr(layout_module, "CommandPalette", MockCommandPalette)
+        monkeypatch.setattr(layout_module, "LogDrawer", MockLogDrawer)
+    except ImportError:
+        pass  # Module not available in this test context
