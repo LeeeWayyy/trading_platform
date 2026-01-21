@@ -52,16 +52,14 @@ def create_positions_grid() -> ui.aggrid:
             "field": "current_price",
             "headerName": "Current",
             "sortable": True,
-            # Handle null/undefined and Decimal strings from API
-            ":valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
+            ":cellRenderer": "window.CellFlashManager.createFlashRenderer('positions_grid', 'current_price')",
             "type": "numericColumn",
         },
         {
             "field": "unrealized_pl",
             "headerName": "P&L ($)",
             "sortable": True,
-            # Handle null/undefined and Decimal strings from API
-            ":valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
+            ":cellRenderer": "window.CellFlashManager.createFlashRenderer('positions_grid', 'unrealized_pl')",
             "cellStyle": {
                 "function": "params.value >= 0 ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
             },
@@ -71,8 +69,7 @@ def create_positions_grid() -> ui.aggrid:
             "field": "unrealized_plpc",
             "headerName": "P&L (%)",
             "sortable": True,
-            # Handle null/undefined and Decimal strings from API
-            ":valueFormatter": "x => (x.value == null) ? '--.--' + '%' : (Number(x.value) * 100).toFixed(2) + '%'",
+            ":cellRenderer": "window.CellFlashManager.createFlashRenderer('positions_grid', 'unrealized_plpc')",
             "cellStyle": {
                 "function": "params.value >= 0 ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
             },
@@ -103,7 +100,7 @@ def create_positions_grid() -> ui.aggrid:
             "suppressAnimationFrame": False,
             "animateRows": True,
             ":getRowId": "params => params.data.symbol",
-            ":onGridReady": "params => { window._positionsGridApi = params.api; if (window.GridThrottle) window.GridThrottle.registerAsyncGrid('positions_grid'); }",
+            ":onGridReady": "params => { window._positionsGridApi = params.api; if (window.GridThrottle) window.GridThrottle.registerAsyncGrid('positions_grid'); if (window.CellFlashManager) window.CellFlashManager.init('positions_grid', ['unrealized_pl', 'unrealized_plpc', 'current_price']); }",
             ":onAsyncTransactionsFlushed": "params => { if (window.GridThrottle) window.GridThrottle.recordTransactionResult(params.api, 'positions_grid', params.results); }",
             ":onRowDataUpdated": "params => { if (window.GridThrottle) window.GridThrottle.recordUpdate(params.api, 'positions_grid'); }",
         }

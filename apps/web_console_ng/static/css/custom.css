@@ -51,3 +51,75 @@
     --ag-odd-row-background-color: var(--surface-0);
     --ag-row-hover-color: var(--surface-3);
 }
+
+/* Button state feedback animations */
+@keyframes successFlash {
+    0% {
+        background-color: #16a34a;
+        box-shadow: 0 0 10px #16a34a;
+    }
+    50% {
+        background-color: #22c55e;
+        box-shadow: 0 0 20px #22c55e;
+    }
+    100% {
+        background-color: #16a34a;
+        box-shadow: none;
+    }
+}
+
+@keyframes failedShake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+    20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+@keyframes buttonPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.animate-success-flash {
+    animation: successFlash 0.5s ease-out;
+}
+
+.animate-failed-shake {
+    animation: failedShake 0.5s ease-out;
+}
+
+.animate-button-pulse {
+    animation: buttonPulse 1s ease-in-out infinite;
+}
+
+/* Cell flash animations for price/P&L updates */
+@keyframes flashGreen {
+    0% {
+        background-color: rgba(0, 230, 118, 0.5);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+@keyframes flashRed {
+    0% {
+        background-color: rgba(255, 82, 82, 0.5);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+.cell-flash-up {
+    animation: flashGreen 500ms ease-out;
+}
+
+.cell-flash-down {
+    animation: flashRed 500ms ease-out;
+}
+
+/* Disable flash when grid is in degraded mode (high update rate) */
+.grid-degraded .cell-flash-up,
+.grid-degraded .cell-flash-down {
+    animation: none;
+}
