@@ -13,6 +13,10 @@ from apps.web_console_ng.components.price_chart import (
     PriceChartComponent,
 )
 from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
+from apps.web_console_ng.components.watchlist import (
+    WatchlistComponent,
+    WatchlistItem,
+)
 
 __all__ = [
     "CandleData",
@@ -23,4 +27,6 @@ __all__ = [
     "OrderTicketState",
     "PriceChartComponent",
     "QuantityPresetsComponent",
+    "WatchlistComponent",
+    "WatchlistItem",
 ]
