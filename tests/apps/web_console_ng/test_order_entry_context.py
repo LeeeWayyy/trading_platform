@@ -282,6 +282,67 @@ class TestFetchInitialSafetyState:
         )
 
 
+class TestRiskLimitsRefresh:
+    """Tests for risk limits refresh mechanism."""
+
+    @pytest.fixture
+    def context(self) -> OrderEntryContext:
+        """Create context with mocked order ticket."""
+        ctx = OrderEntryContext(
+            realtime_updater=MagicMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        return ctx
+
+    def test_refresh_does_nothing_when_disposed(
+        self, context: OrderEntryContext
+    ) -> None:
+        """_refresh_risk_limits does nothing when disposed."""
+        context._disposed = True
+
+        # Should not raise or create task
+        context._refresh_risk_limits()
+
+        # No call to order_ticket since disposed
+        context._order_ticket.set_risk_limits.assert_not_called()
+
+    def test_refresh_does_nothing_without_order_ticket(
+        self, context: OrderEntryContext
+    ) -> None:
+        """_refresh_risk_limits does nothing without order ticket."""
+        context._order_ticket = None
+
+        # Should not raise
+        context._refresh_risk_limits()
+
+    @pytest.mark.asyncio
+    async def test_refresh_creates_task_for_async_load(
+        self, context: OrderEntryContext
+    ) -> None:
+        """_refresh_risk_limits creates async task for loading."""
+        context._refresh_risk_limits()
+
+        # Give the event loop a chance to run the task
+        await asyncio.sleep(0.01)
+
+        # Order ticket should have risk limits set
+        context._order_ticket.set_risk_limits.assert_called_once()
+
+    def test_refresh_interval_constant(self) -> None:
+        """Refresh interval is configured to stay under staleness threshold."""
+        # Staleness threshold is 5 minutes (300s), refresh should be under that
+        assert OrderEntryContext.RISK_LIMITS_REFRESH_INTERVAL_S < 300
+        # Should refresh frequently enough to never go stale
+        assert OrderEntryContext.RISK_LIMITS_REFRESH_INTERVAL_S <= 240
+
+
 class TestVerifySafetyState:
     """Tests for verify safety state methods."""
 

@@ -82,6 +82,9 @@ class OrderEntryContext:
     OWNER_CIRCUIT_BREAKER = "circuit_breaker"
     OWNER_CONNECTION = "connection"
 
+    # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
+    RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
+
     def __init__(
         self,
         realtime_updater: RealtimeUpdater,
@@ -300,6 +303,14 @@ class OrderEntryContext:
             # Load initial risk limits for order validation
             await self._load_initial_risk_limits()
 
+            # Start periodic refresh timer to prevent staleness
+            # Risk limits go stale after 5 min; refresh every 4 min to stay safe
+            risk_refresh_timer = ui.timer(
+                interval=self.RISK_LIMITS_REFRESH_INTERVAL_S,
+                callback=self._refresh_risk_limits,
+            )
+            self._track_timer(risk_refresh_timer)
+
         except Exception as exc:
             # FAIL-CLOSED: Explicitly disable order ticket on init failure
             logger.error(f"OrderEntryContext initialization failed: {exc}")
@@ -504,6 +515,20 @@ class OrderEntryContext:
                 "max_total_exposure": str(max_total_exposure) if max_total_exposure else None,
             },
         )
+
+    def _refresh_risk_limits(self) -> None:
+        """Periodic callback to refresh risk limits and prevent staleness.
+
+        Risk limits have a 5 minute staleness threshold. This callback
+        is scheduled every 4 minutes to keep limits fresh.
+
+        Note: ui.timer callbacks must be synchronous, so we create a task.
+        """
+        if self._disposed or not self._order_ticket:
+            return
+
+        # Create task for async refresh
+        asyncio.create_task(self._load_initial_risk_limits())
 
     async def _verify_circuit_breaker_safe(self) -> bool:
         """Authoritative check if circuit breaker allows trading.
@@ -1009,6 +1034,17 @@ class OrderEntryContext:
         pending_future: asyncio.Future[None] | None = None
 
         async with self._subscription_lock:
+            # Check callback first BEFORE adding owner to avoid partial state on error
+            if channel in self._channel_callbacks:
+                if self._channel_callbacks[channel] != callback:
+                    # Use equality (!=) not identity (is not) because bound methods
+                    # create new objects on each access but compare equal if they
+                    # refer to the same method on the same instance.
+                    raise ValueError(
+                        f"Callback mismatch for channel {channel}: new owner '{owner}' "
+                        f"provided different callback than existing."
+                    )
+
             if channel in self._pending_subscribes:
                 pending_future = self._pending_subscribes[channel]
             elif channel not in self._channel_owners:
@@ -1016,17 +1052,11 @@ class OrderEntryContext:
                 need_subscribe = True
                 pending_future = asyncio.get_running_loop().create_future()
                 self._pending_subscribes[channel] = pending_future
+
+            # Safe to add owner now - callback check passed
             self._channel_owners[channel].add(owner)
             if channel not in self._channel_callbacks:
                 self._channel_callbacks[channel] = callback
-            elif self._channel_callbacks[channel] != callback:
-                # Use equality (!=) not identity (is not) because bound methods
-                # create new objects on each access but compare equal if they
-                # refer to the same method on the same instance.
-                raise ValueError(
-                    f"Callback mismatch for channel {channel}: new owner '{owner}' "
-                    f"provided different callback than existing."
-                )
 
         if not need_subscribe and pending_future is not None:
             try:

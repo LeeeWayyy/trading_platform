@@ -848,7 +848,15 @@ class OrderTicketComponent:
         return None
 
     def _get_effective_order_price(self) -> Decimal | None:
-        """Get effective price for order calculations."""
+        """Get effective price for order calculations.
+
+        For stop orders, uses side-aware worst-case pricing:
+        - Buy stop: max(stop, last) - assumes buy at higher price
+        - Sell stop: min(stop, last) - assumes sell at lower price
+
+        This ensures notional estimates are conservative in the correct direction
+        and avoids blocking risk-reducing sell stops with overstated notional.
+        """
         order_type = self._state.order_type
 
         if order_type in ("limit", "stop_limit"):
@@ -857,7 +865,11 @@ class OrderTicketComponent:
         if order_type == "stop":
             stop_price = self._state.stop_price
             if stop_price and self._last_price:
-                return max(stop_price, self._last_price)
+                # Side-aware worst-case: buy=max, sell=min
+                if self._state.side == "buy":
+                    return max(stop_price, self._last_price)
+                else:
+                    return min(stop_price, self._last_price)
             return stop_price or self._last_price
 
         return self._last_price

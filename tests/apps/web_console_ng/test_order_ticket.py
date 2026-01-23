@@ -555,14 +555,34 @@ class TestOrderTicketEffectivePrice:
 
         assert result == Decimal("145")
 
-    def test_stop_uses_max_conservative(self, component: OrderTicketComponent) -> None:
-        """Stop orders use max(stop, last) for conservative estimate."""
+    def test_buy_stop_uses_max_for_worst_case(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Buy stop orders use max(stop, last) for worst-case estimate."""
         component._state.order_type = "stop"
+        component._state.side = "buy"
         component._state.stop_price = Decimal("160")  # Above last
 
         result = component._get_effective_order_price()
 
         assert result == Decimal("160")  # max(160, 150)
+
+    def test_sell_stop_uses_min_for_worst_case(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Sell stop orders use min(stop, last) for worst-case estimate.
+
+        This prevents overstating notional for risk-reducing sell stops
+        where the stop price is typically below market price.
+        """
+        component._state.order_type = "stop"
+        component._state.side = "sell"
+        component._state.stop_price = Decimal("140")  # Below last
+        component._last_price = Decimal("150")
+
+        result = component._get_effective_order_price()
+
+        assert result == Decimal("140")  # min(140, 150) - sell at lower price
 
     def test_stop_limit_uses_limit_price(self, component: OrderTicketComponent) -> None:
         """Stop-limit orders use limit price."""
