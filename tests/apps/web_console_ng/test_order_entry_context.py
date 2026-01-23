@@ -1011,3 +1011,128 @@ class TestGetters:
         # Verify it returns the verification method (bound methods compare equal)
         assert callback.__name__ == "_verify_kill_switch_safe"
         assert callable(callback)
+
+
+class TestFactoryMethods:
+    """Tests for component factory methods."""
+
+    @pytest.fixture
+    def context(self) -> OrderEntryContext:
+        """Create context for testing."""
+        return OrderEntryContext(
+            realtime_updater=MagicMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+    def test_create_watchlist_stores_reference(self, context: OrderEntryContext) -> None:
+        """create_watchlist stores component reference."""
+        with patch("apps.web_console_ng.components.watchlist.WatchlistComponent") as MockWatchlist:
+            mock_instance = MagicMock()
+            MockWatchlist.return_value = mock_instance
+
+            context.create_watchlist()
+
+            assert context._watchlist is mock_instance
+            mock_instance.create.assert_called_once()
+
+    def test_create_watchlist_wires_callbacks(self, context: OrderEntryContext) -> None:
+        """create_watchlist wires up callbacks correctly."""
+        with patch("apps.web_console_ng.components.watchlist.WatchlistComponent") as MockWatchlist:
+            context.create_watchlist()
+
+            call_kwargs = MockWatchlist.call_args.kwargs
+            # Use __name__ comparison as bound methods create new objects each access
+            assert call_kwargs["on_symbol_selected"].__name__ == "on_symbol_selected"
+            assert call_kwargs["on_subscribe_symbol"].__name__ == "on_watchlist_subscribe_request"
+            assert call_kwargs["on_unsubscribe_symbol"].__name__ == "on_watchlist_unsubscribe_request"
+
+    def test_create_market_context_stores_reference(
+        self, context: OrderEntryContext
+    ) -> None:
+        """create_market_context stores component reference."""
+        with patch("apps.web_console_ng.components.market_context.MarketContextComponent") as MockMarket:
+            mock_instance = MagicMock()
+            MockMarket.return_value = mock_instance
+
+            context.create_market_context()
+
+            assert context._market_context is mock_instance
+            mock_instance.create.assert_called_once()
+
+    def test_create_price_chart_stores_reference(self, context: OrderEntryContext) -> None:
+        """create_price_chart stores component reference."""
+        with patch("apps.web_console_ng.components.price_chart.PriceChartComponent") as MockChart:
+            mock_instance = MagicMock()
+            MockChart.return_value = mock_instance
+
+            context.create_price_chart(width=800, height=400)
+
+            assert context._price_chart is mock_instance
+            mock_instance.create.assert_called_once_with(width=800, height=400)
+
+    def test_create_order_ticket_stores_reference(self, context: OrderEntryContext) -> None:
+        """create_order_ticket stores component reference."""
+        with patch("apps.web_console_ng.components.order_ticket.OrderTicketComponent") as MockTicket:
+            mock_instance = MagicMock()
+            MockTicket.return_value = mock_instance
+
+            context.create_order_ticket()
+
+            assert context._order_ticket is mock_instance
+            mock_instance.create.assert_called_once()
+
+    def test_create_order_ticket_wires_verification_callbacks(
+        self, context: OrderEntryContext
+    ) -> None:
+        """create_order_ticket wires up safety verification callbacks."""
+        with patch("apps.web_console_ng.components.order_ticket.OrderTicketComponent") as MockTicket:
+            context.create_order_ticket()
+
+            call_kwargs = MockTicket.call_args.kwargs
+            assert call_kwargs["verify_circuit_breaker"].__name__ == "_verify_circuit_breaker_safe"
+            assert call_kwargs["verify_kill_switch"].__name__ == "_verify_kill_switch_safe"
+            assert call_kwargs["user_id"] == "test-user"
+            assert call_kwargs["role"] == "trader"
+            assert call_kwargs["strategies"] == ["alpha"]
+
+    @pytest.mark.asyncio
+    async def test_on_market_context_price_updated_forwards_to_order_ticket(
+        self, context: OrderEntryContext
+    ) -> None:
+        """_on_market_context_price_updated forwards price to OrderTicket."""
+        from datetime import UTC, datetime
+        from decimal import Decimal
+
+        context._order_ticket = MagicMock()
+        context._selected_symbol = "AAPL"
+
+        await context._on_market_context_price_updated(
+            "AAPL", Decimal("150.50"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        )
+
+        context._order_ticket.set_price_data.assert_called_once_with(
+            "AAPL", Decimal("150.50"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        )
+
+    @pytest.mark.asyncio
+    async def test_on_market_context_price_updated_ignores_different_symbol(
+        self, context: OrderEntryContext
+    ) -> None:
+        """_on_market_context_price_updated ignores updates for different symbol."""
+        from datetime import UTC, datetime
+        from decimal import Decimal
+
+        context._order_ticket = MagicMock()
+        context._selected_symbol = "AAPL"
+
+        await context._on_market_context_price_updated(
+            "MSFT", Decimal("350.00"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        )
+
+        context._order_ticket.set_price_data.assert_not_called()

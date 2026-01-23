@@ -168,6 +168,100 @@ class OrderEntryContext:
         self._price_chart = component
 
     # =========================================================================
+    # Component Factory Methods
+    # =========================================================================
+
+    def create_watchlist(self) -> Any:
+        """Create and configure the Watchlist component.
+
+        Creates the component, wires up callbacks, stores reference, and returns
+        the UI card for embedding in the dashboard layout.
+
+        Returns:
+            The Watchlist UI card (nicegui element).
+        """
+        from apps.web_console_ng.components.watchlist import WatchlistComponent
+
+        self._watchlist = WatchlistComponent(
+            trading_client=self._client,
+            on_symbol_selected=self.on_symbol_selected,
+            on_subscribe_symbol=self.on_watchlist_subscribe_request,
+            on_unsubscribe_symbol=self.on_watchlist_unsubscribe_request,
+        )
+        return self._watchlist.create()
+
+    def create_market_context(self) -> Any:
+        """Create and configure the MarketContext component.
+
+        Creates the component, wires up callbacks, stores reference, and returns
+        the UI card for embedding in the dashboard layout.
+
+        Returns:
+            The MarketContext UI card (nicegui element).
+        """
+        from apps.web_console_ng.components.market_context import MarketContextComponent
+
+        self._market_context = MarketContextComponent(
+            trading_client=self._client,
+            on_price_updated=self._on_market_context_price_updated,
+        )
+        return self._market_context.create()
+
+    def create_price_chart(self, width: int = 600, height: int = 300) -> Any:
+        """Create and configure the PriceChart component.
+
+        Creates the component, stores reference, and returns the UI element
+        for embedding in the dashboard layout.
+
+        Args:
+            width: Chart width in pixels.
+            height: Chart height in pixels.
+
+        Returns:
+            The PriceChart UI element (nicegui element).
+        """
+        from apps.web_console_ng.components.price_chart import PriceChartComponent
+
+        self._price_chart = PriceChartComponent(
+            trading_client=self._client,
+        )
+        return self._price_chart.create(width=width, height=height)
+
+    def create_order_ticket(self) -> Any:
+        """Create and configure the OrderTicket component.
+
+        Creates the component, wires up safety verification callbacks,
+        stores reference, and returns the UI card for embedding.
+
+        Returns:
+            The OrderTicket UI card (nicegui element).
+        """
+        from apps.web_console_ng.components.order_ticket import OrderTicketComponent
+
+        self._order_ticket = OrderTicketComponent(
+            trading_client=self._client,
+            state_manager=self._state_manager,
+            connection_monitor=self._connection_monitor,
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
+            on_symbol_selected=self.on_symbol_selected,
+            verify_circuit_breaker=self.get_verify_circuit_breaker(),
+            verify_kill_switch=self.get_verify_kill_switch(),
+        )
+        return self._order_ticket.create()
+
+    async def _on_market_context_price_updated(
+        self, symbol: str, price: Decimal | None, timestamp: datetime | None
+    ) -> None:
+        """Handle price update from MarketContext to forward to OrderTicket.
+
+        This bridges the MarketContext callback to the OrderTicket's price data.
+        """
+        if self._order_ticket and symbol == self._selected_symbol:
+            self._order_ticket.set_price_data(symbol, price, timestamp)
+
+    # =========================================================================
     # Initialization
     # =========================================================================
 
