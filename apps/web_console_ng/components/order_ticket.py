@@ -485,13 +485,13 @@ class OrderTicketComponent:
         """Called by OrderEntryContext when selected symbol changes externally."""
         self._state.symbol = symbol
 
-        # Reset symbol-scoped state
+        # Reset symbol-scoped state only - NOT risk limits
+        # Risk limits are global (not per-symbol), so keep them intact
         self._last_price = None
         self._price_last_updated = None
         self._current_position = 0
         self._position_last_updated = None
-        self._limits_loaded = False
-        self._limits_last_updated = None
+        # DO NOT reset _limits_loaded/_limits_last_updated - limits are global
 
         if self._symbol_input and self._symbol_input.value != symbol:
             self._symbol_input.set_value(symbol or "")

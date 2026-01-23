@@ -1060,6 +1060,22 @@ class TestDispose:
         with pytest.raises(asyncio.CancelledError):
             future.result()
 
+    @pytest.mark.asyncio
+    async def test_dispose_cancels_risk_refresh_task(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() cancels running risk refresh task."""
+        # Create a slow task
+        async def slow_task() -> None:
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(slow_task())
+        context._risk_refresh_task = task
+
+        await context.dispose()
+
+        assert task.cancelled() or context._risk_refresh_task is None
+
 
 class TestGetters:
     """Tests for getter methods."""

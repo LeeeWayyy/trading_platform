@@ -150,6 +150,9 @@ class OrderEntryContext:
         # Connection state tracking for reconnect detection
         self._last_connection_state: str | None = None
 
+        # Risk limits refresh task tracking
+        self._risk_refresh_task: asyncio.Task[None] | None = None
+
     # =========================================================================
     # Component Setters
     # =========================================================================
@@ -523,12 +526,28 @@ class OrderEntryContext:
         is scheduled every 4 minutes to keep limits fresh.
 
         Note: ui.timer callbacks must be synchronous, so we create a task.
+        Task is tracked for cancellation on dispose.
         """
         if self._disposed or not self._order_ticket:
             return
 
-        # Create task for async refresh
-        asyncio.create_task(self._load_initial_risk_limits())
+        # Cancel any previous task that's still running
+        if self._risk_refresh_task and not self._risk_refresh_task.done():
+            return  # Previous refresh still in progress
+
+        # Create task for async refresh with exception handling
+        task = asyncio.create_task(self._load_initial_risk_limits())
+        self._risk_refresh_task = task
+
+        def _on_refresh_done(t: asyncio.Task[None]) -> None:
+            """Handle task completion and log any exceptions."""
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc:
+                logger.warning(f"Risk limits refresh failed: {exc}")
+
+        task.add_done_callback(_on_refresh_done)
 
     async def _verify_circuit_breaker_safe(self) -> bool:
         """Authoritative check if circuit breaker allows trading.
@@ -1261,6 +1280,11 @@ class OrderEntryContext:
         for timer in self._timers:
             timer.cancel()
         self._timers.clear()
+
+        # Cancel risk refresh task if running
+        if self._risk_refresh_task and not self._risk_refresh_task.done():
+            self._risk_refresh_task.cancel()
+        self._risk_refresh_task = None
 
         # Unsubscribe from all channels
         async with self._subscription_lock:

@@ -710,6 +710,41 @@ class TestOrderTicketStateCallbacks:
 
         assert component._current_total_exposure is None
 
+    @pytest.mark.asyncio
+    async def test_on_symbol_changed_keeps_risk_limits(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Symbol change preserves global risk limits (not symbol-scoped).
+
+        Risk limits like max_position_per_symbol and max_notional_per_order
+        are global settings, not per-symbol. They should NOT be cleared when
+        the selected symbol changes to avoid blocking trading until refresh.
+        """
+        timestamp = datetime.now(UTC)
+
+        # Set up risk limits
+        component.set_risk_limits(
+            max_position_per_symbol=500,
+            max_notional_per_order=Decimal("25000"),
+            max_total_exposure=Decimal("100000"),
+            timestamp=timestamp,
+        )
+        assert component._limits_loaded is True
+
+        # Change symbol
+        await component.on_symbol_changed("MSFT")
+
+        # Risk limits should be preserved (global, not symbol-scoped)
+        assert component._limits_loaded is True
+        assert component._limits_last_updated == timestamp
+        assert component._max_position_per_symbol == 500
+        assert component._max_notional_per_order == Decimal("25000")
+
+        # Symbol-scoped state should be reset
+        assert component._state.symbol == "MSFT"
+        assert component._last_price is None
+        assert component._current_position == 0
+
 
 class TestOrderTicketExposureLimits:
     """Tests for total exposure limit enforcement."""
