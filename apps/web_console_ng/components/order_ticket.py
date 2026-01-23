@@ -171,6 +171,10 @@ class OrderTicketComponent:
         self._start_data_refresh_timers(timer_tracker)
         await self._restore_pending_form()
 
+        # Seed initial connection state from ConnectionMonitor
+        # This ensures we don't start in false fail-closed state if already connected
+        self._connection_read_only = self._connection_monitor.is_read_only()
+
     def create(self) -> ui.card:
         """Create and return the order ticket UI."""
         with ui.card().classes("p-4 w-full") as card:
