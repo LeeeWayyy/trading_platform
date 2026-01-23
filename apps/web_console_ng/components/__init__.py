@@ -6,6 +6,7 @@ from apps.web_console_ng.components.market_context import (
     MarketContextComponent,
     MarketDataSnapshot,
 )
+from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.order_ticket import OrderTicketComponent, OrderTicketState
 from apps.web_console_ng.components.price_chart import (
     CandleData,
@@ -23,6 +24,7 @@ __all__ = [
     "ExecutionMarker",
     "MarketContextComponent",
     "MarketDataSnapshot",
+    "OrderEntryContext",
     "OrderTicketComponent",
     "OrderTicketState",
     "PriceChartComponent",
