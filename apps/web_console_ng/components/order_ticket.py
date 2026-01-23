@@ -67,7 +67,6 @@ class OrderTicketComponent:
 
     # Configuration
     QUANTITY_PRESETS = [100, 500, 1000]
-    STALE_POSITION_THRESHOLD_S = 30
 
     def __init__(
         self,
@@ -296,8 +295,10 @@ class OrderTicketComponent:
                 if self._on_symbol_selected:
                     await self._on_symbol_selected(normalized)
             except ValueError:
-                # Invalid symbol - don't update state
+                # Invalid symbol - clear state and notify to keep components consistent
                 self._state.symbol = None
+                if self._on_symbol_selected:
+                    await self._on_symbol_selected(None)
         else:
             self._state.symbol = None
             if self._on_symbol_selected:

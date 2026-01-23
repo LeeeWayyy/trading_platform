@@ -12,43 +12,10 @@ import pytest
 from apps.web_console_ng.components.watchlist import (
     WatchlistComponent,
     WatchlistItem,
-    validate_and_normalize_symbol,
 )
 
-
-class TestValidateAndNormalizeSymbol:
-    """Tests for symbol validation."""
-
-    def test_valid_symbol_normalized(self) -> None:
-        """Valid symbols are normalized to uppercase."""
-        assert validate_and_normalize_symbol("aapl") == "AAPL"
-        assert validate_and_normalize_symbol("Msft") == "MSFT"
-        assert validate_and_normalize_symbol("  spy  ") == "SPY"
-
-    def test_valid_symbol_max_length(self) -> None:
-        """Symbols up to 5 characters are valid."""
-        assert validate_and_normalize_symbol("AAAAA") == "AAAAA"
-
-    def test_invalid_symbol_empty(self) -> None:
-        """Empty symbols raise ValueError."""
-        with pytest.raises(ValueError, match="non-empty string"):
-            validate_and_normalize_symbol("")
-        with pytest.raises(ValueError, match="non-empty string"):
-            validate_and_normalize_symbol("   ")
-
-    def test_invalid_symbol_too_long(self) -> None:
-        """Symbols over 5 characters raise ValueError."""
-        with pytest.raises(ValueError, match="1-5 characters"):
-            validate_and_normalize_symbol("AAAAAA")
-
-    def test_invalid_symbol_special_chars(self) -> None:
-        """Symbols with special characters raise ValueError."""
-        with pytest.raises(ValueError, match="invalid characters"):
-            validate_and_normalize_symbol("AA-PL")
-        with pytest.raises(ValueError, match="invalid characters"):
-            validate_and_normalize_symbol("AA.PL")
-        with pytest.raises(ValueError, match="invalid characters"):
-            validate_and_normalize_symbol("AA PL")
+# Note: Symbol validation tests are in test_time_utils.py since the
+# shared validator from utils.time is now used by all components.
 
 
 class TestWatchlistItem:

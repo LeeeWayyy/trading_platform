@@ -20,7 +20,10 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
-from apps.web_console_ng.utils.time import parse_iso_timestamp
+from apps.web_console_ng.utils.time import (
+    parse_iso_timestamp,
+    validate_and_normalize_symbol,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -28,36 +31,6 @@ if TYPE_CHECKING:
     from apps.web_console_ng.core.client import AsyncTradingClient
 
 logger = logging.getLogger(__name__)
-
-
-def validate_and_normalize_symbol(symbol: str) -> str:
-    """Validate and normalize a stock symbol.
-
-    Args:
-        symbol: Raw symbol string.
-
-    Returns:
-        Normalized uppercase symbol.
-
-    Raises:
-        ValueError: If symbol is invalid.
-    """
-    if not symbol or not isinstance(symbol, str):
-        raise ValueError("Symbol must be a non-empty string")
-
-    normalized = symbol.strip().upper()
-
-    # Empty after strip
-    if not normalized:
-        raise ValueError("Symbol must be a non-empty string")
-
-    # Basic validation - alphanumeric, 1-5 characters
-    if not normalized.isalnum():
-        raise ValueError(f"Symbol contains invalid characters: {symbol}")
-    if len(normalized) > 5:
-        raise ValueError(f"Symbol length must be 1-5 characters: {symbol}")
-
-    return normalized
 
 
 @dataclass

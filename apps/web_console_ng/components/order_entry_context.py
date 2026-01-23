@@ -297,6 +297,9 @@ class OrderEntryContext:
             # CRITICAL: Fetch initial state for safety mechanisms (fail-closed)
             await self._fetch_initial_safety_state()
 
+            # Load initial risk limits for order validation
+            await self._load_initial_risk_limits()
+
         except Exception as exc:
             # FAIL-CLOSED: Explicitly disable order ticket on init failure
             logger.error(f"OrderEntryContext initialization failed: {exc}")
@@ -454,6 +457,53 @@ class OrderEntryContext:
                     True, "Unable to verify safety state"
                 )
                 self._order_ticket.set_kill_switch_state(True, "Unable to verify safety state")
+
+    async def _load_initial_risk_limits(self) -> None:
+        """Load initial risk limits for order validation.
+
+        Fetches risk limits from backend API (if available) or uses defaults.
+        Must call set_risk_limits() and set_total_exposure() on OrderTicket
+        to enable order submission (fail-closed design requires limits to be loaded).
+
+        NOTE: Currently uses reasonable defaults. In future, may fetch from
+        risk management service or Redis config.
+
+        DEFAULT VALUES:
+        - max_position_per_symbol: 1000 shares (matches admin.py default)
+        - max_notional_per_order: $100,000 (reasonable default for retail)
+        - max_total_exposure: None (no limit by default)
+        """
+        if not self._order_ticket:
+            return
+
+        from datetime import UTC, datetime
+
+        # Use defaults - can be replaced with API call in future
+        # These match common defaults in admin.py and are conservative
+        max_position_per_symbol = 1000  # Max shares per symbol
+        max_notional_per_order = Decimal("100000")  # Max $100k per order
+        max_total_exposure: Decimal | None = None  # No total exposure limit
+
+        # Set risk limits on order ticket
+        self._order_ticket.set_risk_limits(
+            max_position_per_symbol=max_position_per_symbol,
+            max_notional_per_order=max_notional_per_order,
+            max_total_exposure=max_total_exposure,
+            timestamp=datetime.now(UTC),
+        )
+
+        # Set initial total exposure (None = not tracked)
+        # Can be computed from positions in future
+        self._order_ticket.set_total_exposure(None)
+
+        logger.debug(
+            "risk_limits_loaded",
+            extra={
+                "max_position_per_symbol": max_position_per_symbol,
+                "max_notional_per_order": str(max_notional_per_order),
+                "max_total_exposure": str(max_total_exposure) if max_total_exposure else None,
+            },
+        )
 
     async def _verify_circuit_breaker_safe(self) -> bool:
         """Authoritative check if circuit breaker allows trading.
