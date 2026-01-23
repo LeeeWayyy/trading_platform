@@ -129,6 +129,7 @@ class OrderTicketComponent:
         # Safety state (FAIL-CLOSED defaults)
         self._kill_switch_engaged: bool = True  # Default: engaged (unsafe)
         self._circuit_breaker_tripped: bool = True  # Default: tripped (unsafe)
+        self._connection_read_only: bool = True  # Default: read-only (unsafe)
         self._safety_state_loaded: bool = False  # Track if initial safety state loaded
 
         # Timestamp tracking for staleness checks (fail-closed)
@@ -390,6 +391,7 @@ class OrderTicketComponent:
 
     def set_connection_state(self, state: str, is_read_only: bool) -> None:
         """Called by OrderEntryContext when connection state changes."""
+        self._connection_read_only = is_read_only
         if is_read_only:
             normalized_state = str(state).upper()
             known_states = {"CONNECTED", "DISCONNECTED", "RECONNECTING", "DEGRADED", "UNKNOWN"}
@@ -407,7 +409,7 @@ class OrderTicketComponent:
             safe_reason = html.escape(reason or "Trading halted")
             self._set_ui_disabled(True, f"Kill switch: {safe_reason}")
         else:
-            if not self._connection_monitor.is_read_only() and not self._circuit_breaker_tripped:
+            if not self._connection_read_only and not self._circuit_breaker_tripped:
                 self._set_ui_disabled(False, "")
 
     def set_circuit_breaker_state(self, tripped: bool, reason: str | None) -> None:
@@ -417,7 +419,7 @@ class OrderTicketComponent:
             safe_reason = html.escape(reason or "Trading halted")
             self._set_ui_disabled(True, f"Circuit breaker: {safe_reason}")
         else:
-            if not self._connection_monitor.is_read_only() and not self._kill_switch_engaged:
+            if not self._connection_read_only and not self._kill_switch_engaged:
                 self._set_ui_disabled(False, "")
 
     def set_price_data(
@@ -660,7 +662,7 @@ class OrderTicketComponent:
         if not self._safety_state_loaded:
             return (True, "Safety state loading...")
 
-        if self._connection_monitor.is_read_only():
+        if self._connection_read_only:
             return (True, "Connection unavailable")
 
         if self._kill_switch_engaged:
@@ -1018,7 +1020,7 @@ class OrderTicketComponent:
             order_data["stop_price"] = str(self._state.stop_price)
 
         # Final connection check
-        if self._connection_monitor.is_read_only():
+        if self._connection_read_only:
             ui.notify("Cannot submit: Connection lost", type="negative")
             return False
 

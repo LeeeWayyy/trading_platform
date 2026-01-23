@@ -136,16 +136,67 @@ class TestOrderTicketSafetyChecks:
     def test_blocks_when_connection_readonly(self, component: OrderTicketComponent) -> None:
         """Submission blocked when connection is read-only."""
         component._safety_state_loaded = True
-        component._connection_monitor.is_read_only.return_value = True
+        component._connection_read_only = True
 
         disabled, reason = component._should_disable_submission()
 
         assert disabled is True
         assert "Connection unavailable" in reason
 
+    def test_set_connection_state_stores_read_only(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """set_connection_state stores the read-only state for later checks."""
+        # Initially True (fail-closed default)
+        assert component._connection_read_only is True
+
+        # Update to connected (not read-only)
+        component.set_connection_state("CONNECTED", is_read_only=False)
+        assert component._connection_read_only is False
+
+        # Update to disconnected (read-only)
+        component.set_connection_state("DISCONNECTED", is_read_only=True)
+        assert component._connection_read_only is True
+
+    def test_kill_switch_update_respects_connection_state(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Kill switch disable doesn't re-enable UI when connection is read-only."""
+        # Setup: connection is read-only
+        component._connection_read_only = True
+        component._circuit_breaker_tripped = False
+        component._ui_disabled = True  # Currently disabled
+
+        # Kill switch disengages, but connection still read-only
+        component.set_kill_switch_state(False, None)
+
+        # Should still be disabled due to connection
+        disabled, reason = component._should_disable_submission()
+        assert disabled is True
+        assert "Connection unavailable" in reason
+
+    def test_circuit_breaker_update_respects_connection_state(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Circuit breaker reset doesn't re-enable UI when connection is read-only."""
+        # Setup: connection is read-only, safety loaded
+        component._safety_state_loaded = True
+        component._connection_read_only = True
+        component._kill_switch_engaged = False
+        component._ui_disabled = True  # Currently disabled
+
+        # Circuit breaker resets, but connection still read-only
+        component.set_circuit_breaker_state(False, None)
+
+        # Should still be disabled due to connection
+        disabled, reason = component._should_disable_submission()
+        assert disabled is True
+        assert "Connection unavailable" in reason
+
     def test_blocks_when_kill_switch_engaged(self, component: OrderTicketComponent) -> None:
         """Submission blocked when kill switch engaged."""
         component._safety_state_loaded = True
+        component._connection_read_only = False  # Connection available
         component._kill_switch_engaged = True
         component._circuit_breaker_tripped = False
 
@@ -157,6 +208,7 @@ class TestOrderTicketSafetyChecks:
     def test_blocks_when_circuit_breaker_tripped(self, component: OrderTicketComponent) -> None:
         """Submission blocked when circuit breaker tripped."""
         component._safety_state_loaded = True
+        component._connection_read_only = False  # Connection available
         component._kill_switch_engaged = False
         component._circuit_breaker_tripped = True
 
@@ -168,6 +220,7 @@ class TestOrderTicketSafetyChecks:
     def test_blocks_when_no_symbol(self, component: OrderTicketComponent) -> None:
         """Submission blocked when no symbol selected."""
         component._safety_state_loaded = True
+        component._connection_read_only = False  # Connection available
         component._kill_switch_engaged = False
         component._circuit_breaker_tripped = False
         component._state.symbol = None
@@ -180,6 +233,7 @@ class TestOrderTicketSafetyChecks:
     def test_blocks_when_no_quantity(self, component: OrderTicketComponent) -> None:
         """Submission blocked when no quantity entered."""
         component._safety_state_loaded = True
+        component._connection_read_only = False  # Connection available
         component._kill_switch_engaged = False
         component._circuit_breaker_tripped = False
         component._state.symbol = "AAPL"
@@ -193,6 +247,7 @@ class TestOrderTicketSafetyChecks:
     def test_blocks_when_limits_not_loaded(self, component: OrderTicketComponent) -> None:
         """Submission blocked until risk limits loaded."""
         component._safety_state_loaded = True
+        component._connection_read_only = False  # Connection available
         component._kill_switch_engaged = False
         component._circuit_breaker_tripped = False
         component._state.symbol = "AAPL"
