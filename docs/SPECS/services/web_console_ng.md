@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-23 - P6T4 order entry context (OrderEntryContext, OrderTicketComponent, QuantityPresetsComponent, MarketContextComponent, PriceChartComponent, WatchlistComponent) -->
+<!-- Last reviewed: 2026-01-23 - P6T4 order entry context (OrderEntryContext, OrderTicketComponent, QuantityPresetsComponent, MarketContextComponent, PriceChartComponent, WatchlistComponent) - Codex/Gemini reviewed -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

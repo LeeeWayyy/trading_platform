@@ -90,7 +90,9 @@ def main():
         print("Next steps:")
         print("1. Run: pytest test_reconciliation_comprehensive.py --collect-only")
         print("2. Run: pytest test_reconciliation_comprehensive.py -v")
-        print("3. Run: pytest test_reconciliation_comprehensive.py --cov=apps/execution_gateway/reconciliation")
+        print(
+            "3. Run: pytest test_reconciliation_comprehensive.py --cov=apps/execution_gateway/reconciliation"
+        )
         return 0
     else:
         print()

@@ -104,9 +104,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         def show_hotkey_help() -> None:
             with ui.dialog() as help_dialog:
                 with ui.card().classes("p-6 bg-surface-2"):
-                    ui.label("Keyboard Shortcuts").classes(
-                        "text-xl font-bold text-white mb-4"
-                    )
+                    ui.label("Keyboard Shortcuts").classes("text-xl font-bold text-white mb-4")
                     for binding in hotkey_manager.get_bindings():
                         if not binding.enabled:
                             continue
@@ -120,9 +118,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ui.button("Close", on_click=help_dialog.close).classes("mt-4")
             help_dialog.open()
 
-        command_palette.register_command(
-            "open_palette", "Open Command Palette", lambda: None
-        )
+        command_palette.register_command("open_palette", "Open Command Palette", lambda: None)
         command_palette.register_command("show_help", "Show Hotkey Reference", show_hotkey_help)
 
         hotkey_manager.register_handler("open_palette", command_palette.open)
@@ -233,9 +229,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     quiet_mode_btn.tooltip("Quiet Mode: ON" if enabled else "Quiet Mode: OFF")
 
             initial_icon = (
-                "notifications_off"
-                if notification_router.quiet_mode
-                else "notifications_active"
+                "notifications_off" if notification_router.quiet_mode else "notifications_active"
             )
             initial_tooltip = (
                 "Quiet Mode: ON" if notification_router.quiet_mode else "Quiet Mode: OFF"

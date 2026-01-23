@@ -623,7 +623,9 @@ class TestWebhookSecurity:
     def test_invalid_signature_rejected(self, test_client, mock_context):
         # Set webhook_secret to enable signature verification
         mock_context.webhook_secret = "shh"
-        with patch("apps.execution_gateway.routes.webhooks.verify_webhook_signature", return_value=False):
+        with patch(
+            "apps.execution_gateway.routes.webhooks.verify_webhook_signature", return_value=False
+        ):
             resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
 
         assert resp.status_code == 401
@@ -637,7 +639,9 @@ class TestWebhookSecurity:
 
 
 class TestOutOfOrderWebhooks:
-    def test_duplicate_fill_updates_status_but_no_position(self, test_client, mock_db, mock_context):
+    def test_duplicate_fill_updates_status_but_no_position(
+        self, test_client, mock_db, mock_context
+    ):
         """Test duplicate fill (no incremental qty) updates order status but skips position update."""
         # Setup transaction context manager
         tx_ctx = MagicMock()
@@ -834,7 +838,9 @@ class TestConcurrentWebhooks:
         mock_db.get_position_for_update.assert_called_once()
         mock_db.append_fill_to_order_metadata.assert_called_once()
 
-    def test_concurrent_new_symbol_position_creation_serialized(self, test_client, mock_db, mock_context):
+    def test_concurrent_new_symbol_position_creation_serialized(
+        self, test_client, mock_db, mock_context
+    ):
         # Simulate two concurrent fills for a new symbol; advisory lock should
         # serialize updates even when the position row does not yet exist.
 

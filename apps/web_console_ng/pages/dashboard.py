@@ -17,6 +17,7 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.metric_card import MetricCard
+from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.orders_table import (
     create_orders_table,
     on_cancel_order,
@@ -29,10 +30,8 @@ from apps.web_console_ng.components.positions_grid import (
 )
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
-from apps.web_console_ng.core.database import get_db_pool
-from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
-from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.realtime import (
     RealtimeUpdater,
     circuit_breaker_channel,
@@ -41,6 +40,7 @@ from apps.web_console_ng.core.realtime import (
     orders_channel,
     position_channel,
 )
+from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
@@ -295,8 +295,7 @@ async def dashboard(client: Client) -> None:
     # Desktop: [Watchlist] [Chart] [Market Context + Order Ticket]
     # Mobile: Single column stacked
     with ui.element("div").classes(
-        "grid gap-4 w-full mb-4 "
-        "grid-cols-1 md:grid-cols-2 lg:grid-cols-[250px_1fr_350px]"
+        "grid gap-4 w-full mb-4 " "grid-cols-1 md:grid-cols-2 lg:grid-cols-[250px_1fr_350px]"
     ):
         # Left column: Watchlist (hidden on mobile)
         with ui.column().classes("hidden md:flex"):

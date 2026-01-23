@@ -12,8 +12,6 @@ import pytest
 
 from apps.web_console_ng.components.order_entry_context import (
     OrderEntryContext,
-    READ_ONLY_CONNECTION_STATES,
-    READ_WRITE_CONNECTION_STATES,
 )
 
 
@@ -59,7 +57,7 @@ class TestOrderEntryContextInit:
 class TestOrderEntryContextComponentSetters:
     """Tests for component setter methods."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context for testing."""
         return OrderEntryContext(
@@ -101,7 +99,7 @@ class TestOrderEntryContextComponentSetters:
 class TestFetchInitialSafetyState:
     """Tests for _fetch_initial_safety_state method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked order ticket."""
         ctx = OrderEntryContext(
@@ -117,7 +115,7 @@ class TestFetchInitialSafetyState:
         ctx._order_ticket = MagicMock()
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_open_state(self, context: OrderEntryContext) -> None:
         """OPEN circuit breaker with valid reset_at is not tripped."""
         context._redis.get = AsyncMock(
@@ -134,7 +132,7 @@ class TestFetchInitialSafetyState:
 
         context._order_ticket.set_circuit_breaker_state.assert_called_with(False, None)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_tripped_state(self, context: OrderEntryContext) -> None:
         """TRIPPED circuit breaker is tripped."""
         context._redis.get = AsyncMock(
@@ -153,7 +151,7 @@ class TestFetchInitialSafetyState:
             True, "Drawdown exceeded"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_quiet_period(self, context: OrderEntryContext) -> None:
         """QUIET_PERIOD is treated as tripped."""
         context._redis.get = AsyncMock(
@@ -169,7 +167,7 @@ class TestFetchInitialSafetyState:
             True, "Initial state: QUIET_PERIOD (transitional)"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_never_tripped(self, context: OrderEntryContext) -> None:
         """OPEN circuit breaker that was never tripped (no reset_at, no tripped_at) is valid."""
         context._redis.get = AsyncMock(
@@ -183,7 +181,7 @@ class TestFetchInitialSafetyState:
 
         context._order_ticket.set_circuit_breaker_state.assert_called_with(False, None)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_missing_key(self, context: OrderEntryContext) -> None:
         """Missing circuit breaker key is fail-closed."""
         context._redis.get = AsyncMock(
@@ -199,7 +197,7 @@ class TestFetchInitialSafetyState:
             True, "Initial state: Unknown/missing"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_active_state(self, context: OrderEntryContext) -> None:
         """ACTIVE kill switch with valid disengaged_at is not engaged."""
         context._redis.get = AsyncMock(
@@ -216,7 +214,7 @@ class TestFetchInitialSafetyState:
 
         context._order_ticket.set_kill_switch_state.assert_called_with(False, None)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_engaged_state(self, context: OrderEntryContext) -> None:
         """ENGAGED kill switch is engaged."""
         context._redis.get = AsyncMock(
@@ -233,7 +231,7 @@ class TestFetchInitialSafetyState:
 
         context._order_ticket.set_kill_switch_state.assert_called_with(True, "Manual halt")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_never_engaged(self, context: OrderEntryContext) -> None:
         """ACTIVE kill switch that was never engaged (no disengaged_at, no engaged_at) is valid."""
         context._redis.get = AsyncMock(
@@ -247,7 +245,7 @@ class TestFetchInitialSafetyState:
 
         context._order_ticket.set_kill_switch_state.assert_called_with(False, None)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_timeout_is_fail_closed(self, context: OrderEntryContext) -> None:
         """Timeout fetching safety state is fail-closed."""
 
@@ -265,7 +263,7 @@ class TestFetchInitialSafetyState:
             True, "Safety state fetch timed out"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_invalid_json_is_fail_closed(self, context: OrderEntryContext) -> None:
         """Invalid JSON is fail-closed."""
         context._redis.get = AsyncMock(
@@ -285,7 +283,7 @@ class TestFetchInitialSafetyState:
 class TestRiskLimitsRefresh:
     """Tests for risk limits refresh mechanism."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked order ticket."""
         ctx = OrderEntryContext(
@@ -322,7 +320,7 @@ class TestRiskLimitsRefresh:
         # Should not raise
         context._refresh_risk_limits()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_refresh_creates_task_for_async_load(
         self, context: OrderEntryContext
     ) -> None:
@@ -346,7 +344,7 @@ class TestRiskLimitsRefresh:
 class TestVerifySafetyState:
     """Tests for verify safety state methods."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context for testing."""
         return OrderEntryContext(
@@ -360,7 +358,7 @@ class TestVerifySafetyState:
             strategies=["alpha"],
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_verify_circuit_breaker_open(self, context: OrderEntryContext) -> None:
         """OPEN circuit breaker returns True."""
         context._redis.get = AsyncMock(
@@ -374,7 +372,7 @@ class TestVerifySafetyState:
 
         assert result is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_verify_circuit_breaker_tripped(self, context: OrderEntryContext) -> None:
         """TRIPPED circuit breaker returns False."""
         context._redis.get = AsyncMock(
@@ -385,7 +383,7 @@ class TestVerifySafetyState:
 
         assert result is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_verify_circuit_breaker_missing(self, context: OrderEntryContext) -> None:
         """Missing circuit breaker returns False."""
         context._redis.get = AsyncMock(return_value=None)
@@ -394,7 +392,7 @@ class TestVerifySafetyState:
 
         assert result is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_verify_kill_switch_active(self, context: OrderEntryContext) -> None:
         """ACTIVE kill switch returns True."""
         context._redis.get = AsyncMock(
@@ -408,7 +406,7 @@ class TestVerifySafetyState:
 
         assert result is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_verify_kill_switch_engaged(self, context: OrderEntryContext) -> None:
         """ENGAGED kill switch returns False."""
         context._redis.get = AsyncMock(
@@ -419,7 +417,7 @@ class TestVerifySafetyState:
 
         assert result is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_verify_kill_switch_timeout(self, context: OrderEntryContext) -> None:
         """Timeout returns False (fail-closed)."""
 
@@ -436,7 +434,7 @@ class TestVerifySafetyState:
 class TestSafetyStateCallbacks:
     """Tests for safety state update callbacks."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked order ticket."""
         ctx = OrderEntryContext(
@@ -452,7 +450,7 @@ class TestSafetyStateCallbacks:
         ctx._order_ticket = MagicMock()
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_update_active(self, context: OrderEntryContext) -> None:
         """ACTIVE kill switch update sets engaged=False."""
         await context._on_kill_switch_update({
@@ -462,7 +460,7 @@ class TestSafetyStateCallbacks:
 
         context._order_ticket.set_kill_switch_state.assert_called_with(False, None)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_update_engaged(self, context: OrderEntryContext) -> None:
         """ENGAGED kill switch update sets engaged=True."""
         await context._on_kill_switch_update({
@@ -472,7 +470,7 @@ class TestSafetyStateCallbacks:
 
         context._order_ticket.set_kill_switch_state.assert_called_with(True, "Manual halt")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_update_invalid_type(self, context: OrderEntryContext) -> None:
         """Invalid data type is fail-closed."""
         await context._on_kill_switch_update("not-a-dict")  # type: ignore[arg-type]
@@ -481,7 +479,7 @@ class TestSafetyStateCallbacks:
             True, "Invalid kill switch payload"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_kill_switch_update_malformed_state(self, context: OrderEntryContext) -> None:
         """Malformed state is fail-closed."""
         await context._on_kill_switch_update({"state": "UNKNOWN"})
@@ -490,7 +488,7 @@ class TestSafetyStateCallbacks:
             True, "Malformed kill switch state"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_update_open(self, context: OrderEntryContext) -> None:
         """OPEN circuit breaker update sets tripped=False."""
         await context._on_circuit_breaker_update({
@@ -500,7 +498,7 @@ class TestSafetyStateCallbacks:
 
         context._order_ticket.set_circuit_breaker_state.assert_called_with(False, None)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_update_tripped(self, context: OrderEntryContext) -> None:
         """TRIPPED circuit breaker update sets tripped=True."""
         await context._on_circuit_breaker_update({
@@ -512,7 +510,7 @@ class TestSafetyStateCallbacks:
             True, "Drawdown exceeded"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_circuit_breaker_update_quiet_period(self, context: OrderEntryContext) -> None:
         """QUIET_PERIOD is treated as tripped."""
         await context._on_circuit_breaker_update({"state": "QUIET_PERIOD"})
@@ -521,7 +519,7 @@ class TestSafetyStateCallbacks:
             True, "Circuit breaker in quiet period"
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_disposed_ignores_updates(self, context: OrderEntryContext) -> None:
         """Disposed context ignores updates."""
         context._disposed = True
@@ -536,7 +534,7 @@ class TestSafetyStateCallbacks:
 class TestConnectionStateCallback:
     """Tests for connection state update callback."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked order ticket."""
         ctx = OrderEntryContext(
@@ -552,42 +550,42 @@ class TestConnectionStateCallback:
         ctx._order_ticket = MagicMock()
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_connected(self, context: OrderEntryContext) -> None:
         """CONNECTED state sets is_read_only=False."""
         await context._on_connection_update({"state": "CONNECTED"})
 
         context._order_ticket.set_connection_state.assert_called_with("CONNECTED", False)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_disconnected(self, context: OrderEntryContext) -> None:
         """DISCONNECTED state sets is_read_only=True."""
         await context._on_connection_update({"state": "DISCONNECTED"})
 
         context._order_ticket.set_connection_state.assert_called_with("DISCONNECTED", True)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_reconnecting(self, context: OrderEntryContext) -> None:
         """RECONNECTING state sets is_read_only=True."""
         await context._on_connection_update({"state": "RECONNECTING"})
 
         context._order_ticket.set_connection_state.assert_called_with("RECONNECTING", True)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_degraded(self, context: OrderEntryContext) -> None:
         """DEGRADED state sets is_read_only=True."""
         await context._on_connection_update({"state": "DEGRADED"})
 
         context._order_ticket.set_connection_state.assert_called_with("DEGRADED", True)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_unknown_state(self, context: OrderEntryContext) -> None:
         """Unknown state sets is_read_only=True."""
         await context._on_connection_update({"state": "INVALID"})
 
         context._order_ticket.set_connection_state.assert_called_with("INVALID", True)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_invalid_payload(self, context: OrderEntryContext) -> None:
         """Invalid payload is treated as UNKNOWN."""
         await context._on_connection_update("not-a-dict")  # type: ignore[arg-type]
@@ -598,7 +596,7 @@ class TestConnectionStateCallback:
 class TestPositionUpdateCallback:
     """Tests for position update callback."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked order ticket."""
         ctx = OrderEntryContext(
@@ -615,7 +613,7 @@ class TestPositionUpdateCallback:
         ctx._selected_symbol = "AAPL"
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_position_update_for_selected_symbol(
         self, context: OrderEntryContext
     ) -> None:
@@ -630,7 +628,7 @@ class TestPositionUpdateCallback:
         assert call_args[0][1] == 100
         assert call_args[0][2] is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_position_update_symbol_not_in_list(
         self, context: OrderEntryContext
     ) -> None:
@@ -644,7 +642,7 @@ class TestPositionUpdateCallback:
         assert call_args[0][0] == "AAPL"
         assert call_args[0][1] == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_position_update_invalid_qty(self, context: OrderEntryContext) -> None:
         """Invalid qty sets qty=0 and clears timestamp."""
         await context._on_position_update({
@@ -657,7 +655,7 @@ class TestPositionUpdateCallback:
         assert call_args[0][1] == 0
         assert call_args[0][2] is None  # Timestamp cleared on invalid qty
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_position_update_missing_timestamp(
         self, context: OrderEntryContext
     ) -> None:
@@ -673,7 +671,7 @@ class TestPositionUpdateCallback:
 class TestPriceUpdateCallback:
     """Tests for price update callback."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with all mocked components."""
         ctx = OrderEntryContext(
@@ -693,7 +691,7 @@ class TestPriceUpdateCallback:
         ctx._selected_symbol = "AAPL"
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_price_update_dispatches_to_all_components(
         self, context: OrderEntryContext
     ) -> None:
@@ -720,7 +718,7 @@ class TestPriceUpdateCallback:
         # Watchlist (receives all symbols)
         context._watchlist.set_symbol_price_data.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_price_update_different_symbol_only_watchlist(
         self, context: OrderEntryContext
     ) -> None:
@@ -739,7 +737,7 @@ class TestPriceUpdateCallback:
         # Watchlist should be called
         context._watchlist.set_symbol_price_data.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_price_update_invalid_price(self, context: OrderEntryContext) -> None:
         """Invalid price sets price=None and clears timestamp."""
         await context._on_price_update({
@@ -752,7 +750,7 @@ class TestPriceUpdateCallback:
         assert call_args[0][1] is None  # Price is None
         assert call_args[0][2] is None  # Timestamp also cleared
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_price_update_negative_price(self, context: OrderEntryContext) -> None:
         """Negative price sets price=None."""
         await context._on_price_update({
@@ -768,7 +766,7 @@ class TestPriceUpdateCallback:
 class TestSymbolSelection:
     """Tests for symbol selection."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked components."""
         ctx = OrderEntryContext(
@@ -786,14 +784,14 @@ class TestSymbolSelection:
         ctx._price_chart = AsyncMock()
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_symbol_selection_updates_state(self, context: OrderEntryContext) -> None:
         """Symbol selection updates internal state."""
         await context.on_symbol_selected("AAPL")
 
         assert context._selected_symbol == "AAPL"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_symbol_selection_normalizes_symbol(
         self, context: OrderEntryContext
     ) -> None:
@@ -802,14 +800,14 @@ class TestSymbolSelection:
 
         assert context._selected_symbol == "AAPL"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_symbol_selection_invalid_symbol(self, context: OrderEntryContext) -> None:
         """Invalid symbol is rejected."""
         await context.on_symbol_selected("INVALID-SYMBOL-TOO-LONG!")
 
         assert context._selected_symbol is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_symbol_selection_notifies_components(
         self, context: OrderEntryContext
     ) -> None:
@@ -820,7 +818,7 @@ class TestSymbolSelection:
         context._market_context.on_symbol_changed.assert_called_with("AAPL")
         context._price_chart.on_symbol_changed.assert_called_with("AAPL")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_symbol_selection_none_clears_state(
         self, context: OrderEntryContext
     ) -> None:
@@ -831,7 +829,7 @@ class TestSymbolSelection:
 
         assert context._selected_symbol is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_same_symbol_selection_no_op(self, context: OrderEntryContext) -> None:
         """Selecting same symbol is no-op."""
         context._selected_symbol = "AAPL"
@@ -841,7 +839,7 @@ class TestSymbolSelection:
         # No component calls should be made
         context._order_ticket.on_symbol_changed.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_symbol_selection_increments_version(
         self, context: OrderEntryContext
     ) -> None:
@@ -856,7 +854,7 @@ class TestSymbolSelection:
 class TestChannelOwnership:
     """Tests for channel ownership management."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context for testing."""
         return OrderEntryContext(
@@ -870,7 +868,7 @@ class TestChannelOwnership:
             strategies=["alpha"],
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acquire_channel_first_owner(self, context: OrderEntryContext) -> None:
         """First owner subscribes to channel."""
         callback = AsyncMock()
@@ -882,7 +880,7 @@ class TestChannelOwnership:
         assert "test:channel" in context._subscriptions
         context._realtime.subscribe.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_acquire_channel_second_owner(self, context: OrderEntryContext) -> None:
         """Second owner adds ownership without re-subscribing."""
         callback = AsyncMock()
@@ -897,7 +895,7 @@ class TestChannelOwnership:
         # No additional subscribe call
         context._realtime.subscribe.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_release_channel_not_last_owner(self, context: OrderEntryContext) -> None:
         """Releasing non-last owner doesn't unsubscribe."""
         callback = AsyncMock()
@@ -912,7 +910,7 @@ class TestChannelOwnership:
         assert "owner1" not in context._channel_owners["test:channel"]
         context._realtime.unsubscribe.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_release_channel_last_owner(self, context: OrderEntryContext) -> None:
         """Releasing last owner unsubscribes."""
         callback = AsyncMock()
@@ -924,7 +922,7 @@ class TestChannelOwnership:
         assert "test:channel" not in context._subscriptions
         context._realtime.unsubscribe.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_callback_mismatch_raises(self, context: OrderEntryContext) -> None:
         """Different callback for same channel raises ValueError."""
         callback1 = AsyncMock()
@@ -935,7 +933,7 @@ class TestChannelOwnership:
         with pytest.raises(ValueError, match="Callback mismatch"):
             await context._acquire_channel("test:channel", "owner2", callback2)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_same_bound_method_callback_allowed(
         self, context: OrderEntryContext
     ) -> None:
@@ -968,7 +966,7 @@ class TestChannelOwnership:
 class TestDispose:
     """Tests for dispose/cleanup."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context with mocked components."""
         ctx = OrderEntryContext(
@@ -987,14 +985,14 @@ class TestDispose:
         ctx._watchlist = AsyncMock()
         return ctx
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_sets_flag(self, context: OrderEntryContext) -> None:
         """dispose() sets disposed flag."""
         await context.dispose()
 
         assert context._disposed is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_clears_state(self, context: OrderEntryContext) -> None:
         """dispose() clears internal state."""
         context._subscriptions = ["channel1", "channel2"]
@@ -1007,7 +1005,7 @@ class TestDispose:
         assert context._channel_owners == {}
         assert context._channel_callbacks == {}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_cancels_timers(self, context: OrderEntryContext) -> None:
         """dispose() cancels all tracked timers."""
         mock_timer1 = MagicMock()
@@ -1020,7 +1018,7 @@ class TestDispose:
         mock_timer2.cancel.assert_called_once()
         assert context._timers == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_unsubscribes_channels(self, context: OrderEntryContext) -> None:
         """dispose() unsubscribes from all channels."""
         context._subscriptions = ["channel1", "channel2"]
@@ -1029,7 +1027,7 @@ class TestDispose:
 
         assert context._realtime.unsubscribe.call_count == 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_disposes_components(self, context: OrderEntryContext) -> None:
         """dispose() disposes all child components."""
         await context.dispose()
@@ -1039,7 +1037,7 @@ class TestDispose:
         context._price_chart.dispose.assert_called_once()
         context._watchlist.dispose.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_idempotent(self, context: OrderEntryContext) -> None:
         """dispose() is idempotent."""
         await context.dispose()
@@ -1048,7 +1046,7 @@ class TestDispose:
         # Should only dispose once
         assert context._order_ticket.dispose.call_count == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_cancels_pending_futures(self, context: OrderEntryContext) -> None:
         """dispose() cancels pending subscribe futures."""
         future = asyncio.get_running_loop().create_future()
@@ -1060,7 +1058,7 @@ class TestDispose:
         with pytest.raises(asyncio.CancelledError):
             future.result()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_dispose_cancels_risk_refresh_task(
         self, context: OrderEntryContext
     ) -> None:
@@ -1080,7 +1078,7 @@ class TestDispose:
 class TestGetters:
     """Tests for getter methods."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context for testing."""
         return OrderEntryContext(
@@ -1122,7 +1120,7 @@ class TestGetters:
 class TestFactoryMethods:
     """Tests for component factory methods."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def context(self) -> OrderEntryContext:
         """Create context for testing."""
         return OrderEntryContext(
@@ -1207,12 +1205,11 @@ class TestFactoryMethods:
             assert call_kwargs["role"] == "trader"
             assert call_kwargs["strategies"] == ["alpha"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_on_market_context_price_updated_forwards_to_order_ticket(
         self, context: OrderEntryContext
     ) -> None:
         """_on_market_context_price_updated forwards price to OrderTicket."""
-        from datetime import UTC, datetime
         from decimal import Decimal
 
         context._order_ticket = MagicMock()
@@ -1226,12 +1223,11 @@ class TestFactoryMethods:
             "AAPL", Decimal("150.50"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_on_market_context_price_updated_ignores_different_symbol(
         self, context: OrderEntryContext
     ) -> None:
         """_on_market_context_price_updated ignores updates for different symbol."""
-        from datetime import UTC, datetime
         from decimal import Decimal
 
         context._order_ticket = MagicMock()

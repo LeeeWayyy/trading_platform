@@ -138,13 +138,15 @@ class WatchlistComponent:
 
             # Add symbol input
             with ui.row().classes("gap-1 mb-2"):
-                self._add_input = ui.input(placeholder="Add symbol").classes(
-                    "flex-grow"
-                ).props("dense outlined")
+                self._add_input = (
+                    ui.input(placeholder="Add symbol").classes("flex-grow").props("dense outlined")
+                )
                 ui.button(
                     icon="add",
                     on_click=self._add_symbol_from_input,
-                ).classes("w-8 h-8").props("flat dense")
+                ).classes(
+                    "w-8 h-8"
+                ).props("flat dense")
 
             # Symbol list
             self._list_container = ui.column().classes("gap-1 w-full")
@@ -179,10 +181,14 @@ class WatchlistComponent:
         escaped_symbol = html.escape(item.symbol, quote=True)
         row_id = f"watchlist-row-{escaped_symbol}"
 
-        with ui.row().classes(
-            f"w-full p-2 rounded cursor-pointer hover:bg-gray-700 "
-            f"{'bg-blue-900' if is_selected else ''}"
-        ).props(f'id="{row_id}" data-symbol="{escaped_symbol}"') as row:
+        with (
+            ui.row()
+            .classes(
+                f"w-full p-2 rounded cursor-pointer hover:bg-gray-700 "
+                f"{'bg-blue-900' if is_selected else ''}"
+            )
+            .props(f'id="{row_id}" data-symbol="{escaped_symbol}"') as row
+        ):
             row.on("click", lambda s=item.symbol: self._select_symbol(s))
 
             # Symbol and price column
@@ -190,9 +196,7 @@ class WatchlistComponent:
                 with ui.row().classes("justify-between"):
                     ui.label(item.symbol).classes("font-bold text-sm")
                     if item.last_price:
-                        ui.label(f"${item.last_price:.2f}").classes(
-                            "price text-sm font-mono"
-                        )
+                        ui.label(f"${item.last_price:.2f}").classes("price text-sm font-mono")
                     else:
                         ui.label("—").classes("price text-sm text-gray-500")
 
@@ -200,12 +204,8 @@ class WatchlistComponent:
                     # Change badge
                     if item.change_pct is not None:
                         sign = "+" if item.change_pct >= 0 else ""
-                        color = (
-                            "text-green-400" if item.change_pct >= 0 else "text-red-400"
-                        )
-                        ui.label(f"{sign}{item.change_pct:.2f}%").classes(
-                            f"change text-xs {color}"
-                        )
+                        color = "text-green-400" if item.change_pct >= 0 else "text-red-400"
+                        ui.label(f"{sign}{item.change_pct:.2f}%").classes(f"change text-xs {color}")
                     else:
                         ui.label("--").classes("change text-xs text-gray-500")
 
@@ -219,9 +219,7 @@ class WatchlistComponent:
                 on_click=lambda s=item.symbol: self._on_remove_clicked(s),
             ).classes("w-6 h-6 opacity-50 hover:opacity-100").props("flat dense")
 
-    def _render_sparkline(
-        self, data: list[float], change_pct: Decimal | None
-    ) -> None:
+    def _render_sparkline(self, data: list[float], change_pct: Decimal | None) -> None:
         """Render inline sparkline SVG.
 
         SECURITY: Validates and sanitizes data points before rendering.
@@ -256,7 +254,8 @@ class WatchlistComponent:
 
         polyline = " ".join(points)
 
-        ui.html(f"""
+        ui.html(
+            f"""
             <svg width="{width}" height="{height}" class="ml-2">
                 <polyline
                     points="{polyline}"
@@ -265,7 +264,8 @@ class WatchlistComponent:
                     stroke-width="1.5"
                 />
             </svg>
-        """)
+        """
+        )
 
     # ================= Symbol Management =================
 
@@ -283,7 +283,7 @@ class WatchlistComponent:
         # Validate and normalize symbol
         try:
             symbol = validate_and_normalize_symbol(raw_symbol)
-        except ValueError as exc:
+        except ValueError:
             ui.notify(f"Invalid symbol: {raw_symbol}", type="negative")
             return
 
@@ -349,9 +349,7 @@ class WatchlistComponent:
             self._pending_selection_task.cancel()
 
         # Notify via task
-        self._pending_selection_task = asyncio.create_task(
-            self._notify_selection_changed(symbol)
-        )
+        self._pending_selection_task = asyncio.create_task(self._notify_selection_changed(symbol))
         self._pending_selection_task.add_done_callback(self._log_task_exception)
 
     async def _notify_selection_changed(self, symbol: str | None) -> None:
@@ -432,11 +430,7 @@ class WatchlistComponent:
         if item.last_price is None:
             item.change = None
             item.change_pct = None
-        elif (
-            item.prev_close is not None
-            and item.prev_close.is_finite()
-            and item.prev_close > 0
-        ):
+        elif item.prev_close is not None and item.prev_close.is_finite() and item.prev_close > 0:
             item.change = item.last_price - item.prev_close
             item.change_pct = (item.change / item.prev_close) * 100
         else:
@@ -474,9 +468,7 @@ class WatchlistComponent:
                 delay = self._row_render_interval - time_since_last
                 try:
                     loop = asyncio.get_running_loop()
-                    self._render_batch_handle = loop.call_later(
-                        delay, self._flush_pending_renders
-                    )
+                    self._render_batch_handle = loop.call_later(delay, self._flush_pending_renders)
                 except RuntimeError:
                     # No running event loop
                     pass
@@ -507,14 +499,13 @@ class WatchlistComponent:
         # Format display values
         price_display = f"${item.last_price:.2f}" if item.last_price else "—"
         change_display = f"{item.change:+.2f}" if item.change is not None else "—"
-        change_pct_display = (
-            f"({item.change_pct:+.1f}%)" if item.change_pct is not None else ""
-        )
+        change_pct_display = f"({item.change_pct:+.1f}%)" if item.change_pct is not None else ""
         change_color = "green" if (item.change or 0) >= 0 else "red"
 
         # Update row via JavaScript
         try:
-            ui.run_javascript(f'''
+            ui.run_javascript(
+                f"""
                 const row = document.getElementById("{row_id}");
                 if (row) {{
                     const priceEl = row.querySelector(".price");
@@ -525,7 +516,8 @@ class WatchlistComponent:
                         changeEl.style.color = "{change_color}";
                     }}
                 }}
-            ''')
+            """
+            )
         except Exception:
             pass  # Best effort
 

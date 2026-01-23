@@ -266,7 +266,9 @@ class TestCASConflictScenarios:
         mock_db_client.get_all_positions.return_value = []
         mock_db_client.get_filled_orders_missing_fills.return_value = []
 
-        with patch("apps.execution_gateway.reconciliation.orders.reconciliation_conflicts_skipped_total") as mock_metric:
+        with patch(
+            "apps.execution_gateway.reconciliation.orders.reconciliation_conflicts_skipped_total"
+        ) as mock_metric:
             result = reconciliation_service._run_reconciliation("manual")
 
         assert result["status"] == "success"
@@ -300,7 +302,9 @@ class TestCASConflictScenarios:
         mock_db_client.get_all_positions.return_value = []
         mock_db_client.get_filled_orders_missing_fills.return_value = []
 
-        with patch("apps.execution_gateway.reconciliation.orders.reconciliation_mismatches_total") as mock_metric:
+        with patch(
+            "apps.execution_gateway.reconciliation.orders.reconciliation_mismatches_total"
+        ) as mock_metric:
             result = reconciliation_service._run_reconciliation("manual")
 
         assert result["status"] == "success"
@@ -408,7 +412,9 @@ class TestMissingOrderResolutionEdgeCases:
         db_order.status = "new"  # Not submitted_unconfirmed
         db_order.created_at = recent_time
 
-        mock_db_client.get_reconciliation_high_water_mark.return_value = after_time + timedelta(seconds=60)
+        mock_db_client.get_reconciliation_high_water_mark.return_value = after_time + timedelta(
+            seconds=60
+        )
         mock_alpaca_client.get_orders.side_effect = [[], []]
         mock_db_client.get_non_terminal_orders.return_value = [db_order]
         mock_db_client.get_order_ids_by_client_ids.return_value = set()
@@ -444,7 +450,9 @@ class TestOrphanOrderDetectionEdgeCases:
         }
 
         # Need a high water mark so recent_orders are fetched
-        mock_db_client.get_reconciliation_high_water_mark.return_value = datetime.now(UTC) - timedelta(hours=1)
+        mock_db_client.get_reconciliation_high_water_mark.return_value = datetime.now(
+            UTC
+        ) - timedelta(hours=1)
         mock_alpaca_client.get_orders.side_effect = [[], [broker_order]]  # In recent_orders
         mock_db_client.get_non_terminal_orders.return_value = []
         mock_db_client.get_order_ids_by_client_ids.return_value = set()  # Not in DB
@@ -625,9 +633,7 @@ class TestFillMetadataBackfillEdgeCases:
         assert result is not None
         assert result["fill_qty"] == 50  # Integer for whole number
 
-    def test_backfill_fill_metadata_missing_filled_avg_price_skips(
-        self, mock_db_client
-    ):
+    def test_backfill_fill_metadata_missing_filled_avg_price_skips(self, mock_db_client):
         """Should skip backfill when filled_avg_price is missing."""
         broker_order = {
             "filled_qty": "100",
@@ -640,9 +646,7 @@ class TestFillMetadataBackfillEdgeCases:
         # Should not attempt to backfill
         mock_db_client.get_order_for_update.assert_not_called()
 
-    def test_backfill_fill_metadata_order_not_found_skips(
-        self, mock_db_client
-    ):
+    def test_backfill_fill_metadata_order_not_found_skips(self, mock_db_client):
         """Should skip backfill when order not found in database."""
         broker_order = {
             "filled_qty": "100",
@@ -1027,7 +1031,9 @@ class TestRedisFailureModes:
             "status": "new",
         }
 
-        mock_db_client.get_orphan_exposure.side_effect = psycopg.OperationalError("DB connection lost")
+        mock_db_client.get_orphan_exposure.side_effect = psycopg.OperationalError(
+            "DB connection lost"
+        )
         mock_alpaca_client.get_orders.side_effect = [[broker_order], []]
         mock_db_client.get_non_terminal_orders.return_value = []
         mock_db_client.get_order_ids_by_client_ids.return_value = set()
@@ -1069,7 +1075,9 @@ class TestErrorHandlingAndRecovery:
         self, reconciliation_service, mock_db_client
     ):
         """Should store failed result to enable forced bypass on DB error."""
-        mock_db_client.get_reconciliation_high_water_mark.side_effect = psycopg.OperationalError("DB down")
+        mock_db_client.get_reconciliation_high_water_mark.side_effect = psycopg.OperationalError(
+            "DB down"
+        )
 
         result = await reconciliation_service.run_startup_reconciliation()
 
@@ -1260,7 +1268,9 @@ class TestReconciliationIntegrationScenarios:
         db_order_filled.created_at = datetime.now(UTC)
 
         # Need a high water mark so recent_orders are fetched
-        mock_db_client.get_reconciliation_high_water_mark.return_value = datetime.now(UTC) - timedelta(hours=1)
+        mock_db_client.get_reconciliation_high_water_mark.return_value = datetime.now(
+            UTC
+        ) - timedelta(hours=1)
         mock_alpaca_client.get_orders.side_effect = [open_orders, recent_orders]
         mock_db_client.get_non_terminal_orders.return_value = [db_order_new, db_order_filled]
         mock_db_client.get_order_ids_by_client_ids.return_value = {"client-new", "client-filled"}

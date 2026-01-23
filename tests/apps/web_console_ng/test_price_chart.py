@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apps.web_console_ng.components.price_chart import (
-    REALTIME_FALLBACK_THRESHOLD_S,
     REALTIME_STALE_THRESHOLD_S,
     CandleData,
     ExecutionMarker,

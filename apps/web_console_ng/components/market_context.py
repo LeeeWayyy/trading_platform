@@ -64,22 +64,14 @@ class MarketDataSnapshot:
     @property
     def change(self) -> Decimal | None:
         """Calculate price change from previous close."""
-        if (
-            self.last_price is not None
-            and self.prev_close is not None
-            and self.prev_close > 0
-        ):
+        if self.last_price is not None and self.prev_close is not None and self.prev_close > 0:
             return self.last_price - self.prev_close
         return None
 
     @property
     def change_pct(self) -> Decimal | None:
         """Calculate percentage change from previous close."""
-        if (
-            self.last_price is not None
-            and self.prev_close is not None
-            and self.prev_close > 0
-        ):
+        if self.last_price is not None and self.prev_close is not None and self.prev_close > 0:
             return ((self.last_price - self.prev_close) / self.prev_close) * 100
         return None
 
@@ -94,8 +86,9 @@ class MarketContextComponent:
     def __init__(
         self,
         trading_client: AsyncTradingClient,
-        on_price_updated: Callable[[str, Decimal | None, datetime | None], Awaitable[None]]
-        | None = None,
+        on_price_updated: (
+            Callable[[str, Decimal | None, datetime | None], Awaitable[None]] | None
+        ) = None,
     ) -> None:
         """Initialize MarketContext.
 
@@ -160,9 +153,7 @@ class MarketContextComponent:
                 # Ask column
                 with ui.column().classes("items-end"):
                     ui.label("ASK").classes("text-xs text-gray-500")
-                    self._ask_price_label = ui.label("--").classes(
-                        "text-xl font-mono text-red-500"
-                    )
+                    self._ask_price_label = ui.label("--").classes("text-xl font-mono text-red-500")
                     self._ask_size_label = ui.label("").classes("text-xs text-gray-400")
 
             # Spread row
@@ -176,9 +167,7 @@ class MarketContextComponent:
                 with ui.column().classes("items-start"):
                     ui.label("Last").classes("text-xs text-gray-500")
                     self._last_price_label = ui.label("--").classes("text-lg font-mono")
-                self._change_badge = ui.badge("N/A").classes(
-                    "text-sm bg-gray-500 text-white"
-                )
+                self._change_badge = ui.badge("N/A").classes("text-sm bg-gray-500 text-white")
 
             # Volume
             with ui.row().classes("justify-start mt-2"):

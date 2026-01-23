@@ -107,9 +107,7 @@ class ActionButton:
 
     def create(self) -> ui.button:
         """Create and return the button element."""
-        self._button = ui.button(on_click=self._handle_click).props(
-            f"color={self._color}"
-        )
+        self._button = ui.button(on_click=self._handle_click).props(f"color={self._color}")
         with self._button:
             with ui.row().classes("items-center gap-2"):
                 placeholder_icon = self._icon or "sync"

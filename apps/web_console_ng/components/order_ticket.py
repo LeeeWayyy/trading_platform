@@ -969,9 +969,7 @@ class OrderTicketComponent:
         # Validate form hasn't changed since preview (idempotency guard)
         # If user edited form while dialog was open, client_order_id would be for wrong order
         if not self._validate_preview_snapshot():
-            ui.notify(
-                "Order details changed. Please close and preview again.", type="warning"
-            )
+            ui.notify("Order details changed. Please close and preview again.", type="warning")
             return False
 
         # Re-check ALL safety conditions (data may have gone stale during confirm dialog)

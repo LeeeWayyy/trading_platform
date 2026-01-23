@@ -710,7 +710,7 @@ class TestOrderTicketStateCallbacks:
 
         assert component._current_total_exposure is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_on_symbol_changed_keeps_risk_limits(
         self, component: OrderTicketComponent
     ) -> None:

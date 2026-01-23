@@ -457,19 +457,15 @@ class OrderEntryContext:
             if self._order_ticket:
                 self._order_ticket.set_kill_switch_state(ks_engaged, ks_reason)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Timeout fetching initial safety state from Redis")
             if self._order_ticket:
-                self._order_ticket.set_circuit_breaker_state(
-                    True, "Safety state fetch timed out"
-                )
+                self._order_ticket.set_circuit_breaker_state(True, "Safety state fetch timed out")
                 self._order_ticket.set_kill_switch_state(True, "Safety state fetch timed out")
         except Exception as exc:
             logger.warning(f"Failed to fetch initial safety state: {exc}")
             if self._order_ticket:
-                self._order_ticket.set_circuit_breaker_state(
-                    True, "Unable to verify safety state"
-                )
+                self._order_ticket.set_circuit_breaker_state(True, "Unable to verify safety state")
                 self._order_ticket.set_kill_switch_state(True, "Unable to verify safety state")
 
     async def _load_initial_risk_limits(self) -> None:
@@ -587,7 +583,7 @@ class OrderEntryContext:
             except (json.JSONDecodeError, TypeError, AttributeError, ValueError) as exc:
                 logger.warning(f"Invalid circuit breaker JSON at verify: {exc}")
                 return False
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Circuit breaker verification timed out")
             return False
         except Exception as exc:
@@ -632,7 +628,7 @@ class OrderEntryContext:
             except (json.JSONDecodeError, TypeError, AttributeError, ValueError) as exc:
                 logger.warning(f"Invalid kill switch JSON at verify: {exc}")
                 return False
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Kill switch verification timed out")
             return False
         except Exception as exc:
@@ -917,9 +913,7 @@ class OrderEntryContext:
                             "clearing price timestamp"
                         )
                 except (InvalidOperation, ValueError, TypeError) as exc:
-                    logger.warning(
-                        f"Invalid price conversion for {symbol}: {raw_price!r} - {exc}"
-                    )
+                    logger.warning(f"Invalid price conversion for {symbol}: {raw_price!r} - {exc}")
 
             effective_timestamp = timestamp if price is not None else None
             self._order_ticket.set_price_data(symbol, price, effective_timestamp)
@@ -1176,8 +1170,7 @@ class OrderEntryContext:
 
         async with self._subscription_lock:
             channels_with_callbacks = [
-                (channel, self._channel_callbacks.get(channel))
-                for channel in self._subscriptions
+                (channel, self._channel_callbacks.get(channel)) for channel in self._subscriptions
             ]
 
         if not channels_with_callbacks:
@@ -1215,8 +1208,7 @@ class OrderEntryContext:
 
         async with self._subscription_lock:
             failed_channels = {
-                ch: (owners.copy(), cb)
-                for ch, (owners, cb) in self._failed_subscriptions.items()
+                ch: (owners.copy(), cb) for ch, (owners, cb) in self._failed_subscriptions.items()
             }
 
         if not failed_channels:
@@ -1290,7 +1282,7 @@ class OrderEntryContext:
         async with self._subscription_lock:
             channels_to_unsubscribe = list(self._subscriptions)
 
-            for channel, future in self._pending_subscribes.items():
+            for _, future in self._pending_subscribes.items():
                 if future and not future.done():
                     future.set_exception(asyncio.CancelledError("OrderEntryContext disposed"))
 

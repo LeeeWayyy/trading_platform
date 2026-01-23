@@ -13,8 +13,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from nicegui import ui
@@ -143,8 +142,7 @@ class PriceChartComponent:
 
         # Container div
         container = ui.html(
-            f'<div id="{self._container_id}" '
-            f'style="width:100%;height:{height}px;"></div>'
+            f'<div id="{self._container_id}" ' f'style="width:100%;height:{height}px;"></div>'
         )
 
         return container
@@ -297,12 +295,14 @@ class PriceChartComponent:
         )
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const chartRef = window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.update({json.dumps(updated_candle)});
                 }}
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to update chart: {exc}")
 
@@ -402,13 +402,15 @@ class PriceChartComponent:
         ]
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const chartRef = window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.setData({json.dumps(candle_data)});
                     chartRef.candlestickSeries.setMarkers({json.dumps(marker_data)});
                 }}
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to update chart data: {exc}")
 
@@ -421,13 +423,15 @@ class PriceChartComponent:
         self._markers = []
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const chartRef = window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.setData([]);
                     chartRef.candlestickSeries.setMarkers([]);
                 }}
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to clear chart: {exc}")
 
@@ -445,7 +449,8 @@ class PriceChartComponent:
         line_data = [{"time": d["time"], "value": d["vwap"]} for d in vwap_data]
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const chartRef = window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     // Remove existing VWAP if present
@@ -461,7 +466,8 @@ class PriceChartComponent:
                     }});
                     chartRef.vwapSeries.setData({json.dumps(line_data)});
                 }}
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to add VWAP overlay: {exc}")
 
@@ -477,7 +483,8 @@ class PriceChartComponent:
         line_data = [{"time": d["time"], "value": d["twap"]} for d in twap_data]
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const chartRef = window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     // Remove existing TWAP if present
@@ -494,7 +501,8 @@ class PriceChartComponent:
                     }});
                     chartRef.twapSeries.setData({json.dumps(line_data)});
                 }}
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to add TWAP overlay: {exc}")
 
@@ -539,9 +547,7 @@ class PriceChartComponent:
 
     # ================= Staleness Detection =================
 
-    def _start_realtime_staleness_monitor(
-        self, tracker: Callable[[ui.timer], None]
-    ) -> None:
+    def _start_realtime_staleness_monitor(self, tracker: Callable[[ui.timer], None]) -> None:
         """Start timer to check for realtime feed staleness.
 
         Args:
@@ -593,7 +599,8 @@ class PriceChartComponent:
             return
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const container = document.getElementById('{self._container_id}');
                 if (!container) return;
                 let overlay = container.querySelector('.stale-overlay');
@@ -605,7 +612,8 @@ class PriceChartComponent:
                 }}
                 overlay.textContent = 'Real-time feed stale ({age_s}s) - Data may be outdated';
                 overlay.style.display = 'block';
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to show stale overlay: {exc}")
 
@@ -615,13 +623,15 @@ class PriceChartComponent:
             return
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const container = document.getElementById('{self._container_id}');
                 const overlay = container?.querySelector('.stale-overlay');
                 if (overlay) overlay.style.display = 'none';
                 const fallback = container?.querySelector('.fallback-overlay');
                 if (fallback) fallback.style.display = 'none';
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to hide stale overlay: {exc}")
 
@@ -634,7 +644,8 @@ class PriceChartComponent:
             return
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const container = document.getElementById('{self._container_id}');
                 if (!container) return;
                 let overlay = container.querySelector('.fallback-overlay');
@@ -672,7 +683,8 @@ class PriceChartComponent:
                     container.appendChild(overlay);
                 }}
                 overlay.style.display = 'flex';
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to show fallback overlay: {exc}")
 
@@ -688,7 +700,8 @@ class PriceChartComponent:
         js_safe_symbol = json.dumps(symbol)
 
         try:
-            await ui.run_javascript(f"""
+            await ui.run_javascript(
+                f"""
                 const container = document.getElementById('{self._container_id}');
                 const symbolForDisplay = {js_safe_symbol};
                 if (container) {{
@@ -725,7 +738,8 @@ class PriceChartComponent:
                     container.innerHTML = '';
                     container.appendChild(messageDiv);
                 }}
-            """)
+            """
+            )
         except Exception as exc:
             logger.debug(f"Failed to show fallback chart: {exc}")
 
@@ -771,13 +785,15 @@ class PriceChartComponent:
         # Clear chart by removing from DOM if needed
         if self._container_id:
             try:
-                await ui.run_javascript(f"""
+                await ui.run_javascript(
+                    f"""
                     const container = document.getElementById('{self._container_id}');
                     if (container) {{ container.innerHTML = ''; }}
                     if (window.__charts && window.__charts['{self._chart_id}']) {{
                         delete window.__charts['{self._chart_id}'];
                     }}
-                """)
+                """
+                )
             except Exception:
                 pass  # Best effort cleanup
 

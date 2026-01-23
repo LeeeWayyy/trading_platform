@@ -120,7 +120,8 @@ class LightweightChartsLoader:
 
         # Load with SRI hash and crossorigin for supply-chain security
         # Falls back to local copy if CDN fails
-        await ui.run_javascript(f"""
+        await ui.run_javascript(
+            f"""
             (async function() {{
                 if (typeof LightweightCharts !== 'undefined') {{
                     window.__lwc_ready = true;
@@ -152,7 +153,8 @@ class LightweightChartsLoader:
                 }}
                 window.__lwc_ready = true;
             }})();
-        """)
+        """
+        )
 
         # Wait for library to be ready
         for _ in range(100):  # Max 5 seconds
