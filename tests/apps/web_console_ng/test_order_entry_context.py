@@ -874,6 +874,35 @@ class TestChannelOwnership:
         with pytest.raises(ValueError, match="Callback mismatch"):
             await context._acquire_channel("test:channel", "owner2", callback2)
 
+    @pytest.mark.asyncio
+    async def test_same_bound_method_callback_allowed(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Same bound method accessed twice is allowed (equality not identity).
+
+        Regression test: bound methods create new objects on each access,
+        so using identity (is not) would fail even for the same method.
+        We use equality (!=) which compares the underlying function and instance.
+        """
+        # Create a helper class with a bound method
+        class Helper:
+            async def callback(self, data: dict) -> None:
+                pass
+
+        helper = Helper()
+
+        # Pass the same bound method twice (but accessed separately)
+        # This simulates watchlist and selected symbol sharing a price callback
+        await context._acquire_channel("prices:AAPL", "watchlist", helper.callback)
+
+        # This should NOT raise - same method, different access creates new object
+        # but they are equal via __eq__
+        await context._acquire_channel("prices:AAPL", "selected", helper.callback)
+
+        # Both owners should be registered
+        assert "watchlist" in context._channel_owners["prices:AAPL"]
+        assert "selected" in context._channel_owners["prices:AAPL"]
+
 
 class TestDispose:
     """Tests for dispose/cleanup."""

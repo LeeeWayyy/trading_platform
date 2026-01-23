@@ -1019,7 +1019,10 @@ class OrderEntryContext:
             self._channel_owners[channel].add(owner)
             if channel not in self._channel_callbacks:
                 self._channel_callbacks[channel] = callback
-            elif self._channel_callbacks[channel] is not callback:
+            elif self._channel_callbacks[channel] != callback:
+                # Use equality (!=) not identity (is not) because bound methods
+                # create new objects on each access but compare equal if they
+                # refer to the same method on the same instance.
                 raise ValueError(
                     f"Callback mismatch for channel {channel}: new owner '{owner}' "
                     f"provided different callback than existing."
