@@ -28,6 +28,19 @@ from apps.web_console_ng.components.positions_grid import (
     on_close_position,
     update_positions_grid,
 )
+from apps.web_console_ng.components.tabbed_panel import (
+    TAB_FILLS,
+    TAB_HISTORY,
+    TAB_POSITIONS,
+    TAB_WORKING,
+    TabbedPanel,
+    TabbedPanelState,
+    create_fills_grid,
+    create_history_grid,
+    create_tabbed_panel,
+    filter_items_by_symbol,
+    filter_working_orders,
+)
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
@@ -310,14 +323,59 @@ async def dashboard(client: Client) -> None:
             order_context.create_market_context()
             order_context.create_order_ticket()
 
-    # Positions grid
-    with compact_card("Positions").classes("w-full"):
+    panel_state = TabbedPanelState(user_id=user_id)
+    await panel_state.load()
+
+    positions_grid: ui.aggrid | None = None
+    orders_table: ui.aggrid | None = None
+    fills_grid: ui.aggrid | None = None
+    history_grid: ui.aggrid | None = None
+    tabbed_panel: TabbedPanel | None = None
+
+    def _build_positions_grid() -> ui.aggrid:
+        nonlocal positions_grid
         positions_grid = create_positions_grid()
+        return positions_grid
+
+    def _build_orders_grid() -> ui.aggrid:
+        nonlocal orders_table
+        orders_table = create_orders_table()
+        return orders_table
+
+    def _build_fills_grid() -> ui.aggrid:
+        nonlocal fills_grid
+        fills_grid = create_fills_grid()
+        return fills_grid
+
+    def _build_history_grid() -> ui.aggrid:
+        nonlocal history_grid
+        history_grid = create_history_grid()
+        return history_grid
+
+    def _handle_filter_change(_: str | None) -> None:
+        nonlocal position_symbols, order_ids
+        position_symbols = None
+        order_ids = None
+        asyncio.create_task(_refresh_positions_grid())
+        asyncio.create_task(_refresh_orders_grid())
+        asyncio.create_task(_refresh_fills_grid())
+        asyncio.create_task(_refresh_history_grid())
+
+    def _handle_tab_change(tab_name: str) -> None:
+        asyncio.create_task(_refresh_tab_content(tab_name))
 
     # Orders + activity
     with trading_grid().classes("w-full"):
-        with compact_card("Open Orders").classes("w-full"):
-            orders_table = create_orders_table()
+        with compact_card().classes("w-full"):
+            tabbed_panel = create_tabbed_panel(
+                _build_positions_grid,
+                _build_orders_grid,
+                _build_fills_grid,
+                _build_history_grid,
+                state=panel_state,
+                on_filter_change=_handle_filter_change,
+                on_tab_change=_handle_tab_change,
+            )
 
         with compact_card("Activity").classes("w-full"):
             last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
@@ -332,6 +390,79 @@ async def dashboard(client: Client) -> None:
     synthetic_id_miss_counts: dict[str, int] = {}  # Prevent churn from transient snapshot gaps
     grid_update_lock = asyncio.Lock()
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
+
+    positions_snapshot: list[dict[str, Any]] = []
+    orders_snapshot: list[dict[str, Any]] = []
+    fills_snapshot: list[dict[str, Any]] = []
+    history_snapshot: list[dict[str, Any]] = []
+
+    def _current_symbol_filter() -> str | None:
+        if tabbed_panel is None:
+            return None
+        return tabbed_panel.symbol_filter.value
+
+    def _update_filter_options() -> None:
+        if tabbed_panel is None:
+            return
+        symbols = {
+            str(item.get("symbol")).upper()
+            for item in positions_snapshot + orders_snapshot
+            if item.get("symbol")
+        }
+        tabbed_panel.symbol_filter.update_options(sorted(symbols))
+
+    async def _refresh_positions_grid() -> None:
+        nonlocal position_symbols
+        if positions_grid is None:
+            return
+        filtered = filter_items_by_symbol(positions_snapshot, _current_symbol_filter())
+        position_symbols = await update_positions_grid(
+            positions_grid,
+            filtered,
+            position_symbols,
+            notified_malformed=notified_malformed,
+        )
+
+    async def _refresh_orders_grid() -> None:
+        nonlocal order_ids
+        if orders_table is None:
+            return
+        filtered_orders = filter_working_orders(
+            orders_snapshot, _current_symbol_filter()
+        )
+        use_maps = _current_symbol_filter() is None
+        order_ids = await update_orders_table(
+            orders_table,
+            filtered_orders,
+            order_ids,
+            notified_missing_ids=notified_missing_ids,
+            synthetic_id_map=synthetic_id_map if use_maps else None,
+            synthetic_id_miss_counts=synthetic_id_miss_counts if use_maps else None,
+            user_id=user_id,
+            client_id=client_id,
+        )
+
+    async def _refresh_fills_grid() -> None:
+        if fills_grid is None:
+            return
+        filtered = filter_items_by_symbol(fills_snapshot, _current_symbol_filter())
+        fills_grid.run_grid_method("setRowData", filtered, timeout=5)
+
+    async def _refresh_history_grid() -> None:
+        if history_grid is None:
+            return
+        filtered = filter_items_by_symbol(history_snapshot, _current_symbol_filter())
+        history_grid.run_grid_method("setRowData", filtered, timeout=5)
+
+    async def _refresh_tab_content(tab_name: str) -> None:
+        if tab_name == TAB_POSITIONS:
+            await _refresh_positions_grid()
+        elif tab_name == TAB_WORKING:
+            await _refresh_orders_grid()
+        elif tab_name == TAB_FILLS:
+            await _refresh_fills_grid()
+        elif tab_name == TAB_HISTORY:
+            await _refresh_history_grid()
 
     def _format_event_time(event: dict[str, Any]) -> dict[str, Any]:
         """Ensure activity events include a HH:MM time field."""
@@ -371,7 +502,7 @@ async def dashboard(client: Client) -> None:
         last_sync_label.text = f"Last sync: {label}"
 
     async def load_initial_data() -> None:
-        nonlocal position_symbols, order_ids
+        nonlocal position_symbols, order_ids, positions_snapshot, orders_snapshot, fills_snapshot
         try:
             async_pool = get_db_pool()
             trades_task = None
@@ -426,23 +557,38 @@ async def dashboard(client: Client) -> None:
         if buying_power is None:
             buying_power = pnl_data.get("buying_power", 0)
         bp_card.update(_coerce_float(buying_power))
+        positions_snapshot = list(positions.get("positions", []))
+        orders_snapshot = list(orders.get("orders", []))
+
+        fills_snapshot = []
+        if isinstance(recent_trades, list):
+            for idx, trade in enumerate(recent_trades):
+                fills_snapshot.append(
+                    {
+                        "id": trade.get("id") or f"fill-{idx}",
+                        "time": trade.get("executed_at"),
+                        "symbol": trade.get("symbol"),
+                        "side": trade.get("side"),
+                        "qty": trade.get("qty"),
+                        "price": trade.get("price"),
+                        "status": trade.get("status") or "filled",
+                    }
+                )
+
+        _update_filter_options()
+        if tabbed_panel is not None:
+            tabbed_panel.set_badge_count(TAB_POSITIONS, len(positions_snapshot))
+            tabbed_panel.set_badge_count(
+                TAB_WORKING, len(filter_working_orders(orders_snapshot))
+            )
+            tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
+
         async with grid_update_lock:
-            position_symbols = await update_positions_grid(
-                positions_grid,
-                positions.get("positions", []),
-                position_symbols,
-                notified_malformed=notified_malformed,
-            )
-            order_ids = await update_orders_table(
-                orders_table,
-                orders.get("orders", []),
-                order_ids,
-                notified_missing_ids=notified_missing_ids,
-                synthetic_id_map=synthetic_id_map,
-                synthetic_id_miss_counts=synthetic_id_miss_counts,
-                user_id=user_id,
-                client_id=client_id,
-            )
+            await _refresh_positions_grid()
+            await _refresh_orders_grid()
+            await _refresh_fills_grid()
+            await _refresh_history_grid()
+
         recent_events = []
         if isinstance(recent_trades, list):
             for trade in recent_trades:
@@ -491,7 +637,7 @@ async def dashboard(client: Client) -> None:
     await check_initial_kill_switch()
 
     async def on_position_update(data: dict[str, Any]) -> None:
-        nonlocal position_symbols
+        nonlocal position_symbols, positions_snapshot
         if "total_unrealized_pl" in data:
             pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
         if "total_positions" in data:
@@ -501,13 +647,12 @@ async def dashboard(client: Client) -> None:
         if "buying_power" in data:
             bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
+            positions_snapshot = list(data["positions"])
+            _update_filter_options()
+            if tabbed_panel is not None:
+                tabbed_panel.set_badge_count(TAB_POSITIONS, len(positions_snapshot))
             async with grid_update_lock:
-                position_symbols = await update_positions_grid(
-                    positions_grid,
-                    data["positions"],
-                    position_symbols,
-                    notified_malformed=notified_malformed,
-                )
+                await _refresh_positions_grid()
         if "event" in data:
             # Normalize event time for consistent display (same as fills channel)
             event = dict(data["event"])
@@ -560,22 +705,36 @@ async def dashboard(client: Client) -> None:
         dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
 
     async def on_orders_update(data: dict[str, Any]) -> None:
-        nonlocal order_ids
+        nonlocal order_ids, orders_snapshot
         if "orders" in data:
-            async with grid_update_lock:
-                order_ids = await update_orders_table(
-                    orders_table,
-                    data["orders"],
-                    order_ids,
-                    notified_missing_ids=notified_missing_ids,
-                    synthetic_id_map=synthetic_id_map,
-                    synthetic_id_miss_counts=synthetic_id_miss_counts,
-                    user_id=user_id,
-                    client_id=client_id,
+            orders_snapshot = list(data["orders"])
+            _update_filter_options()
+            if tabbed_panel is not None:
+                tabbed_panel.set_badge_count(
+                    TAB_WORKING, len(filter_working_orders(orders_snapshot))
                 )
+            async with grid_update_lock:
+                await _refresh_orders_grid()
 
     async def on_fill_event(data: dict[str, Any]) -> None:
+        nonlocal fills_snapshot
         normalized = _format_event_time(dict(data))
+        fills_snapshot.insert(
+            0,
+            {
+                "id": normalized.get("id") or f"fill-{len(fills_snapshot) + 1}",
+                "time": normalized.get("timestamp"),
+                "symbol": normalized.get("symbol"),
+                "side": normalized.get("side"),
+                "qty": normalized.get("qty"),
+                "price": normalized.get("price"),
+                "status": normalized.get("status") or "filled",
+            },
+        )
+        if tabbed_panel is not None:
+            tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
+        async with grid_update_lock:
+            await _refresh_fills_grid()
         _update_last_sync_label([normalized])
         await activity_feed.add_item(normalized)
 
