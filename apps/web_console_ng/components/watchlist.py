@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import math
 import time
+from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -42,7 +45,8 @@ class WatchlistItem:
     prev_close: Decimal | None = None
     change: Decimal | None = None
     change_pct: Decimal | None = None
-    sparkline_data: list[float] = field(default_factory=list)
+    # Use deque with maxlen for O(1) bounded appends (no slicing needed)
+    sparkline_data: deque[float] = field(default_factory=lambda: deque(maxlen=20))
     timestamp: datetime | None = None
 
 
@@ -219,7 +223,7 @@ class WatchlistComponent:
                 on_click=lambda s=item.symbol: self._on_remove_clicked(s),
             ).classes("w-6 h-6 opacity-50 hover:opacity-100").props("flat dense")
 
-    def _render_sparkline(self, data: list[float], change_pct: Decimal | None) -> None:
+    def _render_sparkline(self, data: Sequence[float], change_pct: Decimal | None) -> None:
         """Render inline sparkline SVG.
 
         SECURITY: Validates and sanitizes data points before rendering.
@@ -437,14 +441,12 @@ class WatchlistComponent:
             item.change = None
             item.change_pct = None
 
-        # Update sparkline
+        # Update sparkline (deque with maxlen handles bounded size automatically)
         if item.last_price:
             try:
                 price_float = float(item.last_price)
                 if math.isfinite(price_float) and price_float > 0:
                     item.sparkline_data.append(price_float)
-                    if len(item.sparkline_data) > self.SPARKLINE_POINTS:
-                        item.sparkline_data = item.sparkline_data[-self.SPARKLINE_POINTS :]
             except (TypeError, ValueError):
                 pass
 
@@ -502,18 +504,24 @@ class WatchlistComponent:
         change_pct_display = f"({item.change_pct:+.1f}%)" if item.change_pct is not None else ""
         change_color = "green" if (item.change or 0) >= 0 else "red"
 
+        # Use json.dumps for safe JavaScript string interpolation (defense-in-depth)
+        safe_row_id = json.dumps(row_id)
+        safe_price = json.dumps(price_display)
+        safe_change = json.dumps(f"{change_display} {change_pct_display}")
+        safe_color = json.dumps(change_color)
+
         # Update row via JavaScript
         try:
             ui.run_javascript(
                 f"""
-                const row = document.getElementById("{row_id}");
+                const row = document.getElementById({safe_row_id});
                 if (row) {{
                     const priceEl = row.querySelector(".price");
-                    if (priceEl) priceEl.textContent = "{price_display}";
+                    if (priceEl) priceEl.textContent = {safe_price};
                     const changeEl = row.querySelector(".change");
                     if (changeEl) {{
-                        changeEl.textContent = "{change_display} {change_pct_display}";
-                        changeEl.style.color = "{change_color}";
+                        changeEl.textContent = {safe_change};
+                        changeEl.style.color = {safe_color};
                     }}
                 }}
             """

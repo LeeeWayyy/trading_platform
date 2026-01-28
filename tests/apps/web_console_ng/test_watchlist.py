@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -29,18 +30,20 @@ class TestWatchlistItem:
         assert item.prev_close is None
         assert item.change is None
         assert item.change_pct is None
-        assert item.sparkline_data == []
+        # sparkline_data is a deque with maxlen=20 for O(1) bounded appends
+        assert isinstance(item.sparkline_data, deque)
+        assert len(item.sparkline_data) == 0
         assert item.timestamp is None
 
     def test_sparkline_data_mutable(self) -> None:
-        """Each item has its own sparkline_data list."""
+        """Each item has its own sparkline_data deque."""
         item1 = WatchlistItem(symbol="AAPL")
         item2 = WatchlistItem(symbol="MSFT")
 
         item1.sparkline_data.append(100.0)
 
-        assert item1.sparkline_data == [100.0]
-        assert item2.sparkline_data == []
+        assert list(item1.sparkline_data) == [100.0]
+        assert len(item2.sparkline_data) == 0
 
 
 class TestWatchlistInit:

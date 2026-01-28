@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1205,36 +1204,7 @@ class TestFactoryMethods:
             assert call_kwargs["role"] == "trader"
             assert call_kwargs["strategies"] == ["alpha"]
 
-    @pytest.mark.asyncio()
-    async def test_on_market_context_price_updated_forwards_to_order_ticket(
-        self, context: OrderEntryContext
-    ) -> None:
-        """_on_market_context_price_updated forwards price to OrderTicket."""
-        from decimal import Decimal
-
-        context._order_ticket = MagicMock()
-        context._selected_symbol = "AAPL"
-
-        await context._on_market_context_price_updated(
-            "AAPL", Decimal("150.50"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        )
-
-        context._order_ticket.set_price_data.assert_called_once_with(
-            "AAPL", Decimal("150.50"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        )
-
-    @pytest.mark.asyncio()
-    async def test_on_market_context_price_updated_ignores_different_symbol(
-        self, context: OrderEntryContext
-    ) -> None:
-        """_on_market_context_price_updated ignores updates for different symbol."""
-        from decimal import Decimal
-
-        context._order_ticket = MagicMock()
-        context._selected_symbol = "AAPL"
-
-        await context._on_market_context_price_updated(
-            "MSFT", Decimal("350.00"), datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        )
-
-        context._order_ticket.set_price_data.assert_not_called()
+    # NOTE: test_on_market_context_price_updated_* tests were removed because
+    # _on_market_context_price_updated method was removed to avoid redundant
+    # double-dispatch of price updates. OrderEntryContext._on_price_update
+    # now directly updates OrderTicket.

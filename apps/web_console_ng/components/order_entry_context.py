@@ -207,9 +207,11 @@ class OrderEntryContext:
         """
         from apps.web_console_ng.components.market_context import MarketContextComponent
 
+        # NOTE: We intentionally don't pass on_price_updated callback to MarketContext
+        # because OrderEntryContext._on_price_update already dispatches to OrderTicket.
+        # This avoids redundant double-dispatch of price updates.
         self._market_context = MarketContextComponent(
             trading_client=self._client,
-            on_price_updated=self._on_market_context_price_updated,
         )
         return self._market_context.create()
 
@@ -257,15 +259,8 @@ class OrderEntryContext:
         )
         return self._order_ticket.create()
 
-    async def _on_market_context_price_updated(
-        self, symbol: str, price: Decimal | None, timestamp: datetime | None
-    ) -> None:
-        """Handle price update from MarketContext to forward to OrderTicket.
-
-        This bridges the MarketContext callback to the OrderTicket's price data.
-        """
-        if self._order_ticket and symbol == self._selected_symbol:
-            self._order_ticket.set_price_data(symbol, price, timestamp)
+    # NOTE: _on_market_context_price_updated was removed to avoid redundant double-dispatch.
+    # OrderEntryContext._on_price_update now directly updates OrderTicket.
 
     # =========================================================================
     # Initialization
@@ -762,11 +757,15 @@ class OrderEntryContext:
             return
 
         # Track previous state for reconnect detection
-        # Only DISCONNECTED/RECONNECTING states indicate true connection loss
-        # DEGRADED is read-only but connection is still alive (high latency)
-        was_truly_disconnected = (
-            self._last_connection_state is not None
-            and self._last_connection_state in DISCONNECTED_STATES
+        # Resubscribe when transitioning TO CONNECTED from:
+        # - DISCONNECTED/RECONNECTING (true disconnect)
+        # - None (initial state) or invalid/UNKNOWN (uncertain state)
+        # DEGRADED->CONNECTED doesn't need resubscribe since pubsub was never lost
+        was_not_connected = (
+            self._last_connection_state is None
+            or self._last_connection_state in DISCONNECTED_STATES
+            or self._last_connection_state not in READ_WRITE_CONNECTION_STATES
+            and self._last_connection_state not in READ_ONLY_CONNECTION_STATES
         )
 
         if state not in READ_WRITE_CONNECTION_STATES and state not in READ_ONLY_CONNECTION_STATES:
@@ -778,9 +777,9 @@ class OrderEntryContext:
         self._last_connection_state = state
 
         # RECONNECT HANDLING: Re-fetch safety state and re-subscribe channels
-        # Only resubscribe after true disconnect (DISCONNECTED/RECONNECTING), not DEGRADED
+        # Resubscribe when transitioning TO CONNECTED from uncertain/disconnected states
         # DEGRADED->CONNECTED doesn't need resubscribe since pubsub connection was never lost
-        if was_truly_disconnected and state == "CONNECTED":
+        if was_not_connected and state == "CONNECTED":
             logger.info(
                 "Connection restored from disconnect - re-fetching safety state and revalidating subscriptions"
             )

@@ -829,6 +829,10 @@ class OrderTicketComponent:
             if self._current_total_exposure is None:
                 return "Cannot verify exposure limit"
 
+            # Fail-closed: require valid price to calculate current exposure
+            if self._last_price is None and self._current_position != 0:
+                return "Cannot verify exposure limit (price unavailable)"
+
             current_symbol_notional = abs(
                 Decimal(self._current_position) * (self._last_price or Decimal(0))
             )
@@ -1073,9 +1077,14 @@ class OrderTicketComponent:
         """Get existing intent ID or create new one for idempotent submission."""
         form_key = f"order_entry:{self._tab_session_id}"
 
-        state = await self._state_manager.restore_state()
-        pending_entry = state.get("pending_forms", {}).get(form_key, {})
-        pending_form = pending_entry.get("data", {})
+        try:
+            state = await self._state_manager.restore_state()
+            pending_entry = state.get("pending_forms", {}).get(form_key, {})
+            pending_form = pending_entry.get("data", {})
+        except Exception as exc:
+            logger.warning(f"Failed to restore state for client_order_id: {exc}")
+            # Fail-safe: generate new ID if state restoration fails
+            return self._generate_intent_id()
 
         stored_intent_raw = pending_form.get("client_order_id")
         if stored_intent_raw and isinstance(stored_intent_raw, str):
@@ -1093,19 +1102,23 @@ class OrderTicketComponent:
 
         new_intent = self._generate_intent_id()
 
-        await self._state_manager.save_pending_form(
-            form_id=form_key,
-            form_data={
-                "client_order_id": new_intent,
-                "symbol": self._state.symbol,
-                "side": self._state.side,
-                "quantity": self._state.quantity,
-                "order_type": self._state.order_type,
-                "limit_price": str(self._state.limit_price or ""),
-                "stop_price": str(self._state.stop_price or ""),
-                "time_in_force": self._state.time_in_force,
-            },
-        )
+        try:
+            await self._state_manager.save_pending_form(
+                form_id=form_key,
+                form_data={
+                    "client_order_id": new_intent,
+                    "symbol": self._state.symbol,
+                    "side": self._state.side,
+                    "quantity": self._state.quantity,
+                    "order_type": self._state.order_type,
+                    "limit_price": str(self._state.limit_price or ""),
+                    "stop_price": str(self._state.stop_price or ""),
+                    "time_in_force": self._state.time_in_force,
+                },
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to persist pending form state: {exc}")
+            # Continue anyway - the intent ID is still valid for this session
 
         return new_intent
 
@@ -1114,8 +1127,12 @@ class OrderTicketComponent:
     async def _restore_pending_form(self) -> None:
         """Restore form state after reconnection."""
         form_key = f"order_entry:{self._tab_session_id}"
-        state = await self._state_manager.restore_state()
-        pending = state.get("pending_forms", {}).get(form_key)
+        try:
+            state = await self._state_manager.restore_state()
+            pending = state.get("pending_forms", {}).get(form_key)
+        except Exception as exc:
+            logger.warning(f"Failed to restore pending form state: {exc}")
+            return  # Cannot restore, start with empty form
 
         if pending:
             form_data = pending.get("data", {})
