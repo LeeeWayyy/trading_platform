@@ -61,6 +61,9 @@ class Level2WebSocketService:
 
     @staticmethod
     def entitlement_status() -> tuple[bool, str]:
+        # Mock mode is always "entitled" for dev/testing
+        if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:
+            return True, "Mock mode enabled"
         enabled = os.getenv("ALPACA_L2_ENABLED", "false").lower() in {"1", "true", "yes"}
         if not enabled:
             return False, "Level 2 data not enabled"
@@ -90,7 +93,10 @@ class Level2WebSocketService:
             self._symbol_users.setdefault(symbol, set()).add(user_id)
             self._user_symbols.setdefault(user_id, set()).add(symbol)
 
-        await self._ensure_running()
+            # Start streaming loop inside lock to prevent race conditions
+            if not self._running:
+                self._running = True
+                self._task = asyncio.create_task(self._run())
         return True
 
     async def unsubscribe(self, user_id: str, symbol: str) -> None:
@@ -163,23 +169,18 @@ class Level2WebSocketService:
                 await self.publish_update(symbol, payload)
 
     async def _connection_loop(self) -> None:
-        """Placeholder for real Alpaca connection with exponential backoff."""
-        backoff = 1.0
-        max_backoff = 30.0
+        """Placeholder for real Alpaca connection - falls back to mock mode.
 
-        while self._running:
-            try:
-                # Placeholder: real websocket connection will be implemented later.
-                raise RuntimeError("Alpaca Level 2 connection not configured")
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.warning(
-                    "level2_connection_failed",
-                    extra={"error": str(exc), "backoff": backoff},
-                )
-                await asyncio.sleep(backoff)
-                backoff = min(max_backoff, backoff * 2)
+        The real Alpaca WebSocket implementation will be added in a future PR.
+        For now, log a warning and fall back to mock mode to avoid crash loops.
+        """
+        logger.warning(
+            "level2_real_connection_not_implemented",
+            extra={"action": "falling_back_to_mock_mode"},
+        )
+        # Fall back to mock mode instead of crash-looping
+        self._mock_mode = True
+        await self._mock_loop()
 
     def _generate_mock_snapshot(self, symbol: str, now: float) -> dict[str, Any]:
         base = self._mock_prices.get(symbol)

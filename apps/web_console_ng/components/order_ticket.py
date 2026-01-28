@@ -290,7 +290,11 @@ class OrderTicketComponent:
     # ================= UI Event Handlers =================
 
     async def apply_dom_price_click(self, symbol: str, side: str, price: Any) -> None:
-        """Prefill order form from DOM ladder price click."""
+        """Prefill order form from DOM ladder price click.
+
+        SECURITY: Validates that clicked symbol matches current selection to prevent
+        stale price injection attacks via browser DevTools.
+        """
         if side not in {"buy", "sell"}:
             ui.notify("Invalid side from order book", type="warning")
             return
@@ -299,6 +303,23 @@ class OrderTicketComponent:
             normalized = validate_and_normalize_symbol(symbol)
         except ValueError:
             ui.notify("Invalid symbol from order book", type="warning")
+            return
+
+        # SECURITY: Validate clicked symbol matches current symbol in order ticket
+        # Prevents attack where user switches symbols but clicks on stale DOM ladder
+        if self._state.symbol and self._state.symbol != normalized:
+            logger.warning(
+                "dom_price_click_symbol_mismatch",
+                extra={
+                    "clicked_symbol": normalized,
+                    "current_symbol": self._state.symbol,
+                    "user_id": self._user_id,
+                },
+            )
+            ui.notify(
+                f"Price click ignored: DOM shows {normalized} but ticket has {self._state.symbol}",
+                type="warning",
+            )
             return
 
         try:

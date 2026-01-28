@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -274,10 +275,11 @@ async def on_cancel_parent_order(
                 client = AsyncTradingClient.get()
                 failures: list[str] = []
 
-                for child in cancelable:
+                # Cancel all children in parallel for better UX with large TWAP orders
+                async def cancel_child(child: dict[str, Any]) -> str | None:
                     child_id = str(child.get("client_order_id") or "")
                     if not child_id:
-                        continue
+                        return None
                     try:
                         await client.cancel_order(child_id, user_id, role=user_role)
                         logger.info(
@@ -290,10 +292,17 @@ async def on_cancel_parent_order(
                                 "strategy_id": "manual",
                             },
                         )
+                        return None
                     except httpx.HTTPStatusError as exc:
-                        failures.append(f"{child_id} (HTTP {exc.response.status_code})")
+                        return f"{child_id} (HTTP {exc.response.status_code})"
                     except httpx.RequestError as exc:
-                        failures.append(f"{child_id} ({type(exc).__name__})")
+                        return f"{child_id} ({type(exc).__name__})"
+
+                results = await asyncio.gather(
+                    *[cancel_child(child) for child in cancelable],
+                    return_exceptions=False,
+                )
+                failures = [r for r in results if r is not None]
 
                 if failures:
                     ui.notify(

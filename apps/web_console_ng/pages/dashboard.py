@@ -16,12 +16,12 @@ from nicegui import Client, events, ui
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
-from apps.web_console_ng.components.metric_card import MetricCard
-from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.hierarchical_orders import (
     HierarchicalOrdersState,
     on_cancel_parent_order,
 )
+from apps.web_console_ng.components.metric_card import MetricCard
+from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.orders_table import (
     create_hierarchical_orders_table,
     on_cancel_order,
@@ -66,6 +66,9 @@ from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 logger = logging.getLogger(__name__)
+
+# Maximum fills to keep in memory to prevent unbounded growth
+MAX_FILLS_ITEMS = 100
 
 ScopeKey = tuple[str, frozenset[str]]
 
@@ -607,7 +610,7 @@ async def dashboard(client: Client) -> None:
 
         fills_snapshot = []
         if isinstance(recent_trades, list):
-            for idx, trade in enumerate(recent_trades):
+            for idx, trade in enumerate(recent_trades[:MAX_FILLS_ITEMS]):
                 fills_snapshot.append(
                     {
                         "id": trade.get("id") or f"fill-{idx}",
@@ -777,6 +780,9 @@ async def dashboard(client: Client) -> None:
                 "status": normalized.get("status") or "filled",
             },
         )
+        # Cap fills_snapshot to prevent unbounded memory growth
+        if len(fills_snapshot) > MAX_FILLS_ITEMS:
+            fills_snapshot = fills_snapshot[:MAX_FILLS_ITEMS]
         if tabbed_panel is not None:
             tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
         async with grid_update_lock:

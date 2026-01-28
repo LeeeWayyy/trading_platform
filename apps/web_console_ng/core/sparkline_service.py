@@ -90,12 +90,27 @@ class SparklineDataService:
     async def get_sparkline_map(
         self, user_id: str, symbols: list[str]
     ) -> dict[str, list[float]]:
-        """Fetch sparkline data for multiple symbols."""
+        """Fetch sparkline data for multiple symbols in parallel."""
+        import asyncio
+
+        valid_symbols = [s for s in symbols if s]
+        if not valid_symbols:
+            return {}
+
+        # Fetch all symbols in parallel to avoid N sequential Redis round-trips
+        tasks = [self.get_sparkline_data(user_id, symbol) for symbol in valid_symbols]
+        data_list = await asyncio.gather(*tasks, return_exceptions=True)
+
         results: dict[str, list[float]] = {}
-        for symbol in symbols:
-            if not symbol:
-                continue
-            results[symbol] = await self.get_sparkline_data(user_id, symbol)
+        for symbol, data in zip(valid_symbols, data_list, strict=False):
+            if isinstance(data, Exception):
+                logger.warning(
+                    "sparkline_parallel_fetch_failed",
+                    extra={"user_id": user_id, "symbol": symbol, "error": type(data).__name__},
+                )
+                results[symbol] = []
+            else:
+                results[symbol] = data
         return results
 
     @staticmethod
