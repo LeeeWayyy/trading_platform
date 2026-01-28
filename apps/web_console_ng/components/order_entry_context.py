@@ -1059,6 +1059,8 @@ class OrderEntryContext:
                     await self._subscribe_to_l2_channel(symbol)
                 except Exception as exc:
                     logger.warning(f"Failed to subscribe to L2 channel for {symbol}: {exc}")
+                    # Roll back the L2 service subscription to avoid refcount leak
+                    await self._level2_service.unsubscribe(self._user_id, symbol)
 
         # Notify all child components
         if self._order_ticket:

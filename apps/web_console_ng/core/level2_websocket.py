@@ -94,7 +94,9 @@ class Level2WebSocketService:
             self._user_symbols.setdefault(user_id, set()).add(symbol)
 
             # Start streaming loop inside lock to prevent race conditions
-            if not self._running:
+            # Also restart if task died unexpectedly (task.done() but _running not yet reset)
+            task_dead = self._task is not None and self._task.done()
+            if not self._running or task_dead:
                 self._running = True
                 self._task = asyncio.create_task(self._run())
         return True
@@ -127,9 +129,15 @@ class Level2WebSocketService:
             return
 
         message = json.dumps(payload)
-        redis = await self._redis_store.get_master()
-        for user_id in users:
-            await redis.publish(l2_channel(user_id, symbol), message)
+        try:
+            redis = await self._redis_store.get_master()
+            for user_id in users:
+                await redis.publish(l2_channel(user_id, symbol), message)
+        except Exception as exc:
+            logger.warning(
+                "level2_publish_failed",
+                extra={"symbol": symbol, "error": type(exc).__name__},
+            )
 
     async def _ensure_running(self) -> None:
         """Ensure streaming task is running (lock-protected)."""
@@ -159,10 +167,25 @@ class Level2WebSocketService:
                 pass
 
     async def _run(self) -> None:
-        if self._mock_mode:
-            await self._mock_loop()
-            return
-        await self._connection_loop()
+        """Run the streaming loop with failure recovery."""
+        try:
+            if self._mock_mode:
+                await self._mock_loop()
+                return
+            await self._connection_loop()
+        except asyncio.CancelledError:
+            # Normal cancellation from _stop_if_idle
+            raise
+        except Exception as exc:
+            logger.exception(
+                "level2_streaming_task_failed",
+                extra={"error": type(exc).__name__, "message": str(exc)},
+            )
+        finally:
+            # Reset state so subscribe() can restart the task
+            async with self._lock:
+                self._running = False
+                self._task = None
 
     async def _mock_loop(self) -> None:
         interval = 0.2
