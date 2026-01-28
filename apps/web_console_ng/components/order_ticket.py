@@ -289,6 +289,44 @@ class OrderTicketComponent:
 
     # ================= UI Event Handlers =================
 
+    async def apply_dom_price_click(self, symbol: str, side: str, price: Any) -> None:
+        """Prefill order form from DOM ladder price click."""
+        if side not in {"buy", "sell"}:
+            ui.notify("Invalid side from order book", type="warning")
+            return
+
+        try:
+            normalized = validate_and_normalize_symbol(symbol)
+        except ValueError:
+            ui.notify("Invalid symbol from order book", type="warning")
+            return
+
+        try:
+            price_value = Decimal(str(price))
+        except (InvalidOperation, ValueError, TypeError):
+            ui.notify("Invalid price from order book", type="warning")
+            return
+
+        if not price_value.is_finite() or price_value <= 0:
+            ui.notify("Invalid price from order book", type="warning")
+            return
+
+        if self._symbol_input is not None:
+            self._symbol_input.set_value(normalized)
+        await self._on_symbol_input_changed(type("Event", (), {"value": normalized})())
+
+        if self._side_toggle is not None:
+            self._side_toggle.set_value(side)
+        self._on_side_changed(side)
+
+        if self._order_type_select is not None:
+            self._order_type_select.set_value("limit")
+        self._on_order_type_changed("limit")
+
+        if self._limit_price_input is not None:
+            self._limit_price_input.set_value(float(price_value))
+        self._on_limit_price_changed(float(price_value))
+
     async def _on_symbol_input_changed(self, e: Any) -> None:
         """Handle symbol input change."""
         raw_symbol = e.value if e.value else None

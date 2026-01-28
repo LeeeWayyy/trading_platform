@@ -321,9 +321,10 @@ async def dashboard(client: Client) -> None:
         with ui.column().classes("hidden md:flex"):
             order_context.create_watchlist()
 
-        # Middle column: Price Chart
-        with ui.column().classes("min-h-[200px]"):
+        # Middle column: Price Chart + DOM ladder
+        with ui.column().classes("min-h-[200px] gap-4"):
             order_context.create_price_chart(width=600, height=300)
+            order_context.create_dom_ladder()
 
         # Right column: Market Context + Order Ticket
         with ui.column().classes("gap-4"):
@@ -843,6 +844,19 @@ async def dashboard(client: Client) -> None:
             user_role,
         )
 
+    async def handle_dom_price_click(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        symbol = str(detail.get("symbol", "")).strip()
+        side = str(detail.get("side", "")).strip().lower()
+        price = detail.get("price")
+        if not symbol:
+            ui.notify("Order book click missing symbol", type="warning")
+            return
+        if side not in {"buy", "sell"}:
+            ui.notify("Order book click has invalid side", type="warning")
+            return
+        await order_context.handle_dom_price_click(symbol, side, price)
+
     async def handle_hierarchical_expansion(event: events.GenericEventArguments) -> None:
         detail = _extract_event_detail(event.args)
         expanded_ids = detail.get("expanded_ids") or []
@@ -858,6 +872,7 @@ async def dashboard(client: Client) -> None:
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
     ui.on("cancel_parent_order", handle_cancel_parent_order, args=["detail"])
+    ui.on("dom_price_click", handle_dom_price_click, args=["detail"])
     ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
     ui.on("hierarchical_orders_expansion", handle_hierarchical_expansion, args=["detail"])
 
