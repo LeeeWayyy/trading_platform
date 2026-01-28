@@ -61,9 +61,15 @@ class Level2WebSocketService:
 
     @staticmethod
     def entitlement_status() -> tuple[bool, str]:
-        # Mock mode is always "entitled" for dev/testing
+        """Return entitlement status for L2 data.
+
+        Returns (entitled: bool, message: str).
+        When mock mode is active (explicit or fallback), message indicates this
+        to prevent misleading traders about data source.
+        """
+        # Explicit mock mode
         if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:
-            return True, "Mock mode enabled"
+            return True, "Mock mode (synthetic data)"
         enabled = os.getenv("ALPACA_L2_ENABLED", "false").lower() in {"1", "true", "yes"}
         if not enabled:
             return False, "Level 2 data not enabled"
@@ -71,7 +77,9 @@ class Level2WebSocketService:
         api_secret = os.getenv("ALPACA_PRO_API_SECRET", "").strip()
         if not api_key or not api_secret:
             return False, "Alpaca Pro credentials missing"
-        return True, "OK"
+        # Real connection not yet implemented - fall back to mock with clear warning
+        # TODO: Remove this when real Alpaca WebSocket is implemented
+        return True, "Mock mode (real connection not implemented)"
 
     def _should_use_mock(self) -> bool:
         if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:
@@ -168,24 +176,38 @@ class Level2WebSocketService:
 
     async def _run(self) -> None:
         """Run the streaming loop with failure recovery."""
+        restart_needed = False
         try:
             if self._mock_mode:
                 await self._mock_loop()
                 return
             await self._connection_loop()
         except asyncio.CancelledError:
-            # Normal cancellation from _stop_if_idle
+            # Normal cancellation from _stop_if_idle - don't restart
             raise
         except Exception as exc:
             logger.exception(
                 "level2_streaming_task_failed",
                 extra={"error": type(exc).__name__, "message": str(exc)},
             )
+            restart_needed = True
         finally:
-            # Reset state so subscribe() can restart the task
+            # Reset state and auto-restart if subscribers exist
+            should_restart = False
             async with self._lock:
                 self._running = False
                 self._task = None
+                # Auto-restart with backoff if there are still subscribers
+                if restart_needed and self._symbol_refcounts:
+                    should_restart = True
+                    logger.info(
+                        "level2_scheduling_restart",
+                        extra={"subscriber_count": len(self._symbol_refcounts)},
+                    )
+
+            if should_restart:
+                await asyncio.sleep(1.0)  # Backoff before restart
+                await self._ensure_running()
 
     async def _mock_loop(self) -> None:
         interval = 0.2

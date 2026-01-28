@@ -29,6 +29,9 @@ class SparklineDataService:
         self._ttl_seconds = ttl_seconds
         self._time_fn = time_fn or time.time
         self._last_sampled: dict[tuple[str, str], int] = {}
+        self._last_prune_bucket: int = 0
+        # Prune every 10 sample intervals to avoid unbounded growth
+        self._prune_interval_buckets = 10
 
     def _key(self, user_id: str, symbol: str) -> str:
         return f"pnl_history:{user_id}:{symbol}"
@@ -36,6 +39,19 @@ class SparklineDataService:
     def _current_bucket(self) -> int:
         now = int(self._time_fn())
         return now - (now % self._sample_interval)
+
+    def _maybe_prune_rate_limit_cache(self, current_bucket: int) -> None:
+        """Prune stale entries from rate-limit cache to prevent unbounded growth."""
+        prune_threshold = self._prune_interval_buckets * self._sample_interval
+        if current_bucket - self._last_prune_bucket < prune_threshold:
+            return
+
+        self._last_prune_bucket = current_bucket
+        # Remove entries older than TTL
+        cutoff = current_bucket - self._ttl_seconds
+        stale_keys = [k for k, v in self._last_sampled.items() if v < cutoff]
+        for key in stale_keys:
+            del self._last_sampled[key]
 
     async def record_positions(self, user_id: str, positions: list[dict[str, Any]]) -> None:
         """Record P&L snapshots for all positions (rate-limited per symbol)."""
@@ -59,6 +75,9 @@ class SparklineDataService:
         if self._last_sampled.get(sample_key) == bucket:
             return
         self._last_sampled[sample_key] = bucket
+
+        # Periodically prune stale entries to prevent unbounded growth
+        self._maybe_prune_rate_limit_cache(bucket)
 
         key = self._key(user_id, symbol)
         member = f"{bucket}:{pnl_value}"
