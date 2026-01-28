@@ -132,23 +132,31 @@ class Level2WebSocketService:
             await redis.publish(l2_channel(user_id, symbol), message)
 
     async def _ensure_running(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._task = asyncio.create_task(self._run())
+        """Ensure streaming task is running (lock-protected)."""
+        async with self._lock:
+            if self._running:
+                return
+            self._running = True
+            self._task = asyncio.create_task(self._run())
 
     async def _stop_if_idle(self) -> None:
+        task_to_cancel = None
         async with self._lock:
             if self._symbol_refcounts:
                 return
-        if self._task and not self._task.done():
-            self._running = False
-            self._task.cancel()
+            # Update state INSIDE lock so subscribe() sees the correct status
+            if self._task and not self._task.done():
+                self._running = False
+                task_to_cancel = self._task
+                self._task = None
+
+        # Cancel outside lock to avoid holding it during await
+        if task_to_cancel:
+            task_to_cancel.cancel()
             try:
-                await self._task
+                await task_to_cancel
             except asyncio.CancelledError:
                 pass
-            self._task = None
 
     async def _run(self) -> None:
         if self._mock_mode:
