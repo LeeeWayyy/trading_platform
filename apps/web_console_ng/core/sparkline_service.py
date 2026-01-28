@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Any
 
@@ -70,6 +71,14 @@ class SparklineDataService:
 
     async def record_point(self, user_id: str, symbol: str, pnl_value: float) -> None:
         """Record a single P&L data point if rate limit allows."""
+        # Reject NaN/inf to prevent invalid ZSET entries and SVG rendering issues
+        if not math.isfinite(pnl_value):
+            logger.debug(
+                "sparkline_invalid_pnl_skipped",
+                extra={"user_id": user_id, "symbol": symbol, "value": str(pnl_value)},
+            )
+            return
+
         bucket = self._current_bucket()
         sample_key = (user_id, symbol)
         if self._last_sampled.get(sample_key) == bucket:

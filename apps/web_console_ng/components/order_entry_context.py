@@ -981,6 +981,20 @@ class OrderEntryContext:
         if not isinstance(data, dict):
             logger.warning(f"Invalid L2 update payload type: {type(data).__name__}")
             return
+
+        # Validate symbol matches current subscription to prevent stale updates
+        # after fast symbol switches
+        payload_symbol = str(data.get("S") or data.get("symbol") or "").upper()
+        if payload_symbol and self._current_l2_symbol and payload_symbol != self._current_l2_symbol:
+            logger.debug(
+                "l2_update_symbol_mismatch",
+                extra={
+                    "payload_symbol": payload_symbol,
+                    "current_symbol": self._current_l2_symbol,
+                },
+            )
+            return
+
         self._dom_ladder.handle_orderbook_update(data)
 
     # =========================================================================
