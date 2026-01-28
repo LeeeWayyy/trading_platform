@@ -1063,6 +1063,13 @@ class OrderEntryContext:
         # Level 2 subscription (optional, requires entitlement)
         if symbol and self._dom_ladder and self._dom_ladder.is_enabled():
             allowed = await self._level2_service.subscribe(self._user_id, symbol)
+
+            # Check for stale subscription after await - roll back if symbol changed
+            if self._selection_version != current_version:
+                if allowed:
+                    await self._level2_service.unsubscribe(self._user_id, symbol)
+                return
+
             if not allowed:
                 ui.notify(
                     "Level 2 subscription limit reached (max 30 symbols)",
@@ -1071,6 +1078,11 @@ class OrderEntryContext:
             else:
                 try:
                     await self._subscribe_to_l2_channel(symbol)
+
+                    # Check for stale subscription after channel subscribe
+                    if self._selection_version != current_version:
+                        await self._level2_service.unsubscribe(self._user_id, symbol)
+                        return
                 except Exception as exc:
                     logger.warning(f"Failed to subscribe to L2 channel for {symbol}: {exc}")
                     # Roll back the L2 service subscription to avoid refcount leak

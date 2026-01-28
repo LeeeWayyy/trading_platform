@@ -112,8 +112,13 @@ class Level2WebSocketService:
     async def unsubscribe(self, user_id: str, symbol: str) -> None:
         symbol = symbol.upper()
         async with self._lock:
+            # Track if user was actually subscribed to prevent refcount underflow
+            user_was_subscribed = False
+
             if user_id in self._user_symbols:
-                self._user_symbols[user_id].discard(symbol)
+                if symbol in self._user_symbols[user_id]:
+                    self._user_symbols[user_id].discard(symbol)
+                    user_was_subscribed = True
                 if not self._user_symbols[user_id]:
                     del self._user_symbols[user_id]
 
@@ -122,7 +127,8 @@ class Level2WebSocketService:
                 if not self._symbol_users[symbol]:
                     del self._symbol_users[symbol]
 
-            if symbol in self._symbol_refcounts:
+            # Only decrement refcount if user was actually subscribed
+            if user_was_subscribed and symbol in self._symbol_refcounts:
                 self._symbol_refcounts[symbol] -= 1
                 if self._symbol_refcounts[symbol] <= 0:
                     del self._symbol_refcounts[symbol]

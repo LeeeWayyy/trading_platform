@@ -467,8 +467,16 @@ async def dashboard(client: Client) -> None:
         nonlocal order_ids
         if orders_table is None:
             return
-        filtered_orders = filter_working_orders(orders_snapshot, _current_symbol_filter())
-        use_maps = _current_symbol_filter() is None
+        symbol_filter = _current_symbol_filter()
+        filtered_orders = filter_working_orders(orders_snapshot, symbol_filter)
+        use_maps = symbol_filter is None
+        # When a symbol filter is active, also filter all_orders to prevent
+        # parent rows from other symbols being injected into the hierarchy
+        filtered_all_orders = (
+            filter_items_by_symbol(orders_snapshot, symbol_filter)
+            if symbol_filter
+            else orders_snapshot
+        )
         order_ids, parent_ids = await update_hierarchical_orders_table(
             orders_table,
             filtered_orders,
@@ -478,7 +486,7 @@ async def dashboard(client: Client) -> None:
             synthetic_id_miss_counts=synthetic_id_miss_counts if use_maps else None,
             user_id=user_id,
             client_id=client_id,
-            all_orders=orders_snapshot,
+            all_orders=filtered_all_orders,
         )
         # Only prune expansion state when NO filter is active to avoid losing
         # state for orders that are simply hidden by the current filter
