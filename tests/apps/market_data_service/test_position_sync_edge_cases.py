@@ -71,9 +71,7 @@ class TestInitialSyncErrorHandling:
             "Service unavailable", request=mock_response.request, response=mock_response
         )
 
-        with patch.object(
-            manager, "_fetch_position_symbols", side_effect=http_error
-        ):
+        with patch.object(manager, "_fetch_position_symbols", side_effect=http_error):
             # Start loop
             task = asyncio.create_task(manager.start_sync_loop())
 
@@ -211,9 +209,7 @@ class TestSyncLoopErrorBranches:
             if call_count == 1:
                 raise SubscriptionError("Failed to subscribe")
 
-        with patch.object(
-            position_sync, "_sync_subscriptions", side_effect=mock_sync_with_error
-        ):
+        with patch.object(position_sync, "_sync_subscriptions", side_effect=mock_sync_with_error):
             task = asyncio.create_task(position_sync.start_sync_loop())
             await asyncio.sleep(2.5)  # Wait for 3 sync intervals (1s each)
             position_sync.stop()
@@ -243,9 +239,7 @@ class TestSyncLoopErrorBranches:
                     "Server error", request=mock_response.request, response=mock_response
                 )
 
-        with patch.object(
-            position_sync, "_sync_subscriptions", side_effect=mock_sync_with_error
-        ):
+        with patch.object(position_sync, "_sync_subscriptions", side_effect=mock_sync_with_error):
             task = asyncio.create_task(position_sync.start_sync_loop())
             await asyncio.sleep(2.5)  # Wait for 3 sync intervals
             position_sync.stop()
@@ -272,9 +266,7 @@ class TestSyncLoopErrorBranches:
             elif call_count == 3:
                 raise httpx.NetworkError("Network error")
 
-        with patch.object(
-            position_sync, "_sync_subscriptions", side_effect=mock_sync_with_error
-        ):
+        with patch.object(position_sync, "_sync_subscriptions", side_effect=mock_sync_with_error):
             task = asyncio.create_task(position_sync.start_sync_loop())
             await asyncio.sleep(4.5)  # Wait for 5 sync intervals
             position_sync.stop()
@@ -312,6 +304,7 @@ class TestShutdownMethod:
 
         Tests lines 201-209 branch coverage for timeout and forced cancellation.
         """
+
         # Create a task that won't complete quickly
         async def slow_task():
             try:
@@ -366,6 +359,7 @@ class TestSetTaskMethod:
 
         Tests line 222 coverage for set_task() method.
         """
+
         async def dummy():
             await asyncio.sleep(0.01)
 

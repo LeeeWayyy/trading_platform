@@ -240,6 +240,7 @@ def build_client(overrides: dict[Callable[..., Any], Any] | None = None) -> Test
     stub_db = StubDB()
     stub_audit = StubAudit(None)  # type: ignore[arg-type]
     stub_alpaca = StubAlpaca()
+
     class StubRedis:
         async def get(self, key: str) -> bytes:
             return b'{"state": "OPEN"}'

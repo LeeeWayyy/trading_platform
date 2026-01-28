@@ -17,6 +17,7 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.metric_card import MetricCard
+from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.orders_table import (
     create_orders_table,
     on_cancel_order,
@@ -29,6 +30,7 @@ from apps.web_console_ng.components.positions_grid import (
 )
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.realtime import (
     RealtimeUpdater,
@@ -38,6 +40,8 @@ from apps.web_console_ng.core.realtime import (
     orders_channel,
     position_channel,
 )
+from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
@@ -222,6 +226,28 @@ async def dashboard(client: Client) -> None:
     realtime = RealtimeUpdater(client_id, client)
     timers: list[ui.timer] = []
 
+    # Create dependencies for OrderEntryContext
+    redis_store = get_redis_store()
+    redis_client = await redis_store.get_master()
+    state_manager = UserStateManager(
+        user_id=user_id,
+        role=user_role,
+        strategies=user_strategies,
+    )
+    connection_monitor = ConnectionMonitor()
+
+    # Create OrderEntryContext for centralized subscription management
+    order_context = OrderEntryContext(
+        realtime_updater=realtime,
+        trading_client=trading_client,
+        state_manager=state_manager,
+        connection_monitor=connection_monitor,
+        redis=redis_client,
+        user_id=user_id,
+        role=user_role,
+        strategies=user_strategies,
+    )
+
     def _coerce_float(value: Any, default: float = 0.0) -> float:
         if isinstance(value, (int, float, Decimal)):
             return float(value)
@@ -264,6 +290,25 @@ async def dashboard(client: Client) -> None:
             title="Buying Power",
             format_fn=lambda v: f"${v:,.2f}",
         )
+
+    # Order Entry Section - Responsive 3-column layout
+    # Desktop: [Watchlist] [Chart] [Market Context + Order Ticket]
+    # Mobile: Single column stacked
+    with ui.element("div").classes(
+        "grid gap-4 w-full mb-4 " "grid-cols-1 md:grid-cols-2 lg:grid-cols-[250px_1fr_350px]"
+    ):
+        # Left column: Watchlist (hidden on mobile)
+        with ui.column().classes("hidden md:flex"):
+            order_context.create_watchlist()
+
+        # Middle column: Price Chart
+        with ui.column().classes("min-h-[200px]"):
+            order_context.create_price_chart(width=600, height=300)
+
+        # Right column: Market Context + Order Ticket
+        with ui.column().classes("gap-4"):
+            order_context.create_market_context()
+            order_context.create_order_ticket()
 
     # Positions grid
     with compact_card("Positions").classes("w-full"):
@@ -616,6 +661,32 @@ async def dashboard(client: Client) -> None:
 
     await lifecycle.register_cleanup_callback(client_id, cleanup_timers)
     await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
+
+    # Initialize OrderEntryContext AFTER UI creation (per spec lifecycle pattern)
+    # This starts timers, loads data, and establishes subscriptions
+    try:
+        await order_context.initialize()
+    except Exception as exc:
+        logger.error(
+            "order_context_init_failed",
+            extra={"client_id": client_id, "error": str(exc)},
+        )
+        ui.notify(
+            "Order entry initialization failed - some features may be unavailable",
+            type="warning",
+        )
+
+    # Register cleanup for OrderEntryContext on disconnect
+    async def cleanup_order_context() -> None:
+        try:
+            await order_context.dispose()
+        except Exception as exc:
+            logger.warning(
+                "order_context_dispose_failed",
+                extra={"client_id": client_id, "error": str(exc)},
+            )
+
+    await lifecycle.register_cleanup_callback(client_id, cleanup_order_context)
 
 
 __all__ = ["dashboard", "MarketPriceCache"]

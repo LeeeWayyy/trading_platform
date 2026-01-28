@@ -85,7 +85,9 @@ def mock_auth_context():
 
 
 @pytest.fixture()
-def mock_context(mock_db, mock_redis, mock_kill_switch, mock_circuit_breaker, mock_position_reservation):
+def mock_context(
+    mock_db, mock_redis, mock_kill_switch, mock_circuit_breaker, mock_position_reservation
+):
     """Create a mock AppContext for dependency injection."""
     from decimal import Decimal
 
@@ -195,6 +197,7 @@ def mock_config():
 @pytest.fixture()
 def test_client_with_context(mock_context, mock_config) -> Generator[TestClient, None, None]:
     """Create test client with mocked dependencies."""
+
     def override_context():
         return mock_context
 
@@ -219,6 +222,7 @@ def test_client_with_auth(
     mock_context, mock_config, mock_auth_context
 ) -> Generator[TestClient, None, None]:
     """Create test client with mocked dependencies and auth bypass."""
+
     def override_context():
         return mock_context
 
@@ -323,9 +327,7 @@ class TestRootEndpoint:
 class TestHealthEndpoint:
     """Tests for health check endpoint."""
 
-    def test_health_check_healthy_in_dry_run(
-        self, test_client_with_context, mock_context
-    ):
+    def test_health_check_healthy_in_dry_run(self, test_client_with_context, mock_context):
         """Test health check returns healthy when database is up (DRY_RUN mode)."""
         mock_context.db.check_connection.return_value = True
 
@@ -337,9 +339,7 @@ class TestHealthEndpoint:
         assert data["database_connected"] is True
         assert data["dry_run"] is True
 
-    def test_health_check_unhealthy_when_db_down(
-        self, test_client_with_context, mock_context
-    ):
+    def test_health_check_unhealthy_when_db_down(self, test_client_with_context, mock_context):
         """Test health check returns unhealthy when database is down."""
         mock_context.db.check_connection.return_value = False
 

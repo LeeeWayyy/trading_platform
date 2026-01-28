@@ -320,9 +320,7 @@ class TestGatewayAuthenticatorDependency:
 class TestJWKSValidatorDependency:
     """Test JWKS validator dependency."""
 
-    def test_get_jwks_validator_returns_none_when_auth0_not_configured(
-        self, monkeypatch
-    ) -> None:
+    def test_get_jwks_validator_returns_none_when_auth0_not_configured(self, monkeypatch) -> None:
         """Test get_jwks_validator() returns None when Auth0 is not configured."""
         # Clear lru_cache
         get_jwks_validator.cache_clear()
@@ -342,9 +340,7 @@ class TestJWKSValidatorDependency:
 
         assert result is None
 
-    def test_get_jwks_validator_creates_validator_when_auth0_configured(
-        self, monkeypatch
-    ) -> None:
+    def test_get_jwks_validator_creates_validator_when_auth0_configured(self, monkeypatch) -> None:
         """Test get_jwks_validator() creates JWKSValidator when Auth0 is configured."""
         # Set Auth0 configuration
         monkeypatch.setenv("AUTH0_DOMAIN", "example.auth0.com")
@@ -388,9 +384,7 @@ class TestAlpacaExecutorDependency:
 
         assert result is None
 
-    def test_get_alpaca_executor_returns_none_when_secrets_missing(
-        self, monkeypatch
-    ) -> None:
+    def test_get_alpaca_executor_returns_none_when_secrets_missing(self, monkeypatch) -> None:
         """Test get_alpaca_executor() returns None when secrets are not configured."""
         monkeypatch.setenv("DRY_RUN", "false")
 
@@ -398,6 +392,7 @@ class TestAlpacaExecutorDependency:
         import importlib
 
         import apps.execution_gateway.api.dependencies as dep_module
+
         importlib.reload(dep_module)
 
         # Clear lru_cache AFTER reload
@@ -410,9 +405,7 @@ class TestAlpacaExecutorDependency:
 
         assert result is None
 
-    def test_get_alpaca_executor_handles_value_error(
-        self, monkeypatch
-    ) -> None:
+    def test_get_alpaca_executor_handles_value_error(self, monkeypatch) -> None:
         """Test get_alpaca_executor() returns None on ValueError during initialization."""
         monkeypatch.setenv("DRY_RUN", "false")
 
@@ -420,23 +413,24 @@ class TestAlpacaExecutorDependency:
         import importlib
 
         import apps.execution_gateway.api.dependencies as dep_module
+
         importlib.reload(dep_module)
 
         # Clear lru_cache AFTER reload
         dep_module.get_alpaca_executor.cache_clear()
 
         # Patch both dependencies on the reloaded module
-        with patch.object(dep_module, "get_required_secret") as mock_get_secret, \
-             patch.object(dep_module, "AlpacaExecutor") as mock_alpaca_cls:
+        with (
+            patch.object(dep_module, "get_required_secret") as mock_get_secret,
+            patch.object(dep_module, "AlpacaExecutor") as mock_alpaca_cls,
+        ):
             mock_get_secret.side_effect = ["test_api_key", "test_secret_key"]
             mock_alpaca_cls.side_effect = ValueError("Invalid credentials")
             result = dep_module.get_alpaca_executor()
 
         assert result is None
 
-    def test_get_alpaca_executor_handles_connection_error(
-        self, monkeypatch
-    ) -> None:
+    def test_get_alpaca_executor_handles_connection_error(self, monkeypatch) -> None:
         """Test get_alpaca_executor() returns None on ConnectionError."""
         monkeypatch.setenv("DRY_RUN", "false")
 
@@ -444,23 +438,24 @@ class TestAlpacaExecutorDependency:
         import importlib
 
         import apps.execution_gateway.api.dependencies as dep_module
+
         importlib.reload(dep_module)
 
         # Clear lru_cache AFTER reload
         dep_module.get_alpaca_executor.cache_clear()
 
         # Patch both dependencies on the reloaded module
-        with patch.object(dep_module, "get_required_secret") as mock_get_secret, \
-             patch.object(dep_module, "AlpacaExecutor") as mock_alpaca_cls:
+        with (
+            patch.object(dep_module, "get_required_secret") as mock_get_secret,
+            patch.object(dep_module, "AlpacaExecutor") as mock_alpaca_cls,
+        ):
             mock_get_secret.side_effect = ["test_api_key", "test_secret_key"]
             mock_alpaca_cls.side_effect = ConnectionError("Connection failed")
             result = dep_module.get_alpaca_executor()
 
         assert result is None
 
-    def test_get_alpaca_executor_returns_none_when_credentials_empty(
-        self, monkeypatch
-    ) -> None:
+    def test_get_alpaca_executor_returns_none_when_credentials_empty(self, monkeypatch) -> None:
         """Test get_alpaca_executor() returns None when credentials are empty strings."""
         monkeypatch.setenv("DRY_RUN", "false")
 
@@ -468,14 +463,17 @@ class TestAlpacaExecutorDependency:
         import importlib
 
         import apps.execution_gateway.api.dependencies as dep_module
+
         importlib.reload(dep_module)
 
         # Clear lru_cache AFTER reload
         dep_module.get_alpaca_executor.cache_clear()
 
         # Patch dependencies on the reloaded module
-        with patch.object(dep_module, "get_required_secret") as mock_get_secret, \
-             patch.object(dep_module, "AlpacaExecutor") as mock_alpaca_cls:
+        with (
+            patch.object(dep_module, "get_required_secret") as mock_get_secret,
+            patch.object(dep_module, "AlpacaExecutor") as mock_alpaca_cls,
+        ):
             # Return empty strings for credentials
             mock_get_secret.side_effect = ["", ""]
             result = dep_module.get_alpaca_executor()
@@ -540,12 +538,14 @@ class TestGetAuthenticatedUser:
 
         from apps.execution_gateway.api.dependencies import get_authenticated_user
 
-        request = self._make_request({
-            "Authorization": "Bearer token123",
-            "X-User-ID": "user1",
-            "X-Request-ID": "not-a-uuid",
-            "X-Session-Version": "1",
-        })
+        request = self._make_request(
+            {
+                "Authorization": "Bearer token123",
+                "X-User-ID": "user1",
+                "X-Request-ID": "not-a-uuid",
+                "X-Session-Version": "1",
+            }
+        )
         mock_authenticator = MagicMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -562,12 +562,15 @@ class TestGetAuthenticatedUser:
         import uuid
 
         from apps.execution_gateway.api.dependencies import get_authenticated_user
-        request = self._make_request({
-            "Authorization": "Bearer token123",
-            "X-User-ID": "user1",
-            "X-Request-ID": str(uuid.uuid4()),
-            "X-Session-Version": "not-an-int",
-        })
+
+        request = self._make_request(
+            {
+                "Authorization": "Bearer token123",
+                "X-User-ID": "user1",
+                "X-Request-ID": str(uuid.uuid4()),
+                "X-Session-Version": "not-an-int",
+            }
+        )
         mock_authenticator = MagicMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -590,6 +593,7 @@ class TestGetAuthenticatedUser:
         import importlib
 
         import apps.execution_gateway.api.dependencies as dep_module
+
         importlib.reload(dep_module)
 
         request = self._make_request({})
@@ -610,6 +614,7 @@ class TestGetAuthenticatedUser:
         import importlib
 
         import apps.execution_gateway.api.dependencies as dep_module
+
         importlib.reload(dep_module)
 
         request = self._make_request({})
@@ -630,12 +635,15 @@ class TestGetAuthenticatedUser:
         from apps.execution_gateway.api.dependencies import get_authenticated_user
         from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
         from libs.platform.web_console_auth.permissions import Role
-        request = self._make_request({
-            "Authorization": "Bearer valid_token",
-            "X-User-ID": "user123",
-            "X-Request-ID": str(uuid.uuid4()),
-            "X-Session-Version": "1",
-        })
+
+        request = self._make_request(
+            {
+                "Authorization": "Bearer valid_token",
+                "X-User-ID": "user123",
+                "X-Request-ID": str(uuid.uuid4()),
+                "X-Session-Version": "1",
+            }
+        )
 
         expected_user = AuthenticatedUser(
             user_id="user123",
@@ -651,6 +659,7 @@ class TestGetAuthenticatedUser:
         # Make authenticate an async function
         async def mock_authenticate(**kwargs):
             return expected_user
+
         mock_authenticator.authenticate = mock_authenticate
 
         result = await get_authenticated_user(request, mock_authenticator)
@@ -666,16 +675,21 @@ class TestGetAuthenticatedUser:
 
         from apps.execution_gateway.api.dependencies import get_authenticated_user
         from libs.platform.web_console_auth.exceptions import TokenExpiredError
-        request = self._make_request({
-            "Authorization": "Bearer expired_token",
-            "X-User-ID": "user123",
-            "X-Request-ID": str(uuid.uuid4()),
-            "X-Session-Version": "1",
-        })
+
+        request = self._make_request(
+            {
+                "Authorization": "Bearer expired_token",
+                "X-User-ID": "user123",
+                "X-Request-ID": str(uuid.uuid4()),
+                "X-Session-Version": "1",
+            }
+        )
 
         mock_authenticator = MagicMock()
+
         async def mock_authenticate(**kwargs):
             raise TokenExpiredError("Token expired")
+
         mock_authenticator.authenticate = mock_authenticate
 
         with pytest.raises(HTTPException) as exc_info:
@@ -764,8 +778,10 @@ class TestCheckRateLimitWithFallback:
         from apps.execution_gateway.api.dependencies import check_rate_limit_with_fallback
 
         mock_limiter = MagicMock()
+
         async def mock_check(user_id, action, max_req, window):
             return True, 5
+
         mock_limiter.check_rate_limit = mock_check
 
         allowed, remaining, is_fallback = await check_rate_limit_with_fallback(
@@ -784,8 +800,10 @@ class TestCheckRateLimitWithFallback:
         from apps.execution_gateway.api.dependencies import check_rate_limit_with_fallback
 
         mock_limiter = MagicMock()
+
         async def mock_check(user_id, action, max_req, window):
             raise redis.exceptions.ConnectionError("Connection failed")
+
         mock_limiter.check_rate_limit = mock_check
 
         allowed, remaining, is_fallback = await check_rate_limit_with_fallback(
@@ -804,8 +822,10 @@ class TestCheckRateLimitWithFallback:
         from apps.execution_gateway.api.dependencies import check_rate_limit_with_fallback
 
         mock_limiter = MagicMock()
+
         async def mock_check(user_id, action, max_req, window):
             raise redis.exceptions.RedisError("Redis error")
+
         mock_limiter.check_rate_limit = mock_check
 
         allowed, remaining, is_fallback = await check_rate_limit_with_fallback(
@@ -822,8 +842,10 @@ class TestCheckRateLimitWithFallback:
         from apps.execution_gateway.api.dependencies import check_rate_limit_with_fallback
 
         mock_limiter = MagicMock()
+
         async def mock_check(user_id, action, max_req, window):
             raise ValueError("Invalid data")
+
         mock_limiter.check_rate_limit = mock_check
 
         allowed, remaining, is_fallback = await check_rate_limit_with_fallback(
@@ -840,8 +862,10 @@ class TestCheckRateLimitWithFallback:
         from apps.execution_gateway.api.dependencies import check_rate_limit_with_fallback
 
         mock_limiter = MagicMock()
+
         async def mock_check(user_id, action, max_req, window):
             raise RuntimeError("Unexpected error")
+
         mock_limiter.check_rate_limit = mock_check
 
         allowed, remaining, is_fallback = await check_rate_limit_with_fallback(
@@ -876,8 +900,10 @@ class TestVerify2faToken:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             raise jwt.ExpiredSignatureError("Token expired")
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -893,8 +919,10 @@ class TestVerify2faToken:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             raise jwt.InvalidIssuerError("Invalid issuer")
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -910,8 +938,10 @@ class TestVerify2faToken:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             raise jwt.InvalidAudienceError("Invalid audience")
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -927,8 +957,14 @@ class TestVerify2faToken:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
-            return {"sub": "different_user", "amr": ["mfa"], "auth_time": int(datetime.now(UTC).timestamp())}
+            return {
+                "sub": "different_user",
+                "amr": ["mfa"],
+                "auth_time": int(datetime.now(UTC).timestamp()),
+            }
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -944,8 +980,10 @@ class TestVerify2faToken:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             return {"sub": "user1", "amr": [], "auth_time": int(datetime.now(UTC).timestamp())}
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -961,12 +999,14 @@ class TestVerify2faToken:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             return {
                 "sub": "user1",
                 "amr": ["otp"],
                 "auth_time": int(datetime.now(UTC).timestamp()),
             }
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -1028,8 +1068,10 @@ class TestAdditionalCoverage:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             raise jwt.ImmatureSignatureError("Token not yet valid")
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -1045,8 +1087,10 @@ class TestAdditionalCoverage:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             raise httpx.RequestError("Network error")
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -1062,8 +1106,10 @@ class TestAdditionalCoverage:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             raise jwt.InvalidTokenError("Invalid token")
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -1077,8 +1123,10 @@ class TestAdditionalCoverage:
         from apps.execution_gateway.api.dependencies import verify_2fa_token
 
         mock_validator = MagicMock()
+
         async def mock_validate(**kwargs):
             return {"sub": "user1", "amr": ["otp"]}  # Missing auth_time
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -1095,8 +1143,10 @@ class TestAdditionalCoverage:
 
         mock_validator = MagicMock()
         old_time = int(datetime.now(UTC).timestamp()) - 120  # 2 minutes ago (exceeds 60s max)
+
         async def mock_validate(**kwargs):
             return {"sub": "user1", "amr": ["otp"], "auth_time": old_time}
+
         mock_validator.validate_id_token = mock_validate
 
         valid, error, method = await verify_2fa_token("token", "user1", mock_validator)
@@ -1113,6 +1163,7 @@ class TestAdditionalCoverage:
 
         from apps.execution_gateway.api.dependencies import get_authenticated_user
         from libs.platform.web_console_auth.exceptions import AuthError
+
         scope = {
             "type": "http",
             "method": "GET",
@@ -1131,8 +1182,10 @@ class TestAdditionalCoverage:
         request = Request(scope)
 
         mock_authenticator = MagicMock()
+
         async def mock_authenticate(**kwargs):
             raise AuthError("Unmapped error")
+
         mock_authenticator.authenticate = mock_authenticate
 
         with pytest.raises(HTTPException) as exc_info:

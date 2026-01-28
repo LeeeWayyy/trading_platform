@@ -45,6 +45,7 @@ def _create_test_manifest(
         checksum="test_checksum_" + "0" * 48,  # SHA-256 is 64 hex chars
     )
 
+
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -131,15 +132,15 @@ def test_get_settings_auth_disabled_always_false(clean_env: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio()
-async def test_lifespan_successful_startup_with_manifest(
-    mock_registry, mock_manifest_manager
-):
+async def test_lifespan_successful_startup_with_manifest(mock_registry, mock_manifest_manager):
     """Test successful lifespan startup with valid manifest."""
     test_app = FastAPI()
 
     with (
         patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
-        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager),
+        patch(
+            "apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager
+        ),
         patch("apps.model_registry.main.set_registry") as mock_set_registry,
     ):
         async with lifespan(test_app):
@@ -221,7 +222,9 @@ async def test_lifespan_logs_shutdown(mock_registry, mock_manifest_manager, capl
 
     with (
         patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
-        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager),
+        patch(
+            "apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager
+        ),
         patch("apps.model_registry.main.set_registry"),
     ):
         async with lifespan(test_app):
@@ -560,7 +563,9 @@ async def test_lifespan_handles_multiple_production_models(mock_manifest_manager
 
     with (
         patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
-        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager),
+        patch(
+            "apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager
+        ),
         patch("apps.model_registry.main.set_registry"),
     ):
         async with lifespan(test_app):
@@ -581,7 +586,9 @@ async def test_lifespan_handles_empty_manifest(mock_manifest_manager):
 
     with (
         patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
-        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager),
+        patch(
+            "apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager
+        ),
         patch("apps.model_registry.main.set_registry"),
     ):
         async with lifespan(test_app):
@@ -657,7 +664,9 @@ async def test_lifespan_uses_settings_registry_dir(mock_registry, mock_manifest_
 
     with (
         patch("apps.model_registry.main.ModelRegistry") as mock_registry_class,
-        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager),
+        patch(
+            "apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager
+        ),
         patch("apps.model_registry.main.set_registry"),
         patch("apps.model_registry.main.settings", {"registry_dir": Path("/custom/registry")}),
     ):

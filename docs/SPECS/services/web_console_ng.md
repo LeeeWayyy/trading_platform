@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-20 - P6T3 notification router, hotkey manager, action button, cell flash -->
+<!-- Last reviewed: 2026-01-27 - P6T4 order entry context fixes (risk refresh task cancellation, watchlist initialize render) - Codex/Gemini/Claude reviewed -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
@@ -503,6 +503,120 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 **Access Control:**
 - Quiet mode preference persisted per-user via UserStateManager.
 
+### Order Entry Ticket (P6T4)
+**Purpose:** Always-visible order entry widget with comprehensive trading safety patterns.
+
+**Behavior:**
+- Two-phase order confirmation: Preview shows order details, Confirm re-validates all safety conditions.
+- FAIL-CLOSED safety defaults: Kill switch engaged=True, circuit breaker tripped=True until explicitly confirmed safe.
+- Staleness thresholds: Position (30s), Price (30s), Buying Power (60s), Limits (5min).
+- Triple defense for position limits: Cached limits → Confirm-time fresh limits → Server validation.
+- Idempotent submission via `client_order_id` generated at preview time.
+- Form recovery pattern: Pending form state saved to Redis with client_order_id for reconnection recovery.
+- Tab session isolation via unique `_tab_session_id` per component instance.
+
+**Components:**
+- `components/order_ticket.py` - Main order entry widget with OrderTicketState dataclass and OrderTicketComponent class.
+- `components/quantity_presets.py` - One-click quantity preset buttons (100/500/1000/MAX) with buying power and position limit awareness.
+
+**Quantity Presets:**
+- Default presets: [100, 500, 1000] with MAX button.
+- MAX respects both buying power AND position/notional limits.
+- Uses most restrictive of all applicable limits with 95% safety margin.
+- For limit/stop orders, uses effective_price (order price) instead of current_price.
+
+**Safety Checks (at preview AND confirm time):**
+- Connection state must be CONNECTED and not read-only.
+- Kill switch must be explicitly DISENGAGED.
+- Circuit breaker must be explicitly OPEN.
+- Safety state must be loaded (not in fail-closed default state).
+- Risk limits must be loaded.
+- Position/price/buying power data must not be stale.
+- Order notional must not exceed `max_notional_per_order` limit.
+- Order quantity must not exceed position limit (`max_position_per_symbol`).
+- Total exposure must not exceed `max_total_exposure` limit.
+
+**Data Flow:**
+- OrderTicketComponent receives state via callbacks from OrderEntryContext (no direct Redis subscriptions).
+- Callbacks: `set_connection_state`, `set_kill_switch_state`, `set_circuit_breaker_state`, `set_price_data`, `set_position_data`, `set_buying_power`, `set_risk_limits`, `set_total_exposure`.
+
+**Access Control:**
+- Requires trading permissions (not viewer role).
+- Kill switch engaged blocks all orders except risk-reducing exits.
+
+### Order Entry Context Orchestrator (P6T4)
+**Purpose:** Central coordinator for all order entry components with proper subscription ownership and lifecycle management.
+
+**Behavior:**
+- Single owner of all Redis pub/sub subscriptions (prevents duplicate subscriptions).
+- Dispatches real-time updates to child components via typed callbacks.
+- Tracks all timers and tasks for proper cleanup on dispose.
+- Channel ownership model: Multiple components can share a channel; unsubscribe only when all owners release.
+- Connection state monitoring with reconnection detection and resubscription.
+- Risk limits refresh timer (every 4 minutes) to prevent staleness.
+
+**Components:**
+- `components/order_entry_context.py` - OrderEntryContext class coordinating all order entry widgets.
+
+**Subscription Ownership Model:**
+- OrderEntryContext subscribes once to each channel.
+- Multiple owners (watchlist, selected_symbol) can request the same channel.
+- Unsubscribe only when last owner releases (refcount pattern).
+- Callback equality check (not identity) for bound methods.
+
+**Data Flow:**
+```
+Redis Pub/Sub -> RealtimeUpdater -> OrderEntryContext -> Component callbacks
+                                        |
+                                        +-> OrderTicket.set_price_data()
+                                        +-> OrderTicket.set_position_data()
+                                        +-> OrderTicket.set_kill_switch_state()
+                                        +-> MarketContext.set_price_data()
+                                        +-> PriceChart.on_price_update()
+                                        +-> Watchlist.set_symbol_price_data()
+```
+
+### Market Context Widget (P6T4)
+**Purpose:** Real-time Level 1 market data display with bid/ask, spread, and last trade information.
+
+**Behavior:**
+- Displays bid/ask prices with size indicators.
+- Spread calculation and display in price and percentage.
+- Last trade price with volume and timestamp.
+- Session high/low tracking with alerts at new highs/lows.
+- Staleness detection (30s threshold) with visual indicator.
+
+**Components:**
+- `components/market_context.py` - MarketContextComponent class.
+
+### Price Chart Widget (P6T4)
+**Purpose:** Real-time candlestick chart using TradingView Lightweight Charts library.
+
+**Behavior:**
+- Candlestick chart with real-time price updates.
+- Accumulates price data into OHLC candles.
+- Dark theme integration with trading terminal.
+- Throttled chart updates for performance.
+- Symbol change clears chart and loads historical data.
+
+**Components:**
+- `components/price_chart.py` - PriceChartComponent class.
+- `ui/lightweight_charts.py` - NiceGUI wrapper for Lightweight Charts JS library.
+
+### Watchlist Widget (P6T4)
+**Purpose:** Symbol watchlist with real-time price updates and sparkline charts.
+
+**Behavior:**
+- Configurable watchlist symbols with add/remove functionality.
+- Real-time price updates from shared price channel subscriptions.
+- Change calculation from previous close with color coding.
+- Sparkline price charts (20 points) for visual trend.
+- Symbol selection triggers order ticket and market context updates.
+- Shared symbol validation with time utilities (`validate_and_normalize_symbol`).
+
+**Components:**
+- `components/watchlist.py` - WatchlistComponent class with WatchlistItem dataclass.
+
 ## Data Flow
 ```
 Browser
@@ -623,7 +737,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_services.md`
 
 ## Metadata
-- **Last Updated: 2026-01-20
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/core/latency_monitor.py`, `apps/web_console_ng/core/connection_monitor.py`, `apps/web_console_ng/core/notification_router.py`, `apps/web_console_ng/core/hotkey_manager.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/utils/session.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/components/header_metrics.py`, `apps/web_console_ng/components/market_clock.py`, `apps/web_console_ng/components/status_bar.py`, `apps/web_console_ng/components/log_drawer.py`, `apps/web_console_ng/components/action_button.py`, `apps/web_console_ng/components/command_palette.py`, `apps/web_console_ng/components/loading_states.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`, `apps/web_console_ng/ui/theme.py`, `apps/web_console_ng/static/js/hotkey_handler.js`, `apps/web_console_ng/static/js/cell_flash.js`
+- **Last Updated: 2026-01-27
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/core/latency_monitor.py`, `apps/web_console_ng/core/connection_monitor.py`, `apps/web_console_ng/core/notification_router.py`, `apps/web_console_ng/core/hotkey_manager.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/utils/session.py`, `apps/web_console_ng/utils/time.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/components/header_metrics.py`, `apps/web_console_ng/components/market_clock.py`, `apps/web_console_ng/components/status_bar.py`, `apps/web_console_ng/components/log_drawer.py`, `apps/web_console_ng/components/action_button.py`, `apps/web_console_ng/components/command_palette.py`, `apps/web_console_ng/components/loading_states.py`, `apps/web_console_ng/components/order_ticket.py`, `apps/web_console_ng/components/quantity_presets.py`, `apps/web_console_ng/components/order_entry_context.py`, `apps/web_console_ng/components/market_context.py`, `apps/web_console_ng/components/price_chart.py`, `apps/web_console_ng/components/watchlist.py`, `apps/web_console_ng/ui/lightweight_charts.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`, `apps/web_console_ng/ui/theme.py`, `apps/web_console_ng/static/js/hotkey_handler.js`, `apps/web_console_ng/static/js/cell_flash.js`
 - **ADRs:** ADR-0032 (Notification and Hotkey System)
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence), P6T2 (Header Metrics - NLV, leverage, day change display), P6T3 (Notification & Hotkey System - notifications, hotkeys, action buttons, cell flash)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence), P6T2 (Header Metrics - NLV, leverage, day change display), P6T3 (Notification & Hotkey System - notifications, hotkeys, action buttons, cell flash), P6T4 (Order Entry Context - time utilities, order ticket, quantity presets)

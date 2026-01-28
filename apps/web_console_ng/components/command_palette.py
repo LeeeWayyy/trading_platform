@@ -73,7 +73,9 @@ class CommandPalette:
         self._commands_container.clear()
         filter_lower = filter_text.lower()
 
-        bindings_by_action = {binding.action: binding for binding in self._hotkey_manager.get_bindings()}
+        bindings_by_action = {
+            binding.action: binding for binding in self._hotkey_manager.get_bindings()
+        }
 
         with self._commands_container:
             for action, (label, callback) in self._commands.items():
@@ -89,9 +91,13 @@ class CommandPalette:
                     parts.append(binding.key.upper())
                     hotkey_hint = "+".join(parts)
 
-                with ui.row().classes(
-                    "w-full items-center justify-between p-3 hover:bg-surface-3 cursor-pointer rounded"
-                ).on("click", lambda cb=callback: self._execute(cb)):
+                with (
+                    ui.row()
+                    .classes(
+                        "w-full items-center justify-between p-3 hover:bg-surface-3 cursor-pointer rounded"
+                    )
+                    .on("click", lambda cb=callback: self._execute(cb))
+                ):
                     ui.label(label).classes("text-white")
                     if hotkey_hint:
                         ui.label(hotkey_hint).classes(

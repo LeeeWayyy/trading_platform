@@ -93,9 +93,7 @@ class NotificationRouter:
             # _client remains None
             logger.warning(
                 "notification_router_no_client_context",
-                extra={
-                    "note": "Router created outside client context; toasts will be skipped"
-                },
+                extra={"note": "Router created outside client context; toasts will be skipped"},
             )
 
         self._on_notification: Callable[[Notification], None] | None = None

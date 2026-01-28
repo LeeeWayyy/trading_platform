@@ -856,9 +856,7 @@ class TestPositionHelpers:
         """Test strategy map when symbol has single strategy."""
         _, _, mock_cursor = mock_connection
 
-        mock_cursor.fetchall.return_value = [
-            {"symbol": "AAPL", "strategies": ["alpha"]}
-        ]
+        mock_cursor.fetchall.return_value = [{"symbol": "AAPL", "strategies": ["alpha"]}]
 
         db = DatabaseClient("postgresql://localhost/db")
         result = db.get_strategy_map_for_symbols(["AAPL"])
@@ -869,9 +867,7 @@ class TestPositionHelpers:
         """Test strategy map when symbol has multiple strategies returns None."""
         _, _, mock_cursor = mock_connection
 
-        mock_cursor.fetchall.return_value = [
-            {"symbol": "AAPL", "strategies": ["alpha", "beta"]}
-        ]
+        mock_cursor.fetchall.return_value = [{"symbol": "AAPL", "strategies": ["alpha", "beta"]}]
 
         db = DatabaseClient("postgresql://localhost/db")
         result = db.get_strategy_map_for_symbols(["AAPL"])

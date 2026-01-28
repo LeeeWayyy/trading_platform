@@ -457,7 +457,9 @@ class TestCancelSlices:
 class TestReconciliationAndQuarantineGates:
     """Test reconciliation and quarantine safety gates."""
 
-    def test_quarantine_redis_unavailable_returns_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_quarantine_redis_unavailable_returns_503(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test 503 when Redis is unavailable for quarantine check."""
         monkeypatch.setattr(slicing, "LIQUIDITY_CHECK_ENABLED", False)
 
@@ -833,9 +835,7 @@ class TestLegacyTwapFallback:
 class TestQuarantineConnectionErrors:
     """Test quarantine check connection error handling."""
 
-    def test_quarantine_connection_error_returns_503(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_quarantine_connection_error_returns_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test 503 when Redis connection error during quarantine check."""
         import redis.exceptions
 
@@ -876,9 +876,7 @@ class TestQuarantineConnectionErrors:
 
         assert response.status_code == 503
 
-    def test_quarantine_type_error_returns_503(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_quarantine_type_error_returns_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test 503 when TypeError during quarantine check."""
         monkeypatch.setattr(slicing, "LIQUIDITY_CHECK_ENABLED", False)
 
@@ -1136,9 +1134,7 @@ class TestDatabaseErrors:
 class TestLiquidityChecks:
     """Test liquidity service error paths."""
 
-    def test_adv_lookup_returns_none_returns_503(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_adv_lookup_returns_none_returns_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test 503 when ADV lookup returns None."""
         monkeypatch.setattr(slicing, "LIQUIDITY_CHECK_ENABLED", True)
 

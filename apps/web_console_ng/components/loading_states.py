@@ -34,9 +34,7 @@ def inline_spinner(size: str = "sm") -> ui.spinner:
 
 def skeleton_loader(width: str = "w-full", height: str = "h-4") -> ui.element:
     """Create a skeleton loader placeholder."""
-    return ui.element("div").classes(
-        f"{width} {height} bg-surface-3 rounded animate-pulse"
-    )
+    return ui.element("div").classes(f"{width} {height} bg-surface-3 rounded animate-pulse")
 
 
 class LoadingState:
@@ -63,9 +61,7 @@ class LoadingState:
             with self._overlay:
                 with ui.column().classes("items-center gap-2"):
                     ui.spinner("dots", size="lg")
-                    self._message_label = ui.label(message).classes(
-                        "text-white text-sm"
-                    )
+                    self._message_label = ui.label(message).classes("text-white text-sm")
 
     def update_message(self, message: str) -> None:
         """Update loading message."""

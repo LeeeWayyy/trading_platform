@@ -55,9 +55,11 @@ class TestGetRQQueue:
         """Test _get_rq_queue creates Queue with correct parameters."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.Queue"
-        ) as mock_queue_class, patch("apps.alert_worker.entrypoint._RQ_QUEUE", None):
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint._RQ_QUEUE", None),
+        ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
@@ -73,9 +75,10 @@ class TestGetRQQueue:
         """Test _get_rq_queue returns cached instance on subsequent calls."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.Queue"
-        ) as mock_queue_class:
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+        ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
@@ -104,11 +107,12 @@ class TestCreateAsyncResources:
         mock_pool = AsyncMock(spec=AsyncConnectionPool)
         mock_pool.open = AsyncMock()
 
-        with patch("apps.alert_worker.entrypoint.redis_async.from_url") as mock_redis_from_url, patch(
-            "apps.alert_worker.entrypoint.AsyncConnectionPool"
-        ) as mock_pool_class, patch("apps.alert_worker.entrypoint.PoisonQueue") as mock_poison_class, patch(
-            "apps.alert_worker.entrypoint.RateLimiter"
-        ) as mock_limiter_class:
+        with (
+            patch("apps.alert_worker.entrypoint.redis_async.from_url") as mock_redis_from_url,
+            patch("apps.alert_worker.entrypoint.AsyncConnectionPool") as mock_pool_class,
+            patch("apps.alert_worker.entrypoint.PoisonQueue") as mock_poison_class,
+            patch("apps.alert_worker.entrypoint.RateLimiter") as mock_limiter_class,
+        ):
             mock_redis_from_url.return_value = mock_redis
             mock_pool_class.return_value = mock_pool
             mock_poison = Mock()
@@ -244,11 +248,12 @@ class TestGetChannels:
 
     def test_get_channels_creates_email_and_slack(self):
         """Test _get_channels creates EMAIL and SLACK channels."""
-        with patch("apps.alert_worker.entrypoint._CHANNELS", None), patch(
-            "apps.alert_worker.entrypoint.EmailChannel"
-        ) as mock_email, patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack, patch(
-            "apps.alert_worker.entrypoint.SMSChannel"
-        ) as mock_sms:
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
+            patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
+            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+        ):
             mock_email_instance = Mock()
             mock_slack_instance = Mock()
             mock_email.return_value = mock_email_instance
@@ -264,11 +269,12 @@ class TestGetChannels:
 
     def test_get_channels_skips_sms_when_not_configured(self):
         """Test _get_channels skips SMS when Twilio credentials are missing."""
-        with patch("apps.alert_worker.entrypoint._CHANNELS", None), patch(
-            "apps.alert_worker.entrypoint.EmailChannel"
-        ), patch("apps.alert_worker.entrypoint.SlackChannel"), patch(
-            "apps.alert_worker.entrypoint.SMSChannel"
-        ) as mock_sms:
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("apps.alert_worker.entrypoint.EmailChannel"),
+            patch("apps.alert_worker.entrypoint.SlackChannel"),
+            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+        ):
             mock_sms.side_effect = ConfigurationError("Twilio credentials missing")
 
             channels = _get_channels()
@@ -277,11 +283,12 @@ class TestGetChannels:
 
     def test_get_channels_includes_sms_when_configured(self):
         """Test _get_channels includes SMS when Twilio credentials are present."""
-        with patch("apps.alert_worker.entrypoint._CHANNELS", None), patch(
-            "apps.alert_worker.entrypoint.EmailChannel"
-        ), patch("apps.alert_worker.entrypoint.SlackChannel"), patch(
-            "apps.alert_worker.entrypoint.SMSChannel"
-        ) as mock_sms:
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("apps.alert_worker.entrypoint.EmailChannel"),
+            patch("apps.alert_worker.entrypoint.SlackChannel"),
+            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+        ):
             mock_sms_instance = Mock()
             mock_sms.return_value = mock_sms_instance
 
@@ -292,9 +299,11 @@ class TestGetChannels:
 
     def test_get_channels_returns_cached_instance(self):
         """Test _get_channels returns cached instance on subsequent calls."""
-        with patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email, patch(
-            "apps.alert_worker.entrypoint.SlackChannel"
-        ) as mock_slack, patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms:
+        with (
+            patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
+            patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
+            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+        ):
             mock_sms.side_effect = ConfigurationError("Twilio not configured")
 
             # First call
@@ -327,9 +336,11 @@ class TestBuildExecutor:
             rate_limiter=mock_limiter,
         )
 
-        with patch("apps.alert_worker.entrypoint._get_rq_queue") as mock_get_queue, patch(
-            "apps.alert_worker.entrypoint._get_channels"
-        ) as mock_get_channels, patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class:
+        with (
+            patch("apps.alert_worker.entrypoint._get_rq_queue") as mock_get_queue,
+            patch("apps.alert_worker.entrypoint._get_channels") as mock_get_channels,
+            patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class,
+        ):
             mock_queue = Mock()
             mock_get_queue.return_value = mock_queue
             mock_channels = {ChannelType.EMAIL: Mock()}
@@ -371,11 +382,12 @@ class TestBuildExecutor:
             rate_limiter=mock_limiter,
         )
 
-        with patch("apps.alert_worker.entrypoint._get_rq_queue") as mock_get_queue, patch(
-            "apps.alert_worker.entrypoint._get_channels"
-        ), patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class, patch(
-            "apps.alert_worker.entrypoint.asyncio.to_thread"
-        ) as mock_to_thread:
+        with (
+            patch("apps.alert_worker.entrypoint._get_rq_queue") as mock_get_queue,
+            patch("apps.alert_worker.entrypoint._get_channels"),
+            patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class,
+            patch("apps.alert_worker.entrypoint.asyncio.to_thread") as mock_to_thread,
+        ):
             mock_queue = Mock()
             mock_get_queue.return_value = mock_queue
             mock_to_thread.return_value = None
@@ -419,9 +431,11 @@ class TestExecuteDeliveryJob:
         )
         mock_executor.execute.return_value = mock_result
 
-        with patch("apps.alert_worker.entrypoint._create_async_resources") as mock_create, patch(
-            "apps.alert_worker.entrypoint._build_executor"
-        ) as mock_build, patch("apps.alert_worker.entrypoint._close_async_resources") as mock_close:
+        with (
+            patch("apps.alert_worker.entrypoint._create_async_resources") as mock_create,
+            patch("apps.alert_worker.entrypoint._build_executor") as mock_build,
+            patch("apps.alert_worker.entrypoint._close_async_resources") as mock_close,
+        ):
             mock_create.return_value = mock_resources
             mock_build.return_value = mock_executor
 
@@ -455,9 +469,11 @@ class TestExecuteDeliveryJob:
         """Test _execute_delivery_job closes resources even when exception occurs."""
         mock_resources = Mock(spec=AsyncResources)
 
-        with patch("apps.alert_worker.entrypoint._create_async_resources") as mock_create, patch(
-            "apps.alert_worker.entrypoint._build_executor"
-        ) as mock_build, patch("apps.alert_worker.entrypoint._close_async_resources") as mock_close:
+        with (
+            patch("apps.alert_worker.entrypoint._create_async_resources") as mock_create,
+            patch("apps.alert_worker.entrypoint._build_executor") as mock_build,
+            patch("apps.alert_worker.entrypoint._close_async_resources") as mock_close,
+        ):
             mock_create.return_value = mock_resources
             mock_build.side_effect = ValueError("Test error")
 
@@ -528,9 +544,10 @@ class TestMain:
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.ConnectionPool"
-        ) as mock_pool_class:
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
+        ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.from_url.return_value = mock_redis
@@ -549,11 +566,14 @@ class TestMain:
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.ConnectionPool"
-        ) as mock_pool_class:
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
+        ):
             mock_redis = Mock()
-            mock_redis.ping.side_effect = redis.exceptions.ConnectionError("Redis connection failed")
+            mock_redis.ping.side_effect = redis.exceptions.ConnectionError(
+                "Redis connection failed"
+            )
             mock_redis_class.from_url.return_value = mock_redis
 
             # Mock successful DB connection
@@ -571,11 +591,12 @@ class TestMain:
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
         monkeypatch.delenv("RQ_QUEUES", raising=False)
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.ConnectionPool"
-        ) as mock_pool_class, patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class, patch(
-            "apps.alert_worker.entrypoint.asyncio.run"
-        ) as mock_asyncio_run:
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
+            patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
+            patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+        ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.from_url.return_value = mock_redis
@@ -603,11 +624,12 @@ class TestMain:
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
         monkeypatch.setenv("RQ_QUEUES", "alerts,high_priority,low_priority")
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.ConnectionPool"
-        ) as mock_pool_class, patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class, patch(
-            "apps.alert_worker.entrypoint.asyncio.run"
-        ) as mock_asyncio_run:
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
+            patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
+            patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+        ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.from_url.return_value = mock_redis
@@ -636,11 +658,12 @@ class TestMain:
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
 
-        with patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class, patch(
-            "apps.alert_worker.entrypoint.ConnectionPool"
-        ) as mock_pool_class, patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class, patch(
-            "apps.alert_worker.entrypoint.asyncio.run"
-        ) as mock_asyncio_run:
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
+            patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
+            patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+        ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.from_url.return_value = mock_redis

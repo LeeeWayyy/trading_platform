@@ -129,6 +129,7 @@ def mock_context(mock_db: MagicMock) -> MagicMock:
 @pytest.fixture()
 def test_client(mock_context: MagicMock) -> TestClient:
     """FastAPI test client with mocked dependencies."""
+
     def override_context():
         return mock_context
 
@@ -252,7 +253,6 @@ class TestListStrategies:
             },
         }
 
-
         response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
@@ -285,7 +285,6 @@ class TestListStrategies:
             }
         }
 
-
         response = test_client.get("/api/v1/strategies")
 
         assert response.status_code == 200
@@ -308,7 +307,6 @@ class TestListStrategies:
                 "last_signal_at": now - timedelta(hours=25),  # Beyond 24h
             }
         }
-
 
         response = test_client.get("/api/v1/strategies")
 
@@ -333,7 +331,6 @@ class TestListStrategies:
             },
             "bad_strategy": None,  # Simulates missing/invalid data
         }
-
 
         response = test_client.get("/api/v1/strategies")
 
@@ -366,7 +363,6 @@ class TestGetStrategyStatus:
             "last_signal_at": now - timedelta(minutes=30),
         }
 
-
         response = test_client.get("/api/v1/strategies/alpha_baseline")
 
         assert response.status_code == 200
@@ -387,7 +383,6 @@ class TestGetStrategyStatus:
         """Returns 404 when strategy not found."""
         mock_db.get_strategy_status.return_value = None
 
-
         response = test_client.get("/api/v1/strategies/nonexistent")
 
         assert response.status_code == 404
@@ -406,7 +401,6 @@ class TestGetStrategyStatus:
             "today_pnl": None,
             "last_signal_at": None,
         }
-
 
         response = test_client.get("/api/v1/strategies/dormant_strategy")
 
@@ -427,7 +421,6 @@ class TestGetStrategyStatus:
             "last_signal_at": None,
         }
 
-
         response = test_client.get("/api/v1/strategies/active_orders")
 
         assert response.status_code == 200
@@ -446,7 +439,6 @@ class TestGetStrategyStatus:
             "today_pnl": None,
             "last_signal_at": datetime.now(UTC),
         }
-
 
         response = test_client.get("/api/v1/strategies/momentum_reversion_v2")
 
