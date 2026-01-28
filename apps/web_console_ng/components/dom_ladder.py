@@ -43,6 +43,10 @@ class DOMLadderComponent:
     def is_enabled(self) -> bool:
         return self._entitled
 
+    def _is_mock_mode(self) -> bool:
+        """Check if L2 data is synthetic/mock."""
+        return "Mock" in self._entitlement_reason
+
     def create(self) -> ui.card:
         with ui.card().classes("p-3 w-full bg-surface-1") as card:
             header = ui.row().classes("w-full items-center justify-between mb-2")
@@ -56,6 +60,9 @@ class DOMLadderComponent:
         if not self._entitled:
             self._set_status(self._entitlement_reason, is_warning=True)
             self.clear("Level 2 data unavailable")
+        elif self._is_mock_mode():
+            # Surface mock mode warning even when "entitled" so traders know data is synthetic
+            self._set_status("⚠️ MOCK DATA - Select a symbol", is_warning=True)
         else:
             self._set_status("Select a symbol to view depth", is_warning=False)
 
@@ -68,10 +75,16 @@ class DOMLadderComponent:
             self.clear("Level 2 data unavailable")
             return
         if symbol:
-            self._set_status(f"Streaming {symbol}", is_warning=False)
+            if self._is_mock_mode():
+                self._set_status(f"⚠️ MOCK DATA - {symbol}", is_warning=True)
+            else:
+                self._set_status(f"Streaming {symbol}", is_warning=False)
             self.clear("Waiting for depth updates")
         else:
-            self._set_status("Select a symbol to view depth", is_warning=False)
+            if self._is_mock_mode():
+                self._set_status("⚠️ MOCK DATA - Select a symbol", is_warning=True)
+            else:
+                self._set_status("Select a symbol to view depth", is_warning=False)
             self.clear("No symbol selected")
 
     def handle_orderbook_update(self, data: dict[str, Any]) -> None:

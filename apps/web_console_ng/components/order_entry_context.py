@@ -982,6 +982,10 @@ class OrderEntryContext:
             logger.warning(f"Invalid L2 update payload type: {type(data).__name__}")
             return
 
+        # Drop updates when no L2 subscription is active (after unsubscribe)
+        if not self._current_l2_symbol:
+            return
+
         # Validate symbol matches current subscription to prevent stale updates
         # after fast symbol switches
         payload_symbol = str(data.get("S") or data.get("symbol") or "").upper()
