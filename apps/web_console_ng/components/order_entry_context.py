@@ -976,6 +976,8 @@ class OrderEntryContext:
 
     async def _on_l2_update(self, data: dict[str, Any]) -> None:
         """Handle Level 2 order book updates from Redis."""
+        if self._disposed:
+            return
         if self._dom_ladder is None:
             return
         if not isinstance(data, dict):

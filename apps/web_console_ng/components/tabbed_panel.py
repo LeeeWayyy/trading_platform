@@ -182,7 +182,17 @@ class TabbedPanel:
         self.ensure_tab(new_tab)
         if self._on_tab_change is not None:
             self._on_tab_change(new_tab)
-        asyncio.create_task(self.state.save())
+        asyncio.create_task(self._safe_save_state())
+
+    async def _safe_save_state(self) -> None:
+        """Save state with exception handling to avoid unhandled task errors."""
+        try:
+            await self.state.save()
+        except Exception as exc:
+            logger.warning(
+                "tabbed_panel_state_save_failed",
+                extra={"error": type(exc).__name__, "message": str(exc)},
+            )
 
 
 def create_tabbed_panel(
