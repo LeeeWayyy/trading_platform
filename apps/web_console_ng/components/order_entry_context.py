@@ -522,9 +522,16 @@ class OrderEntryContext:
         if self._disposed or not self._order_ticket:
             return
 
-        # Cancel any previous task that's still running
+        # Check if previous refresh is still running
         if self._risk_refresh_task and not self._risk_refresh_task.done():
-            return  # Previous refresh still in progress
+            # Refresh taking longer than the 4-minute interval - cancel and retry
+            # This prevents silent skipping and ensures limits stay fresh
+            logger.warning(
+                "Risk limits refresh still in progress after 4 minutes, "
+                "cancelling stale task and starting fresh"
+            )
+            self._risk_refresh_task.cancel()
+            # Fall through to create new task
 
         # Create task for async refresh with exception handling
         task = asyncio.create_task(self._load_initial_risk_limits())

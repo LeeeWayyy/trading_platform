@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-01-27
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 
@@ -787,5 +787,5 @@ make kill-switch # Emergency stop
 ---
 
 **Document Version:** 2.1 (Web Console Migration Complete)
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-01-27
 **Maintained By:** Development Team

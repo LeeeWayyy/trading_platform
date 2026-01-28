@@ -169,6 +169,24 @@ class TestWatchlistInitialize:
 
         assert component._on_subscribe_symbol.call_count == 2
 
+    @pytest.mark.asyncio()
+    async def test_initialize_renders_items_when_container_exists(
+        self, component: WatchlistComponent
+    ) -> None:
+        """Initialize renders items when list_container exists (create() called first)."""
+        tracker = MagicMock()
+        # Simulate create() was called first by setting _list_container
+        component._list_container = MagicMock()
+
+        with patch.object(component, "_render_items") as mock_render:
+            await component.initialize(
+                timer_tracker=tracker,
+                initial_symbols=["AAPL", "MSFT"],
+            )
+
+            # Verify _render_items was called after initialization
+            mock_render.assert_called_once()
+
 
 class TestWatchlistPriceData:
     """Tests for price data handling."""

@@ -133,6 +133,11 @@ class WatchlistComponent:
             except ValueError as exc:
                 logger.warning(f"Invalid watchlist symbol: {raw_symbol!r} - {exc}")
 
+        # Re-render after initialization if UI was created first
+        # (dashboard calls create() before initialize())
+        if self._list_container:
+            self._render_items()
+
     def create(self) -> ui.card:
         """Create the watchlist UI card."""
         with ui.card().classes("p-2 w-64") as card:
