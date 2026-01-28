@@ -1080,8 +1080,10 @@ class OrderEntryContext:
                     await self._subscribe_to_l2_channel(symbol)
 
                     # Check for stale subscription after channel subscribe
+                    # Must release BOTH the Redis channel AND the L2 service subscription
                     if self._selection_version != current_version:
-                        await self._level2_service.unsubscribe(self._user_id, symbol)
+                        await self._unsubscribe_from_l2_channel()  # Release Redis channel
+                        await self._level2_service.unsubscribe(self._user_id, symbol)  # Release refcount
                         return
                 except Exception as exc:
                     logger.warning(f"Failed to subscribe to L2 channel for {symbol}: {exc}")
