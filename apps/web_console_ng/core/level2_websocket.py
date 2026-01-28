@@ -92,19 +92,25 @@ class Level2WebSocketService:
     async def subscribe(self, user_id: str, symbol: str) -> bool:
         symbol = symbol.upper()
         async with self._lock:
-            if symbol not in self._symbol_refcounts and len(self._symbol_refcounts) >= self._max_symbols:
-                logger.warning(
-                    "level2_symbol_cap_reached",
-                    extra={"symbol": symbol, "max": self._max_symbols},
-                )
-                return False
-
-            self._symbol_refcounts[symbol] = self._symbol_refcounts.get(symbol, 0) + 1
-            self._symbol_users.setdefault(symbol, set()).add(user_id)
-            self._user_symbols.setdefault(user_id, set()).add(symbol)
             # Track per-user per-symbol count for duplicate subscription handling
             user_symbol_key = (user_id, symbol)
-            self._user_symbol_counts[user_symbol_key] = self._user_symbol_counts.get(user_symbol_key, 0) + 1
+            current_user_count = self._user_symbol_counts.get(user_symbol_key, 0)
+            is_new_user_subscription = current_user_count == 0
+
+            # Check symbol cap only for new user-symbol combinations
+            if is_new_user_subscription:
+                if symbol not in self._symbol_refcounts and len(self._symbol_refcounts) >= self._max_symbols:
+                    logger.warning(
+                        "level2_symbol_cap_reached",
+                        extra={"symbol": symbol, "max": self._max_symbols},
+                    )
+                    return False
+                # Only increment refcount for new user-symbol combinations
+                self._symbol_refcounts[symbol] = self._symbol_refcounts.get(symbol, 0) + 1
+
+            self._symbol_users.setdefault(symbol, set()).add(user_id)
+            self._user_symbols.setdefault(user_id, set()).add(symbol)
+            self._user_symbol_counts[user_symbol_key] = current_user_count + 1
 
             # Start streaming loop inside lock to prevent race conditions
             # Also restart if task died unexpectedly (task.done() but _running not yet reset)
@@ -138,14 +144,13 @@ class Level2WebSocketService:
                     self._symbol_users[symbol].discard(user_id)
                     if not self._symbol_users[symbol]:
                         del self._symbol_users[symbol]
+                # Only decrement refcount when user's subscription fully ends
+                if symbol in self._symbol_refcounts:
+                    self._symbol_refcounts[symbol] -= 1
+                    if self._symbol_refcounts[symbol] <= 0:
+                        del self._symbol_refcounts[symbol]
             else:
                 self._user_symbol_counts[user_symbol_key] = new_count
-
-            # Always decrement symbol refcount for valid unsubscribe
-            if symbol in self._symbol_refcounts:
-                self._symbol_refcounts[symbol] -= 1
-                if self._symbol_refcounts[symbol] <= 0:
-                    del self._symbol_refcounts[symbol]
 
         await self._stop_if_idle()
 

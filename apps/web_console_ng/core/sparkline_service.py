@@ -23,6 +23,7 @@ class SparklineDataService:
         sample_interval_seconds: int = 60,
         ttl_seconds: int = 7200,
         time_fn: Any = None,
+        max_cache_entries: int = 10000,
     ) -> None:
         self._redis = redis
         self._max_points = max_points
@@ -33,6 +34,8 @@ class SparklineDataService:
         self._last_prune_bucket: int = 0
         # Prune every 10 sample intervals to avoid unbounded growth
         self._prune_interval_buckets = 10
+        # Hard limit on cache size to prevent unbounded memory growth
+        self._max_cache_entries = max_cache_entries
 
     def _key(self, user_id: str, symbol: str) -> str:
         return f"pnl_history:{user_id}:{symbol}"
@@ -43,8 +46,11 @@ class SparklineDataService:
 
     def _maybe_prune_rate_limit_cache(self, current_bucket: int) -> None:
         """Prune stale entries from rate-limit cache to prevent unbounded growth."""
+        # Force prune if cache exceeds hard limit
+        force_prune = len(self._last_sampled) >= self._max_cache_entries
+
         prune_threshold = self._prune_interval_buckets * self._sample_interval
-        if current_bucket - self._last_prune_bucket < prune_threshold:
+        if not force_prune and current_bucket - self._last_prune_bucket < prune_threshold:
             return
 
         self._last_prune_bucket = current_bucket
@@ -53,6 +59,14 @@ class SparklineDataService:
         stale_keys = [k for k, v in self._last_sampled.items() if v < cutoff]
         for key in stale_keys:
             del self._last_sampled[key]
+
+        # If still over limit after TTL prune, remove oldest entries
+        if len(self._last_sampled) >= self._max_cache_entries:
+            # Sort by bucket (oldest first) and remove excess
+            sorted_entries = sorted(self._last_sampled.items(), key=lambda x: x[1])
+            excess = len(self._last_sampled) - (self._max_cache_entries // 2)
+            for key, _ in sorted_entries[:excess]:
+                del self._last_sampled[key]
 
     async def record_positions(self, user_id: str, positions: list[dict[str, Any]]) -> None:
         """Record P&L snapshots for all positions (rate-limited per symbol)."""
