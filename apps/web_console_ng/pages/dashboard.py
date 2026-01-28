@@ -375,13 +375,12 @@ async def dashboard(client: Client) -> None:
         nonlocal position_symbols, order_ids
         position_symbols = None
         order_ids = None
-        asyncio.create_task(_refresh_positions_grid())
-        asyncio.create_task(_refresh_orders_grid())
-        asyncio.create_task(_refresh_fills_grid())
-        asyncio.create_task(_refresh_history_grid())
+        # Use locked version to prevent interleaving with realtime updates
+        asyncio.create_task(_locked_refresh_all_grids())
 
     def _handle_tab_change(tab_name: str) -> None:
-        asyncio.create_task(_refresh_tab_content(tab_name))
+        # Use locked version to prevent interleaving with realtime updates
+        asyncio.create_task(_locked_refresh_tab(tab_name))
 
     # Orders + activity
     with trading_grid().classes("w-full"):
@@ -481,7 +480,9 @@ async def dashboard(client: Client) -> None:
             client_id=client_id,
             all_orders=orders_snapshot,
         )
-        if hierarchical_state.prune(parent_ids):
+        # Only prune expansion state when NO filter is active to avoid losing
+        # state for orders that are simply hidden by the current filter
+        if _current_symbol_filter() is None and hierarchical_state.prune(parent_ids):
             await hierarchical_state.save()
             ui.run_javascript(
                 f"window._hierarchicalOrdersExpanded = {json.dumps(sorted(hierarchical_state.expanded_parent_ids))};"
@@ -510,6 +511,19 @@ async def dashboard(client: Client) -> None:
             await _refresh_fills_grid()
         elif tab_name == TAB_HISTORY:
             await _refresh_history_grid()
+
+    async def _locked_refresh_all_grids() -> None:
+        """Refresh all grids with lock protection to prevent interleaving."""
+        async with grid_update_lock:
+            await _refresh_positions_grid()
+            await _refresh_orders_grid()
+            await _refresh_fills_grid()
+            await _refresh_history_grid()
+
+    async def _locked_refresh_tab(tab_name: str) -> None:
+        """Refresh single tab with lock protection."""
+        async with grid_update_lock:
+            await _refresh_tab_content(tab_name)
 
     def _format_event_time(event: dict[str, Any]) -> dict[str, Any]:
         """Ensure activity events include a HH:MM time field."""
@@ -841,11 +855,21 @@ async def dashboard(client: Client) -> None:
         detail = _extract_event_detail(event.args)
         parent_order_id = str(detail.get("parent_order_id", "")).strip()
         symbol = str(detail.get("symbol", "")).strip() or "unknown"
-        children = detail.get("children") or []
+
+        # SECURITY: Rebuild children list from server-side snapshot instead of
+        # trusting client-supplied data. This prevents cancelling unrelated orders
+        # through crafted events.
+        server_children: list[dict[str, Any]] = []
+        if parent_order_id:
+            server_children = [
+                order for order in orders_snapshot
+                if str(order.get("parent_order_id", "")) == parent_order_id
+            ]
+
         await on_cancel_parent_order(
             parent_order_id or None,
             symbol,
-            list(children) if isinstance(children, list) else [],
+            server_children,
             user_id,
             user_role,
         )
