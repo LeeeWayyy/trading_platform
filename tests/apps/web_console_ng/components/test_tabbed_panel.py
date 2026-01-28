@@ -142,3 +142,7 @@ def test_tabbed_panel_handle_tab_change(monkeypatch: pytest.MonkeyPatch) -> None
     assert called == [panel_module.TAB_WORKING]
     assert len(created) == 1
     assert len(tasks) == 1
+
+    # Clean up the unawaited coroutines to avoid "coroutine never awaited" warnings
+    for coro in tasks:
+        coro.close()
