@@ -97,10 +97,10 @@ class SparklineDataService:
         sample_key = (user_id, symbol)
         if self._last_sampled.get(sample_key) == bucket:
             return
-        self._last_sampled[sample_key] = bucket
 
-        # Periodically prune stale entries to prevent unbounded growth
+        # Prune BEFORE inserting to prevent brief spikes above max_cache_entries
         self._maybe_prune_rate_limit_cache(bucket)
+        self._last_sampled[sample_key] = bucket
 
         key = self._key(user_id, symbol)
         member = f"{bucket}:{pnl_value}"
@@ -168,7 +168,10 @@ class SparklineDataService:
             else:
                 value_str = member_str
             try:
-                data.append(float(value_str))
+                val = float(value_str)
+                # Filter out NaN/inf that might be stored in Redis
+                if math.isfinite(val):
+                    data.append(val)
             except ValueError:
                 continue
         return data
