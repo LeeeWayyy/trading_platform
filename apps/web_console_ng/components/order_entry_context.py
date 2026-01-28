@@ -109,13 +109,20 @@ class OrderEntryContext:
             user_id: User ID for API calls and subscriptions.
             role: User role for authorization.
             strategies: Strategies for position filtering.
+
+        Raises:
+            ValueError: If user_id is empty or whitespace-only.
         """
+        # Validate user_id to prevent authorization bypass in channel subscriptions
+        if not user_id or not user_id.strip():
+            raise ValueError("user_id must be non-empty")
+
         self._realtime = realtime_updater
         self._client = trading_client
         self._state_manager = state_manager
         self._connection_monitor = connection_monitor
         self._redis = redis
-        self._user_id = user_id
+        self._user_id = user_id.strip()
         self._role = role
         self._strategies = strategies
 
