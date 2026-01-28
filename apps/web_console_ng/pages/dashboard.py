@@ -32,6 +32,7 @@ from apps.web_console_ng.components.positions_grid import (
     on_close_position,
     update_positions_grid,
 )
+from apps.web_console_ng.components.sparkline_renderer import create_sparkline_svg
 from apps.web_console_ng.components.tabbed_panel import (
     TAB_FILLS,
     TAB_HISTORY,
@@ -58,6 +59,7 @@ from apps.web_console_ng.core.realtime import (
     position_channel,
 )
 from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
@@ -246,6 +248,7 @@ async def dashboard(client: Client) -> None:
     # Create dependencies for OrderEntryContext
     redis_store = get_redis_store()
     redis_client = await redis_store.get_master()
+    sparkline_service = SparklineDataService(redis_client)
     state_manager = UserStateManager(
         user_id=user_id,
         role=user_role,
@@ -423,11 +426,33 @@ async def dashboard(client: Client) -> None:
         }
         tabbed_panel.symbol_filter.update_options(sorted(symbols))
 
+    async def _attach_sparklines(
+        positions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not positions:
+            return []
+        symbols = [
+            str(item.get("symbol", "")).strip()
+            for item in positions
+            if item.get("symbol")
+        ]
+        sparkline_map = await sparkline_service.get_sparkline_map(user_id, symbols)
+        enriched: list[dict[str, Any]] = []
+        for position in positions:
+            position_copy = dict(position)
+            symbol = str(position_copy.get("symbol", "")).strip()
+            history = sparkline_map.get(symbol, [])
+            position_copy["pnl_history"] = history
+            position_copy["sparkline_svg"] = create_sparkline_svg(history)
+            enriched.append(position_copy)
+        return enriched
+
     async def _refresh_positions_grid() -> None:
         nonlocal position_symbols
         if positions_grid is None:
             return
         filtered = filter_items_by_symbol(positions_snapshot, _current_symbol_filter())
+        filtered = await _attach_sparklines(filtered)
         position_symbols = await update_positions_grid(
             positions_grid,
             filtered,
@@ -577,6 +602,7 @@ async def dashboard(client: Client) -> None:
         bp_card.update(_coerce_float(buying_power))
         positions_snapshot = list(positions.get("positions", []))
         orders_snapshot = list(orders.get("orders", []))
+        await sparkline_service.record_positions(user_id, positions_snapshot)
 
         fills_snapshot = []
         if isinstance(recent_trades, list):
@@ -666,6 +692,7 @@ async def dashboard(client: Client) -> None:
             bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
             positions_snapshot = list(data["positions"])
+            await sparkline_service.record_positions(user_id, positions_snapshot)
             _update_filter_options()
             if tabbed_panel is not None:
                 tabbed_panel.set_badge_count(TAB_POSITIONS, len(positions_snapshot))
