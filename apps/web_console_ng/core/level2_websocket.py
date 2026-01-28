@@ -44,6 +44,8 @@ class Level2WebSocketService:
         self._symbol_refcounts: dict[str, int] = {}
         self._symbol_users: dict[str, set[str]] = {}
         self._user_symbols: dict[str, set[str]] = {}
+        # Track per-(user_id, symbol) subscription counts to handle duplicate subscriptions
+        self._user_symbol_counts: dict[tuple[str, str], int] = {}
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._time_fn = time_fn or time.time
@@ -100,6 +102,9 @@ class Level2WebSocketService:
             self._symbol_refcounts[symbol] = self._symbol_refcounts.get(symbol, 0) + 1
             self._symbol_users.setdefault(symbol, set()).add(user_id)
             self._user_symbols.setdefault(user_id, set()).add(symbol)
+            # Track per-user per-symbol count for duplicate subscription handling
+            user_symbol_key = (user_id, symbol)
+            self._user_symbol_counts[user_symbol_key] = self._user_symbol_counts.get(user_symbol_key, 0) + 1
 
             # Start streaming loop inside lock to prevent race conditions
             # Also restart if task died unexpectedly (task.done() but _running not yet reset)
@@ -112,23 +117,32 @@ class Level2WebSocketService:
     async def unsubscribe(self, user_id: str, symbol: str) -> None:
         symbol = symbol.upper()
         async with self._lock:
-            # Track if user was actually subscribed to prevent refcount underflow
-            user_was_subscribed = False
+            user_symbol_key = (user_id, symbol)
 
-            if user_id in self._user_symbols:
-                if symbol in self._user_symbols[user_id]:
+            # Check per-user per-symbol count to handle duplicate subscriptions
+            current_count = self._user_symbol_counts.get(user_symbol_key, 0)
+            if current_count <= 0:
+                # No subscription to remove
+                return
+
+            # Decrement per-user per-symbol count
+            new_count = current_count - 1
+            if new_count <= 0:
+                del self._user_symbol_counts[user_symbol_key]
+                # Only remove user from sets when their count reaches 0
+                if user_id in self._user_symbols:
                     self._user_symbols[user_id].discard(symbol)
-                    user_was_subscribed = True
-                if not self._user_symbols[user_id]:
-                    del self._user_symbols[user_id]
+                    if not self._user_symbols[user_id]:
+                        del self._user_symbols[user_id]
+                if symbol in self._symbol_users:
+                    self._symbol_users[symbol].discard(user_id)
+                    if not self._symbol_users[symbol]:
+                        del self._symbol_users[symbol]
+            else:
+                self._user_symbol_counts[user_symbol_key] = new_count
 
-            if symbol in self._symbol_users:
-                self._symbol_users[symbol].discard(user_id)
-                if not self._symbol_users[symbol]:
-                    del self._symbol_users[symbol]
-
-            # Only decrement refcount if user was actually subscribed
-            if user_was_subscribed and symbol in self._symbol_refcounts:
+            # Always decrement symbol refcount for valid unsubscribe
+            if symbol in self._symbol_refcounts:
                 self._symbol_refcounts[symbol] -= 1
                 if self._symbol_refcounts[symbol] <= 0:
                     del self._symbol_refcounts[symbol]
@@ -138,7 +152,9 @@ class Level2WebSocketService:
     async def publish_update(self, symbol: str, payload: dict[str, Any]) -> None:
         """Publish update to all subscribed user channels for symbol."""
         symbol = symbol.upper()
-        users = list(self._symbol_users.get(symbol, set()))
+        # Snapshot users under lock to prevent concurrent modification during iteration
+        async with self._lock:
+            users = list(self._symbol_users.get(symbol, set()))
         if not users:
             return
 
