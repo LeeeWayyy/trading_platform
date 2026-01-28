@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
 import httpx
 from nicegui import ui
 
+from apps.web_console_ng.components.hierarchical_orders import transform_to_hierarchy
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.grid_performance import GridPerformanceMonitor, get_monitor
 from apps.web_console_ng.core.synthetic_id import (
@@ -182,6 +184,137 @@ def create_orders_table() -> ui.aggrid:
     return grid
 
 
+def create_hierarchical_orders_table(expanded_parent_ids: list[str] | None = None) -> ui.aggrid:
+    """Create AG Grid for hierarchical TWAP orders."""
+    column_defs = [
+        {
+            "field": "side",
+            "headerName": "Side",
+            "width": 80,
+            "cellStyle": {
+                "function": "params.value === 'buy' ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
+            },
+        },
+        {"field": "qty", "headerName": "Qty", "width": 80},
+        {
+            "field": "progress",
+            "headerName": "Progress",
+            "width": 140,
+            ":valueGetter": "params => params.data && params.data.is_parent ? params.data.progress : ''",
+        },
+        {"field": "type", "headerName": "Type", "width": 80},
+        {
+            "field": "limit_price",
+            "headerName": "Price",
+            ":valueFormatter": "x => (x.value == null) ? 'MKT' : '$' + Number(x.value).toFixed(2)",
+        },
+        {
+            "field": "status",
+            "headerName": "Status",
+            ":cellRenderer": "window.statusBadgeRenderer",
+            "width": 110,
+        },
+        {
+            "field": "created_at",
+            "headerName": "Time (UTC)",
+            ":valueFormatter": "x => new Date(x.value).toLocaleTimeString('en-US', {timeZone: 'UTC', hour12: false})",
+        },
+        {
+            "field": "actions",
+            "headerName": "",
+            "width": 120,
+            ":cellRenderer": "window.hierarchicalCancelRenderer",
+        },
+    ]
+
+    options = apply_compact_grid_options(
+        {
+            "columnDefs": column_defs,
+            "rowData": [],
+            "domLayout": "autoHeight",
+            "treeData": True,
+            ":getDataPath": "params => params.data.hierarchy_path",
+            "groupDefaultExpanded": 1,
+            "autoGroupColumnDef": {
+                "headerName": "Symbol",
+                "cellRendererParams": {"suppressCount": True},
+                ":valueGetter": "params => params.data ? params.data.symbol : ''",
+                "width": 130,
+            },
+            ":getRowId": "params => params.data.client_order_id",
+            "asyncTransactionWaitMillis": 50,
+            "suppressAnimationFrame": False,
+            "animateRows": True,
+            ":onGridReady": (
+                "params => { window._hierarchicalOrdersGridApi = params.api;"
+                " if (window.GridThrottle) window.GridThrottle.registerAsyncGrid('hierarchical_orders_grid');"
+                " if (window.HierarchicalOrdersGrid) window.HierarchicalOrdersGrid.register(params.api, 'hierarchical_orders_grid');"
+                " if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersExpanded)"
+                " window.HierarchicalOrdersGrid.restoreExpansion(params.api, window._hierarchicalOrdersExpanded); }"
+            ),
+            ":onAsyncTransactionsFlushed": (
+                "params => { if (window.GridThrottle)"
+                " window.GridThrottle.recordTransactionResult(params.api, 'hierarchical_orders_grid', params.results); }"
+            ),
+            ":onRowDataUpdated": (
+                "params => { if (window.GridThrottle)"
+                " window.GridThrottle.recordUpdate(params.api, 'hierarchical_orders_grid');"
+                " if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersExpanded)"
+                " window.HierarchicalOrdersGrid.restoreExpansion(params.api, window._hierarchicalOrdersExpanded); }"
+            ),
+        }
+    )
+    grid = ui.aggrid(options).classes("w-full ag-theme-alpine-dark")
+    apply_compact_grid_classes(grid)
+
+    if expanded_parent_ids is not None:
+        expanded_payload = json.dumps(expanded_parent_ids)
+        ui.run_javascript(
+            f"window._hierarchicalOrdersExpanded = {expanded_payload};"
+            "if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersGridApi)"
+            " window.HierarchicalOrdersGrid.restoreExpansion(window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded);"
+        )
+
+    monitor = GridPerformanceMonitor("hierarchical_orders_grid")
+    monitor.attach_to_grid(grid)
+
+    grid._ready_event = asyncio.Event()  # type: ignore[attr-defined]
+    grid.on("gridReady", lambda _: grid._ready_event.set())  # type: ignore[attr-defined]
+
+    return grid
+
+
+def _prepare_orders_for_grid(
+    orders: list[dict[str, Any]],
+    *,
+    previous_order_ids: set[str] | None,
+    notified_missing_ids: set[str] | None,
+    synthetic_id_map: dict[str, str] | None,
+    synthetic_id_miss_counts: dict[str, int] | None,
+    user_id: str | None,
+    client_id: str | None,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    orders = [order.copy() for order in orders]
+
+    log_context = {
+        "user_id": user_id,
+        "client_id": client_id,
+        "strategy_id": "manual",
+    }
+
+    id_ctx = SyntheticIdContext(
+        synthetic_id_map=synthetic_id_map,
+        previous_order_ids=previous_order_ids,
+        batch_generated_ids=set(),
+    )
+
+    for order in orders:
+        _ensure_order_id(order, log_context, id_ctx, notified_missing_ids, client_id)
+
+    valid_orders = [order for order in orders if order.get("client_order_id")]
+    current_ids = {order["client_order_id"] for order in valid_orders}
+    return valid_orders, current_ids
+
 async def update_orders_table(
     grid: ui.aggrid,
     orders: list[dict[str, Any]],
@@ -220,26 +353,15 @@ async def update_orders_table(
     Returns:
         Set of current order IDs (pass to next update for remove detection)
     """
-    orders = [order.copy() for order in orders]
-
-    log_context = {
-        "user_id": user_id,
-        "client_id": client_id,
-        "strategy_id": "manual",  # Dashboard operations are manual
-    }
-
-    # Context for synthetic ID generation across this batch
-    id_ctx = SyntheticIdContext(
-        synthetic_id_map=synthetic_id_map,
+    valid_orders, current_ids = _prepare_orders_for_grid(
+        orders,
         previous_order_ids=previous_order_ids,
-        batch_generated_ids=set(),
+        notified_missing_ids=notified_missing_ids,
+        synthetic_id_map=synthetic_id_map,
+        synthetic_id_miss_counts=synthetic_id_miss_counts,
+        user_id=user_id,
+        client_id=client_id,
     )
-
-    for order in orders:
-        _ensure_order_id(order, log_context, id_ctx, notified_missing_ids, client_id)
-
-    valid_orders = [order for order in orders if order.get("client_order_id")]
-    current_ids = {order["client_order_id"] for order in valid_orders}
 
     if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():  # type: ignore[attr-defined]
         grid.options["rowData"] = valid_orders
@@ -311,6 +433,112 @@ async def update_orders_table(
                 del synthetic_id_miss_counts[fp]
 
     return current_ids
+
+
+async def update_hierarchical_orders_table(
+    grid: ui.aggrid,
+    orders: list[dict[str, Any]],
+    previous_order_ids: set[str] | None = None,
+    notified_missing_ids: set[str] | None = None,
+    synthetic_id_map: dict[str, str] | None = None,
+    synthetic_id_miss_counts: dict[str, int] | None = None,
+    user_id: str | None = None,
+    client_id: str | None = None,
+    all_orders: list[dict[str, Any]] | None = None,
+) -> tuple[set[str], set[str]]:
+    """Update hierarchical orders grid using tree data rows.
+
+    Returns:
+        (current_order_ids, current_parent_ids)
+    """
+    valid_orders, _ = _prepare_orders_for_grid(
+        orders,
+        previous_order_ids=previous_order_ids,
+        notified_missing_ids=notified_missing_ids,
+        synthetic_id_map=synthetic_id_map,
+        synthetic_id_miss_counts=synthetic_id_miss_counts,
+        user_id=user_id,
+        client_id=client_id,
+    )
+
+    prepared_all_orders: list[dict[str, Any]] | None = None
+    if all_orders is not None:
+        prepared_all_orders, _ = _prepare_orders_for_grid(
+            all_orders,
+            previous_order_ids=previous_order_ids,
+            notified_missing_ids=notified_missing_ids,
+            synthetic_id_map=synthetic_id_map,
+            synthetic_id_miss_counts=synthetic_id_miss_counts,
+            user_id=user_id,
+            client_id=client_id,
+        )
+
+    hierarchy_rows = transform_to_hierarchy(valid_orders, all_orders=prepared_all_orders)
+    current_ids = {row["client_order_id"] for row in hierarchy_rows if row.get("client_order_id")}
+    current_parent_ids = {
+        row["client_order_id"]
+        for row in hierarchy_rows
+        if row.get("is_parent") and row.get("client_order_id")
+    }
+
+    if getattr(grid, "_ready_event", None) is not None and not grid._ready_event.is_set():  # type: ignore[attr-defined]
+        grid.options["rowData"] = hierarchy_rows
+        grid.update()
+        return current_ids, current_parent_ids
+
+    if previous_order_ids is None:
+        grid.run_grid_method("setRowData", hierarchy_rows, timeout=5)
+        return current_ids, current_parent_ids
+
+    added_orders = [o for o in hierarchy_rows if o["client_order_id"] not in previous_order_ids]
+    updated_orders = [o for o in hierarchy_rows if o["client_order_id"] in previous_order_ids]
+    removed_orders = [{"client_order_id": oid} for oid in (previous_order_ids - current_ids)]
+
+    monitor = get_monitor(grid)
+    if monitor:
+        delta_size = len(added_orders) + len(updated_orders) + len(removed_orders)
+        monitor.metrics.record_update(delta_size)
+
+    grid.run_grid_method(
+        "applyTransactionAsync",
+        {"add": added_orders, "update": updated_orders, "remove": removed_orders},
+        timeout=5,
+    )
+
+    if synthetic_id_map is not None:
+        miss_threshold = 3
+
+        for fp, sid in list(synthetic_id_map.items()):
+            if "|_suffix_" in fp:
+                continue
+            if sid not in current_ids:
+                suffix = 1
+                suffix_key = f"{fp}|_suffix_{suffix}"
+                while suffix_key in synthetic_id_map:
+                    suffix_sid = synthetic_id_map[suffix_key]
+                    if suffix_sid in current_ids:
+                        synthetic_id_map[fp] = suffix_sid
+                        del synthetic_id_map[suffix_key]
+                        if synthetic_id_miss_counts is not None:
+                            synthetic_id_miss_counts.pop(fp, None)
+                            synthetic_id_miss_counts.pop(suffix_key, None)
+                        break
+                    suffix += 1
+                    suffix_key = f"{fp}|_suffix_{suffix}"
+
+        for fp, sid in list(synthetic_id_map.items()):
+            if sid not in current_ids:
+                if synthetic_id_miss_counts is not None:
+                    synthetic_id_miss_counts[fp] = synthetic_id_miss_counts.get(fp, 0) + 1
+                    if synthetic_id_miss_counts[fp] >= miss_threshold:
+                        del synthetic_id_map[fp]
+                        del synthetic_id_miss_counts[fp]
+                else:
+                    del synthetic_id_map[fp]
+            elif synthetic_id_miss_counts is not None and fp in synthetic_id_miss_counts:
+                del synthetic_id_miss_counts[fp]
+
+    return current_ids, current_parent_ids
 
 
 async def on_cancel_order(
@@ -422,4 +650,10 @@ async def on_cancel_order(
         ui.notify("Cancel failed: network error - please retry", type="negative")
 
 
-__all__ = ["create_orders_table", "update_orders_table", "on_cancel_order"]
+__all__ = [
+    "create_orders_table",
+    "create_hierarchical_orders_table",
+    "update_orders_table",
+    "update_hierarchical_orders_table",
+    "on_cancel_order",
+]

@@ -52,6 +52,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         ui.add_head_html('<script src="/static/js/grid_throttle.js"></script>')
         ui.add_head_html('<script src="/static/js/cell_flash.js"></script>')
         ui.add_head_html('<script src="/static/js/grid_state_manager.js"></script>')
+        ui.add_head_html('<script src="/static/js/hierarchical_grid.js"></script>')
         ui.add_head_html('<script src="/static/js/hotkey_handler.js"></script>')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/density.css">')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')

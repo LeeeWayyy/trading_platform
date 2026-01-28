@@ -18,10 +18,14 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.metric_card import MetricCard
 from apps.web_console_ng.components.order_entry_context import OrderEntryContext
+from apps.web_console_ng.components.hierarchical_orders import (
+    HierarchicalOrdersState,
+    on_cancel_parent_order,
+)
 from apps.web_console_ng.components.orders_table import (
-    create_orders_table,
+    create_hierarchical_orders_table,
     on_cancel_order,
-    update_orders_table,
+    update_hierarchical_orders_table,
 )
 from apps.web_console_ng.components.positions_grid import (
     create_positions_grid,
@@ -326,6 +330,12 @@ async def dashboard(client: Client) -> None:
     panel_state = TabbedPanelState(user_id=user_id)
     await panel_state.load()
 
+    hierarchical_state = HierarchicalOrdersState(
+        user_id=user_id,
+        panel_id=f"hierarchical_orders.{user_id}",
+    )
+    await hierarchical_state.load()
+
     positions_grid: ui.aggrid | None = None
     orders_table: ui.aggrid | None = None
     fills_grid: ui.aggrid | None = None
@@ -339,7 +349,9 @@ async def dashboard(client: Client) -> None:
 
     def _build_orders_grid() -> ui.aggrid:
         nonlocal orders_table
-        orders_table = create_orders_table()
+        orders_table = create_hierarchical_orders_table(
+            expanded_parent_ids=sorted(hierarchical_state.expanded_parent_ids),
+        )
         return orders_table
 
     def _build_fills_grid() -> ui.aggrid:
@@ -427,11 +439,9 @@ async def dashboard(client: Client) -> None:
         nonlocal order_ids
         if orders_table is None:
             return
-        filtered_orders = filter_working_orders(
-            orders_snapshot, _current_symbol_filter()
-        )
+        filtered_orders = filter_working_orders(orders_snapshot, _current_symbol_filter())
         use_maps = _current_symbol_filter() is None
-        order_ids = await update_orders_table(
+        order_ids, parent_ids = await update_hierarchical_orders_table(
             orders_table,
             filtered_orders,
             order_ids,
@@ -440,7 +450,15 @@ async def dashboard(client: Client) -> None:
             synthetic_id_miss_counts=synthetic_id_miss_counts if use_maps else None,
             user_id=user_id,
             client_id=client_id,
+            all_orders=orders_snapshot,
         )
+        if hierarchical_state.prune(parent_ids):
+            await hierarchical_state.save()
+            ui.run_javascript(
+                f"window._hierarchicalOrdersExpanded = {json.dumps(sorted(hierarchical_state.expanded_parent_ids))};"
+                "if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersGridApi)"
+                " window.HierarchicalOrdersGrid.restoreExpansion(window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded);"
+            )
 
     async def _refresh_fills_grid() -> None:
         if fills_grid is None:
@@ -785,9 +803,36 @@ async def dashboard(client: Client) -> None:
         broker_order_id = str(detail.get("broker_order_id", "")).strip() or None
         await on_cancel_order(order_id, symbol, user_id, user_role, broker_order_id=broker_order_id)
 
+    async def handle_cancel_parent_order(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        parent_order_id = str(detail.get("parent_order_id", "")).strip()
+        symbol = str(detail.get("symbol", "")).strip() or "unknown"
+        children = detail.get("children") or []
+        await on_cancel_parent_order(
+            parent_order_id or None,
+            symbol,
+            list(children) if isinstance(children, list) else [],
+            user_id,
+            user_role,
+        )
+
+    async def handle_hierarchical_expansion(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        expanded_ids = detail.get("expanded_ids") or []
+        if isinstance(expanded_ids, list):
+            hierarchical_state.update_expanded(expanded_ids)
+            await hierarchical_state.save()
+            ui.run_javascript(
+                f"window._hierarchicalOrdersExpanded = {json.dumps(expanded_ids)};"
+                "if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersGridApi)"
+                " window.HierarchicalOrdersGrid.restoreExpansion(window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded);"
+            )
+
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
+    ui.on("cancel_parent_order", handle_cancel_parent_order, args=["detail"])
     ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
+    ui.on("hierarchical_orders_expansion", handle_hierarchical_expansion, args=["detail"])
 
     await realtime.subscribe(position_channel(user_id), on_position_update)
     await realtime.subscribe(kill_switch_channel(), on_kill_switch_update)
