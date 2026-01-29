@@ -144,6 +144,13 @@ class StubDB:
     def get_strategy_map_for_symbols(self, symbols: list[str]) -> dict[str, str | None]:
         return dict.fromkeys(symbols, "s1")
 
+    def get_position_by_symbol(self, symbol: str) -> int:
+        """Return position quantity for symbol (0 if no position)."""
+        for pos in self.positions:
+            if pos.symbol == symbol:
+                return pos.qty
+        return 0
+
     def get_recent_fills(
         self,
         *,

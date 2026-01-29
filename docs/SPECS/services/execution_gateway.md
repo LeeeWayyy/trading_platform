@@ -254,7 +254,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-28 (P6T6 Advanced Orders - TWAP preview, order modification, stop orders)
+- **Last Updated:** 2026-01-28 (P6T6 Advanced Orders - exception handling refinements per review)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`
