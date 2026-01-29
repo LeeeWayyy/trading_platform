@@ -43,7 +43,7 @@ import logging
 import math
 import time
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -626,13 +626,17 @@ def _handle_idempotent_modification_response(
     if not existing:
         return None
 
-    status_value = str(existing.get("status") or "")
+    status_value = str(existing.get("status") or "pending")
+    # Cast to the literal type expected by OrderModifyResponse
+    status_literal: Literal["pending", "completed", "failed", "submitted_unconfirmed"] = (
+        status_value if status_value in ("pending", "completed", "failed", "submitted_unconfirmed") else "pending"  # type: ignore[assignment]
+    )
     idempotent_response = OrderModifyResponse(
         original_client_order_id=existing["original_client_order_id"],
         new_client_order_id=existing["new_client_order_id"],
         modification_id=str(existing["modification_id"]),
         modified_at=existing["modified_at"],
-        status=status_value or "pending",
+        status=status_literal,
         changes=existing.get("changes") or {},
     )
     if status_value == "completed":
@@ -667,7 +671,11 @@ async def _is_strictly_risk_reducing(
 
     try:
         current_qty = ctx.db.get_position_by_symbol(order.symbol)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "risk_reducing_check_position_fetch_failed",
+            extra={"symbol": order.symbol, "error": str(exc), "error_type": type(exc).__name__},
+        )
         return False
 
     old_pending = order.qty if order.side == "buy" else -order.qty
@@ -941,7 +949,7 @@ async def twap_preview(
 
     try:
         tzinfo = ZoneInfo(payload.timezone)
-    except Exception:
+    except ZoneInfoNotFoundError:
         tzinfo = ZoneInfo("UTC")
 
     market_hours_warning = _get_market_hours_warning(first_slice_at, last_slice_at)

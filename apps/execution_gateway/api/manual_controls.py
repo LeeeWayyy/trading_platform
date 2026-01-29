@@ -1849,7 +1849,7 @@ async def submit_manual_order(
                     "max_position_size": max_position_size,
                 },
             )
-    except Exception as exc:
+    except (DatabaseError, OperationalError) as exc:
         logger.warning(
             "manual_order_position_limit_check_failed",
             extra={
