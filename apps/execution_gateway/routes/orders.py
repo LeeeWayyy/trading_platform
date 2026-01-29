@@ -43,9 +43,9 @@ import logging
 import math
 import time
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from decimal import Decimal
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import redis.exceptions
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -71,6 +71,9 @@ from apps.execution_gateway.reconciliation import (
     SOURCE_PRIORITY_MANUAL,
 )
 from apps.execution_gateway.schemas import (
+    TWAP_MIN_SLICE_NOTIONAL,
+    TWAP_MIN_SLICE_QTY,
+    TWAP_MIN_SLICES,
     OrderDetail,
     OrderModificationRecord,
     OrderModifyRequest,
@@ -80,9 +83,6 @@ from apps.execution_gateway.schemas import (
     TWAPPreviewRequest,
     TWAPPreviewResponse,
     TWAPValidationException,
-    TWAP_MIN_SLICE_NOTIONAL,
-    TWAP_MIN_SLICE_QTY,
-    TWAP_MIN_SLICES,
 )
 from apps.execution_gateway.services.order_helpers import resolve_fat_finger_context
 from libs.core.common.api_auth_dependency import (
@@ -92,8 +92,7 @@ from libs.core.common.api_auth_dependency import (
 )
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisKeys
-from libs.platform.web_console_auth.permissions import Permission
-from libs.platform.web_console_auth.permissions import get_authorized_strategies
+from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
 
 logger = logging.getLogger(__name__)
 
@@ -731,7 +730,7 @@ def _validate_modify_position_limits(
     # Use remaining open qty (order.qty - filled_qty) instead of full order.qty
     # because current_position already reflects the filled quantity.
     # For partially filled orders, using full order.qty would double-count fills.
-    filled_qty = order.filled_qty or 0
+    filled_qty = int(order.filled_qty or 0)
     existing_open_qty = order.qty - filled_qty
     proposed_open_qty = payload.qty - filled_qty
 
@@ -881,6 +880,310 @@ async def _validate_modify_fat_finger(
                 else "Modification would breach fat-finger limits"
             ),
         )
+
+
+def _extract_user_id_from_auth(user: Any) -> str:
+    """Extract user_id from auth context (handles both dataclass and dict).
+
+    Args:
+        user: AuthenticatedUser dataclass or dict from tests.
+
+    Returns:
+        User ID string, or "unknown" if not extractable.
+    """
+    if user is None:
+        return "unknown"
+    if hasattr(user, "user_id"):
+        return str(user.user_id)
+    if isinstance(user, dict):
+        return str(user.get("user_id") or "unknown")
+    return "unknown"
+
+
+def _check_order_modification_eligibility(
+    order: OrderDetail,
+) -> None:
+    """Validate that an order is eligible for modification.
+
+    Checks:
+    - Order status is modifiable (pending_new, new, accepted, partially_filled)
+    - Order has broker_order_id (acknowledged by broker)
+    - Order is not TWAP (TWAP orders cannot be modified)
+
+    Args:
+        order: The order to check.
+
+    Raises:
+        HTTPException: If order cannot be modified.
+    """
+    if order.status not in MODIFIABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Order cannot be modified in status '{order.status}'. "
+                f"Only orders in {sorted(MODIFIABLE_STATUSES)} can be modified."
+            ),
+        )
+
+    if order.broker_order_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Order cannot be modified yet - awaiting broker acknowledgment.",
+        )
+
+    if (
+        order.execution_style == "twap"
+        or order.parent_order_id is not None
+        or order.total_slices is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TWAP orders cannot be modified. Cancel and resubmit instead.",
+        )
+
+
+def _acquire_modification_lock(
+    ctx: AppContext,
+    client_order_id: str,
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+    changes: dict[str, tuple[Any, Any]],
+    user_id: str,
+    response: Response | None,
+) -> tuple[str, str]:
+    """Acquire modification lock and insert pending modification record (Phase 1).
+
+    Uses advisory locking to ensure only one modification at a time per order.
+    Handles idempotency via idempotency_key lookup.
+
+    Args:
+        ctx: Application context.
+        client_order_id: Original order's client_order_id.
+        order: The order being modified.
+        payload: Modification request payload.
+        changes: Computed changes dict.
+        user_id: User initiating the modification.
+        response: FastAPI response for setting status codes.
+
+    Returns:
+        Tuple of (modification_id, new_client_order_id).
+
+    Raises:
+        HTTPException: On lock contention or DB errors.
+    """
+    with ctx.db.transaction() as conn:
+        # Double-check idempotency within transaction
+        existing = ctx.db.get_modification_by_idempotency_key(
+            client_order_id, payload.idempotency_key, conn=conn
+        )
+        idempotent_resp = _handle_idempotent_modification_response(existing, response)
+        if idempotent_resp:
+            # Return sentinel values to indicate idempotent response
+            raise _IdempotentModificationException(idempotent_resp)
+
+        try:
+            modification_seq = ctx.db.get_next_modification_seq(client_order_id, conn)
+        except LockNotAvailable:
+            # Another modification in progress - check if it's same idempotency_key
+            existing = ctx.db.get_modification_by_idempotency_key(
+                client_order_id, payload.idempotency_key, conn=conn
+            )
+            idempotent_resp = _handle_idempotent_modification_response(existing, response)
+            if idempotent_resp:
+                raise _IdempotentModificationException(idempotent_resp) from None
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Order modification in progress. Retry with same idempotency_key.",
+            ) from None
+
+        new_client_order_id = _generate_replacement_order_id(
+            client_order_id, modification_seq
+        )
+        modification_id = ctx.db.insert_pending_modification(
+            original_client_order_id=client_order_id,
+            new_client_order_id=new_client_order_id,
+            original_broker_order_id=order.broker_order_id,
+            modification_seq=modification_seq,
+            idempotency_key=payload.idempotency_key,
+            status="pending",
+            modified_by=user_id,
+            reason=payload.reason,
+            changes=changes,
+            conn=conn,
+        )
+
+    return modification_id, new_client_order_id
+
+
+class _IdempotentModificationException(Exception):
+    """Internal exception for idempotent modification responses."""
+
+    def __init__(self, response: OrderModifyResponse) -> None:
+        self.response = response
+        super().__init__("Idempotent modification response")
+
+
+def _call_broker_replace(
+    ctx: AppContext,
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+    new_client_order_id: str,
+    modification_id: str,
+    reservation_token: str | None,
+) -> tuple[str | None, str, dict[str, Any]]:
+    """Execute broker replace call (Phase 2).
+
+    Args:
+        ctx: Application context.
+        order: Original order being modified.
+        payload: Modification request payload.
+        new_client_order_id: Generated client_order_id for replacement.
+        modification_id: DB modification record ID.
+        reservation_token: Position reservation token (if qty increased).
+
+    Returns:
+        Tuple of (broker_order_id, broker_client_order_id, broker_response).
+
+    Raises:
+        HTTPException: On broker errors.
+
+    Note:
+        Caller must verify ctx.alpaca is not None and order.broker_order_id
+        is not None before calling this function.
+    """
+    # These assertions should never fail - caller validates before calling
+    assert ctx.alpaca is not None, "Alpaca client must be initialized"
+    assert order.broker_order_id is not None, "Order must have broker_order_id"
+
+    try:
+        broker_response = ctx.alpaca.replace_order(
+            order.broker_order_id,
+            qty=payload.qty,
+            limit_price=payload.limit_price,
+            stop_price=payload.stop_price,
+            time_in_force=payload.time_in_force,
+            new_client_order_id=new_client_order_id,
+        )
+    except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError) as exc:
+        # Release reservation on failure
+        if reservation_token and ctx.recovery_manager.position_reservation:
+            ctx.recovery_manager.position_reservation.release(order.symbol, reservation_token)
+        ctx.db.update_modification_status(
+            modification_id, status="failed", error_message=str(exc)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
+            if isinstance(exc, AlpacaRejectionError)
+            else status.HTTP_400_BAD_REQUEST
+            if isinstance(exc, AlpacaValidationError)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    broker_order_id = broker_response.get("id")
+    broker_client_order_id = broker_response.get("client_order_id") or new_client_order_id
+
+    # Confirm reservation on success
+    if reservation_token and ctx.recovery_manager.position_reservation:
+        ctx.recovery_manager.position_reservation.confirm(order.symbol, reservation_token)
+
+    if broker_client_order_id != new_client_order_id:
+        logger.warning(
+            "alpaca_replace_client_order_id_mismatch",
+            extra={
+                "client_order_id": order.client_order_id,
+                "expected": new_client_order_id,
+                "actual": broker_client_order_id,
+            },
+        )
+
+    return broker_order_id, broker_client_order_id, broker_response
+
+
+def _finalize_modification_in_db(
+    ctx: AppContext,
+    client_order_id: str,
+    order: OrderDetail,
+    modification_id: str,
+    broker_order_id: str | None,
+    broker_client_order_id: str,
+    broker_response: dict[str, Any],
+    replacement_request: OrderRequest,
+) -> None:
+    """Finalize modification records in database (Phase 3).
+
+    Updates modification record, marks original order as replaced,
+    and inserts the replacement order record.
+
+    Args:
+        ctx: Application context.
+        client_order_id: Original order's client_order_id.
+        order: Original order being modified.
+        modification_id: DB modification record ID.
+        broker_order_id: Broker's order ID for replacement.
+        broker_client_order_id: Broker's client_order_id for replacement.
+        broker_response: Full broker response dict.
+        replacement_request: OrderRequest for the replacement.
+
+    Raises:
+        HTTPException: On DB errors (order is already live at broker).
+    """
+    try:
+        with ctx.db.transaction() as conn:
+            ctx.db.finalize_modification(
+                modification_id,
+                new_broker_order_id=broker_order_id,
+                status="completed",
+                new_client_order_id=broker_client_order_id,
+                conn=conn,
+            )
+            ctx.db.update_order_status_simple_with_conn(client_order_id, "replaced", conn=conn)
+            ctx.db.insert_replacement_order(
+                client_order_id=broker_client_order_id,
+                replaced_order_id=client_order_id,
+                strategy_id=order.strategy_id,
+                order_request=replacement_request,
+                status=broker_response.get("status") or "pending_new",
+                broker_order_id=broker_order_id,
+                conn=conn,
+            )
+    except Exception as exc:
+        logger.error(
+            "Modification finalize failed after broker replacement",
+            extra={
+                "client_order_id": client_order_id,
+                "modification_id": str(modification_id),
+                "broker_order_id": broker_order_id,
+                "broker_client_order_id": broker_client_order_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        try:
+            ctx.db.update_modification_status(
+                modification_id,
+                status="submitted_unconfirmed",
+                error_message=f"db_finalize_failed: {exc}",
+            )
+        except Exception as status_exc:
+            logger.error(
+                "Failed to mark modification as submitted_unconfirmed",
+                extra={
+                    "client_order_id": client_order_id,
+                    "modification_id": str(modification_id),
+                    "error": str(status_exc),
+                    "error_type": type(status_exc).__name__,
+                },
+                exc_info=True,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Order replacement accepted by broker but failed to persist. "
+                "Reconciliation required."
+            ),
+        ) from exc
 
 
 # =============================================================================
@@ -1647,7 +1950,19 @@ async def modify_order(
     config: ExecutionGatewayConfig = Depends(get_config),
     response: Response = None,  # type: ignore[assignment]
 ) -> OrderModifyResponse:
-    """Modify a working order via Alpaca's atomic replace API."""
+    """Modify a working order via Alpaca's atomic replace API.
+
+    This endpoint implements a three-phase modification protocol:
+    1. Acquire lock + insert pending modification record
+    2. Call broker's atomic replace API
+    3. Finalize records (mark original replaced, insert replacement order)
+
+    The protocol ensures:
+    - Idempotency via idempotency_key
+    - No duplicate modifications via advisory locking
+    - Consistent state even if finalization fails (reconciliation can recover)
+    """
+    # --- Validation Phase ---
     order = ctx.db.get_order_by_client_id(client_order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1656,33 +1971,14 @@ async def modify_order(
     if not authorized_strategies or order.strategy_id not in authorized_strategies:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
+    # Idempotency check BEFORE status check to allow retries of completed modifications
+    existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
+    idempotent_resp = _handle_idempotent_modification_response(existing, response)
+    if idempotent_resp:
+        return idempotent_resp
+
     await _check_modify_safety_gates(ctx, order, payload)
-
-    if order.status not in MODIFIABLE_STATUSES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Order cannot be modified in status '{order.status}'. "
-                f"Only orders in {sorted(MODIFIABLE_STATUSES)} can be modified."
-            ),
-        )
-
-    if order.broker_order_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Order cannot be modified yet - awaiting broker acknowledgment.",
-        )
-
-    if (
-        order.execution_style == "twap"
-        or order.parent_order_id is not None
-        or order.total_slices is not None
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="TWAP orders cannot be modified. Cancel and resubmit instead.",
-        )
-
+    _check_order_modification_eligibility(order)
     _validate_modify_fields(order, payload)
 
     if payload.qty is not None and Decimal(str(order.filled_qty or 0)) > Decimal(str(payload.qty)):
@@ -1698,57 +1994,21 @@ async def modify_order(
             detail="No changes detected for modification",
         )
 
-    # Idempotency check BEFORE lock
-    existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
-    idempotent_resp = _handle_idempotent_modification_response(existing, response)
-    if idempotent_resp:
-        return idempotent_resp
-
     _validate_modify_position_limits(order, payload, ctx)
     await _validate_modify_fat_finger(order, payload, ctx, config.fat_finger_max_price_age_seconds)
 
-    # Phase 1: acquire modification sequence + insert pending record
+    # --- Phase 1: Acquire lock + insert pending modification ---
+    user_id = _extract_user_id_from_auth(_auth_context.user)
     try:
-        with ctx.db.transaction() as conn:
-            existing = ctx.db.get_modification_by_idempotency_key(
-                client_order_id, payload.idempotency_key, conn=conn
-            )
-            idempotent_resp = _handle_idempotent_modification_response(existing, response)
-            if idempotent_resp:
-                return idempotent_resp
-
-            try:
-                modification_seq = ctx.db.get_next_modification_seq(client_order_id, conn)
-            except LockNotAvailable:
-                existing = ctx.db.get_modification_by_idempotency_key(
-                    client_order_id, payload.idempotency_key, conn=conn
-                )
-                idempotent_resp = _handle_idempotent_modification_response(existing, response)
-                if idempotent_resp:
-                    return idempotent_resp
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Order modification in progress. Retry with same idempotency_key.",
-                )
-
-            new_client_order_id = _generate_replacement_order_id(
-                client_order_id, modification_seq
-            )
-            modification_id = ctx.db.insert_pending_modification(
-                original_client_order_id=client_order_id,
-                new_client_order_id=new_client_order_id,
-                original_broker_order_id=order.broker_order_id,
-                modification_seq=modification_seq,
-                idempotency_key=payload.idempotency_key,
-                status="pending",
-                modified_by=str(_auth_context.user.get("user_id") or "unknown"),
-                reason=payload.reason,
-                changes=changes,
-                conn=conn,
-            )
+        modification_id, new_client_order_id = _acquire_modification_lock(
+            ctx, client_order_id, order, payload, changes, user_id, response
+        )
+    except _IdempotentModificationException as exc:
+        return exc.response
     except HTTPException:
         raise
 
+    # Check broker availability
     if not ctx.alpaca:
         ctx.db.update_modification_status(
             modification_id, status="failed", error_message="broker_unavailable"
@@ -1758,6 +2018,7 @@ async def modify_order(
             detail="Alpaca client not initialized. Check credentials.",
         )
 
+    # Reserve additional exposure for qty increases
     reservation_token: str | None = None
     try:
         reservation_token = _reserve_modify_delta(order, payload, ctx)
@@ -1767,123 +2028,25 @@ async def modify_order(
         )
         raise
 
-    # Build replacement request
-    effective_qty = payload.qty if payload.qty is not None else order.qty
-    effective_limit = payload.limit_price if payload.limit_price is not None else order.limit_price
-    effective_stop = payload.stop_price if payload.stop_price is not None else order.stop_price
-    effective_tif = (
-        payload.time_in_force if payload.time_in_force is not None else order.time_in_force
+    # Build replacement request for DB record
+    replacement_request = _build_replacement_request(order, payload)
+
+    # --- Phase 2: Call broker replace ---
+    broker_order_id, broker_client_order_id, broker_response = _call_broker_replace(
+        ctx, order, payload, new_client_order_id, modification_id, reservation_token
     )
 
-    replacement_request = OrderRequest(
-        symbol=order.symbol,
-        side=order.side,
-        qty=effective_qty,
-        order_type=order.order_type,
-        limit_price=effective_limit,
-        stop_price=effective_stop,
-        time_in_force=effective_tif,
-        execution_style=order.execution_style or "instant",
+    # --- Phase 3: Finalize records ---
+    _finalize_modification_in_db(
+        ctx,
+        client_order_id,
+        order,
+        modification_id,
+        broker_order_id,
+        broker_client_order_id,
+        broker_response,
+        replacement_request,
     )
-
-    # Phase 2: call broker replace
-    try:
-        broker_response = ctx.alpaca.replace_order(
-            order.broker_order_id,
-            qty=payload.qty,
-            limit_price=payload.limit_price,
-            stop_price=payload.stop_price,
-            time_in_force=payload.time_in_force,
-            new_client_order_id=new_client_order_id,
-        )
-    except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError) as exc:
-        if reservation_token:
-            ctx.recovery_manager.position_reservation.release(order.symbol, reservation_token)
-        ctx.db.update_modification_status(
-            modification_id, status="failed", error_message=str(exc)
-        )
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
-            if isinstance(exc, AlpacaRejectionError)
-            else status.HTTP_400_BAD_REQUEST
-            if isinstance(exc, AlpacaValidationError)
-            else status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-
-    broker_order_id = broker_response.get("id")
-    broker_client_order_id = broker_response.get("client_order_id") or new_client_order_id
-
-    if reservation_token:
-        ctx.recovery_manager.position_reservation.confirm(order.symbol, reservation_token)
-
-    if broker_client_order_id != new_client_order_id:
-        logger.warning(
-            "alpaca_replace_client_order_id_mismatch",
-            extra={
-                "client_order_id": client_order_id,
-                "expected": new_client_order_id,
-                "actual": broker_client_order_id,
-            },
-        )
-
-    # Phase 3: finalize records
-    try:
-        with ctx.db.transaction() as conn:
-            ctx.db.finalize_modification(
-                modification_id,
-                new_broker_order_id=broker_order_id,
-                status="completed",
-                new_client_order_id=broker_client_order_id,
-                conn=conn,
-            )
-            ctx.db.update_order_status_simple_with_conn(client_order_id, "replaced", conn=conn)
-            ctx.db.insert_replacement_order(
-                client_order_id=broker_client_order_id,
-                replaced_order_id=client_order_id,
-                strategy_id=order.strategy_id,
-                order_request=replacement_request,
-                status=broker_response.get("status") or "pending_new",
-                broker_order_id=broker_order_id,
-                conn=conn,
-            )
-    except Exception as exc:
-        logger.error(
-            "Modification finalize failed after broker replacement",
-            extra={
-                "client_order_id": client_order_id,
-                "modification_id": str(modification_id),
-                "broker_order_id": broker_order_id,
-                "broker_client_order_id": broker_client_order_id,
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            },
-            exc_info=True,
-        )
-        try:
-            ctx.db.update_modification_status(
-                modification_id,
-                status="submitted_unconfirmed",
-                error_message=f"db_finalize_failed: {exc}",
-            )
-        except Exception as status_exc:
-            logger.error(
-                "Failed to mark modification as submitted_unconfirmed",
-                extra={
-                    "client_order_id": client_order_id,
-                    "modification_id": str(modification_id),
-                    "error": str(status_exc),
-                    "error_type": type(status_exc).__name__,
-                },
-                exc_info=True,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(
-                "Order replacement accepted by broker but failed to persist. "
-                "Reconciliation required."
-            ),
-        ) from exc
 
     return OrderModifyResponse(
         original_client_order_id=client_order_id,
@@ -1892,6 +2055,35 @@ async def modify_order(
         modified_at=datetime.now(UTC),
         status="completed",
         changes=changes,
+    )
+
+
+def _build_replacement_request(order: OrderDetail, payload: OrderModifyRequest) -> OrderRequest:
+    """Build OrderRequest for the replacement order.
+
+    Args:
+        order: Original order being modified.
+        payload: Modification request payload.
+
+    Returns:
+        OrderRequest with effective values after modification.
+    """
+    effective_qty = payload.qty if payload.qty is not None else order.qty
+    effective_limit = payload.limit_price if payload.limit_price is not None else order.limit_price
+    effective_stop = payload.stop_price if payload.stop_price is not None else order.stop_price
+    effective_tif = (
+        payload.time_in_force if payload.time_in_force is not None else order.time_in_force
+    )
+
+    return OrderRequest(
+        symbol=order.symbol,
+        side=order.side,
+        qty=effective_qty,
+        order_type=order.order_type,
+        limit_price=effective_limit,
+        stop_price=effective_stop,
+        time_in_force=effective_tif,
+        execution_style=order.execution_style or "instant",
     )
 
 

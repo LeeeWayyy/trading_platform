@@ -149,6 +149,6 @@ curl -s -X POST http://localhost:8004/api/v1/subscribe   -H 'Content-Type: appli
 - `../libs/market_data.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-28 (Added ADV endpoint for average daily volume data)
+- **Last Updated:** 2026-01-29 (Type annotation fixes for dependencies)
 - **Source Files:** `apps/market_data_service/main.py`, `apps/market_data_service/config.py`, `apps/market_data_service/position_sync.py`, `apps/market_data_service/schemas.py`, `apps/market_data_service/routes/market_data.py`, `apps/market_data_service/api/dependencies.py`, `libs/market_data`
 - **ADRs:** N/A

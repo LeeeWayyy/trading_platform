@@ -22,12 +22,12 @@ from apps.web_console_ng.components.hierarchical_orders import (
 )
 from apps.web_console_ng.components.metric_card import MetricCard
 from apps.web_console_ng.components.order_entry_context import OrderEntryContext
+from apps.web_console_ng.components.order_modify_dialog import OrderModifyDialog
 from apps.web_console_ng.components.orders_table import (
     create_hierarchical_orders_table,
     on_cancel_order,
     update_hierarchical_orders_table,
 )
-from apps.web_console_ng.components.order_modify_dialog import OrderModifyDialog
 from apps.web_console_ng.components.positions_grid import (
     create_positions_grid,
     on_close_position,

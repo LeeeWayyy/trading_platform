@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
-import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from contextlib import contextmanager
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apps.execution_gateway.app_factory import create_mock_context, create_test_config
 from apps.execution_gateway.dependencies import get_config, get_context
-from apps.execution_gateway.fat_finger_validator import FatFingerBreach, FatFingerThresholds, FatFingerValidator
+from apps.execution_gateway.fat_finger_validator import (
+    FatFingerBreach,
+    FatFingerThresholds,
+    FatFingerValidator,
+)
 from apps.execution_gateway.routes import orders
 from apps.execution_gateway.schemas import OrderDetail
 from libs.core.common.api_auth_dependency import AuthContext

@@ -10,15 +10,15 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from apps.execution_gateway.schemas import (
-    OrderDetail,
-    OrderResponse,
-    Position,
     TWAP_MAX_DURATION_MINUTES,
     TWAP_MAX_INTERVAL_SECONDS,
     TWAP_MIN_DURATION_MINUTES,
     TWAP_MIN_INTERVAL_SECONDS,
     TWAP_MIN_SLICE_QTY,
     TWAP_MIN_SLICES,
+    OrderDetail,
+    OrderResponse,
+    Position,
 )
 
 
@@ -154,7 +154,7 @@ class ManualOrderRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_twap_fields(self) -> "ManualOrderRequest":
+    def validate_twap_fields(self) -> ManualOrderRequest:
         if self.execution_style != "twap":
             return self
 

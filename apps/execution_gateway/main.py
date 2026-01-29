@@ -5,6 +5,7 @@ See ADR-0014 for architecture decisions.
 """
 
 import asyncio
+import json
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -431,13 +432,33 @@ def _build_metrics() -> dict[str, Any]:
 async def request_validation_exception_handler_twap(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    is_twap_preview = request.url.path == "/api/v1/orders/twap-preview"
+    """Handle request validation errors with special formatting for TWAP endpoints.
+
+    TWAP-related requests get a specialized error response format (TWAPPreviewError)
+    for better frontend integration. Detection uses:
+    1. URL path matching for TWAP preview endpoint
+    2. Request body inspection for TWAP execution style
+
+    Note: Body parsing may fail if already consumed or malformed, which is handled
+    gracefully by falling back to standard error format.
+    """
+    # Known TWAP endpoint paths
+    TWAP_PREVIEW_PATH = "/api/v1/orders/twap-preview"
+    TWAP_ORDER_PATH = "/api/v1/orders"
+
+    is_twap_preview = request.url.path == TWAP_PREVIEW_PATH
     is_twap_submit = False
-    if not is_twap_preview:
+
+    # Only attempt body parsing for order submission endpoint
+    if not is_twap_preview and request.url.path == TWAP_ORDER_PATH:
         try:
             body = await request.json()
-            is_twap_submit = body.get("execution_style") == "twap"
-        except Exception:
+            if isinstance(body, dict):
+                is_twap_submit = body.get("execution_style") == "twap"
+        except (json.JSONDecodeError, UnicodeDecodeError, RuntimeError):
+            # JSONDecodeError: malformed JSON
+            # UnicodeDecodeError: binary/non-UTF8 body
+            # RuntimeError: body already consumed (Starlette raises this)
             is_twap_submit = False
 
     if not (is_twap_preview or is_twap_submit):

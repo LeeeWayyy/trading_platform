@@ -200,7 +200,8 @@ def _to_int(value: object) -> int | None:
     if value is None:
         return None
     try:
-        return int(value)
+        # Cast to int after converting to string first for type safety
+        return int(str(value))
     except (TypeError, ValueError):
         return None
 

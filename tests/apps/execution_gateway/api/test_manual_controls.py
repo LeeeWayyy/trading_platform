@@ -7,9 +7,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -20,7 +20,6 @@ from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 from apps.execution_gateway.order_slicer import TWAPSlicer
 from apps.execution_gateway.schemas import FatFingerThresholds, OrderDetail, Position
-from libs.trading.risk_management import RiskConfig
 from libs.platform.web_console_auth.audit_logger import AuditLogger
 from libs.platform.web_console_auth.exceptions import (
     InvalidAudienceError,
@@ -37,6 +36,7 @@ from libs.platform.web_console_auth.exceptions import (
 from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.platform.web_console_auth.permissions import Role
 from libs.platform.web_console_auth.rate_limiter import RateLimiter
+from libs.trading.risk_management import RiskConfig
 
 
 def _err(resp: Any) -> dict[str, Any]:
@@ -1843,7 +1843,8 @@ def test_submit_manual_order_twap_creates_slices(monkeypatch: pytest.MonkeyPatch
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "scheduled"
-    assert data["slice_count"] and data["slice_count"] > 0
+    assert data["slice_count"] is not None
+    assert data["slice_count"] > 0
     assert scheduler.calls
 
 

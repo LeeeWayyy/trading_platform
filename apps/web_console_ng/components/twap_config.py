@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Callable
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from nicegui import ui
@@ -226,7 +227,7 @@ class TWAPConfig:
         try:
             tz = ZoneInfo(timezone_name)
         except Exception:
-            tz = UTC
+            tz = ZoneInfo("UTC")
 
         local_dt = datetime.combine(parsed_date, parsed_time).replace(tzinfo=tz)
         start_time = local_dt.astimezone(UTC)

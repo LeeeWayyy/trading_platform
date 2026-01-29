@@ -67,6 +67,6 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - [../services/market_data_service.md](../services/market_data_service.md) - Market data service
 
 ## Metadata
-- **Last Updated:** 2026-01-28 (Added market_data/provider.py for ADV data)
+- **Last Updated:** 2026-01-29 (Fixed unused import in market_data/provider.py)
 - **Source Files:** `libs/data/` (group index)
 - **ADRs:** N/A

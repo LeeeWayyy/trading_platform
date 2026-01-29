@@ -4,13 +4,12 @@ Tests for ADV endpoint in Market Data Service.
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from libs.data.market_data.exceptions import MarketDataError
-from libs.data.market_data.types import ADVData
 
 
 @pytest.fixture()

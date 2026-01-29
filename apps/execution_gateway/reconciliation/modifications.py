@@ -5,24 +5,28 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from psycopg import IntegrityError
 
 from apps.execution_gateway.schemas import OrderRequest
 
+if TYPE_CHECKING:
+    from apps.execution_gateway.alpaca_client import AlpacaExecutor as AlpacaClient
+    from apps.execution_gateway.database import DatabaseClient
+
 logger = logging.getLogger(__name__)
 
 
 def _apply_change(value: Any, change: Any) -> Any:
-    if isinstance(change, (list, tuple)) and len(change) == 2:
+    if isinstance(change, list | tuple) and len(change) == 2:
         return change[1]
     return value
 
 
 def reconcile_pending_modifications(
-    db_client,
-    alpaca_client,
+    db_client: DatabaseClient,
+    alpaca_client: AlpacaClient,
     *,
     stale_after: timedelta = timedelta(minutes=5),
 ) -> int:
@@ -79,6 +83,11 @@ def reconcile_pending_modifications(
         effective_stop = _apply_change(original.stop_price, changes.get("stop_price"))
         effective_tif = _apply_change(original.time_in_force, changes.get("time_in_force"))
 
+        # Cast time_in_force to Literal type expected by OrderRequest
+        tif_value = str(effective_tif)
+        tif_literal: Literal["day", "gtc", "ioc", "fok"] = (
+            tif_value if tif_value in ("day", "gtc", "ioc", "fok") else "day"  # type: ignore[assignment]
+        )
         replacement_request = OrderRequest(
             symbol=original.symbol,
             side=original.side,
@@ -86,7 +95,7 @@ def reconcile_pending_modifications(
             order_type=original.order_type,
             limit_price=Decimal(str(effective_limit)) if effective_limit is not None else None,
             stop_price=Decimal(str(effective_stop)) if effective_stop is not None else None,
-            time_in_force=str(effective_tif),
+            time_in_force=tif_literal,
             execution_style=original.execution_style or "instant",
         )
 

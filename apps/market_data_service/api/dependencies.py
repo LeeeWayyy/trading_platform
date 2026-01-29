@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 import redis.asyncio as redis_async
 from psycopg_pool import AsyncConnectionPool
@@ -45,7 +46,7 @@ def get_async_redis() -> redis_async.Redis:
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - explicit lru_cache requested for singleton behavior
-def get_sync_redis():
+def get_sync_redis() -> Any:
     """Return sync Redis client (used by JWTManager blacklist)."""
 
     return create_sync_redis(REDIS_CONFIG, decode_responses=True)

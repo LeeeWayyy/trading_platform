@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -13,6 +13,7 @@ import httpx
 from nicegui import Client, app, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.auth.permissions import get_authorized_strategies
 from apps.web_console_ng.components.action_button import ActionButton, ButtonState
 from apps.web_console_ng.components.execution_style_selector import ExecutionStyleSelector
 from apps.web_console_ng.components.fat_finger_validator import (
@@ -30,7 +31,6 @@ from apps.web_console_ng.core.realtime import (
     circuit_breaker_channel,
     kill_switch_channel,
 )
-from apps.web_console_ng.auth.permissions import get_authorized_strategies
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.utils.time import parse_iso_timestamp
 
