@@ -23,6 +23,7 @@ from apps.web_console_ng.components.orders_table import (
     on_cancel_order,
     update_orders_table,
 )
+from apps.web_console_ng.components.order_modify_dialog import OrderModifyDialog
 from apps.web_console_ng.components.positions_grid import (
     create_positions_grid,
     on_close_position,
@@ -332,6 +333,11 @@ async def dashboard(client: Client) -> None:
     synthetic_id_miss_counts: dict[str, int] = {}  # Prevent churn from transient snapshot gaps
     grid_update_lock = asyncio.Lock()
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
+    modify_dialog = OrderModifyDialog(
+        trading_client=trading_client,
+        user_id=user_id,
+        user_role=user_role,
+    )
 
     def _format_event_time(event: dict[str, Any]) -> dict[str, Any]:
         """Ensure activity events include a HH:MM time field."""
@@ -626,8 +632,19 @@ async def dashboard(client: Client) -> None:
         broker_order_id = str(detail.get("broker_order_id", "")).strip() or None
         await on_cancel_order(order_id, symbol, user_id, user_role, broker_order_id=broker_order_id)
 
+    async def handle_modify_order(event: events.GenericEventArguments) -> None:
+        if user_role == "viewer":
+            ui.notify("Viewers cannot modify orders", type="warning")
+            return
+        detail = _extract_event_detail(event.args)
+        if not detail.get("client_order_id"):
+            ui.notify("Cannot modify order: missing client_order_id", type="negative")
+            return
+        modify_dialog.open(detail)
+
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
+    ui.on("modify_order", handle_modify_order, args=["detail"])
     ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
 
     await realtime.subscribe(position_channel(user_id), on_position_update)

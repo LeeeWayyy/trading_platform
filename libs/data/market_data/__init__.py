@@ -28,10 +28,13 @@ from libs.data.market_data.exceptions import (
     MarketDataError,
     SubscriptionError,
 )
-from libs.data.market_data.types import PriceData, QuoteData
+from libs.data.market_data.provider import MarketDataProvider
+from libs.data.market_data.types import ADVData, PriceData, QuoteData
 
 __all__ = [
     "AlpacaMarketDataStream",
+    "MarketDataProvider",
+    "ADVData",
     "PriceData",
     "QuoteData",
     "MarketDataError",

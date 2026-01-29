@@ -78,6 +78,7 @@ _SERVICE_PERMISSION_ALLOWLIST: dict[str, set[Permission]] = {
         Permission.SUBMIT_ORDER,
         Permission.CANCEL_ORDER,
         Permission.VIEW_POSITIONS,
+        Permission.VIEW_MARKET_DATA,
     },
     "signal_service": {
         Permission.GENERATE_SIGNALS,
@@ -85,6 +86,8 @@ _SERVICE_PERMISSION_ALLOWLIST: dict[str, set[Permission]] = {
     "execution_gateway": {
         Permission.SUBMIT_ORDER,
         Permission.CANCEL_ORDER,
+        Permission.MODIFY_ORDER,
+        Permission.VIEW_MARKET_DATA,
     },
 }
 

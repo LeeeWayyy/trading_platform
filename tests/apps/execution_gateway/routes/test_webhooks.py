@@ -97,6 +97,7 @@ class TestOrderWebhooks:
 
     def test_fast_path_updates_status_without_fill(self) -> None:
         mock_db = MagicMock()
+        mock_db.get_order_by_client_id.return_value = None
         mock_db.update_order_status_cas.return_value = MagicMock()
         ctx = create_mock_context(db=mock_db, webhook_secret="secret")
         config = create_test_config(environment="test")
@@ -121,6 +122,35 @@ class TestOrderWebhooks:
         assert response.status_code == 200
         assert response.json() == {"status": "ok", "client_order_id": "order-123"}
         assert mock_db.update_order_status_cas.called
+
+    def test_fast_path_ignores_replaced_order(self) -> None:
+        mock_db = MagicMock()
+        replaced_order = MagicMock()
+        replaced_order.status = "replaced"
+        mock_db.get_order_by_client_id.return_value = replaced_order
+        ctx = create_mock_context(db=mock_db, webhook_secret="secret")
+        config = create_test_config(environment="test")
+        app = _build_app(ctx, config)
+
+        payload = {
+            "event": "new",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "order": {
+                "client_order_id": "order-123",
+                "id": "broker-1",
+                "status": "new",
+                "filled_qty": "0",
+                "filled_avg_price": None,
+                "updated_at": "2025-01-01T00:00:00Z",
+            },
+        }
+
+        client = TestClient(app)
+        response = _signed_request(client, payload, "secret")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "ignored"
+        assert not mock_db.update_order_status_cas.called
 
     def test_fill_updates_position_and_order(self) -> None:
         mock_db = MagicMock()

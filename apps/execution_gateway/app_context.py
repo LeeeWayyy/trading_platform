@@ -94,6 +94,18 @@ class DatabaseClientProtocol(Protocol):
         """Create a TWAP child slice record."""
         ...
 
+    def create_slice_schedule(
+        self,
+        parent_order_id: str,
+        slice_index: int,
+        scheduled_at: datetime,
+        qty: int,
+        status: str = "pending",
+        conn: Any | None = None,
+    ) -> None:
+        """Create a slice schedule record."""
+        ...
+
     def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         """Fetch an order by client_order_id."""
         ...

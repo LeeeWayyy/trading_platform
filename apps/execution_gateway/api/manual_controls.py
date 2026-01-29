@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -33,7 +35,11 @@ from apps.execution_gateway.api.dependencies import (
     get_rate_limiter,
 )
 from apps.execution_gateway.database import DatabaseClient
-from apps.execution_gateway.schemas import OrderRequest, OrderResponse
+from apps.execution_gateway.dependencies import get_context
+from apps.execution_gateway.fat_finger_validator import iter_breach_types
+from apps.execution_gateway.order_id_generator import reconstruct_order_params_hash
+from apps.execution_gateway.services.order_helpers import resolve_fat_finger_context
+from apps.execution_gateway.schemas import OrderRequest, OrderResponse, SliceDetail
 from apps.execution_gateway.schemas_manual_controls import (
     AdjustPositionRequest,
     AdjustPositionResponse,
@@ -46,10 +52,12 @@ from apps.execution_gateway.schemas_manual_controls import (
     FlattenAllRequest,
     FlattenAllResponse,
     ManualOrderRequest,
+    ManualOrderResponse,
     PendingOrdersResponse,
     RecentFillEvent,
     RecentFillsResponse,
 )
+from apps.execution_gateway.app_context import AppContext
 from libs.platform.web_console_auth.audit_logger import AuditLogger
 from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.platform.web_console_auth.permissions import (
@@ -103,12 +111,15 @@ MFA_DEFAULT_ERROR: tuple[int, str, str] = (
 # Circuit breaker Redis key (consistent with libs/risk_management/breaker.py)
 CIRCUIT_BREAKER_STATE_KEY = "circuit_breaker:state"
 REASON_MAX_LEN = 512
+FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT = 30
 
 
 def _sanitize_reason(reason: str) -> str:
     """Sanitize reason strings for audit logs (truncate + strip newlines)."""
-    # Collapse all whitespace (including newlines) into single spaces.
-    cleaned = " ".join(reason.split()).strip()
+    # Replace control characters with spaces, then collapse whitespace.
+    # This preserves word boundaries while stripping unsafe chars.
+    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", reason)
+    cleaned = " ".join(cleaned.split()).strip()
     if len(cleaned) > REASON_MAX_LEN:
         return cleaned[:REASON_MAX_LEN].rstrip()
     return cleaned
@@ -210,6 +221,68 @@ def _parse_circuit_breaker_state(state: bytes | str | None) -> str:
     except (json.JSONDecodeError, TypeError):
         # Fallback: treat raw value as state string (legacy compatibility)
         return state_str.upper()
+
+
+def _get_fat_finger_max_price_age_seconds() -> int:
+    """Return max price age for fat-finger checks (seconds)."""
+    raw = os.getenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS")
+    if raw is None:
+        return FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid FAT_FINGER_MAX_PRICE_AGE_SECONDS=%s; using default=%s",
+            raw,
+            FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT,
+        )
+        return FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    if value <= 0:
+        logger.warning(
+            "FAT_FINGER_MAX_PRICE_AGE_SECONDS must be > 0; using default=%s",
+            FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT,
+        )
+        return FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    return value
+
+
+async def _check_kill_switch(
+    ctx: AppContext,
+    *,
+    user: AuthenticatedUser,
+    action: str,
+    reason: str,
+    audit_logger: AuditLogger,
+) -> None:
+    """Fail-closed if kill switch is engaged or state unavailable."""
+    kill_switch = ctx.recovery_manager.kill_switch
+    if ctx.recovery_manager.is_kill_switch_unavailable() or kill_switch is None:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type="kill_switch",
+            resource_id="state",
+            outcome="failed",
+            details={"reason": reason, "error": "kill_switch_unavailable"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail("kill_switch_unavailable", "Kill switch state unavailable"),
+        )
+
+    if kill_switch.is_engaged():
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action=action,
+            resource_type="kill_switch",
+            resource_id="state",
+            outcome="denied",
+            details={"reason": reason, "state": "ENGAGED"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail("kill_switch_engaged", "Trading blocked: kill switch engaged"),
+        )
 
 
 def _strategy_allowed(user: AuthenticatedUser, strategy_id: str | None) -> bool:
@@ -1635,7 +1708,7 @@ async def flatten_all_positions(
     )
 
 
-@router.post("/manual/orders", response_model=OrderResponse)
+@router.post("/manual/orders", response_model=ManualOrderResponse)
 async def submit_manual_order(
     request: ManualOrderRequest,
     user: AuthenticatedUser = Depends(get_authenticated_user),
@@ -1644,7 +1717,8 @@ async def submit_manual_order(
     audit_logger: AuditLogger = Depends(get_audit_logger),
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
     redis_client: redis_async.Redis | None = Depends(get_async_redis),
-) -> OrderResponse:
+    ctx: AppContext = Depends(get_context),
+) -> ManualOrderResponse:
     """Submit a manual order with manual_controls strategy attribution."""
     await _ensure_permission_with_audit(user, Permission.SUBMIT_ORDER, "manual_order", audit_logger)
     await _enforce_rate_limit(rate_limiter, user.user_id, "manual_order", audit_logger)
@@ -1668,6 +1742,10 @@ async def submit_manual_order(
         limit_price=request.limit_price,
         stop_price=request.stop_price,
         time_in_force=request.time_in_force,
+        execution_style=request.execution_style,
+        twap_duration_minutes=request.twap_duration_minutes,
+        twap_interval_seconds=request.twap_interval_seconds,
+        start_time=request.start_time,
     )
 
     order_id = _generate_manual_order_id(
@@ -1682,6 +1760,14 @@ async def submit_manual_order(
         time_in_force=request.time_in_force,
     )
 
+    await _check_kill_switch(
+        ctx,
+        user=user,
+        action="manual_order",
+        reason=sanitized_reason,
+        audit_logger=audit_logger,
+    )
+
     await _check_circuit_breaker(
         redis_client,
         user=user,
@@ -1689,6 +1775,287 @@ async def submit_manual_order(
         reason=sanitized_reason,
         audit_logger=audit_logger,
     )
+
+    thresholds = ctx.fat_finger_validator.get_effective_thresholds(order_req.symbol)
+    price, adv = await resolve_fat_finger_context(
+        order_req,
+        thresholds,
+        ctx.redis,
+        ctx.liquidity_service,
+        _get_fat_finger_max_price_age_seconds(),
+    )
+    fat_finger_result = ctx.fat_finger_validator.validate(
+        symbol=order_req.symbol,
+        qty=order_req.qty,
+        price=price,
+        adv=adv,
+        thresholds=thresholds,
+    )
+    if fat_finger_result.breached:
+        breach_list = ", ".join(iter_breach_types(fat_finger_result.breaches))
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="denied",
+            details={
+                "reason": sanitized_reason,
+                "symbol": order_req.symbol,
+                "side": order_req.side,
+                "qty": qty_int,
+                "breaches": breach_list,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail(
+                "fat_finger_rejected",
+                (
+                    f"Order rejected by fat-finger checks: {breach_list}"
+                    if breach_list
+                    else "Order rejected by fat-finger checks"
+                ),
+            ),
+        )
+
+    # Manual orders intentionally bypass position reservations to allow
+    # operator override during emergencies. We still log when the resulting
+    # position would exceed configured limits for post-trade review.
+    logger.info(
+        "manual_order_position_reservation_bypassed",
+        extra={
+            "user_id": user.user_id,
+            "symbol": order_req.symbol,
+            "side": order_req.side,
+            "qty": qty_int,
+            "order_type": order_req.order_type,
+        },
+    )
+    try:
+        current_qty = await _db_call(db_client.get_position_by_symbol, order_req.symbol)
+        projected_qty = current_qty + (qty_int if order_req.side == "buy" else -qty_int)
+        max_position_size = ctx.risk_config.position_limits.max_position_size
+        if abs(projected_qty) > max_position_size:
+            logger.warning(
+                "manual_order_position_limit_exceeded",
+                extra={
+                    "user_id": user.user_id,
+                    "symbol": order_req.symbol,
+                    "side": order_req.side,
+                    "qty": qty_int,
+                    "current_qty": current_qty,
+                    "projected_qty": projected_qty,
+                    "max_position_size": max_position_size,
+                },
+            )
+    except Exception as exc:
+        logger.warning(
+            "manual_order_position_limit_check_failed",
+            extra={
+                "user_id": user.user_id,
+                "symbol": order_req.symbol,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+
+    if order_req.execution_style == "twap":
+        if ctx.recovery_manager.slice_scheduler is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=error_detail(
+                    "twap_unavailable",
+                    "TWAP scheduler unavailable; cannot submit TWAP manual order",
+                ),
+            )
+
+        if order_req.start_time is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_detail(
+                    "twap_start_time_unsupported",
+                    "Manual TWAP start_time is not supported yet",
+                ),
+            )
+
+        trade_date = request.requested_at.astimezone(UTC).date()
+        try:
+            plan = ctx.twap_slicer.plan(
+                symbol=order_req.symbol,
+                side=order_req.side,
+                qty=order_req.qty,
+                duration_minutes=order_req.twap_duration_minutes or 0,
+                interval_seconds=order_req.twap_interval_seconds or 0,
+                order_type=order_req.order_type,
+                limit_price=order_req.limit_price,
+                stop_price=order_req.stop_price,
+                time_in_force=order_req.time_in_force,
+                trade_date=trade_date,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=error_detail("twap_validation_error", str(exc)),
+            ) from exc
+
+        parent_strategy_id = (
+            f"{MANUAL_CONTROL_STRATEGY_PREFIX}twap_{user.user_id}_"
+            f"{order_req.twap_duration_minutes}m_{order_req.twap_interval_seconds}s"
+        )
+        parent_order_id = reconstruct_order_params_hash(
+            symbol=order_req.symbol,
+            side=order_req.side,
+            qty=order_req.qty,
+            limit_price=order_req.limit_price,
+            stop_price=order_req.stop_price,
+            order_type=order_req.order_type,
+            time_in_force=order_req.time_in_force,
+            strategy_id=parent_strategy_id,
+            order_date=trade_date,
+        )
+        manual_slices: list[SliceDetail] = []
+        for slice_detail in plan.slices:
+            slice_strategy_id = f"{parent_strategy_id}_slice_{slice_detail.slice_num}"
+            child_order_id = reconstruct_order_params_hash(
+                symbol=order_req.symbol,
+                side=order_req.side,
+                qty=slice_detail.qty,
+                limit_price=order_req.limit_price,
+                stop_price=order_req.stop_price,
+                order_type=order_req.order_type,
+                time_in_force=order_req.time_in_force,
+                strategy_id=slice_strategy_id,
+                order_date=trade_date,
+            )
+            manual_slices.append(
+                SliceDetail(
+                    slice_num=slice_detail.slice_num,
+                    qty=slice_detail.qty,
+                    scheduled_time=slice_detail.scheduled_time,
+                    client_order_id=child_order_id,
+                    strategy_id=slice_strategy_id,
+                    status="pending_new",
+                )
+            )
+
+        try:
+            with ctx.db.transaction() as conn:
+                ctx.db.create_parent_order(
+                    client_order_id=parent_order_id,
+                    strategy_id=parent_strategy_id,
+                    order_request=order_req,
+                    total_slices=plan.total_slices,
+                    status="scheduled",
+                    conn=conn,
+                )
+
+                for slice_detail in manual_slices:
+                    slice_order_request = OrderRequest(
+                        symbol=order_req.symbol,
+                        side=order_req.side,
+                        qty=slice_detail.qty,
+                        order_type=order_req.order_type,
+                        limit_price=order_req.limit_price,
+                        stop_price=order_req.stop_price,
+                        time_in_force=order_req.time_in_force,
+                    )
+                    ctx.db.create_child_slice(
+                        client_order_id=slice_detail.client_order_id,
+                        parent_order_id=parent_order_id,
+                        slice_num=slice_detail.slice_num,
+                        strategy_id=slice_detail.strategy_id,
+                        order_request=slice_order_request,
+                        scheduled_time=slice_detail.scheduled_time,
+                        conn=conn,
+                    )
+                    ctx.db.create_slice_schedule(
+                        parent_order_id=parent_order_id,
+                        slice_index=slice_detail.slice_num,
+                        scheduled_at=slice_detail.scheduled_time,
+                        qty=slice_detail.qty,
+                        status="pending",
+                        conn=conn,
+                    )
+        except IntegrityError:
+            existing = await _db_call(ctx.db.get_order_by_client_id, parent_order_id)
+            if not existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=error_detail("duplicate_order", "Order already submitted"),
+                ) from None
+            slices = await _db_call(ctx.db.get_slices_by_parent_id, parent_order_id)
+            first_slice = min(
+                (s.scheduled_time for s in slices if s.scheduled_time),
+                default=None,
+            )
+            last_slice = max(
+                (s.scheduled_time for s in slices if s.scheduled_time),
+                default=None,
+            )
+            return ManualOrderResponse(
+                client_order_id=existing.client_order_id,
+                status=existing.status,
+                broker_order_id=existing.broker_order_id,
+                symbol=existing.symbol,
+                side=existing.side,
+                qty=existing.qty,
+                order_type=existing.order_type,
+                limit_price=existing.limit_price,
+                stop_price=existing.stop_price,
+                created_at=existing.created_at,
+                message="Order already submitted (idempotent retry)",
+                slice_count=len(slices),
+                first_slice_at=first_slice,
+                last_slice_at=last_slice,
+            )
+
+        ctx.recovery_manager.slice_scheduler.schedule_slices(
+            parent_order_id=parent_order_id,
+            slices=manual_slices,
+            symbol=order_req.symbol,
+            side=order_req.side,
+            order_type=order_req.order_type,
+            limit_price=order_req.limit_price,
+            stop_price=order_req.stop_price,
+            time_in_force=order_req.time_in_force,
+        )
+
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=parent_order_id,
+            outcome="success",
+            details={
+                "symbol": order_req.symbol,
+                "side": order_req.side,
+                "qty": qty_int,
+                "order_type": order_req.order_type,
+                "reason": sanitized_reason,
+                "execution_style": "twap",
+                "total_slices": plan.total_slices,
+            },
+        )
+
+        first_slice_at = manual_slices[0].scheduled_time if manual_slices else None
+        last_slice_at = manual_slices[-1].scheduled_time if manual_slices else None
+        return ManualOrderResponse(
+            client_order_id=parent_order_id,
+            status="scheduled",
+            broker_order_id=None,
+            symbol=order_req.symbol,
+            side=order_req.side,
+            qty=qty_int,
+            order_type=order_req.order_type,
+            limit_price=order_req.limit_price,
+            stop_price=order_req.stop_price,
+            created_at=datetime.now(UTC),
+            message="TWAP order scheduled (manual)",
+            slice_count=len(manual_slices),
+            first_slice_at=first_slice_at,
+            last_slice_at=last_slice_at,
+        )
 
     if alpaca_executor is None:
         # Fail-closed: if DRY_RUN=false but broker unavailable, reject the order
@@ -1738,6 +2105,7 @@ async def submit_manual_order(
                     qty=existing.qty,
                     order_type=existing.order_type,
                     limit_price=existing.limit_price,
+                    stop_price=existing.stop_price,
                     created_at=existing.created_at,
                     message="Order already submitted (idempotent retry)",
                 )
@@ -1769,6 +2137,7 @@ async def submit_manual_order(
             qty=qty_int,
             order_type=order_req.order_type,
             limit_price=order_req.limit_price,
+            stop_price=order_req.stop_price,
             created_at=datetime.now(UTC),
             message="Order logged (manual DRY_RUN)",
         )
@@ -1796,6 +2165,7 @@ async def submit_manual_order(
                     qty=existing.qty,
                     order_type=existing.order_type,
                     limit_price=existing.limit_price,
+                    stop_price=existing.stop_price,
                     created_at=existing.created_at,
                     message="Order already submitted (idempotent retry)",
                 )
@@ -1859,6 +2229,7 @@ async def submit_manual_order(
             qty=qty_int,
             order_type=order_req.order_type,
             limit_price=order_req.limit_price,
+            stop_price=order_req.stop_price,
             created_at=(updated.created_at if updated else order_detail.created_at),
             message="Order submitted (manual)",
         )

@@ -83,7 +83,7 @@ def restore_main_globals():
         def _mock_auth_context() -> AuthContext:
             """Return a mock AuthContext that bypasses authentication for tests."""
             return AuthContext(
-                user=None,
+                user={"role": "admin", "strategies": ["alpha_baseline"], "user_id": "test-user"},
                 internal_claims=None,
                 auth_type="test",
                 is_authenticated=True,
@@ -102,6 +102,7 @@ def restore_main_globals():
         main.app.dependency_overrides[orders_routes.order_submit_auth] = _mock_auth_context
         main.app.dependency_overrides[orders_routes.order_cancel_auth] = _mock_auth_context
         main.app.dependency_overrides[orders_routes.order_read_auth] = _mock_auth_context
+        main.app.dependency_overrides[orders_routes.order_preview_auth] = _mock_auth_context
         main.app.dependency_overrides[slicing_routes.order_slice_auth] = _mock_auth_context
         main.app.dependency_overrides[slicing_routes.order_read_auth] = _mock_auth_context
         main.app.dependency_overrides[slicing_routes.order_cancel_auth] = _mock_auth_context
@@ -114,6 +115,7 @@ def restore_main_globals():
 
         main.app.dependency_overrides[orders_routes.order_submit_rl] = _noop_rate_limit
         main.app.dependency_overrides[orders_routes.order_cancel_rl] = _noop_rate_limit
+        main.app.dependency_overrides[orders_routes.order_preview_rl] = _noop_rate_limit
         main.app.dependency_overrides[slicing_routes.order_slice_rl] = _noop_rate_limit
     except (ImportError, AttributeError):
         # Auth dependencies not available (module stubs in test files)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -63,6 +65,9 @@ class FakeElement:
         self.text = text
 
     def update(self) -> None:
+        self.updated = True
+
+    def clear(self) -> None:
         self.updated = True
 
     def on(self, event: str, handler: Callable[..., Any]) -> None:
@@ -202,6 +207,22 @@ class FakeUI:
         self.elements.append(element)
         return element
 
+    def toggle(self, options: list[str], value: Any = None, **_kwargs: Any) -> FakeElement:
+        element = FakeElement("toggle", value=value)
+        element.options["choices"] = options
+        self.elements.append(element)
+        return element
+
+    def checkbox(self, text: str, value: Any = None, **_kwargs: Any) -> FakeElement:
+        element = FakeElement("checkbox", label=text, value=value)
+        self.elements.append(element)
+        return element
+
+    def date(self, value: Any = None, **_kwargs: Any) -> FakeElement:
+        element = FakeElement("date", value=value)
+        self.elements.append(element)
+        return element
+
     def button(
         self, text: str, on_click: Callable[..., Any] | None = None, **_kwargs: Any
     ) -> FakeElement:
@@ -325,6 +346,46 @@ def bypass_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 def trading_client(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     client = MagicMock()
     client.fetch_kill_switch_status = AsyncMock(return_value={"state": "DISENGAGED"})
+    client.fetch_circuit_breaker_status = AsyncMock(return_value={"state": "OPEN"})
+    client.fetch_market_prices = AsyncMock(return_value=[])
+    client.fetch_fat_finger_thresholds = AsyncMock(
+        return_value={
+            "default_thresholds": {
+                "max_notional": "100000",
+                "max_qty": 10000,
+                "max_adv_pct": "0.05",
+            },
+            "symbol_overrides": {},
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    client.fetch_adv = AsyncMock(
+        return_value={
+            "symbol": "AAPL",
+            "adv": 1000000,
+            "data_date": "2026-01-28",
+            "source": "test",
+            "cached": True,
+            "cached_at": datetime.now(UTC).isoformat(),
+            "stale": False,
+        }
+    )
+    client.fetch_twap_preview = AsyncMock(
+        return_value={
+            "slice_count": 5,
+            "base_slice_qty": 2,
+            "remainder_distribution": [0],
+            "scheduled_times": [],
+            "display_times": [],
+            "first_slice_at": "2026-01-28T14:30:00Z",
+            "last_slice_at": "2026-01-28T15:00:00Z",
+            "estimated_duration_minutes": 30,
+            "market_hours_warning": None,
+            "notional_warning": None,
+            "slice_notional": "500.00",
+            "validation_errors": [],
+        }
+    )
     client.submit_manual_order = AsyncMock(return_value={"client_order_id": "abc1234567890"})
     monkeypatch.setattr(manual_order_module.AsyncTradingClient, "get", lambda: client)
     return client
@@ -341,6 +402,7 @@ def lifecycle(monkeypatch: pytest.MonkeyPatch) -> FakeLifecycleManager:
 def realtime(monkeypatch: pytest.MonkeyPatch) -> type[FakeRealtimeUpdater]:
     monkeypatch.setattr(manual_order_module, "RealtimeUpdater", FakeRealtimeUpdater)
     monkeypatch.setattr(manual_order_module, "kill_switch_channel", lambda: "kill-switch")
+    monkeypatch.setattr(manual_order_module, "circuit_breaker_channel", lambda: "circuit-breaker")
     return FakeRealtimeUpdater
 
 
@@ -419,11 +481,80 @@ async def test_manual_order_order_type_toggle(
     limit_price_containers = [
         e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None
     ]
-    assert limit_price_containers
-    assert limit_price_containers[0].visible is True
+    assert len(limit_price_containers) >= 2
+    limit_container = limit_price_containers[0]
+    stop_container = limit_price_containers[1]
+    assert limit_container.visible is True
+    assert stop_container.visible is False
 
     order_type_select._value_change_cb(FakeEvent("market"))
-    assert limit_price_containers[0].visible is False
+    assert limit_container.visible is False
+    assert stop_container.visible is False
+
+    order_type_select._value_change_cb(FakeEvent("stop"))
+    assert limit_container.visible is False
+    assert stop_container.visible is True
+
+    order_type_select._value_change_cb(FakeEvent("stop_limit"))
+    assert limit_container.visible is True
+    assert stop_container.visible is True
+
+
+@pytest.mark.asyncio()
+async def test_twap_disabled_for_stop_orders(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator", "strategies": ["alpha"]},
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    twap_toggle = _find_element(fake_ui.elements, kind="toggle")
+
+    order_type_select._value_change_cb(FakeEvent("stop"))
+    assert twap_toggle.enabled is False
+    assert twap_toggle.value == "instant"
+
+
+@pytest.mark.asyncio()
+async def test_twap_preview_called_on_param_change(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator", "strategies": ["alpha"]},
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    symbol_input = _find_element(fake_ui.elements, kind="input", label="Symbol")
+    qty_input = _find_element(fake_ui.elements, kind="number", label="Quantity")
+    twap_toggle = _find_element(fake_ui.elements, kind="toggle")
+    duration_input = _find_element(fake_ui.elements, kind="number", label="Duration (min)")
+
+    symbol_input.value = "AAPL"
+    qty_input.value = 10
+    twap_toggle._value_change_cb(FakeEvent("twap"))
+    duration_input._value_change_cb(FakeEvent(45))
+
+    await asyncio.sleep(0.35)
+
+    assert trading_client.fetch_twap_preview.await_count >= 1
 
 
 @pytest.mark.asyncio()
@@ -475,6 +606,91 @@ async def test_manual_order_submit_flow_success(
     assert audit_log_calls
     assert audit_log_calls[-1]["action"] == "manual_order_submitted"
 
+
+@pytest.mark.asyncio()
+async def test_twap_submit_includes_execution_style(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator", "strategies": ["alpha"]},
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    symbol_input = _find_element(fake_ui.elements, kind="input", label="Symbol")
+    qty_input = _find_element(fake_ui.elements, kind="number", label="Quantity")
+    reason_input = _find_element(fake_ui.elements, kind="textarea", label="Reason (required)")
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    side_select = _find_element(fake_ui.elements, kind="select", label="Side")
+    tif_select = _find_element(fake_ui.elements, kind="select", label="Time in Force")
+    twap_toggle = _find_element(fake_ui.elements, kind="toggle")
+    submit_btn = _find_element(fake_ui.elements, kind="button", text="Preview Order")
+
+    symbol_input.value = "AAPL"
+    qty_input.value = 20
+    reason_input.value = "Valid reason for TWAP order"
+    order_type_select.value = "market"
+    side_select.value = "buy"
+    tif_select.value = "day"
+    twap_toggle._value_change_cb(FakeEvent("twap"))
+
+    await submit_btn._click_cb()
+
+    confirm_btn = _find_element(fake_ui.elements, kind="button", text="Confirm")
+    await confirm_btn._click_cb()
+
+    payload = trading_client.submit_manual_order.call_args.args[0]
+    assert payload["execution_style"] == "twap"
+    assert payload["twap_duration_minutes"] == 30
+    assert payload["twap_interval_seconds"] == 60
+
+
+@pytest.mark.asyncio()
+async def test_twap_validation_errors_displayed(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator", "strategies": ["alpha"]},
+    )
+    trading_client.fetch_twap_preview = AsyncMock(
+        return_value={
+            "validation_errors": ["Duration/interval invalid"],
+            "notional_warning": None,
+        }
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    symbol_input = _find_element(fake_ui.elements, kind="input", label="Symbol")
+    qty_input = _find_element(fake_ui.elements, kind="number", label="Quantity")
+    reason_input = _find_element(fake_ui.elements, kind="textarea", label="Reason (required)")
+    twap_toggle = _find_element(fake_ui.elements, kind="toggle")
+    submit_btn = _find_element(fake_ui.elements, kind="button", text="Preview Order")
+
+    symbol_input.value = "AAPL"
+    qty_input.value = 10
+    reason_input.value = "Valid reason for TWAP order"
+    twap_toggle._value_change_cb(FakeEvent("twap"))
+
+    await submit_btn._click_cb()
+
+    assert any(
+        "TWAP parameters invalid" in message for message, _ in fake_ui.notifications
+    )
     assert any("Order submitted:" in message for message, _ in fake_ui.notifications)
     assert symbol_input.value == ""
     assert qty_input.value == 0
@@ -483,6 +699,82 @@ async def test_manual_order_submit_flow_success(
     assert side_select.value == "buy"
     assert tif_select.value == "day"
     assert limit_price_input.value is None
+
+
+@pytest.mark.asyncio()
+async def test_fat_finger_thresholds_fetched_on_load(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator"},
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    trading_client.fetch_fat_finger_thresholds.assert_awaited_once()
+
+
+@pytest.mark.asyncio()
+async def test_manual_order_blocks_on_fat_finger_limits(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator"},
+    )
+    trading_client.fetch_fat_finger_thresholds = AsyncMock(
+        return_value={
+            "default_thresholds": {
+                "max_notional": "100",
+                "max_qty": 5,
+                "max_adv_pct": "0.05",
+            },
+            "symbol_overrides": {},
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    trading_client.fetch_market_prices = AsyncMock(
+        return_value=[
+            {
+                "symbol": "AAPL",
+                "mid": "20",
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        ]
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    symbol_input = _find_element(fake_ui.elements, kind="input", label="Symbol")
+    qty_input = _find_element(fake_ui.elements, kind="number", label="Quantity")
+    reason_input = _find_element(fake_ui.elements, kind="textarea", label="Reason (required)")
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    submit_btn = _find_element(fake_ui.elements, kind="button", text="Preview Order")
+
+    symbol_input.value = "AAPL"
+    qty_input.value = 10
+    reason_input.value = "Valid reason for trade"
+    order_type_select.value = "market"
+
+    await submit_btn._click_cb()
+
+    assert any(
+        "Order blocked by fat-finger limits" in message for message, _ in fake_ui.notifications
+    )
+    trading_client.submit_manual_order.assert_not_called()
 
 
 # ============================================================================
@@ -938,6 +1230,150 @@ async def test_validation_limit_order_zero_price(
     await submit_btn._click_cb()
 
     assert ("Limit price is required for limit orders", "warning") in fake_ui.notifications
+
+
+@pytest.mark.asyncio()
+async def test_stop_order_shows_stop_price_field(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator"},
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    order_type_select._value_change_cb(FakeEvent("stop"))
+
+    containers = [e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None]
+    assert containers
+    assert containers[0].visible is False
+    assert containers[1].visible is True
+
+
+@pytest.mark.asyncio()
+async def test_stop_limit_order_shows_both_price_fields(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator"},
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    order_type_select._value_change_cb(FakeEvent("stop_limit"))
+
+    containers = [e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None]
+    assert containers
+    assert containers[0].visible is True
+    assert containers[1].visible is True
+
+
+@pytest.mark.asyncio()
+async def test_buy_stop_validation_price_above_market(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator"},
+    )
+    trading_client.fetch_market_prices = AsyncMock(
+        return_value=[
+            {"symbol": "AAPL", "mid": "101.00", "timestamp": datetime.now(UTC).isoformat()}
+        ]
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    symbol_input = _find_element(fake_ui.elements, kind="input", label="Symbol")
+    qty_input = _find_element(fake_ui.elements, kind="number", label="Quantity")
+    reason_input = _find_element(fake_ui.elements, kind="textarea", label="Reason (required)")
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    side_select = _find_element(fake_ui.elements, kind="select", label="Side")
+    stop_price_input = _find_element(fake_ui.elements, kind="number", label="Stop Price")
+    submit_btn = _find_element(fake_ui.elements, kind="button", text="Preview Order")
+
+    symbol_input.value = "AAPL"
+    qty_input.value = 10
+    reason_input.value = "Valid reason for trade"
+    order_type_select.value = "stop"
+    side_select.value = "buy"
+    stop_price_input.value = 100
+
+    await submit_btn._click_cb()
+
+    assert (
+        "Stop price must be above current price ($101.00)",
+        "negative",
+    ) in fake_ui.notifications
+    assert not [e for e in fake_ui.elements if e.kind == "button" and e.text == "Confirm"]
+
+
+@pytest.mark.asyncio()
+async def test_sell_stop_validation_price_below_market(
+    fake_ui: FakeUI,
+    trading_client: MagicMock,
+    lifecycle: FakeLifecycleManager,
+    realtime: type[FakeRealtimeUpdater],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        manual_order_module,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "operator"},
+    )
+    trading_client.fetch_market_prices = AsyncMock(
+        return_value=[
+            {"symbol": "AAPL", "mid": "99.00", "timestamp": datetime.now(UTC).isoformat()}
+        ]
+    )
+    client = SimpleNamespace(storage={})
+
+    await _unwrap_page(manual_order_module.manual_order_page)(client)
+
+    symbol_input = _find_element(fake_ui.elements, kind="input", label="Symbol")
+    qty_input = _find_element(fake_ui.elements, kind="number", label="Quantity")
+    reason_input = _find_element(fake_ui.elements, kind="textarea", label="Reason (required)")
+    order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
+    side_select = _find_element(fake_ui.elements, kind="select", label="Side")
+    stop_price_input = _find_element(fake_ui.elements, kind="number", label="Stop Price")
+    submit_btn = _find_element(fake_ui.elements, kind="button", text="Preview Order")
+
+    symbol_input.value = "AAPL"
+    qty_input.value = 10
+    reason_input.value = "Valid reason for trade"
+    order_type_select.value = "stop"
+    side_select.value = "sell"
+    stop_price_input.value = 100
+
+    await submit_btn._click_cb()
+
+    assert (
+        "Stop price must be below current price ($99.00)",
+        "negative",
+    ) in fake_ui.notifications
+    assert not [e for e in fake_ui.elements if e.kind == "button" and e.text == "Confirm"]
 
 
 # ============================================================================

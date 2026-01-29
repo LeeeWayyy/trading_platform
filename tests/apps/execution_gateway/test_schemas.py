@@ -42,6 +42,233 @@ def test_order_request_rejects_non_positive_prices() -> None:
         )
 
 
+def test_order_request_stop_requires_stop_price() -> None:
+    with pytest.raises(ValueError, match="stop_price required"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=1,
+            order_type="stop",
+        )
+
+
+def test_order_request_stop_limit_requires_both_prices() -> None:
+    with pytest.raises(ValueError, match="limit_price required"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=1,
+            order_type="stop_limit",
+            stop_price=Decimal("150"),
+        )
+
+    with pytest.raises(ValueError, match="stop_price required"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=1,
+            order_type="stop_limit",
+            limit_price=Decimal("150"),
+        )
+
+
+def test_order_request_stop_limit_relationship() -> None:
+    with pytest.raises(ValueError, match="limit_price >= stop_price"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=1,
+            order_type="stop_limit",
+            limit_price=Decimal("149"),
+            stop_price=Decimal("150"),
+        )
+
+    with pytest.raises(ValueError, match="limit_price <= stop_price"):
+        OrderRequest(
+            symbol="AAPL",
+            side="sell",
+            qty=1,
+            order_type="stop_limit",
+            limit_price=Decimal("151"),
+            stop_price=Decimal("150"),
+        )
+
+
+def test_order_request_twap_requires_duration_and_interval() -> None:
+    with pytest.raises(ValueError, match="twap_duration_minutes required"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_interval_seconds=60,
+        )
+
+    with pytest.raises(ValueError, match="twap_interval_seconds required"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=10,
+        )
+
+
+def test_order_request_twap_bounds_enforced() -> None:
+    with pytest.raises(ValueError, match="twap_duration_minutes must be between"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=4,
+            twap_interval_seconds=60,
+        )
+
+    with pytest.raises(ValueError, match="twap_duration_minutes must be between"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=500,
+            twap_interval_seconds=60,
+        )
+
+    with pytest.raises(ValueError, match="twap_interval_seconds must be between"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=20,
+        )
+
+    with pytest.raises(ValueError, match="twap_interval_seconds must be between"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=400,
+        )
+
+
+def test_order_request_twap_minimum_slices_required() -> None:
+    with pytest.raises(ValueError, match="TWAP requires at least 2 slices"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=5,
+            twap_interval_seconds=300,
+        )
+
+
+def test_order_request_twap_minimum_slice_quantity_required() -> None:
+    with pytest.raises(ValueError, match="TWAP minimum slice size is 10 shares"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=49,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=5,
+            twap_interval_seconds=60,
+        )
+
+
+def test_order_request_twap_rejects_stop_orders() -> None:
+    with pytest.raises(ValueError, match="TWAP execution not supported for order_type=stop"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="stop",
+            stop_price=Decimal("100"),
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=60,
+        )
+
+    with pytest.raises(ValueError, match="TWAP execution not supported for order_type=stop_limit"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="stop_limit",
+            limit_price=Decimal("100"),
+            stop_price=Decimal("99"),
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=60,
+        )
+
+
+def test_order_request_twap_rejects_ioc_fok_time_in_force() -> None:
+    with pytest.raises(ValueError, match="TWAP execution not supported for time_in_force=ioc"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            time_in_force="ioc",
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=60,
+        )
+
+    with pytest.raises(ValueError, match="TWAP execution not supported for time_in_force=fok"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            time_in_force="fok",
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=60,
+        )
+
+
+def test_order_request_twap_start_time_validation() -> None:
+    past_time = datetime.now(UTC) - timedelta(minutes=2)
+    with pytest.raises(ValueError, match="start_time cannot be in the past"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=60,
+            start_time=past_time,
+        )
+
+    future_time = datetime.now(UTC) + timedelta(days=6)
+    with pytest.raises(ValueError, match="start_time cannot be more than 5 days in the future"):
+        OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            order_type="market",
+            execution_style="twap",
+            twap_duration_minutes=10,
+            twap_interval_seconds=60,
+            start_time=future_time,
+        )
+
+
 def test_slicing_request_enforces_minimum_qty_per_slice() -> None:
     with pytest.raises(ValueError, match="must be >= number of slices"):
         SlicingRequest(

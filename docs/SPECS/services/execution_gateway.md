@@ -42,6 +42,8 @@
 | `/api/v1/orders/pending` | GET | Manual controls | `PendingOrdersResponse` |
 | `/api/v1/orders/recent-fills` | GET | Manual controls | `RecentFillsResponse` |
 | `/api/v1/manual/orders` | POST | `ManualOrderRequest` | `OrderResponse` |
+| `/api/v1/orders/twap-preview` | POST | `TWAPPreviewRequest` | `TWAPPreviewResponse` |
+| `/api/v1/orders/{client_order_id}` | PATCH | `OrderModifyRequest` | `OrderModifyResponse` |
 | `/api/v1/reconciliation/fills-backfill` | POST | `ReconciliationFillsBackfillRequest` | Status JSON |
 | `/metrics` | GET | None | Prometheus metrics |
 

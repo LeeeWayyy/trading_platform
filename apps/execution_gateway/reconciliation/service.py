@@ -29,6 +29,7 @@ from apps.execution_gateway.reconciliation.helpers import (
     extract_broker_client_ids,
     merge_broker_orders,
 )
+from apps.execution_gateway.reconciliation.modifications import reconcile_pending_modifications
 from apps.execution_gateway.reconciliation.orders import (
     backfill_terminal_fills,
     reconcile_known_orders,
@@ -439,6 +440,9 @@ class ReconciliationService:
 
         # 7. Backfill missing fills from DB order data
         backfill_missing_fills_scan(self.db_client)
+
+        # 8. Recover pending modifications (Alpaca replace succeeded but DB finalize failed)
+        reconcile_pending_modifications(self.db_client, self.alpaca_client)
 
         # Update high-water mark
         self.db_client.set_reconciliation_high_water_mark(start_time)
