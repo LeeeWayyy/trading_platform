@@ -153,7 +153,7 @@ class TabbedPanel:
         title = TAB_TITLES.get(tab_name, tab_name.title())
         if tab is None:
             return
-        tab.set_label(format_tab_label(title, count))
+        tab.set_label(format_tab_label(title, count))  # type: ignore[attr-defined]
 
     def get_grid(self, tab_name: str) -> ui.aggrid | None:
         """Get grid instance if created."""
@@ -222,7 +222,7 @@ def create_tabbed_panel(
             )
             ui.element("div").classes("flex-1")
 
-        with ui.tabs(value=state.active_tab).classes("w-full") as tabs:
+        with ui.tabs(value=state.active_tab).classes("w-full") as tabs:  # type: ignore[arg-type]
             tab_positions = ui.tab(name=TAB_POSITIONS, label=TAB_TITLES[TAB_POSITIONS])
             tab_working = ui.tab(name=TAB_WORKING, label=TAB_TITLES[TAB_WORKING])
             tab_fills = ui.tab(name=TAB_FILLS, label=TAB_TITLES[TAB_FILLS])

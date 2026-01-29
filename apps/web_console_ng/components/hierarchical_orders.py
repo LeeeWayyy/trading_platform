@@ -134,6 +134,8 @@ def compute_parent_aggregates(parent: dict[str, Any], children: list[dict[str, A
 def _sort_children(children: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def sort_key(child: dict[str, Any]) -> tuple[int, str]:
         slice_num = child.get("slice_num")
+        if slice_num is None:
+            return (1, str(child.get("client_order_id") or ""))
         try:
             return (0, f"{int(slice_num):06d}")
         except (TypeError, ValueError):

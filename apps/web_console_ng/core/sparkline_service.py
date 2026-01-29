@@ -77,6 +77,8 @@ class SparklineDataService:
             if not symbol:
                 continue
             pnl_raw = position.get("unrealized_pl")
+            if pnl_raw is None:
+                continue
             try:
                 pnl_value = float(pnl_raw)
             except (TypeError, ValueError):
@@ -145,7 +147,7 @@ class SparklineDataService:
 
         results: dict[str, list[float]] = {}
         for symbol, data in zip(valid_symbols, data_list, strict=False):
-            if isinstance(data, Exception):
+            if isinstance(data, BaseException):
                 logger.warning(
                     "sparkline_parallel_fetch_failed",
                     extra={"user_id": user_id, "symbol": symbol, "error": type(data).__name__},

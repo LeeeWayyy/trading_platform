@@ -74,7 +74,7 @@ class FakeRedis:
         self.expirations[key] = ttl
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_record_point_rate_limit() -> None:
     fake = FakeRedis()
     t = 120
@@ -90,7 +90,7 @@ async def test_record_point_rate_limit() -> None:
     assert data == [1.0]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_record_point_trims_oldest() -> None:
     fake = FakeRedis()
     t = 0
@@ -108,7 +108,7 @@ async def test_record_point_trims_oldest() -> None:
     assert data == [2.0, 3.0, 4.0]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_parse_members_handles_bad_values() -> None:
     members: list[Any] = ["10:1.2", "11:bad", "12:3.4"]
     assert SparklineDataService._parse_members(members) == [1.2, 3.4]

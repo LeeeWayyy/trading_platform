@@ -23,7 +23,7 @@ class FakeRedisStore:
         return self._redis
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_symbol_cap_enforced() -> None:
     service = Level2WebSocketService(max_symbols=1, mock_mode=True)
     service._running = True
@@ -35,7 +35,7 @@ async def test_symbol_cap_enforced() -> None:
     assert denied is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_publish_update_fans_out_to_users() -> None:
     fake = FakeRedis()
     service = Level2WebSocketService(max_symbols=30, mock_mode=True)

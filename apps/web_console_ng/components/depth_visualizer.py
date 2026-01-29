@@ -125,9 +125,13 @@ class DOMDataProcessor:
         for entry in raw:
             if not isinstance(entry, dict):
                 continue
+            price_raw = entry.get("p")
+            size_raw = entry.get("s")
+            if price_raw is None or size_raw is None:
+                continue
             try:
-                price = float(entry.get("p"))
-                size = float(entry.get("s"))
+                price = float(price_raw)
+                size = float(size_raw)
             except (TypeError, ValueError):
                 continue
             if price <= 0 or size <= 0:

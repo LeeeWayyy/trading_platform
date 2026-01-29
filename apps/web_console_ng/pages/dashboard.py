@@ -349,6 +349,10 @@ async def dashboard(client: Client) -> None:
     history_grid: ui.aggrid | None = None
     tabbed_panel: TabbedPanel | None = None
 
+    # Declare variables used in filter change handler (must be before function definition)
+    position_symbols: set[str] | None = None
+    order_ids: set[str] | None = None
+
     def _build_positions_grid() -> ui.aggrid:
         nonlocal positions_grid
         positions_grid = create_positions_grid()
@@ -399,8 +403,6 @@ async def dashboard(client: Client) -> None:
             last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
             activity_feed = ActivityFeed()
 
-    position_symbols: set[str] | None = None
-    order_ids: set[str] | None = None
     notified_missing_ids: set[str] = set()
     notified_malformed: set[int] = set()  # Dedupe malformed position notifications
     notified_filter_restores: set[str] = set()  # Dedupe filter restore toasts per grid

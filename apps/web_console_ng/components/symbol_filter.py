@@ -30,8 +30,10 @@ def build_symbol_options(symbols: list[str] | None) -> list[str]:
     """Build symbol options including the All entry."""
     options: list[str] = [ALL_SYMBOL_LABEL]
     if symbols:
-        normalized = sorted({normalize_symbol(symbol) for symbol in symbols if symbol})
-        options.extend([symbol for symbol in normalized if symbol])
+        # Filter out None values before sorting to satisfy type checker
+        normalized_set = {normalize_symbol(symbol) for symbol in symbols if symbol}
+        valid_symbols = [s for s in normalized_set if s is not None]
+        options.extend(sorted(valid_symbols))
     return options
 
 
