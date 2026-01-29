@@ -614,6 +614,39 @@ def _validate_modify_fields(order: OrderDetail, payload: OrderModifyRequest) -> 
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="; ".join(errors))
 
 
+def _handle_idempotent_modification_response(
+    existing: dict[str, Any] | None,
+    response: Response | None,
+) -> OrderModifyResponse | None:
+    """Handle idempotent responses for existing modifications.
+
+    Returns OrderModifyResponse if existing record found (for completed/pending),
+    raises HTTPException for failed records, or returns None if no existing record.
+    """
+    if not existing:
+        return None
+
+    status_value = str(existing.get("status") or "")
+    idempotent_response = OrderModifyResponse(
+        original_client_order_id=existing["original_client_order_id"],
+        new_client_order_id=existing["new_client_order_id"],
+        modification_id=str(existing["modification_id"]),
+        modified_at=existing["modified_at"],
+        status=status_value or "pending",
+        changes=existing.get("changes") or {},
+    )
+    if status_value == "completed":
+        return idempotent_response
+    if status_value == "pending":
+        if response is not None:
+            response.status_code = status.HTTP_202_ACCEPTED
+        return idempotent_response
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=existing.get("error_message") or "Previous modification failed",
+    )
+
+
 async def _is_strictly_risk_reducing(
     order: OrderDetail,
     payload: OrderModifyRequest,
@@ -686,9 +719,19 @@ def _validate_modify_position_limits(
 
     max_position_size = ctx.risk_config.position_limits.max_position_size
     current_position = ctx.db.get_position_by_symbol(order.symbol)
-    existing_projected = current_position + (order.qty if order.side == "buy" else -order.qty)
+
+    # Use remaining open qty (order.qty - filled_qty) instead of full order.qty
+    # because current_position already reflects the filled quantity.
+    # For partially filled orders, using full order.qty would double-count fills.
+    filled_qty = order.filled_qty or 0
+    existing_open_qty = order.qty - filled_qty
+    proposed_open_qty = payload.qty - filled_qty
+
+    existing_projected = current_position + (
+        existing_open_qty if order.side == "buy" else -existing_open_qty
+    )
     proposed_projected = current_position + (
-        payload.qty if order.side == "buy" else -payload.qty
+        proposed_open_qty if order.side == "buy" else -proposed_open_qty
     )
 
     if abs(proposed_projected) > max_position_size:
@@ -1649,26 +1692,9 @@ async def modify_order(
 
     # Idempotency check BEFORE lock
     existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
-    if existing:
-        status_value = str(existing.get("status") or "")
-        idempotent_response = OrderModifyResponse(
-            original_client_order_id=existing["original_client_order_id"],
-            new_client_order_id=existing["new_client_order_id"],
-            modification_id=str(existing["modification_id"]),
-            modified_at=existing["modified_at"],
-            status=status_value or "pending",
-            changes=existing.get("changes") or {},
-        )
-        if status_value == "completed":
-            return idempotent_response
-        if status_value == "pending":
-            if response is not None:
-                response.status_code = status.HTTP_202_ACCEPTED
-            return idempotent_response
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=existing.get("error_message") or "Previous modification failed",
-        )
+    idempotent_resp = _handle_idempotent_modification_response(existing, response)
+    if idempotent_resp:
+        return idempotent_resp
 
     _validate_modify_position_limits(order, payload, ctx)
     await _validate_modify_fat_finger(order, payload, ctx, config.fat_finger_max_price_age_seconds)
@@ -1679,52 +1705,19 @@ async def modify_order(
             existing = ctx.db.get_modification_by_idempotency_key(
                 client_order_id, payload.idempotency_key, conn=conn
             )
-            if existing:
-                status_value = str(existing.get("status") or "")
-                idempotent_response = OrderModifyResponse(
-                    original_client_order_id=existing["original_client_order_id"],
-                    new_client_order_id=existing["new_client_order_id"],
-                    modification_id=str(existing["modification_id"]),
-                    modified_at=existing["modified_at"],
-                    status=status_value or "pending",
-                    changes=existing.get("changes") or {},
-                )
-                if status_value == "completed":
-                    return idempotent_response
-                if status_value == "pending":
-                    if response is not None:
-                        response.status_code = status.HTTP_202_ACCEPTED
-                    return idempotent_response
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=existing.get("error_message") or "Previous modification failed",
-                )
+            idempotent_resp = _handle_idempotent_modification_response(existing, response)
+            if idempotent_resp:
+                return idempotent_resp
+
             try:
                 modification_seq = ctx.db.get_next_modification_seq(client_order_id, conn)
             except LockNotAvailable:
                 existing = ctx.db.get_modification_by_idempotency_key(
                     client_order_id, payload.idempotency_key, conn=conn
                 )
-                if existing:
-                    status_value = str(existing.get("status") or "")
-                    idempotent_response = OrderModifyResponse(
-                        original_client_order_id=existing["original_client_order_id"],
-                        new_client_order_id=existing["new_client_order_id"],
-                        modification_id=str(existing["modification_id"]),
-                        modified_at=existing["modified_at"],
-                        status=status_value or "pending",
-                        changes=existing.get("changes") or {},
-                    )
-                    if status_value == "completed":
-                        return idempotent_response
-                    if status_value == "pending":
-                        if response is not None:
-                            response.status_code = status.HTTP_202_ACCEPTED
-                        return idempotent_response
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=existing.get("error_message") or "Previous modification failed",
-                    )
+                idempotent_resp = _handle_idempotent_modification_response(existing, response)
+                if idempotent_resp:
+                    return idempotent_resp
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Order modification in progress. Retry with same idempotency_key.",

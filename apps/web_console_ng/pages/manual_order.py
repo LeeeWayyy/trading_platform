@@ -169,7 +169,7 @@ async def manual_order_page(client: Client) -> None:
         stop_price_container.set_visibility(False)
 
         twap_config = TWAPConfig(
-            on_change=_schedule_twap_preview,
+            on_change=lambda: _schedule_twap_preview(),
             on_ack_change=lambda acknowledged: _set_twap_acknowledged(acknowledged),
         )
         twap_config.create().classes("w-full mb-2")

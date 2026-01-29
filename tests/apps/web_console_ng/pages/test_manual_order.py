@@ -167,6 +167,106 @@ class FakeActionButton:
                 self._element.enable()
 
 
+class FakeExecutionStyleSelector:
+    """Fake ExecutionStyleSelector for testing without NiceGUI slot context."""
+
+    _fake_ui: FakeUI | None = None
+
+    def __init__(self, on_change: Callable[[str], None] | None = None) -> None:
+        self.on_change = on_change
+        self._element: FakeElement | None = None
+        self._value = "instant"
+        self._disabled = False
+
+    def value(self) -> str:
+        """Return the current execution style value."""
+        return self._value
+
+    def create(self) -> FakeElement:
+        """Create a fake toggle element."""
+        self._element = FakeElement("toggle", value=self._value)
+        self._element.options["choices"] = ["instant", "twap"]
+        if FakeExecutionStyleSelector._fake_ui is not None:
+            FakeExecutionStyleSelector._fake_ui.elements.append(self._element)
+        return self._element
+
+    def set_disabled(self, disabled: bool, reason: str | None = None) -> None:
+        """Enable/disable selector with optional reason."""
+        self._disabled = disabled
+        if disabled:
+            self._value = "instant"
+            if self._element:
+                self._element.enabled = False
+                self._element.value = "instant"
+        else:
+            if self._element:
+                self._element.enabled = True
+
+    def set_value(self, value: str) -> None:
+        """Update selector value."""
+        self._value = value
+        if self._element:
+            self._element.value = value
+
+
+class FakeTWAPConfig:
+    """Fake TWAPConfig for testing without NiceGUI slot context."""
+
+    _fake_ui: FakeUI | None = None
+
+    def __init__(
+        self,
+        *,
+        on_change: Callable[[], None],
+        on_ack_change: Callable[[bool], None],
+    ) -> None:
+        self._on_change = on_change
+        self._on_ack_change = on_ack_change
+        self._element: FakeElement | None = None
+        self._duration_minutes = 30
+        self._interval_seconds = 60
+
+    @property
+    def duration_minutes(self) -> int | None:
+        return self._duration_minutes
+
+    @property
+    def interval_seconds(self) -> int | None:
+        return self._interval_seconds
+
+    def get_state(self) -> Any:
+        from apps.web_console_ng.components.twap_config import TWAPConfigState
+
+        return TWAPConfigState(
+            duration_minutes=self._duration_minutes,
+            interval_seconds=self._interval_seconds,
+            start_time=None,
+            start_time_error=None,
+            notional_acknowledged=False,
+            start_time_enabled=False,
+        )
+
+    def create(self) -> FakeElement:
+        """Create a fake config element."""
+        self._element = FakeElement("card")
+        if FakeTWAPConfig._fake_ui is not None:
+            FakeTWAPConfig._fake_ui.elements.append(self._element)
+        return self._element
+
+    def set_visibility(self, visible: bool) -> None:
+        if self._element:
+            self._element.set_visibility(visible)
+
+    def set_preview_data(self, preview: dict[str, Any]) -> None:
+        pass
+
+    def set_preview_errors(self, errors: list[str]) -> None:
+        pass
+
+    def set_notional_warning(self, warning: str | None, acknowledged: bool = False) -> None:
+        pass
+
+
 class FakeUI:
     def __init__(self) -> None:
         self.elements: list[FakeElement] = []
@@ -328,6 +428,12 @@ def fake_ui(monkeypatch: pytest.MonkeyPatch) -> FakeUI:
     # Set class-level reference so FakeActionButton.create() can add elements to ui.elements
     FakeActionButton._fake_ui = ui
     monkeypatch.setattr(manual_order_module, "ActionButton", FakeActionButton)
+    # Mock ExecutionStyleSelector to avoid NiceGUI slot context issues
+    FakeExecutionStyleSelector._fake_ui = ui
+    monkeypatch.setattr(manual_order_module, "ExecutionStyleSelector", FakeExecutionStyleSelector)
+    # Mock TWAPConfig to avoid NiceGUI slot context issues
+    FakeTWAPConfig._fake_ui = ui
+    monkeypatch.setattr(manual_order_module, "TWAPConfig", FakeTWAPConfig)
     return ui
 
 
