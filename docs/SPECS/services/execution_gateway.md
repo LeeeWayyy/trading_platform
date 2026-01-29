@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-29 - Added broker availability check for TWAP orders, extracted IntegrityError helper, added idempotent handling for submitted_unconfirmed status -->
+<!-- Last reviewed: 2026-01-29 - Extracted _format_alpaca_order helper for DRY response formatting, improved type safety in modification status handling -->
 
 ## Identity
 - **Type:** Service

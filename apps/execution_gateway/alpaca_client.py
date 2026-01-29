@@ -151,6 +151,41 @@ class AlpacaExecutor:
 
         logger.info(f"Initialized Alpaca client (paper={paper}, base_url={base_url})")
 
+    def _format_alpaca_order(self, alpaca_order: Any) -> dict[str, Any]:
+        """Convert Alpaca Order object to dictionary with Decimal precision.
+
+        Centralizes order response formatting to ensure consistency between
+        submit_order and replace_order responses.
+
+        Args:
+            alpaca_order: Alpaca Order object from API response.
+
+        Returns:
+            Dictionary with order details, using Decimal for financial values.
+        """
+        return {
+            "id": str(alpaca_order.id),
+            "client_order_id": alpaca_order.client_order_id,
+            "symbol": alpaca_order.symbol,
+            "side": alpaca_order.side.value if alpaca_order.side is not None else None,
+            "qty": Decimal(str(alpaca_order.qty or 0)),
+            "order_type": (
+                alpaca_order.order_type.value if alpaca_order.order_type is not None else None
+            ),
+            "status": alpaca_order.status.value if alpaca_order.status is not None else None,
+            "created_at": alpaca_order.created_at,
+            "limit_price": (
+                Decimal(str(alpaca_order.limit_price))
+                if alpaca_order.limit_price is not None
+                else None
+            ),
+            "stop_price": (
+                Decimal(str(alpaca_order.stop_price))
+                if alpaca_order.stop_price is not None
+                else None
+            ),
+        }
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -209,30 +244,8 @@ class AlpacaExecutor:
                     f"Expected Order object."
                 )
 
-            # H1 Fix: Convert to dict with Decimal for financial precision
-            # Using Decimal(str(x)) pattern to avoid float precision issues
-            order_dict = {
-                "id": str(alpaca_order.id),
-                "client_order_id": alpaca_order.client_order_id,
-                "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value if alpaca_order.side is not None else None,
-                "qty": Decimal(str(alpaca_order.qty or 0)),  # H1: Decimal for precision
-                "order_type": (
-                    alpaca_order.order_type.value if alpaca_order.order_type is not None else None
-                ),
-                "status": alpaca_order.status.value if alpaca_order.status is not None else None,
-                "created_at": alpaca_order.created_at,
-                "limit_price": (
-                    Decimal(str(alpaca_order.limit_price))
-                    if alpaca_order.limit_price is not None
-                    else None
-                ),
-                "stop_price": (
-                    Decimal(str(alpaca_order.stop_price))
-                    if alpaca_order.stop_price is not None
-                    else None
-                ),
-            }
+            # Convert to dict with Decimal for financial precision
+            order_dict = self._format_alpaca_order(alpaca_order)
 
             logger.info(
                 f"Order submitted successfully: broker_id={order_dict['id']}, "
@@ -491,28 +504,7 @@ class AlpacaExecutor:
                     f"Expected Order object."
                 )
 
-            return {
-                "id": str(alpaca_order.id),
-                "client_order_id": alpaca_order.client_order_id,
-                "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value if alpaca_order.side is not None else None,
-                "qty": Decimal(str(alpaca_order.qty or 0)),
-                "order_type": (
-                    alpaca_order.order_type.value if alpaca_order.order_type is not None else None
-                ),
-                "status": alpaca_order.status.value if alpaca_order.status is not None else None,
-                "created_at": alpaca_order.created_at,
-                "limit_price": (
-                    Decimal(str(alpaca_order.limit_price))
-                    if alpaca_order.limit_price is not None
-                    else None
-                ),
-                "stop_price": (
-                    Decimal(str(alpaca_order.stop_price))
-                    if alpaca_order.stop_price is not None
-                    else None
-                ),
-            }
+            return self._format_alpaca_order(alpaca_order)
 
         except AlpacaAPIError as e:
             status_code = getattr(e, "status_code", None)

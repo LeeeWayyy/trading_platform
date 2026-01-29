@@ -634,11 +634,12 @@ def _handle_idempotent_modification_response(
         return None
 
     status_value = str(existing.get("status") or "pending")
-    # Validate and cast status to expected literal type
-    if status_value not in _MODIFICATION_STATUSES:
-        status_value = "pending"
+    # Validate status against known values and provide type-safe default
+    _VALID_STATUSES: set[Literal["pending", "completed", "failed", "submitted_unconfirmed"]] = {
+        "pending", "completed", "failed", "submitted_unconfirmed"
+    }
     status_literal: Literal["pending", "completed", "failed", "submitted_unconfirmed"] = (
-        status_value  # type: ignore[assignment]
+        status_value if status_value in _VALID_STATUSES else "pending"  # type: ignore[assignment]
     )
     idempotent_response = OrderModifyResponse(
         original_client_order_id=existing["original_client_order_id"],
