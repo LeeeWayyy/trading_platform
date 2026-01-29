@@ -4,7 +4,7 @@ Market Data Type Definitions
 Pydantic models for type-safe market data handling.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -81,6 +81,19 @@ class PriceData(BaseModel):
             timestamp=quote.timestamp.isoformat(),
             exchange=quote.exchange,
         )
+
+
+class ADVData(BaseModel):
+    """
+    Average Daily Volume (ADV) data for a symbol.
+
+    Represents 20-day average daily volume in shares.
+    """
+
+    symbol: str = Field(..., description="Stock symbol")
+    adv: int = Field(..., description="20-day average daily volume in shares", ge=0)
+    data_date: date = Field(..., description="Date of the ADV calculation")
+    source: str = Field(..., description="Data provider (e.g., 'alpaca')")
 
 
 class PriceUpdateEvent(BaseModel):

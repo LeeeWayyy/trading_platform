@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from apps.market_data_service.config import settings
 from apps.market_data_service.position_sync import PositionBasedSubscription
+from apps.market_data_service.routes.market_data import router as market_data_router
 from libs.core.redis_client import EventPublisher, RedisClient
 from libs.data.market_data import AlpacaMarketDataStream, SubscriptionError
 
@@ -200,6 +201,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Routes
+app.include_router(market_data_router)
 
 
 # ============================================================================

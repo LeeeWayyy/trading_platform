@@ -441,10 +441,13 @@ class TestRunReconciliation:
                             with patch(
                                 "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
                             ) as mock_scan:
-                                # Mock _backfill_alpaca_fills to avoid complexity
-                                service._backfill_alpaca_fills = Mock(return_value={})
+                                with patch(
+                                    "apps.execution_gateway.reconciliation.service.reconcile_pending_modifications"
+                                ) as mock_mods:
+                                    # Mock _backfill_alpaca_fills to avoid complexity
+                                    service._backfill_alpaca_fills = Mock(return_value={})
 
-                                result = service._run_reconciliation("startup")
+                                    result = service._run_reconciliation("startup")
 
         assert result["status"] == "success"
         assert result["mode"] == "startup"
@@ -454,6 +457,7 @@ class TestRunReconciliation:
         mock_terminal.assert_called_once()
         mock_positions.assert_called_once()
         mock_scan.assert_called_once()
+        mock_mods.assert_called_once()
         mock_db_client.set_reconciliation_high_water_mark.assert_called_once()
 
     def test_with_last_check_time(self, mock_db_client, mock_alpaca_client):
@@ -479,9 +483,12 @@ class TestRunReconciliation:
                             with patch(
                                 "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
                             ):
-                                service._backfill_alpaca_fills = Mock(return_value={})
+                                with patch(
+                                    "apps.execution_gateway.reconciliation.service.reconcile_pending_modifications"
+                                ):
+                                    service._backfill_alpaca_fills = Mock(return_value={})
 
-                                result = service._run_reconciliation("periodic")
+                                    result = service._run_reconciliation("periodic")
 
         # Should call get_orders twice (open and recent)
         assert mock_alpaca_client.get_orders.call_count == 2
@@ -510,8 +517,11 @@ class TestRunReconciliation:
                             with patch(
                                 "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
                             ):
-                                # Should not raise, just log warning
-                                result = service._run_reconciliation("test")
+                                with patch(
+                                    "apps.execution_gateway.reconciliation.service.reconcile_pending_modifications"
+                                ):
+                                    # Should not raise, just log warning
+                                    result = service._run_reconciliation("test")
 
         assert result["status"] == "success"
 
@@ -540,9 +550,12 @@ class TestRunReconciliation:
                             with patch(
                                 "apps.execution_gateway.reconciliation.service.backfill_missing_fills_scan"
                             ):
-                                service._backfill_alpaca_fills = Mock(return_value={})
+                                with patch(
+                                    "apps.execution_gateway.reconciliation.service.reconcile_pending_modifications"
+                                ):
+                                    service._backfill_alpaca_fills = Mock(return_value={})
 
-                                result = service._run_reconciliation("test")
+                                    result = service._run_reconciliation("test")
 
         assert result["open_orders_checked"] == 1
 

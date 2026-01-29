@@ -79,21 +79,22 @@ def test_create_orders_table_columns(dummy_ui) -> None:
         "qty",
         "type",
         "limit_price",
+        "stop_price",
         "status",
         "created_at",
         "actions",
     ]
 
-    status_col = column_defs[5]
+    status_col = column_defs[6]
     assert status_col[":cellRenderer"] == "window.statusBadgeRenderer"
 
     actions_col = column_defs[-1]
-    assert actions_col[":cellRenderer"] == "window.cancelButtonRenderer"
+    assert actions_col[":cellRenderer"] == "window.orderActionsRenderer"
 
     limit_col = column_defs[4]
     assert ":valueFormatter" in limit_col
 
-    created_col = column_defs[6]
+    created_col = column_defs[7]
     assert "UTC" in created_col[":valueFormatter"]
 
     assert grid.options[":getRowId"] == "params => params.data.client_order_id"

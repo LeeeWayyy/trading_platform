@@ -32,6 +32,7 @@ class Permission(str, Enum):
     VIEW_POSITIONS = "view_positions"
     VIEW_PNL = "view_pnl"
     VIEW_TRADES = "view_trades"
+    VIEW_MARKET_DATA = "view_market_data"
     CANCEL_ORDER = "cancel_order"
     CLOSE_POSITION = "close_position"
     ADJUST_POSITION = "adjust_position"
@@ -72,6 +73,7 @@ class Permission(str, Enum):
 
     # Trading API permissions (C6)
     SUBMIT_ORDER = "submit_order"
+    MODIFY_ORDER = "modify_order"
     GENERATE_SIGNALS = "generate_signals"
 
     # P4T7: Alpha Signal Explorer (C1)
@@ -129,7 +131,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_POSITIONS,
         Permission.VIEW_PNL,
         Permission.VIEW_TRADES,
+        Permission.VIEW_MARKET_DATA,
         Permission.CANCEL_ORDER,
+        Permission.MODIFY_ORDER,
         Permission.CLOSE_POSITION,
         Permission.ADJUST_POSITION,
         Permission.FLATTEN_ALL,

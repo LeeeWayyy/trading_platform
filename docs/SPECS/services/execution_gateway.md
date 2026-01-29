@@ -42,6 +42,8 @@
 | `/api/v1/orders/pending` | GET | Manual controls | `PendingOrdersResponse` |
 | `/api/v1/orders/recent-fills` | GET | Manual controls | `RecentFillsResponse` |
 | `/api/v1/manual/orders` | POST | `ManualOrderRequest` | `OrderResponse` |
+| `/api/v1/orders/twap-preview` | POST | `TWAPPreviewRequest` | `TWAPPreviewResponse` |
+| `/api/v1/orders/{client_order_id}` | PATCH | `OrderModifyRequest` | `OrderModifyResponse` |
 | `/api/v1/reconciliation/fills-backfill` | POST | `ReconciliationFillsBackfillRequest` | Status JSON |
 | `/metrics` | GET | None | Prometheus metrics |
 
@@ -252,7 +254,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-19 (Reconciliation package references updated after legacy file removal)
+- **Last Updated:** 2026-01-28 (P6T6 Advanced Orders - exception handling refinements per review)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`

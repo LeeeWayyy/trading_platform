@@ -38,6 +38,7 @@ async def test_position_reservation_happens_before_idempotency() -> None:
             qty=1,
             order_type="market",
             limit_price=None,
+            stop_price=None,
             created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
 

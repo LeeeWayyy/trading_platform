@@ -245,7 +245,7 @@ class TestAlpacaExecutorOrderSubmission:
     def test_submit_stop_limit_order_success(self, executor, mock_order_response):
         """Should successfully submit stop-limit order with both prices."""
         mock_order_response.order_type.value = "stop_limit"
-        mock_order_response.limit_price = 148.00
+        mock_order_response.limit_price = 144.00
         mock_order_response.stop_price = 145.00
 
         with patch("apps.execution_gateway.alpaca_client.Order", type(mock_order_response)):
@@ -256,13 +256,13 @@ class TestAlpacaExecutorOrderSubmission:
                 side="sell",
                 qty=100,
                 order_type="stop_limit",
-                limit_price=Decimal("148.00"),
+                limit_price=Decimal("144.00"),
                 stop_price=Decimal("145.00"),
             )
             result = executor.submit_order(order_request, "client_order_abc")
 
             assert result["order_type"] == "stop_limit"
-            assert result["limit_price"] == 148.00
+            assert result["limit_price"] == 144.00
             assert result["stop_price"] == 145.00
 
     def test_submit_order_with_different_time_in_force(self, executor, mock_order_response):
@@ -442,7 +442,7 @@ class TestAlpacaExecutorBuildRequest:
 
     def test_build_limit_order_request_missing_limit_price(self, executor):
         """Should raise ValueError when limit_price missing for limit order."""
-        order = OrderRequest(
+        order = OrderRequest.model_construct(
             symbol="AAPL",
             side="buy",
             qty=100,
@@ -455,7 +455,7 @@ class TestAlpacaExecutorBuildRequest:
 
     def test_build_stop_order_request_missing_stop_price(self, executor):
         """Should raise ValueError when stop_price missing for stop order."""
-        order = OrderRequest(
+        order = OrderRequest.model_construct(
             symbol="AAPL",
             side="sell",
             qty=100,
@@ -468,7 +468,7 @@ class TestAlpacaExecutorBuildRequest:
 
     def test_build_stop_limit_order_request_missing_prices(self, executor):
         """Should raise ValueError when prices missing for stop_limit order."""
-        order = OrderRequest(
+        order = OrderRequest.model_construct(
             symbol="AAPL",
             side="sell",
             qty=100,
