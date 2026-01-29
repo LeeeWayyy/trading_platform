@@ -250,14 +250,24 @@ class AsyncTradingClient:
         user_id: str,
         role: str | None = None,
         strategies: list[str] | None = None,
+        parent_order_id: str | None = None,
     ) -> dict[str, Any]:
         """Fetch open/pending orders (GET - idempotent).
 
         Uses /api/v1/orders/pending endpoint from manual_controls router.
         Returns dict with 'orders' list and 'total' count.
+
+        Args:
+            user_id: User ID for authentication.
+            role: User role for authorization.
+            strategies: List of strategies to filter by.
+            parent_order_id: Optional parent order ID to filter child orders.
         """
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.get("/api/v1/orders/pending", headers=headers)
+        params: dict[str, str] = {}
+        if parent_order_id:
+            params["parent_order_id"] = parent_order_id
+        resp = await self._client.get("/api/v1/orders/pending", headers=headers, params=params)
         resp.raise_for_status()
         return self._json_dict(resp)
 

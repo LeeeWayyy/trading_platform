@@ -16,17 +16,35 @@ from nicegui import Client, events, ui
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
+from apps.web_console_ng.components.hierarchical_orders import (
+    HierarchicalOrdersState,
+    on_cancel_parent_order,
+)
 from apps.web_console_ng.components.metric_card import MetricCard
 from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.orders_table import (
-    create_orders_table,
+    create_hierarchical_orders_table,
     on_cancel_order,
-    update_orders_table,
+    update_hierarchical_orders_table,
 )
 from apps.web_console_ng.components.positions_grid import (
     create_positions_grid,
     on_close_position,
     update_positions_grid,
+)
+from apps.web_console_ng.components.sparkline_renderer import create_sparkline_svg
+from apps.web_console_ng.components.tabbed_panel import (
+    TAB_FILLS,
+    TAB_HISTORY,
+    TAB_POSITIONS,
+    TAB_WORKING,
+    TabbedPanel,
+    TabbedPanelState,
+    create_fills_grid,
+    create_history_grid,
+    create_tabbed_panel,
+    filter_items_by_symbol,
+    filter_working_orders,
 )
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
@@ -41,12 +59,16 @@ from apps.web_console_ng.core.realtime import (
     position_channel,
 )
 from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 logger = logging.getLogger(__name__)
+
+# Maximum fills to keep in memory to prevent unbounded growth
+MAX_FILLS_ITEMS = 100
 
 ScopeKey = tuple[str, frozenset[str]]
 
@@ -229,6 +251,7 @@ async def dashboard(client: Client) -> None:
     # Create dependencies for OrderEntryContext
     redis_store = get_redis_store()
     redis_client = await redis_store.get_master()
+    sparkline_service = SparklineDataService(redis_client)
     state_manager = UserStateManager(
         user_id=user_id,
         role=user_role,
@@ -301,30 +324,85 @@ async def dashboard(client: Client) -> None:
         with ui.column().classes("hidden md:flex"):
             order_context.create_watchlist()
 
-        # Middle column: Price Chart
-        with ui.column().classes("min-h-[200px]"):
+        # Middle column: Price Chart + DOM ladder
+        with ui.column().classes("min-h-[200px] gap-4"):
             order_context.create_price_chart(width=600, height=300)
+            order_context.create_dom_ladder()
 
         # Right column: Market Context + Order Ticket
         with ui.column().classes("gap-4"):
             order_context.create_market_context()
             order_context.create_order_ticket()
 
-    # Positions grid
-    with compact_card("Positions").classes("w-full"):
+    panel_state = TabbedPanelState(user_id=user_id)
+    await panel_state.load()
+
+    hierarchical_state = HierarchicalOrdersState(
+        user_id=user_id,
+        panel_id=f"hierarchical_orders.{user_id}",
+    )
+    await hierarchical_state.load()
+
+    positions_grid: ui.aggrid | None = None
+    orders_table: ui.aggrid | None = None
+    fills_grid: ui.aggrid | None = None
+    history_grid: ui.aggrid | None = None
+    tabbed_panel: TabbedPanel | None = None
+
+    # Declare variables used in filter change handler (must be before function definition)
+    position_symbols: set[str] | None = None
+    order_ids: set[str] | None = None
+
+    def _build_positions_grid() -> ui.aggrid:
+        nonlocal positions_grid
         positions_grid = create_positions_grid()
+        return positions_grid
+
+    def _build_orders_grid() -> ui.aggrid:
+        nonlocal orders_table
+        orders_table = create_hierarchical_orders_table(
+            expanded_parent_ids=sorted(hierarchical_state.expanded_parent_ids),
+        )
+        return orders_table
+
+    def _build_fills_grid() -> ui.aggrid:
+        nonlocal fills_grid
+        fills_grid = create_fills_grid()
+        return fills_grid
+
+    def _build_history_grid() -> ui.aggrid:
+        nonlocal history_grid
+        history_grid = create_history_grid()
+        return history_grid
+
+    def _handle_filter_change(_: str | None) -> None:
+        nonlocal position_symbols, order_ids
+        position_symbols = None
+        order_ids = None
+        # Use locked version to prevent interleaving with realtime updates
+        asyncio.create_task(_locked_refresh_all_grids())
+
+    def _handle_tab_change(tab_name: str) -> None:
+        # Use locked version to prevent interleaving with realtime updates
+        asyncio.create_task(_locked_refresh_tab(tab_name))
 
     # Orders + activity
     with trading_grid().classes("w-full"):
-        with compact_card("Open Orders").classes("w-full"):
-            orders_table = create_orders_table()
+        with compact_card().classes("w-full"):
+            tabbed_panel = create_tabbed_panel(
+                _build_positions_grid,
+                _build_orders_grid,
+                _build_fills_grid,
+                _build_history_grid,
+                state=panel_state,
+                on_filter_change=_handle_filter_change,
+                on_tab_change=_handle_tab_change,
+            )
 
         with compact_card("Activity").classes("w-full"):
             last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
             activity_feed = ActivityFeed()
 
-    position_symbols: set[str] | None = None
-    order_ids: set[str] | None = None
     notified_missing_ids: set[str] = set()
     notified_malformed: set[int] = set()  # Dedupe malformed position notifications
     notified_filter_restores: set[str] = set()  # Dedupe filter restore toasts per grid
@@ -332,6 +410,130 @@ async def dashboard(client: Client) -> None:
     synthetic_id_miss_counts: dict[str, int] = {}  # Prevent churn from transient snapshot gaps
     grid_update_lock = asyncio.Lock()
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
+
+    positions_snapshot: list[dict[str, Any]] = []
+    orders_snapshot: list[dict[str, Any]] = []
+    fills_snapshot: list[dict[str, Any]] = []
+    history_snapshot: list[dict[str, Any]] = []
+
+    def _current_symbol_filter() -> str | None:
+        if tabbed_panel is None:
+            return None
+        return tabbed_panel.symbol_filter.value
+
+    def _update_filter_options() -> None:
+        if tabbed_panel is None:
+            return
+        symbols = {
+            str(item.get("symbol")).upper()
+            for item in positions_snapshot + orders_snapshot
+            if item.get("symbol")
+        }
+        tabbed_panel.symbol_filter.update_options(sorted(symbols))
+
+    async def _attach_sparklines(
+        positions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not positions:
+            return []
+        symbols = [
+            str(item.get("symbol", "")).strip()
+            for item in positions
+            if item.get("symbol")
+        ]
+        sparkline_map = await sparkline_service.get_sparkline_map(user_id, symbols)
+        enriched: list[dict[str, Any]] = []
+        for position in positions:
+            position_copy = dict(position)
+            symbol = str(position_copy.get("symbol", "")).strip()
+            history = sparkline_map.get(symbol, [])
+            position_copy["pnl_history"] = history
+            position_copy["sparkline_svg"] = create_sparkline_svg(history)
+            enriched.append(position_copy)
+        return enriched
+
+    async def _refresh_positions_grid() -> None:
+        nonlocal position_symbols
+        if positions_grid is None:
+            return
+        filtered = filter_items_by_symbol(positions_snapshot, _current_symbol_filter())
+        filtered = await _attach_sparklines(filtered)
+        position_symbols = await update_positions_grid(
+            positions_grid,
+            filtered,
+            position_symbols,
+            notified_malformed=notified_malformed,
+        )
+
+    async def _refresh_orders_grid() -> None:
+        nonlocal order_ids
+        if orders_table is None:
+            return
+        symbol_filter = _current_symbol_filter()
+        filtered_orders = filter_working_orders(orders_snapshot, symbol_filter)
+        use_maps = symbol_filter is None
+        # When a symbol filter is active, also filter all_orders to prevent
+        # parent rows from other symbols being injected into the hierarchy
+        filtered_all_orders = (
+            filter_items_by_symbol(orders_snapshot, symbol_filter)
+            if symbol_filter
+            else orders_snapshot
+        )
+        order_ids, parent_ids = await update_hierarchical_orders_table(
+            orders_table,
+            filtered_orders,
+            order_ids,
+            notified_missing_ids=notified_missing_ids,
+            synthetic_id_map=synthetic_id_map if use_maps else None,
+            synthetic_id_miss_counts=synthetic_id_miss_counts if use_maps else None,
+            user_id=user_id,
+            client_id=client_id,
+            all_orders=filtered_all_orders,
+        )
+        # Only prune expansion state when NO filter is active to avoid losing
+        # state for orders that are simply hidden by the current filter
+        if _current_symbol_filter() is None and hierarchical_state.prune(parent_ids):
+            await hierarchical_state.save()
+            ui.run_javascript(
+                f"window._hierarchicalOrdersExpanded = {json.dumps(sorted(hierarchical_state.expanded_parent_ids))};"
+                "if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersGridApi)"
+                " window.HierarchicalOrdersGrid.restoreExpansion(window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded);"
+            )
+
+    async def _refresh_fills_grid() -> None:
+        if fills_grid is None:
+            return
+        filtered = filter_items_by_symbol(fills_snapshot, _current_symbol_filter())
+        fills_grid.run_grid_method("setRowData", filtered, timeout=5)
+
+    async def _refresh_history_grid() -> None:
+        if history_grid is None:
+            return
+        filtered = filter_items_by_symbol(history_snapshot, _current_symbol_filter())
+        history_grid.run_grid_method("setRowData", filtered, timeout=5)
+
+    async def _refresh_tab_content(tab_name: str) -> None:
+        if tab_name == TAB_POSITIONS:
+            await _refresh_positions_grid()
+        elif tab_name == TAB_WORKING:
+            await _refresh_orders_grid()
+        elif tab_name == TAB_FILLS:
+            await _refresh_fills_grid()
+        elif tab_name == TAB_HISTORY:
+            await _refresh_history_grid()
+
+    async def _locked_refresh_all_grids() -> None:
+        """Refresh all grids with lock protection to prevent interleaving."""
+        async with grid_update_lock:
+            await _refresh_positions_grid()
+            await _refresh_orders_grid()
+            await _refresh_fills_grid()
+            await _refresh_history_grid()
+
+    async def _locked_refresh_tab(tab_name: str) -> None:
+        """Refresh single tab with lock protection."""
+        async with grid_update_lock:
+            await _refresh_tab_content(tab_name)
 
     def _format_event_time(event: dict[str, Any]) -> dict[str, Any]:
         """Ensure activity events include a HH:MM time field."""
@@ -371,7 +573,7 @@ async def dashboard(client: Client) -> None:
         last_sync_label.text = f"Last sync: {label}"
 
     async def load_initial_data() -> None:
-        nonlocal position_symbols, order_ids
+        nonlocal position_symbols, order_ids, positions_snapshot, orders_snapshot, fills_snapshot
         try:
             async_pool = get_db_pool()
             trades_task = None
@@ -426,23 +628,39 @@ async def dashboard(client: Client) -> None:
         if buying_power is None:
             buying_power = pnl_data.get("buying_power", 0)
         bp_card.update(_coerce_float(buying_power))
+        positions_snapshot = list(positions.get("positions", []))
+        orders_snapshot = list(orders.get("orders", []))
+        await sparkline_service.record_positions(user_id, positions_snapshot)
+
+        fills_snapshot = []
+        if isinstance(recent_trades, list):
+            for idx, trade in enumerate(recent_trades[:MAX_FILLS_ITEMS]):
+                fills_snapshot.append(
+                    {
+                        "id": trade.get("id") or f"fill-{idx}",
+                        "time": trade.get("executed_at"),
+                        "symbol": trade.get("symbol"),
+                        "side": trade.get("side"),
+                        "qty": trade.get("qty"),
+                        "price": trade.get("price"),
+                        "status": trade.get("status") or "filled",
+                    }
+                )
+
+        _update_filter_options()
+        if tabbed_panel is not None:
+            tabbed_panel.set_badge_count(TAB_POSITIONS, len(positions_snapshot))
+            tabbed_panel.set_badge_count(
+                TAB_WORKING, len(filter_working_orders(orders_snapshot))
+            )
+            tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
+
         async with grid_update_lock:
-            position_symbols = await update_positions_grid(
-                positions_grid,
-                positions.get("positions", []),
-                position_symbols,
-                notified_malformed=notified_malformed,
-            )
-            order_ids = await update_orders_table(
-                orders_table,
-                orders.get("orders", []),
-                order_ids,
-                notified_missing_ids=notified_missing_ids,
-                synthetic_id_map=synthetic_id_map,
-                synthetic_id_miss_counts=synthetic_id_miss_counts,
-                user_id=user_id,
-                client_id=client_id,
-            )
+            await _refresh_positions_grid()
+            await _refresh_orders_grid()
+            await _refresh_fills_grid()
+            await _refresh_history_grid()
+
         recent_events = []
         if isinstance(recent_trades, list):
             for trade in recent_trades:
@@ -491,7 +709,7 @@ async def dashboard(client: Client) -> None:
     await check_initial_kill_switch()
 
     async def on_position_update(data: dict[str, Any]) -> None:
-        nonlocal position_symbols
+        nonlocal position_symbols, positions_snapshot
         if "total_unrealized_pl" in data:
             pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
         if "total_positions" in data:
@@ -501,13 +719,13 @@ async def dashboard(client: Client) -> None:
         if "buying_power" in data:
             bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
+            positions_snapshot = list(data["positions"])
+            await sparkline_service.record_positions(user_id, positions_snapshot)
+            _update_filter_options()
+            if tabbed_panel is not None:
+                tabbed_panel.set_badge_count(TAB_POSITIONS, len(positions_snapshot))
             async with grid_update_lock:
-                position_symbols = await update_positions_grid(
-                    positions_grid,
-                    data["positions"],
-                    position_symbols,
-                    notified_malformed=notified_malformed,
-                )
+                await _refresh_positions_grid()
         if "event" in data:
             # Normalize event time for consistent display (same as fills channel)
             event = dict(data["event"])
@@ -560,22 +778,39 @@ async def dashboard(client: Client) -> None:
         dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
 
     async def on_orders_update(data: dict[str, Any]) -> None:
-        nonlocal order_ids
+        nonlocal order_ids, orders_snapshot
         if "orders" in data:
-            async with grid_update_lock:
-                order_ids = await update_orders_table(
-                    orders_table,
-                    data["orders"],
-                    order_ids,
-                    notified_missing_ids=notified_missing_ids,
-                    synthetic_id_map=synthetic_id_map,
-                    synthetic_id_miss_counts=synthetic_id_miss_counts,
-                    user_id=user_id,
-                    client_id=client_id,
+            orders_snapshot = list(data["orders"])
+            _update_filter_options()
+            if tabbed_panel is not None:
+                tabbed_panel.set_badge_count(
+                    TAB_WORKING, len(filter_working_orders(orders_snapshot))
                 )
+            async with grid_update_lock:
+                await _refresh_orders_grid()
 
     async def on_fill_event(data: dict[str, Any]) -> None:
+        nonlocal fills_snapshot
         normalized = _format_event_time(dict(data))
+        fills_snapshot.insert(
+            0,
+            {
+                "id": normalized.get("id") or f"fill-{len(fills_snapshot) + 1}",
+                "time": normalized.get("timestamp"),
+                "symbol": normalized.get("symbol"),
+                "side": normalized.get("side"),
+                "qty": normalized.get("qty"),
+                "price": normalized.get("price"),
+                "status": normalized.get("status") or "filled",
+            },
+        )
+        # Cap fills_snapshot to prevent unbounded memory growth
+        if len(fills_snapshot) > MAX_FILLS_ITEMS:
+            fills_snapshot = fills_snapshot[:MAX_FILLS_ITEMS]
+        if tabbed_panel is not None:
+            tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
+        async with grid_update_lock:
+            await _refresh_fills_grid()
         _update_last_sync_label([normalized])
         await activity_feed.add_item(normalized)
 
@@ -626,9 +861,84 @@ async def dashboard(client: Client) -> None:
         broker_order_id = str(detail.get("broker_order_id", "")).strip() or None
         await on_cancel_order(order_id, symbol, user_id, user_role, broker_order_id=broker_order_id)
 
+    async def handle_cancel_parent_order(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        parent_order_id = str(detail.get("parent_order_id", "")).strip()
+        symbol = str(detail.get("symbol", "")).strip() or "unknown"
+
+        # SECURITY: Fetch child orders directly from API by parent_order_id instead
+        # of fetching all orders. This is more efficient for users with many orders
+        # and ensures we're operating on the most up-to-date data.
+        server_children: list[dict[str, Any]] = []
+        if parent_order_id:
+            try:
+                fresh_orders_response = await trading_client.fetch_open_orders(
+                    user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                    parent_order_id=parent_order_id,
+                )
+                server_children = fresh_orders_response.get("orders", [])
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "cancel_parent_order_fetch_failed",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "status_code": exc.response.status_code,
+                    },
+                )
+                ui.notify("Failed to fetch current orders", type="negative")
+                return
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "cancel_parent_order_request_error",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "error": type(exc).__name__,
+                    },
+                )
+                ui.notify("Network error fetching orders", type="negative")
+                return
+
+        await on_cancel_parent_order(
+            parent_order_id or None,
+            symbol,
+            server_children,
+            user_id,
+            user_role,
+        )
+
+    async def handle_dom_price_click(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        symbol = str(detail.get("symbol", "")).strip()
+        side = str(detail.get("side", "")).strip().lower()
+        price = detail.get("price")
+        if not symbol:
+            ui.notify("Order book click missing symbol", type="warning")
+            return
+        if side not in {"buy", "sell"}:
+            ui.notify("Order book click has invalid side", type="warning")
+            return
+        await order_context.handle_dom_price_click(symbol, side, price)
+
+    async def handle_hierarchical_expansion(event: events.GenericEventArguments) -> None:
+        detail = _extract_event_detail(event.args)
+        expanded_ids = detail.get("expanded_ids") or []
+        if isinstance(expanded_ids, list):
+            hierarchical_state.update_expanded(expanded_ids)
+            await hierarchical_state.save()
+            ui.run_javascript(
+                f"window._hierarchicalOrdersExpanded = {json.dumps(expanded_ids)};"
+                "if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersGridApi)"
+                " window.HierarchicalOrdersGrid.restoreExpansion(window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded);"
+            )
+
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
+    ui.on("cancel_parent_order", handle_cancel_parent_order, args=["detail"])
+    ui.on("dom_price_click", handle_dom_price_click, args=["detail"])
     ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
+    ui.on("hierarchical_orders_expansion", handle_hierarchical_expansion, args=["detail"])
 
     await realtime.subscribe(position_channel(user_id), on_position_update)
     await realtime.subscribe(kill_switch_channel(), on_kill_switch_update)

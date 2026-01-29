@@ -56,6 +56,14 @@ def create_positions_grid() -> ui.aggrid:
             "type": "numericColumn",
         },
         {
+            "field": "sparkline_svg",
+            "headerName": "Trend",
+            ":cellRenderer": "window.sparklineRenderer",
+            "width": 110,
+            "sortable": False,
+            "filter": False,
+        },
+        {
             "field": "unrealized_pl",
             "headerName": "P&L ($)",
             "sortable": True,

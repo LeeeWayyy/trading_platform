@@ -204,6 +204,147 @@ class WorkspacePersistenceService:
             return None
         return result
 
+    async def save_panel_state(
+        self,
+        user_id: str,
+        panel_id: str,
+        state: dict[str, Any],
+    ) -> bool:
+        """Save panel state (e.g., active tab).
+
+        Args:
+            user_id: User identifier
+            panel_id: Panel identifier (e.g., 'tabbed_panel')
+            state: Panel state dict
+
+        Returns:
+            True if saved successfully
+
+        Raises:
+            DatabaseUnavailableError: If database pool is not configured
+        """
+        workspace_key = f"panel.{panel_id}"
+        state_json = json.dumps(state)
+
+        state_bytes = len(state_json.encode("utf-8"))
+        if state_bytes > MAX_STATE_SIZE:
+            logger.warning(
+                "workspace_state_too_large",
+                extra={
+                    "user_id": user_id,
+                    "workspace_key": workspace_key,
+                    "size_bytes": state_bytes,
+                    "limit": MAX_STATE_SIZE,
+                },
+            )
+            return False
+
+        pool = _require_db_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO workspace_state (user_id, workspace_key, state_json, schema_version)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, workspace_key)
+                    DO UPDATE SET state_json = EXCLUDED.state_json, schema_version = EXCLUDED.schema_version
+                    """,
+                    (user_id, workspace_key, state_json, SCHEMA_VERSIONS["panel"]),
+                )
+            await conn.commit()
+
+        logger.info(
+            "workspace_state_saved",
+            extra={
+                "user_id": user_id,
+                "workspace_key": workspace_key,
+                "size_bytes": state_bytes,
+            },
+        )
+        return True
+
+    async def load_panel_state(
+        self,
+        user_id: str,
+        panel_id: str,
+    ) -> dict[str, Any] | None:
+        """Load panel state.
+
+        Returns None if no state saved or schema version mismatch.
+
+        Raises:
+            DatabaseUnavailableError: If database pool is not configured
+        """
+        workspace_key = f"panel.{panel_id}"
+
+        pool = _require_db_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT state_json, schema_version
+                    FROM workspace_state
+                    WHERE user_id = %s AND workspace_key = %s
+                    """,
+                    (user_id, workspace_key),
+                )
+                row = await cur.fetchone()
+
+        if not row:
+            return None
+
+        state_json, saved_version = row
+        current_version = SCHEMA_VERSIONS["panel"]
+
+        if saved_version != current_version:
+            logger.warning(
+                "workspace_state_schema_mismatch",
+                extra={
+                    "user_id": user_id,
+                    "workspace_key": workspace_key,
+                    "saved_version": saved_version,
+                    "current_version": current_version,
+                },
+            )
+            return None
+
+        if isinstance(state_json, dict):
+            result = state_json
+        elif isinstance(state_json, str):
+            try:
+                result = json.loads(state_json)
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "workspace_state_corrupt_json",
+                    extra={
+                        "user_id": user_id,
+                        "workspace_key": workspace_key,
+                        "error": type(exc).__name__,
+                    },
+                )
+                return None
+        else:
+            logger.warning(
+                "workspace_state_unexpected_type",
+                extra={
+                    "user_id": user_id,
+                    "workspace_key": workspace_key,
+                    "type": type(state_json).__name__,
+                },
+            )
+            return None
+        if not isinstance(result, dict):
+            logger.warning(
+                "workspace_state_invalid_type",
+                extra={
+                    "user_id": user_id,
+                    "workspace_key": workspace_key,
+                    "type": type(result).__name__,
+                },
+            )
+            return None
+        return result
+
     async def reset_workspace(self, user_id: str, workspace_key: str | None = None) -> None:
         """Reset workspace state to defaults.
 

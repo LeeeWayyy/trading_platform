@@ -1460,6 +1460,7 @@ class DatabaseClient:
         *,
         symbol: str | None = None,
         strategy_ids: list[str] | None = None,
+        parent_order_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
         sort_by: str = "created_at",
@@ -1471,6 +1472,7 @@ class DatabaseClient:
         Args:
             symbol: Optional symbol filter
             strategy_ids: Optional list of strategies to scope results (fail-closed when empty)
+            parent_order_id: Optional parent order ID to filter child orders
             limit: Max rows to return (default 100)
             offset: Pagination offset
             sort_by: Column to sort by (whitelist enforced)
@@ -1493,6 +1495,10 @@ class DatabaseClient:
         if strategy_ids is not None:
             filters.append("strategy_id = ANY(%s)")
             params.append(strategy_ids)
+
+        if parent_order_id:
+            filters.append("parent_order_id = %s")
+            params.append(parent_order_id)
 
         where_clause = " AND ".join(filters)
 

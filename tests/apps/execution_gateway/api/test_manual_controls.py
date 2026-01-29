@@ -111,6 +111,7 @@ class StubDB:
         *,
         symbol: str | None = None,
         strategy_ids: list[str] | None = None,
+        parent_order_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
         sort_by: str = "created_at",
@@ -121,6 +122,8 @@ class StubDB:
             filtered = [o for o in filtered if o.symbol == symbol]
         if strategy_ids is not None:
             filtered = [o for o in filtered if o.strategy_id in strategy_ids]
+        if parent_order_id:
+            filtered = [o for o in filtered if getattr(o, "parent_order_id", None) == parent_order_id]
         return filtered[offset : offset + limit], len(filtered)
 
     def get_positions_for_strategies(self, strategies: list[str]) -> list[Position]:

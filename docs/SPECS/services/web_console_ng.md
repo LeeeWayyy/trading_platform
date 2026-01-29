@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-27 - P6T4 order entry context fixes (risk refresh task cancellation, watchlist initialize render) - Codex/Gemini/Claude reviewed -->
+<!-- Last reviewed: 2026-01-29 - P6T5 grid enhancements + parent_order_id filter + test coverage improvements -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
@@ -617,6 +617,47 @@ Redis Pub/Sub -> RealtimeUpdater -> OrderEntryContext -> Component callbacks
 **Components:**
 - `components/watchlist.py` - WatchlistComponent class with WatchlistItem dataclass.
 
+### Grid Enhancements (P6T5)
+**Purpose:** Enhanced grid features including hierarchical TWAP orders, tabbed panel, Level 2 DOM data, and P&L sparklines.
+
+**Behavior:**
+- Hierarchical Orders: AG Grid Tree Data displays parent TWAP orders with expandable child slices.
+- Tabbed Panel: NiceGUI tabs with lazy-loaded content for Positions/Working/Fills/History views.
+- DOM Ladder: Real-time Level 2 order book visualization with bid/ask depth bars.
+- Sparklines: Inline P&L trend charts using Redis ZSET for history storage.
+
+**Components:**
+- `components/hierarchical_orders.py` - AG Grid Tree Data configuration with parent/child aggregation.
+- `components/tabbed_panel.py` - Lazy-loaded tabbed interface with badge counts and state persistence.
+- `components/dom_ladder.py` - Real-time DOM ladder renderer with 30 FPS throttling.
+- `components/depth_visualizer.py` - Bid/ask depth calculation and large-size detection.
+- `components/sparkline_renderer.py` - SVG sparkline generation for P&L trends.
+- `components/symbol_filter.py` - Reusable symbol filter dropdown for grid filtering.
+- `core/level2_websocket.py` - Alpaca Pro Level 2 WebSocket with mock mode fallback.
+- `core/sparkline_service.py` - Redis ZSET storage for P&L history with rate limiting.
+
+**Level 2 Data Flow:**
+```
+Alpaca Pro WebSocket -> Level2WebSocketService -> Redis Pub/Sub -> DOMLadderComponent
+                              |
+                              +-> Mock mode (synthetic data) when credentials unavailable
+```
+
+**Safety:**
+- L2 subscription refcounting prevents duplicate subscriptions and ensures cleanup.
+- Symbol cap enforcement (default 30 symbols) prevents resource exhaustion.
+- Mock mode warning displayed to prevent traders using synthetic data for decisions.
+- User ID validation in OrderEntryContext prevents authorization bypass.
+
+**Memory Management:**
+- Sparkline rate-limit cache with max 10K entries and TTL-based pruning.
+- L2 refcount only tracks unique user-symbol combinations.
+- DOM ladder uses throttled updates (30 FPS) with pending payload coalescing.
+
+**Access Control:**
+- L2 data requires Alpaca Pro subscription (falls back to mock mode without credentials).
+- Tabbed panel state persisted per-user via workspace persistence API.
+
 ## Data Flow
 ```
 Browser
@@ -737,7 +778,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_services.md`
 
 ## Metadata
-- **Last Updated: 2026-01-27
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/core/latency_monitor.py`, `apps/web_console_ng/core/connection_monitor.py`, `apps/web_console_ng/core/notification_router.py`, `apps/web_console_ng/core/hotkey_manager.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/utils/session.py`, `apps/web_console_ng/utils/time.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/components/header_metrics.py`, `apps/web_console_ng/components/market_clock.py`, `apps/web_console_ng/components/status_bar.py`, `apps/web_console_ng/components/log_drawer.py`, `apps/web_console_ng/components/action_button.py`, `apps/web_console_ng/components/command_palette.py`, `apps/web_console_ng/components/loading_states.py`, `apps/web_console_ng/components/order_ticket.py`, `apps/web_console_ng/components/quantity_presets.py`, `apps/web_console_ng/components/order_entry_context.py`, `apps/web_console_ng/components/market_context.py`, `apps/web_console_ng/components/price_chart.py`, `apps/web_console_ng/components/watchlist.py`, `apps/web_console_ng/ui/lightweight_charts.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`, `apps/web_console_ng/ui/theme.py`, `apps/web_console_ng/static/js/hotkey_handler.js`, `apps/web_console_ng/static/js/cell_flash.js`
+- **Last Updated: 2026-01-28
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/core/grid_performance.py`, `apps/web_console_ng/core/workspace_persistence.py`, `apps/web_console_ng/core/latency_monitor.py`, `apps/web_console_ng/core/connection_monitor.py`, `apps/web_console_ng/core/notification_router.py`, `apps/web_console_ng/core/hotkey_manager.py`, `apps/web_console_ng/core/level2_websocket.py`, `apps/web_console_ng/core/sparkline_service.py`, `apps/web_console_ng/api/workspace.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/auth/logout.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/utils/session.py`, `apps/web_console_ng/utils/time.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/components/header_metrics.py`, `apps/web_console_ng/components/market_clock.py`, `apps/web_console_ng/components/status_bar.py`, `apps/web_console_ng/components/log_drawer.py`, `apps/web_console_ng/components/action_button.py`, `apps/web_console_ng/components/command_palette.py`, `apps/web_console_ng/components/loading_states.py`, `apps/web_console_ng/components/order_ticket.py`, `apps/web_console_ng/components/quantity_presets.py`, `apps/web_console_ng/components/order_entry_context.py`, `apps/web_console_ng/components/market_context.py`, `apps/web_console_ng/components/price_chart.py`, `apps/web_console_ng/components/watchlist.py`, `apps/web_console_ng/components/hierarchical_orders.py`, `apps/web_console_ng/components/tabbed_panel.py`, `apps/web_console_ng/components/dom_ladder.py`, `apps/web_console_ng/components/depth_visualizer.py`, `apps/web_console_ng/components/sparkline_renderer.py`, `apps/web_console_ng/components/symbol_filter.py`, `apps/web_console_ng/ui/lightweight_charts.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`, `apps/web_console_ng/ui/helpers.py`, `apps/web_console_ng/ui/dark_theme.py`, `apps/web_console_ng/ui/trading_layout.py`, `apps/web_console_ng/ui/theme.py`, `apps/web_console_ng/static/js/hotkey_handler.js`, `apps/web_console_ng/static/js/cell_flash.js`
 - **ADRs:** ADR-0032 (Notification and Hotkey System)
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence), P6T2 (Header Metrics - NLV, leverage, day change display), P6T3 (Notification & Hotkey System - notifications, hotkeys, action buttons, cell flash), P6T4 (Order Entry Context - time utilities, order ticket, quantity presets)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports), P5T10 (Console Debug - Trades Integration, Admin Reconciliation), P6T1 (Core Infrastructure - throttling, dark mode, density, workspace persistence), P6T2 (Header Metrics - NLV, leverage, day change display), P6T3 (Notification & Hotkey System - notifications, hotkeys, action buttons, cell flash), P6T4 (Order Entry Context - time utilities, order ticket, quantity presets), P6T5 (Grid Enhancements - hierarchical orders, tabbed panel, DOM/L2, sparklines)
