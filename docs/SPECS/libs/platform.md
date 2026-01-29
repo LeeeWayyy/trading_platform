@@ -130,6 +130,6 @@ See [libs/web_console_services.md](./web_console_services.md) for detailed speci
 - [../services/web_console_ng.md](../services/web_console_ng.md) - Web console UI
 
 ## Metadata
-- **Last Updated:** 2026-01-16
+- **Last Updated:** 2026-01-28 (web_console_auth/permissions.py: Added MODIFY_ORDER permission)
 - **Source Files:** `libs/platform/` (group index)
 - **ADRs:** N/A
