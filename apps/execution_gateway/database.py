@@ -868,6 +868,58 @@ class DatabaseClient:
             logger.error(f"Database error creating child slice: {e}")
             raise
 
+    def create_slice_schedule(
+        self,
+        parent_order_id: str,
+        slice_index: int,
+        scheduled_at: datetime,
+        qty: int,
+        status: str = "pending",
+        conn: psycopg.Connection | None = None,
+    ) -> None:
+        """
+        Create a slice schedule record in slice_schedules.
+
+        Args:
+            parent_order_id: Parent order's client_order_id
+            slice_index: 0-based slice index
+            scheduled_at: Scheduled execution time (UTC)
+            qty: Slice quantity
+            status: Schedule status (default: "pending")
+            conn: Optional connection for transactional use
+        """
+
+        def _execute_insert(conn: psycopg.Connection) -> None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO slice_schedules (
+                        parent_order_id,
+                        slice_index,
+                        scheduled_at,
+                        qty,
+                        status
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (parent_order_id, slice_index, scheduled_at, qty, status),
+                )
+
+        try:
+            self._execute_with_conn(conn, _execute_insert)
+        except IntegrityError:
+            logger.warning(
+                "Slice schedule already exists",
+                extra={
+                    "parent_order_id": parent_order_id,
+                    "slice_index": slice_index,
+                },
+            )
+            raise
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error creating slice schedule: {e}")
+            raise
+
     def get_slices_by_parent_id(self, parent_order_id: str) -> list[OrderDetail]:
         """
         Get all child slices for a parent order, ordered by slice_num.
@@ -1125,6 +1177,279 @@ class DatabaseClient:
 
         except (OperationalError, DatabaseError) as e:
             logger.error(f"Database error fetching order: {e}")
+            raise
+
+    def get_modification_by_idempotency_key(
+        self,
+        original_client_order_id: str,
+        idempotency_key: str,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, Any] | None:
+        """Return existing modification record for an idempotency key (if any)."""
+
+        def _execute(conn: psycopg.Connection) -> dict[str, Any] | None:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM order_modifications
+                    WHERE original_client_order_id = %s
+                      AND idempotency_key = %s
+                    """,
+                    (original_client_order_id, idempotency_key),
+                )
+                return cur.fetchone()
+
+        try:
+            return self._execute_with_conn(conn, _execute)
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching modification by idempotency key",
+                extra={"original_client_order_id": original_client_order_id, "error": str(exc)},
+            )
+            raise
+
+    def get_next_modification_seq(
+        self,
+        client_order_id: str,
+        conn: psycopg.Connection,
+    ) -> int:
+        """Get next modification sequence number with row lock (FOR UPDATE NOWAIT)."""
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1 FROM orders
+                WHERE client_order_id = %s
+                FOR UPDATE NOWAIT
+                """,
+                (client_order_id,),
+            )
+            cur.execute(
+                """
+                SELECT COALESCE(MAX(modification_seq), 0) + 1
+                FROM order_modifications
+                WHERE original_client_order_id = %s
+                """,
+                (client_order_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return 1
+            return int(row[0])
+
+    def insert_pending_modification(
+        self,
+        *,
+        original_client_order_id: str,
+        new_client_order_id: str,
+        original_broker_order_id: str | None,
+        modification_seq: int,
+        idempotency_key: str,
+        status: str,
+        modified_by: str,
+        reason: str | None,
+        changes: dict[str, Any],
+        conn: psycopg.Connection | None = None,
+    ) -> str:
+        """Insert a pending modification record and return modification_id."""
+
+        def _execute(conn: psycopg.Connection) -> str:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO order_modifications (
+                        original_client_order_id,
+                        new_client_order_id,
+                        original_broker_order_id,
+                        modification_seq,
+                        idempotency_key,
+                        status,
+                        modified_by,
+                        reason,
+                        changes
+                    )
+                    VALUES (%s, %s, %s, %s, %s::uuid, %s, %s, %s, %s::jsonb)
+                    RETURNING modification_id
+                    """,
+                    (
+                        original_client_order_id,
+                        new_client_order_id,
+                        original_broker_order_id,
+                        modification_seq,
+                        idempotency_key,
+                        status,
+                        modified_by,
+                        reason,
+                        json.dumps(changes),
+                    ),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError("Failed to insert order modification")
+                return str(row["modification_id"])
+
+        return self._execute_with_conn(conn, _execute)
+
+    def finalize_modification(
+        self,
+        modification_id: str,
+        *,
+        new_broker_order_id: str | None,
+        status: str,
+        new_client_order_id: str | None = None,
+        conn: psycopg.Connection | None = None,
+    ) -> None:
+        """Finalize a modification record with broker data and status."""
+
+        def _execute(conn: psycopg.Connection) -> None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE order_modifications
+                    SET new_broker_order_id = %s,
+                        new_client_order_id = COALESCE(%s, new_client_order_id),
+                        status = %s,
+                        modified_at = NOW(),
+                        error_message = NULL
+                    WHERE modification_id = %s
+                    """,
+                    (new_broker_order_id, new_client_order_id, status, modification_id),
+                )
+
+        self._execute_with_conn(conn, _execute)
+
+    def update_modification_status(
+        self,
+        modification_id: str,
+        *,
+        status: str,
+        error_message: str | None = None,
+        conn: psycopg.Connection | None = None,
+    ) -> None:
+        """Update modification status with optional error message."""
+
+        def _execute(conn: psycopg.Connection) -> None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE order_modifications
+                    SET status = %s,
+                        error_message = %s,
+                        modified_at = NOW()
+                    WHERE modification_id = %s
+                    """,
+                    (status, error_message, modification_id),
+                )
+
+        self._execute_with_conn(conn, _execute)
+
+    def insert_replacement_order(
+        self,
+        *,
+        client_order_id: str,
+        replaced_order_id: str,
+        strategy_id: str,
+        order_request: OrderRequest,
+        status: str,
+        broker_order_id: str | None,
+        conn: psycopg.Connection | None = None,
+    ) -> OrderDetail:
+        """Insert replacement order row linked to original order."""
+
+        def _execute(conn: psycopg.Connection) -> OrderDetail:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO orders (
+                        client_order_id,
+                        replaced_order_id,
+                        strategy_id,
+                        symbol,
+                        side,
+                        qty,
+                        order_type,
+                        limit_price,
+                        stop_price,
+                        time_in_force,
+                        status,
+                        broker_order_id,
+                        submitted_at,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
+                    RETURNING *
+                    """,
+                    (
+                        client_order_id,
+                        replaced_order_id,
+                        strategy_id,
+                        order_request.symbol,
+                        order_request.side,
+                        order_request.qty,
+                        order_request.order_type,
+                        order_request.limit_price,
+                        order_request.stop_price,
+                        order_request.time_in_force,
+                        status,
+                        broker_order_id,
+                    ),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError("Failed to insert replacement order")
+                return OrderDetail(**row)
+
+        return self._execute_with_conn(conn, _execute)
+
+    def get_modifications_for_order(
+        self,
+        client_order_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return modification history for an order (original or replacement)."""
+        try:
+            with self._connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM order_modifications
+                        WHERE original_client_order_id = %s
+                           OR new_client_order_id = %s
+                        ORDER BY modified_at ASC
+                        """,
+                        (client_order_id, client_order_id),
+                    )
+                    return list(cur.fetchall() or [])
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching order modifications",
+                extra={"client_order_id": client_order_id, "error": str(exc)},
+            )
+            raise
+
+    def get_pending_modifications_older_than(self, cutoff: datetime) -> list[dict[str, Any]]:
+        """Return pending modifications older than cutoff timestamp."""
+        try:
+            with self._connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM order_modifications
+                        WHERE status = 'pending'
+                          AND modified_at < %s
+                        ORDER BY modified_at ASC
+                        """,
+                        (cutoff,),
+                    )
+                    return list(cur.fetchall() or [])
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching pending modifications",
+                extra={"cutoff": cutoff.isoformat(), "error": str(exc)},
+            )
             raise
 
     def get_filled_orders_missing_fills(self, limit: int = 200) -> list[OrderDetail]:
@@ -1945,6 +2270,33 @@ class DatabaseClient:
                 )
                 return None
 
+            return OrderDetail(**row)
+
+    def update_order_status_simple_with_conn(
+        self,
+        client_order_id: str,
+        status: str,
+        conn: psycopg.Connection,
+    ) -> OrderDetail | None:
+        """Update order status within an existing transaction."""
+        status_rank = status_rank_for(status)
+        is_terminal = status in TERMINAL_STATUSES
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                UPDATE orders
+                SET status = %s,
+                    status_rank = %s,
+                    is_terminal = %s,
+                    updated_at = NOW()
+                WHERE client_order_id = %s
+                RETURNING *
+                """,
+                (status, status_rank, is_terminal, client_order_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
             return OrderDetail(**row)
 
     def get_position_for_update(self, symbol: str, conn: psycopg.Connection) -> Position | None:
@@ -2981,11 +3333,13 @@ class DatabaseClient:
             "qty": 0,
             "order_type": "market",
             "time_in_force": "day",
+            "execution_style": "instant",
             "status": "pending_new",
             "retry_count": 0,
             "created_at": datetime.now(UTC),
             "updated_at": datetime.now(UTC),
             "filled_qty": Decimal("0"),
+            "replaced_order_id": None,
         }
         merged = {**defaults, **row}
         return OrderDetail(**merged)

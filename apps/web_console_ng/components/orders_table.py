@@ -128,6 +128,11 @@ def create_orders_table() -> ui.aggrid:
             ":valueFormatter": "x => (x.value == null) ? 'MKT' : '$' + Number(x.value).toFixed(2)",
         },
         {
+            "field": "stop_price",
+            "headerName": "Stop",
+            ":valueFormatter": "x => (x.value == null) ? '-' : '$' + Number(x.value).toFixed(2)",
+        },
+        {
             "field": "status",
             "headerName": "Status",
             ":cellRenderer": "window.statusBadgeRenderer",
@@ -141,8 +146,8 @@ def create_orders_table() -> ui.aggrid:
         {
             "field": "actions",
             "headerName": "",
-            "width": 80,
-            ":cellRenderer": "window.cancelButtonRenderer",
+            "width": 140,
+            ":cellRenderer": "window.orderActionsRenderer",
         },
     ]
 

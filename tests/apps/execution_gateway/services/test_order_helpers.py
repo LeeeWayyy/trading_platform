@@ -47,6 +47,7 @@ def test_handle_idempotency_race_returns_existing_order() -> None:
     existing_order_mock.qty = Decimal("100")
     existing_order_mock.order_type = "market"
     existing_order_mock.limit_price = None
+    existing_order_mock.stop_price = None
     existing_order_mock.created_at = datetime.now(UTC)
 
     db_client_mock.get_order_by_client_id.return_value = existing_order_mock
@@ -548,6 +549,7 @@ def test_handle_idempotency_race_logs_info(caplog: pytest.LogCaptureFixture) -> 
     existing_order_mock.qty = Decimal("100")
     existing_order_mock.order_type = "market"
     existing_order_mock.limit_price = None
+    existing_order_mock.stop_price = None
     existing_order_mock.created_at = datetime.now(UTC)
 
     db_client_mock.get_order_by_client_id.return_value = existing_order_mock

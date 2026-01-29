@@ -38,15 +38,18 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 2B for design decisions.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import math
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import redis.exceptions
-from fastapi import APIRouter, Depends, HTTPException, status
-from psycopg.errors import UniqueViolation
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from psycopg.errors import LockNotAvailable, UniqueViolation
 from redis.exceptions import RedisError
 
 from apps.execution_gateway.alpaca_client import (
@@ -69,8 +72,17 @@ from apps.execution_gateway.reconciliation import (
 )
 from apps.execution_gateway.schemas import (
     OrderDetail,
+    OrderModificationRecord,
+    OrderModifyRequest,
+    OrderModifyResponse,
     OrderRequest,
     OrderResponse,
+    TWAPPreviewRequest,
+    TWAPPreviewResponse,
+    TWAPValidationException,
+    TWAP_MIN_SLICE_NOTIONAL,
+    TWAP_MIN_SLICE_QTY,
+    TWAP_MIN_SLICES,
 )
 from apps.execution_gateway.services.order_helpers import resolve_fat_finger_context
 from libs.core.common.api_auth_dependency import (
@@ -81,6 +93,7 @@ from libs.core.common.api_auth_dependency import (
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisKeys
 from libs.platform.web_console_auth.permissions import Permission
+from libs.platform.web_console_auth.permissions import get_authorized_strategies
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +131,26 @@ order_read_auth = api_auth(
     authenticator_getter=build_gateway_authenticator,
 )
 
+# Order modify auth + rate limiting
+order_modify_auth = api_auth(
+    APIAuthConfig(
+        action="order_modify",
+        require_role=None,
+        require_permission=Permission.MODIFY_ORDER,
+    ),
+    authenticator_getter=build_gateway_authenticator,
+)
+
+# TWAP preview auth + rate limiting
+order_preview_auth = api_auth(
+    APIAuthConfig(
+        action="order_preview",
+        require_role=None,
+        require_permission=Permission.SUBMIT_ORDER,
+    ),
+    authenticator_getter=build_gateway_authenticator,
+)
+
 # Rate limiting dependencies
 order_submit_rl = rate_limit(
     RateLimitConfig(
@@ -138,6 +171,28 @@ order_cancel_rl = rate_limit(
         burst_buffer=20,
         fallback_mode="allow",
         global_limit=200,
+    )
+)
+
+order_preview_rl = rate_limit(
+    RateLimitConfig(
+        action="order_preview",
+        max_requests=100,
+        window_seconds=60,
+        burst_buffer=10,
+        fallback_mode="allow",
+        global_limit=200,
+    )
+)
+
+order_modify_rl = rate_limit(
+    RateLimitConfig(
+        action="order_modify",
+        max_requests=20,
+        window_seconds=60,
+        burst_buffer=5,
+        fallback_mode="deny",
+        global_limit=40,
     )
 )
 
@@ -226,6 +281,48 @@ async def _check_quarantine(
                 "message": "Data structure error during quarantine check (fail-closed).",
             },
         ) from exc
+
+
+def _normalize_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _get_market_hours_warning(start: datetime, end: datetime) -> str | None:
+    """Return warning if start/end are outside regular market hours (NYSE)."""
+    market_tz = ZoneInfo("America/New_York")
+    start_local = start.astimezone(market_tz)
+    end_local = end.astimezone(market_tz)
+    session_date = start_local.date()
+    market_open = datetime.combine(session_date, datetime.strptime("09:30", "%H:%M").time(), market_tz)
+    market_close = datetime.combine(session_date, datetime.strptime("16:00", "%H:%M").time(), market_tz)
+
+    if start_local < market_open or end_local > market_close:
+        return (
+            "Schedule extends outside regular market hours. "
+            "Execution will be constrained to market sessions at submission."
+        )
+    return None
+
+
+async def _get_side_aware_quote(
+    symbol: str,
+    side: Literal["buy", "sell"],
+    ctx: AppContext,
+) -> Decimal | None:
+    if not ctx.alpaca:
+        return None
+    try:
+        quotes = await asyncio.to_thread(ctx.alpaca.get_latest_quotes, [symbol])
+    except AlpacaConnectionError:
+        return None
+    quote = quotes.get(symbol, {})
+    ask = quote.get("ask_price")
+    bid = quote.get("bid_price")
+    if side == "buy":
+        return ask or bid
+    return bid or ask
 
 
 def _is_reconciliation_ready(ctx: AppContext, config: ExecutionGatewayConfig) -> bool:
@@ -446,9 +543,425 @@ async def _require_reconciliation_ready_or_reduce_only(
 
 
 # =============================================================================
-# POST /api/v1/orders - Submit Order
+# Order Modification Helpers
 # =============================================================================
 
+MODIFIABLE_STATUSES = {"pending_new", "new", "accepted", "partially_filled"}
+
+
+def _generate_replacement_order_id(original_client_order_id: str, modification_seq: int) -> str:
+    content = f"{original_client_order_id}:mod:{modification_seq}"
+    return hashlib.sha256(content.encode()).hexdigest()[:24]
+
+
+def _serialize_change_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _compute_modification_changes(
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+) -> dict[str, tuple[Any, Any]]:
+    changes: dict[str, tuple[Any, Any]] = {}
+    if payload.qty is not None and payload.qty != order.qty:
+        changes["qty"] = (order.qty, payload.qty)
+    if payload.limit_price is not None and payload.limit_price != order.limit_price:
+        changes["limit_price"] = (
+            _serialize_change_value(order.limit_price),
+            _serialize_change_value(payload.limit_price),
+        )
+    if payload.stop_price is not None and payload.stop_price != order.stop_price:
+        changes["stop_price"] = (
+            _serialize_change_value(order.stop_price),
+            _serialize_change_value(payload.stop_price),
+        )
+    if payload.time_in_force is not None and payload.time_in_force != order.time_in_force:
+        changes["time_in_force"] = (order.time_in_force, payload.time_in_force)
+    return changes
+
+
+def _validate_modify_fields(order: OrderDetail, payload: OrderModifyRequest) -> None:
+    errors: list[str] = []
+
+    if payload.limit_price is not None and order.order_type not in ("limit", "stop_limit"):
+        errors.append(f"limit_price not applicable for {order.order_type} orders")
+
+    if payload.stop_price is not None and order.order_type not in ("stop", "stop_limit"):
+        errors.append(f"stop_price not applicable for {order.order_type} orders")
+
+    if order.order_type == "stop_limit":
+        effective_stop = payload.stop_price if payload.stop_price is not None else order.stop_price
+        effective_limit = (
+            payload.limit_price if payload.limit_price is not None else order.limit_price
+        )
+        if effective_stop is not None and effective_limit is not None:
+            if order.side == "buy" and effective_limit < effective_stop:
+                errors.append(
+                    f"Buy stop-limit requires limit_price >= stop_price "
+                    f"(got limit={effective_limit}, stop={effective_stop})"
+                )
+            if order.side == "sell" and effective_limit > effective_stop:
+                errors.append(
+                    f"Sell stop-limit requires limit_price <= stop_price "
+                    f"(got limit={effective_limit}, stop={effective_stop})"
+                )
+
+    if errors:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="; ".join(errors))
+
+
+async def _is_strictly_risk_reducing(
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+    ctx: AppContext,
+) -> bool:
+    if order.execution_style == "twap" or order.parent_order_id is not None:
+        return False
+
+    if payload.qty is None:
+        return False
+
+    if payload.limit_price is not None and payload.limit_price != order.limit_price:
+        return False
+    if payload.stop_price is not None and payload.stop_price != order.stop_price:
+        return False
+    if payload.time_in_force is not None and payload.time_in_force != order.time_in_force:
+        return False
+
+    try:
+        current_qty = ctx.db.get_position_by_symbol(order.symbol)
+    except Exception:
+        return False
+
+    old_pending = order.qty if order.side == "buy" else -order.qty
+    new_pending = payload.qty if order.side == "buy" else -payload.qty
+    old_projected = current_qty + old_pending
+    new_projected = current_qty + new_pending
+
+    return abs(new_projected) < abs(old_projected)
+
+
+async def _check_modify_safety_gates(
+    ctx: AppContext,
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+) -> None:
+    kill_switch = ctx.recovery_manager.kill_switch
+    circuit_breaker = ctx.recovery_manager.circuit_breaker
+
+    if ctx.recovery_manager.is_kill_switch_unavailable() or kill_switch is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch state unavailable (fail-closed)",
+        )
+    if ctx.recovery_manager.is_circuit_breaker_unavailable() or circuit_breaker is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Circuit-breaker state unavailable (fail-closed)",
+        )
+
+    safety_event = kill_switch.is_engaged() or circuit_breaker.is_tripped()
+    if safety_event and not await _is_strictly_risk_reducing(order, payload, ctx):
+        event_type = "kill switch" if kill_switch.is_engaged() else "circuit breaker"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"Order modifications blocked: {event_type} engaged. "
+                "Only strictly risk-reducing qty decreases allowed."
+            ),
+        )
+
+
+def _validate_modify_position_limits(
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+    ctx: AppContext,
+) -> None:
+    if payload.qty is None or payload.qty <= order.qty:
+        return
+
+    max_position_size = ctx.risk_config.position_limits.max_position_size
+    current_position = ctx.db.get_position_by_symbol(order.symbol)
+    existing_projected = current_position + (order.qty if order.side == "buy" else -order.qty)
+    proposed_projected = current_position + (
+        payload.qty if order.side == "buy" else -payload.qty
+    )
+
+    if abs(proposed_projected) > max_position_size:
+        delta = abs(proposed_projected) - abs(existing_projected)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Qty increase would exceed position limits. "
+                f"Additional exposure: {int(delta)} shares."
+            ),
+        )
+
+
+def _reserve_modify_delta(
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+    ctx: AppContext,
+) -> str | None:
+    """Reserve additional exposure for qty increases during modification."""
+    if payload.qty is None or payload.qty <= order.qty:
+        return None
+
+    position_reservation = ctx.recovery_manager.position_reservation
+    if ctx.recovery_manager.is_position_reservation_unavailable() or position_reservation is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Position-reservation state unavailable (fail-closed)",
+        )
+
+    try:
+        current_position = ctx.db.get_position_by_symbol(order.symbol)
+    except Exception as exc:
+        logger.error(
+            "Position lookup unavailable during modification reservation (fail-closed)",
+            extra={"client_order_id": order.client_order_id, "symbol": order.symbol, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Position lookup unavailable for reservation (fail-closed)",
+        ) from exc
+
+    delta_qty = payload.qty - order.qty
+    max_position_size = ctx.risk_config.position_limits.max_position_size
+    reservation_result = position_reservation.reserve(
+        symbol=order.symbol,
+        side=order.side,
+        qty=delta_qty,
+        max_limit=max_position_size,
+        current_position=current_position,
+    )
+
+    if not reservation_result.success or reservation_result.token is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "Position limit exceeded",
+                "message": reservation_result.reason or "Position limit exceeded",
+                "symbol": order.symbol,
+                "max_position_size": max_position_size,
+            },
+        )
+
+    return reservation_result.token
+
+
+async def _validate_modify_fat_finger(
+    order: OrderDetail,
+    payload: OrderModifyRequest,
+    ctx: AppContext,
+    max_price_age_seconds: int,
+) -> None:
+    stop_price_increases_risk = False
+    if payload.stop_price is not None and payload.stop_price != order.stop_price:
+        if order.side == "sell":
+            # Sell stop: lower stop triggers sooner (more risk), higher stop is less risk.
+            if order.stop_price is None or payload.stop_price < order.stop_price:
+                stop_price_increases_risk = True
+        else:
+            # Buy stop: higher stop triggers at higher price (more risk), lower stop is less risk.
+            if order.stop_price is None or payload.stop_price > order.stop_price:
+                stop_price_increases_risk = True
+
+    exposure_increasing = (
+        (payload.qty is not None and payload.qty > order.qty)
+        or (
+            payload.limit_price is not None
+            and order.limit_price is not None
+            and (
+                (order.side == "buy" and payload.limit_price > order.limit_price)
+                or (order.side == "sell" and payload.limit_price < order.limit_price)
+            )
+        )
+        or stop_price_increases_risk
+    )
+
+    if not exposure_increasing:
+        return
+
+    effective_qty = payload.qty if payload.qty is not None else order.qty
+    effective_limit = (
+        payload.limit_price if payload.limit_price is not None else order.limit_price
+    )
+    effective_stop = payload.stop_price if payload.stop_price is not None else order.stop_price
+    effective_tif = payload.time_in_force if payload.time_in_force is not None else order.time_in_force
+
+    replacement_request = OrderRequest(
+        symbol=order.symbol,
+        side=order.side,
+        qty=effective_qty,
+        order_type=order.order_type,
+        limit_price=effective_limit,
+        stop_price=effective_stop,
+        time_in_force=effective_tif,
+        execution_style=order.execution_style or "instant",
+    )
+
+    thresholds = ctx.fat_finger_validator.get_effective_thresholds(order.symbol)
+    price, adv = await resolve_fat_finger_context(
+        replacement_request,
+        thresholds,
+        ctx.redis,
+        ctx.liquidity_service,
+        max_price_age_seconds,
+    )
+    result = ctx.fat_finger_validator.validate(
+        symbol=order.symbol,
+        qty=replacement_request.qty,
+        price=price,
+        adv=adv,
+        thresholds=thresholds,
+    )
+    if result.breached:
+        breach_list = ", ".join(iter_breach_types(result.breaches))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Modification would breach fat-finger limits: {breach_list}"
+                if breach_list
+                else "Modification would breach fat-finger limits"
+            ),
+        )
+
+
+# =============================================================================
+# POST /api/v1/orders/twap-preview - Preview TWAP Plan
+# =============================================================================
+
+
+@router.post("/orders/twap-preview", response_model=TWAPPreviewResponse)
+async def twap_preview(
+    payload: TWAPPreviewRequest,
+    _auth_context: AuthContext = Depends(order_preview_auth),
+    _rate_limit_remaining: int = Depends(order_preview_rl),
+    ctx: AppContext = Depends(get_context),
+) -> TWAPPreviewResponse:
+    """Preview TWAP slicing without creating orders."""
+    authorized_strategies = get_authorized_strategies(_auth_context.user)
+    if not authorized_strategies or payload.strategy_id not in authorized_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    try:
+        slicing_plan = ctx.twap_slicer.plan(
+            symbol=payload.symbol,
+            side=payload.side,
+            qty=payload.qty,
+            duration_minutes=payload.duration_minutes,
+            interval_seconds=payload.interval_seconds,
+            order_type=payload.order_type,
+            limit_price=payload.limit_price,
+            time_in_force=payload.time_in_force,
+        )
+    except ValueError as exc:
+        raise TWAPValidationException([str(exc)]) from exc
+
+    slice_count = slicing_plan.total_slices
+    base_slice_qty = payload.qty // slice_count if slice_count > 0 else 0
+    if slice_count < TWAP_MIN_SLICES:
+        raise TWAPValidationException(
+            [f"TWAP requires at least {TWAP_MIN_SLICES} slices (got {slice_count})"]
+        )
+    if base_slice_qty < TWAP_MIN_SLICE_QTY:
+        raise TWAPValidationException(
+            [
+                f"TWAP minimum slice size is {TWAP_MIN_SLICE_QTY} shares "
+                f"(got {base_slice_qty} shares per slice)"
+            ]
+        )
+
+    remainder_distribution = [
+        slice_detail.slice_num
+        for slice_detail in slicing_plan.slices
+        if slice_detail.qty > base_slice_qty
+    ]
+
+    start_time = _normalize_utc(payload.start_time or datetime.now(UTC))
+    scheduled_times_full = [
+        start_time + timedelta(seconds=i * payload.interval_seconds) for i in range(slice_count)
+    ]
+
+    # Avoid importing timedelta at top-level to keep ordering stable
+    if scheduled_times_full:
+        first_slice_at = scheduled_times_full[0]
+        last_slice_at = scheduled_times_full[-1]
+    else:
+        first_slice_at = start_time
+        last_slice_at = start_time
+
+    try:
+        tzinfo = ZoneInfo(payload.timezone)
+    except Exception:
+        tzinfo = ZoneInfo("UTC")
+
+    market_hours_warning = _get_market_hours_warning(first_slice_at, last_slice_at)
+
+    scheduled_times = scheduled_times_full[:100]
+    display_times = [ts.astimezone(tzinfo).isoformat() for ts in scheduled_times]
+
+    estimated_duration_minutes = int(
+        math.ceil((last_slice_at - first_slice_at).total_seconds() / 60)
+    )
+
+    slice_notional: Decimal | None = None
+    notional_warning: str | None = None
+    if payload.order_type == "limit":
+        if payload.limit_price is None:
+            raise TWAPValidationException(["limit_price required for limit orders"])
+        slice_notional = payload.limit_price * base_slice_qty
+        if slice_notional < TWAP_MIN_SLICE_NOTIONAL:
+            raise TWAPValidationException(
+                [
+                    f"Slice notional ${slice_notional:.2f} below minimum "
+                    f"${TWAP_MIN_SLICE_NOTIONAL}."
+                ]
+            )
+    else:
+        price = await _get_side_aware_quote(payload.symbol, payload.side, ctx)
+        if price is None:
+            # Design Decision #32: allow TWAP preview without quote during extended hours,
+            # but require explicit user acknowledgement before submission.
+            notional_warning = (
+                "Market quote unavailable; slice notional cannot be validated. "
+                "Explicit acknowledgement is required before submitting this TWAP. "
+                "Order submission may fail if slice notional is below $500."
+            )
+        else:
+            slice_notional = price * base_slice_qty
+            if slice_notional < TWAP_MIN_SLICE_NOTIONAL:
+                raise TWAPValidationException(
+                    [
+                        f"Slice notional ${slice_notional:.2f} below minimum "
+                        f"${TWAP_MIN_SLICE_NOTIONAL}."
+                    ]
+                )
+
+    return TWAPPreviewResponse(
+        slice_count=slice_count,
+        base_slice_qty=base_slice_qty,
+        remainder_distribution=remainder_distribution,
+        scheduled_times=scheduled_times,
+        display_times=display_times,
+        first_slice_at=first_slice_at,
+        last_slice_at=last_slice_at,
+        estimated_duration_minutes=estimated_duration_minutes,
+        market_hours_warning=market_hours_warning,
+        notional_warning=notional_warning,
+        slice_notional=slice_notional,
+        validation_errors=[],
+    )
+
+
+# =============================================================================
+# POST /api/v1/orders - Submit Order
+# =============================================================================
 
 @router.post("/orders", response_model=OrderResponse)
 async def submit_order(
@@ -604,6 +1117,28 @@ async def submit_order(
         )
 
     # =========================================================================
+    # TWAP orders are not supported on this endpoint
+    # =========================================================================
+    if order.execution_style == "twap":
+        logger.warning(
+            "TWAP order rejected on /api/v1/orders",
+            extra={
+                "client_order_id": client_order_id,
+                "symbol": order.symbol,
+                "side": order.side,
+                "qty": order.qty,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "twap_not_supported",
+                "message": "TWAP orders must be submitted via /api/v1/manual/orders. "
+                "The /api/v1/orders endpoint supports instant execution only.",
+            },
+        )
+
+    # =========================================================================
     # GATE 6: Quarantine check (Redis-based, fail-closed)
     # =========================================================================
     await _check_quarantine(order.symbol, config.strategy_id, ctx, config)
@@ -722,6 +1257,7 @@ async def submit_order(
             qty=existing_order.qty,
             order_type=existing_order.order_type,
             limit_price=existing_order.limit_price,
+            stop_price=existing_order.stop_price,
             created_at=existing_order.created_at,
             message="Order already exists (idempotent retry)",
         )
@@ -793,6 +1329,7 @@ async def submit_order(
                 qty=order_detail.qty,
                 order_type=order_detail.order_type,
                 limit_price=order_detail.limit_price,
+                stop_price=order_detail.stop_price,
                 created_at=order_detail.created_at,
                 message="Order already exists (concurrent retry)",
             )
@@ -863,6 +1400,33 @@ async def submit_order(
                         "error": str(db_error),
                     },
                 )
+
+        except ValueError as e:
+            # Release reservation on local validation error (broker not reached)
+            position_reservation.release(order.symbol, reservation_token)
+            logger.warning(
+                f"Order validation error: {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "error": str(e),
+                },
+            )
+            ctx.db.update_order_status_cas(
+                client_order_id=client_order_id,
+                status="rejected",
+                broker_updated_at=datetime.now(UTC),
+                status_rank=status_rank_for("rejected"),
+                source_priority=SOURCE_PRIORITY_MANUAL,
+                filled_qty=Decimal("0"),
+                filled_avg_price=None,
+                filled_at=None,
+                broker_order_id=None,
+                error_message=f"Order validation failed: {e}",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Order validation failed: {e}",
+            ) from e
 
         except AlpacaValidationError as e:
             # Release reservation on broker validation error (broker rejected)
@@ -1011,9 +1575,357 @@ async def submit_order(
         qty=order.qty,
         order_type=order.order_type,
         limit_price=order.limit_price,
+        stop_price=order.stop_price,
         created_at=order_detail.created_at,
         message="Order logged (DRY_RUN mode)" if config.dry_run else "Order submitted",
     )
+
+
+# =============================================================================
+# PATCH /api/v1/orders/{client_order_id} - Modify Order
+# =============================================================================
+
+
+@router.patch("/orders/{client_order_id}", response_model=OrderModifyResponse)
+async def modify_order(
+    client_order_id: str,
+    payload: OrderModifyRequest,
+    _auth_context: AuthContext = Depends(order_modify_auth),
+    _rate_limit_remaining: int = Depends(order_modify_rl),
+    ctx: AppContext = Depends(get_context),
+    config: ExecutionGatewayConfig = Depends(get_config),
+    response: Response = None,  # type: ignore[assignment]
+) -> OrderModifyResponse:
+    """Modify a working order via Alpaca's atomic replace API."""
+    order = ctx.db.get_order_by_client_id(client_order_id)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    authorized_strategies = get_authorized_strategies(_auth_context.user)
+    if not authorized_strategies or order.strategy_id not in authorized_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    await _check_modify_safety_gates(ctx, order, payload)
+
+    if order.status not in MODIFIABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Order cannot be modified in status '{order.status}'. "
+                f"Only orders in {sorted(MODIFIABLE_STATUSES)} can be modified."
+            ),
+        )
+
+    if order.broker_order_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Order cannot be modified yet - awaiting broker acknowledgment.",
+        )
+
+    if (
+        order.execution_style == "twap"
+        or order.parent_order_id is not None
+        or order.total_slices is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TWAP orders cannot be modified. Cancel and resubmit instead.",
+        )
+
+    _validate_modify_fields(order, payload)
+
+    if payload.qty is not None and Decimal(str(order.filled_qty or 0)) > Decimal(str(payload.qty)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot reduce qty below filled quantity ({order.filled_qty})",
+        )
+
+    changes = _compute_modification_changes(order, payload)
+    if not changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No changes detected for modification",
+        )
+
+    # Idempotency check BEFORE lock
+    existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
+    if existing:
+        status_value = str(existing.get("status") or "")
+        idempotent_response = OrderModifyResponse(
+            original_client_order_id=existing["original_client_order_id"],
+            new_client_order_id=existing["new_client_order_id"],
+            modification_id=str(existing["modification_id"]),
+            modified_at=existing["modified_at"],
+            status=status_value or "pending",
+            changes=existing.get("changes") or {},
+        )
+        if status_value == "completed":
+            return idempotent_response
+        if status_value == "pending":
+            if response is not None:
+                response.status_code = status.HTTP_202_ACCEPTED
+            return idempotent_response
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=existing.get("error_message") or "Previous modification failed",
+        )
+
+    _validate_modify_position_limits(order, payload, ctx)
+    await _validate_modify_fat_finger(order, payload, ctx, config.fat_finger_max_price_age_seconds)
+
+    # Phase 1: acquire modification sequence + insert pending record
+    try:
+        with ctx.db.transaction() as conn:
+            existing = ctx.db.get_modification_by_idempotency_key(
+                client_order_id, payload.idempotency_key, conn=conn
+            )
+            if existing:
+                status_value = str(existing.get("status") or "")
+                idempotent_response = OrderModifyResponse(
+                    original_client_order_id=existing["original_client_order_id"],
+                    new_client_order_id=existing["new_client_order_id"],
+                    modification_id=str(existing["modification_id"]),
+                    modified_at=existing["modified_at"],
+                    status=status_value or "pending",
+                    changes=existing.get("changes") or {},
+                )
+                if status_value == "completed":
+                    return idempotent_response
+                if status_value == "pending":
+                    if response is not None:
+                        response.status_code = status.HTTP_202_ACCEPTED
+                    return idempotent_response
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=existing.get("error_message") or "Previous modification failed",
+                )
+            try:
+                modification_seq = ctx.db.get_next_modification_seq(client_order_id, conn)
+            except LockNotAvailable:
+                existing = ctx.db.get_modification_by_idempotency_key(
+                    client_order_id, payload.idempotency_key, conn=conn
+                )
+                if existing:
+                    status_value = str(existing.get("status") or "")
+                    idempotent_response = OrderModifyResponse(
+                        original_client_order_id=existing["original_client_order_id"],
+                        new_client_order_id=existing["new_client_order_id"],
+                        modification_id=str(existing["modification_id"]),
+                        modified_at=existing["modified_at"],
+                        status=status_value or "pending",
+                        changes=existing.get("changes") or {},
+                    )
+                    if status_value == "completed":
+                        return idempotent_response
+                    if status_value == "pending":
+                        if response is not None:
+                            response.status_code = status.HTTP_202_ACCEPTED
+                        return idempotent_response
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=existing.get("error_message") or "Previous modification failed",
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Order modification in progress. Retry with same idempotency_key.",
+                )
+
+            new_client_order_id = _generate_replacement_order_id(
+                client_order_id, modification_seq
+            )
+            modification_id = ctx.db.insert_pending_modification(
+                original_client_order_id=client_order_id,
+                new_client_order_id=new_client_order_id,
+                original_broker_order_id=order.broker_order_id,
+                modification_seq=modification_seq,
+                idempotency_key=payload.idempotency_key,
+                status="pending",
+                modified_by=str(_auth_context.user.get("user_id") or "unknown"),
+                reason=payload.reason,
+                changes=changes,
+                conn=conn,
+            )
+    except HTTPException:
+        raise
+
+    if not ctx.alpaca:
+        ctx.db.update_modification_status(
+            modification_id, status="failed", error_message="broker_unavailable"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Alpaca client not initialized. Check credentials.",
+        )
+
+    reservation_token: str | None = None
+    try:
+        reservation_token = _reserve_modify_delta(order, payload, ctx)
+    except HTTPException as exc:
+        ctx.db.update_modification_status(
+            modification_id, status="failed", error_message=str(exc.detail)
+        )
+        raise
+
+    # Build replacement request
+    effective_qty = payload.qty if payload.qty is not None else order.qty
+    effective_limit = payload.limit_price if payload.limit_price is not None else order.limit_price
+    effective_stop = payload.stop_price if payload.stop_price is not None else order.stop_price
+    effective_tif = (
+        payload.time_in_force if payload.time_in_force is not None else order.time_in_force
+    )
+
+    replacement_request = OrderRequest(
+        symbol=order.symbol,
+        side=order.side,
+        qty=effective_qty,
+        order_type=order.order_type,
+        limit_price=effective_limit,
+        stop_price=effective_stop,
+        time_in_force=effective_tif,
+        execution_style=order.execution_style or "instant",
+    )
+
+    # Phase 2: call broker replace
+    try:
+        broker_response = ctx.alpaca.replace_order(
+            order.broker_order_id,
+            qty=payload.qty,
+            limit_price=payload.limit_price,
+            stop_price=payload.stop_price,
+            time_in_force=payload.time_in_force,
+            new_client_order_id=new_client_order_id,
+        )
+    except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError) as exc:
+        if reservation_token:
+            ctx.recovery_manager.position_reservation.release(order.symbol, reservation_token)
+        ctx.db.update_modification_status(
+            modification_id, status="failed", error_message=str(exc)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
+            if isinstance(exc, AlpacaRejectionError)
+            else status.HTTP_400_BAD_REQUEST
+            if isinstance(exc, AlpacaValidationError)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    broker_order_id = broker_response.get("id")
+    broker_client_order_id = broker_response.get("client_order_id") or new_client_order_id
+
+    if reservation_token:
+        ctx.recovery_manager.position_reservation.confirm(order.symbol, reservation_token)
+
+    if broker_client_order_id != new_client_order_id:
+        logger.warning(
+            "alpaca_replace_client_order_id_mismatch",
+            extra={
+                "client_order_id": client_order_id,
+                "expected": new_client_order_id,
+                "actual": broker_client_order_id,
+            },
+        )
+
+    # Phase 3: finalize records
+    try:
+        with ctx.db.transaction() as conn:
+            ctx.db.finalize_modification(
+                modification_id,
+                new_broker_order_id=broker_order_id,
+                status="completed",
+                new_client_order_id=broker_client_order_id,
+                conn=conn,
+            )
+            ctx.db.update_order_status_simple_with_conn(client_order_id, "replaced", conn=conn)
+            ctx.db.insert_replacement_order(
+                client_order_id=broker_client_order_id,
+                replaced_order_id=client_order_id,
+                strategy_id=order.strategy_id,
+                order_request=replacement_request,
+                status=broker_response.get("status") or "pending_new",
+                broker_order_id=broker_order_id,
+                conn=conn,
+            )
+    except Exception as exc:
+        logger.error(
+            "Modification finalize failed after broker replacement",
+            extra={
+                "client_order_id": client_order_id,
+                "modification_id": str(modification_id),
+                "broker_order_id": broker_order_id,
+                "broker_client_order_id": broker_client_order_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        try:
+            ctx.db.update_modification_status(
+                modification_id,
+                status="submitted_unconfirmed",
+                error_message=f"db_finalize_failed: {exc}",
+            )
+        except Exception as status_exc:
+            logger.error(
+                "Failed to mark modification as submitted_unconfirmed",
+                extra={
+                    "client_order_id": client_order_id,
+                    "modification_id": str(modification_id),
+                    "error": str(status_exc),
+                    "error_type": type(status_exc).__name__,
+                },
+                exc_info=True,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Order replacement accepted by broker but failed to persist. "
+                "Reconciliation required."
+            ),
+        ) from exc
+
+    return OrderModifyResponse(
+        original_client_order_id=client_order_id,
+        new_client_order_id=broker_client_order_id,
+        modification_id=str(modification_id),
+        modified_at=datetime.now(UTC),
+        status="completed",
+        changes=changes,
+    )
+
+
+# =============================================================================
+# GET /api/v1/orders/{client_order_id}/modifications - Modification History
+# =============================================================================
+
+
+@router.get("/orders/{client_order_id}/modifications", response_model=list[OrderModificationRecord])
+async def get_modification_history(
+    client_order_id: str,
+    _auth_context: AuthContext = Depends(order_read_auth),
+    ctx: AppContext = Depends(get_context),
+) -> list[OrderModificationRecord]:
+    order = ctx.db.get_order_by_client_id(client_order_id)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    authorized_strategies = get_authorized_strategies(_auth_context.user)
+    if not authorized_strategies or order.strategy_id not in authorized_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    records = ctx.db.get_modifications_for_order(client_order_id)
+    return [
+        OrderModificationRecord(
+            modification_id=str(row["modification_id"]),
+            original_client_order_id=row["original_client_order_id"],
+            new_client_order_id=row["new_client_order_id"],
+            modified_at=row["modified_at"],
+            modified_by=row["modified_by"],
+            changes=row.get("changes") or {},
+            reason=row.get("reason"),
+        )
+        for row in records
+    ]
 
 
 # =============================================================================

@@ -9,13 +9,18 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apps.execution_gateway.api import dependencies as deps
 from apps.execution_gateway.api import manual_controls as manual_controls_module
 from apps.execution_gateway.api.manual_controls import router
-from apps.execution_gateway.schemas import OrderDetail, Position
+from apps.execution_gateway.app_context import AppContext
+from apps.execution_gateway.fat_finger_validator import FatFingerValidator
+from apps.execution_gateway.order_slicer import TWAPSlicer
+from apps.execution_gateway.schemas import FatFingerThresholds, OrderDetail, Position
+from libs.trading.risk_management import RiskConfig
 from libs.platform.web_console_auth.audit_logger import AuditLogger
 from libs.platform.web_console_auth.exceptions import (
     InvalidAudienceError,
@@ -93,6 +98,8 @@ class StubDB:
         self.pending = [self.orders["ord-1"]]
         self.positions = [_position("AAPL", 5)]
         self.status_updates: dict[str, str] = {}
+        self.parents: list[str] = []
+        self.slices: list[OrderDetail] = []
 
     def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         return self.orders.get(client_order_id)
@@ -181,6 +188,46 @@ class StubDB:
         self.orders[order.client_order_id] = order
         return order
 
+    def create_parent_order(self, **kwargs: Any) -> OrderDetail:
+        order = _order(
+            strategy=kwargs.get("strategy_id", "stub"),
+            client_id=kwargs.get("client_order_id", "parent"),
+            status=kwargs.get("status", "scheduled"),
+        )
+        self.orders[order.client_order_id] = order
+        self.parents.append(order.client_order_id)
+        return order
+
+    def create_child_slice(self, **kwargs: Any) -> OrderDetail:
+        order = _order(
+            strategy=kwargs.get("strategy_id", "stub"),
+            client_id=kwargs.get("client_order_id", "child"),
+            status=kwargs.get("status", "pending_new"),
+        )
+        order.parent_order_id = kwargs.get("parent_order_id")  # type: ignore[attr-defined]
+        order.slice_num = kwargs.get("slice_num")  # type: ignore[attr-defined]
+        order.scheduled_time = kwargs.get("scheduled_time")  # type: ignore[attr-defined]
+        order.qty = kwargs.get("order_request").qty  # type: ignore[attr-defined]
+        self.orders[order.client_order_id] = order
+        self.slices.append(order)
+        return order
+
+    def create_slice_schedule(self, **kwargs: Any) -> None:
+        return None
+
+    def get_slices_by_parent_id(self, parent_order_id: str) -> list[OrderDetail]:
+        return [s for s in self.slices if s.parent_order_id == parent_order_id]
+
+    def transaction(self):
+        class _Tx:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        return _Tx()
+
 
 class StubAudit(AuditLogger):
     async def log_action(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover - no-op
@@ -267,6 +314,23 @@ def build_client(overrides: dict[Callable[..., Any], Any] | None = None) -> Test
     _set_override(deps.get_alpaca_executor, lambda: stub_alpaca)
     _set_override(deps.get_gateway_authenticator, lambda: StubAuthenticator())
     _set_override(deps.get_async_redis, lambda: stub_redis)
+    recovery_manager = MagicMock()
+    recovery_manager.is_kill_switch_unavailable.return_value = False
+    recovery_manager.kill_switch = MagicMock()
+    recovery_manager.kill_switch.is_engaged.return_value = False
+
+    app.state.context = AppContext(
+        db=stub_db,
+        redis=None,
+        alpaca=None,
+        liquidity_service=None,
+        reconciliation_service=None,
+        recovery_manager=recovery_manager,
+        risk_config=RiskConfig(),
+        fat_finger_validator=FatFingerValidator(FatFingerThresholds()),
+        twap_slicer=TWAPSlicer(),
+        webhook_secret="test-secret",
+    )
 
     if overrides:
         for dep, value in overrides.items():
@@ -1706,6 +1770,76 @@ def test_submit_manual_order_limit():
     assert response.status_code == 200
 
 
+def test_submit_manual_order_twap_creates_slices(monkeypatch: pytest.MonkeyPatch):
+    """Test submitting a manual TWAP order schedules parent + slices."""
+
+    class StubRedis:
+        async def get(self, key: str) -> bytes:
+            return b'{"state": "OPEN"}'
+
+    class StubScheduler:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def schedule_slices(self, **kwargs: Any) -> list[str]:
+            self.calls.append(kwargs)
+            slices = kwargs.get("slices", [])
+            return [f"job-{s.slice_num}" for s in slices]
+
+    stub_db = StubDB()
+    scheduler = StubScheduler()
+    ctx = AppContext(
+        db=stub_db,
+        redis=None,
+        alpaca=None,
+        liquidity_service=None,
+        reconciliation_service=None,
+        recovery_manager=MagicMock(),
+        risk_config=RiskConfig(),
+        fat_finger_validator=FatFingerValidator(FatFingerThresholds()),
+        twap_slicer=TWAPSlicer(),
+        webhook_secret="test-secret",
+    )
+    ctx.recovery_manager.slice_scheduler = scheduler  # type: ignore[assignment]
+    ctx.recovery_manager.is_kill_switch_unavailable.return_value = False
+    ctx.recovery_manager.kill_switch = MagicMock()
+    ctx.recovery_manager.kill_switch.is_engaged.return_value = False
+
+    # Ensure test-mode get_context override uses the stub DB (not global mock).
+    monkeypatch.setattr("apps.execution_gateway.main.db_client", stub_db, raising=False)
+
+    client = build_client(
+        overrides={
+            deps.get_async_redis: lambda: StubRedis(),
+            deps.get_db_client: lambda: stub_db,
+        }
+    )
+    client.app.state.context = ctx
+
+    response = client.post(
+        "/manual/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": "100",
+            "order_type": "market",
+            "time_in_force": "day",
+            "execution_style": "twap",
+            "twap_duration_minutes": 10,
+            "twap_interval_seconds": 60,
+            "reason": "manual twap order",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "scheduled"
+    assert data["slice_count"] and data["slice_count"] > 0
+    assert scheduler.calls
+
+
 def test_submit_manual_order_circuit_breaker_tripped():
     """Test manual order blocked when circuit breaker tripped."""
 
@@ -1746,6 +1880,68 @@ def test_submit_manual_order_circuit_breaker_unavailable():
     assert response.status_code == 503
     assert _err(response)["error"] == "circuit_breaker_unavailable"
 
+
+def test_submit_manual_order_kill_switch_engaged():
+    """Test manual order blocked when kill switch engaged."""
+    client = build_client()
+    ctx = client.app.state.context
+    ctx.recovery_manager.kill_switch.is_engaged.return_value = True
+
+    response = client.post(
+        "/manual/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": "10",
+            "reason": "manual order during kill switch",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 503
+    assert _err(response)["error"] == "kill_switch_engaged"
+
+
+def test_submit_manual_order_kill_switch_unavailable():
+    """Test manual order fails-closed when kill switch unavailable."""
+    client = build_client()
+    ctx = client.app.state.context
+    ctx.recovery_manager.is_kill_switch_unavailable.return_value = True
+
+    response = client.post(
+        "/manual/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": "10",
+            "reason": "manual order with kill switch unavailable",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 503
+    assert _err(response)["error"] == "kill_switch_unavailable"
+
+
+def test_submit_manual_order_fat_finger_blocked():
+    """Test manual order blocked by fat-finger validation."""
+    client = build_client()
+    ctx = client.app.state.context
+    ctx.fat_finger_validator = FatFingerValidator(FatFingerThresholds(max_qty=5))
+
+    response = client.post(
+        "/manual/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": "10",
+            "reason": "manual order fat finger breach",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 400
+    assert _err(response)["error"] == "fat_finger_rejected"
 
 def test_submit_manual_order_dry_run(monkeypatch: pytest.MonkeyPatch):
     """Test manual order in dry-run mode."""

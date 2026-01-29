@@ -29,6 +29,8 @@ def _set_test_environment():
     os.environ.setdefault("REDIS_HOST", "localhost")
     os.environ.setdefault("REDIS_PORT", "6379")
     os.environ.setdefault("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+    os.environ.setdefault("API_AUTH_MODE", "log_only")
+    os.environ.setdefault("RATE_LIMIT_MODE", "log_only")
 
     return
 

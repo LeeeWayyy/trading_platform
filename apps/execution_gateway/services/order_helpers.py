@@ -105,6 +105,7 @@ def handle_idempotency_race(
             qty=existing_order.qty,
             order_type=existing_order.order_type,
             limit_price=existing_order.limit_price,
+            stop_price=existing_order.stop_price,
             created_at=existing_order.created_at,
             message="Order already submitted (race condition resolved)",
         )

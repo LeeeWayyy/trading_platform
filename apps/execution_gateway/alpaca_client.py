@@ -36,6 +36,7 @@ try:
         GetOrdersRequest,
         LimitOrderRequest,
         MarketOrderRequest,
+        ReplaceOrderRequest,
         StopLimitOrderRequest,
         StopOrderRequest,
     )
@@ -427,6 +428,113 @@ class AlpacaExecutor:
             if getattr(e, "status_code", None) == 404:
                 return None
             raise AlpacaConnectionError(f"Error fetching order: {e}") from e
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(AlpacaConnectionError),
+        reraise=True,
+    )
+    def replace_order(
+        self,
+        broker_order_id: str,
+        *,
+        qty: int | None = None,
+        limit_price: Decimal | None = None,
+        stop_price: Decimal | None = None,
+        time_in_force: str | None = None,
+        new_client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Replace an existing order atomically via Alpaca.
+
+        Args:
+            broker_order_id: Alpaca broker order ID
+            qty: New total quantity (optional)
+            limit_price: New limit price (optional)
+            stop_price: New stop price (optional)
+            time_in_force: New time in force (day or gtc)
+            new_client_order_id: Optional client_order_id for replacement order
+
+        Returns:
+            Order response from Alpaca (as dict)
+
+        Raises:
+            AlpacaValidationError: Invalid modification parameters (non-retryable)
+            AlpacaRejectionError: Order rejected by broker (non-retryable)
+            AlpacaConnectionError: Connection error (retryable)
+        """
+        try:
+            tif_map = {
+                "day": TimeInForce.DAY,
+                "gtc": TimeInForce.GTC,
+            }
+            tif_value = tif_map.get(time_in_force) if time_in_force else None
+
+            request = ReplaceOrderRequest(
+                qty=qty,
+                limit_price=float(limit_price) if limit_price is not None else None,
+                stop_price=float(stop_price) if stop_price is not None else None,
+                time_in_force=tif_value,
+                client_order_id=new_client_order_id,
+            )
+
+            alpaca_order = self.client.replace_order_by_id(broker_order_id, request)
+
+            if not isinstance(alpaca_order, Order):
+                raise AlpacaClientError(
+                    f"Unexpected response type from Alpaca API: {type(alpaca_order).__name__}. "
+                    f"Expected Order object."
+                )
+
+            return {
+                "id": str(alpaca_order.id),
+                "client_order_id": alpaca_order.client_order_id,
+                "symbol": alpaca_order.symbol,
+                "side": alpaca_order.side.value if alpaca_order.side is not None else None,
+                "qty": Decimal(str(alpaca_order.qty or 0)),
+                "order_type": (
+                    alpaca_order.order_type.value if alpaca_order.order_type is not None else None
+                ),
+                "status": alpaca_order.status.value if alpaca_order.status is not None else None,
+                "created_at": alpaca_order.created_at,
+                "limit_price": (
+                    Decimal(str(alpaca_order.limit_price)) if alpaca_order.limit_price else None
+                ),
+                "stop_price": (
+                    Decimal(str(alpaca_order.stop_price)) if alpaca_order.stop_price else None
+                ),
+            }
+
+        except AlpacaAPIError as e:
+            status_code = getattr(e, "status_code", None)
+            error_message = str(e)
+            logger.error(
+                "Alpaca API error replacing order",
+                extra={"status_code": status_code, "message": error_message},
+            )
+
+            if status_code == 400:
+                raise AlpacaValidationError(f"Invalid modification: {error_message}") from e
+            if status_code in (403, 404, 422):
+                raise AlpacaRejectionError(f"Order replacement rejected: {error_message}") from e
+            raise AlpacaConnectionError(f"Alpaca API connection error: {error_message}") from e
+
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as e:
+            logger.error(
+                "Network error replacing order",
+                extra={"broker_order_id": broker_order_id, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise AlpacaConnectionError(f"Network error: {e}") from e
+
+        except (json.JSONDecodeError, KeyError, ValueError, AttributeError) as e:
+            logger.error(
+                "Data validation error replacing order",
+                extra={"broker_order_id": broker_order_id, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise AlpacaValidationError(f"Data validation error: {e}") from e
 
     def get_orders(
         self,

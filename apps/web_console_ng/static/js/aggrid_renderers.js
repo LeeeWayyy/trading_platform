@@ -41,6 +41,10 @@ function isCancelOrderDisabled() {
     return window._tradingState.readOnly;
 }
 
+function isModifyOrderDisabled() {
+    return window._tradingState.readOnly;
+}
+
 function isNewEntryDisabled() {
     if (window._tradingState.readOnly) return true;
     return window._tradingState.killSwitchEngaged ||
@@ -55,6 +59,7 @@ window.statusBadgeRenderer = function(params) {
         'filled': 'background-color: var(--profit); color: var(--surface-0);',
         'cancelled': 'background-color: var(--surface-2); color: var(--text-secondary);',
         'rejected': 'background-color: var(--loss); color: var(--surface-0);',
+        'replaced': 'background-color: var(--surface-2); color: var(--text-secondary);',
     };
     const style = colors[params.value?.toLowerCase()] || 'background-color: var(--surface-2); color: var(--text-secondary);';
     const rawStatus = params.value || '';
@@ -97,6 +102,77 @@ window.cancelButtonRenderer = function(params) {
         };
     }
     return btn;
+};
+
+window.orderActionsRenderer = function(params) {
+    if (!params.data) return document.createElement('span');
+
+    const container = document.createElement('div');
+    container.className = 'flex gap-2 items-center';
+
+    const status = (params.data?.status || '').toLowerCase();
+    const terminalStatuses = new Set([
+        'filled',
+        'canceled',
+        'cancelled',
+        'rejected',
+        'expired',
+        'failed',
+        'replaced',
+        'done_for_day'
+    ]);
+
+    const missingId = params.data?._missing_all_ids;
+    const canModify = !isModifyOrderDisabled() && !missingId && !terminalStatuses.has(status);
+
+    const modifyBtn = document.createElement('button');
+    modifyBtn.className = canModify
+        ? 'px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600'
+        : 'px-2 py-1 text-xs bg-gray-400 text-gray-200 rounded cursor-not-allowed';
+    modifyBtn.textContent = 'Modify';
+    modifyBtn.disabled = !canModify;
+    if (canModify) {
+        modifyBtn.onclick = function() {
+            window.dispatchEvent(new CustomEvent('modify_order', {
+                detail: {
+                    client_order_id: params.data?.client_order_id || '',
+                    symbol: params.data?.symbol || '',
+                    side: params.data?.side || '',
+                    qty: params.data?.qty || 0,
+                    order_type: params.data?.order_type || params.data?.type || '',
+                    limit_price: params.data?.limit_price ?? null,
+                    stop_price: params.data?.stop_price ?? null,
+                    time_in_force: params.data?.time_in_force || '',
+                    status: params.data?.status || '',
+                    filled_qty: params.data?.filled_qty ?? null,
+                    execution_style: params.data?.execution_style || ''
+                }
+            }));
+        };
+    }
+
+    const cancelDisabled = isCancelOrderDisabled() || missingId;
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = cancelDisabled
+        ? 'px-2 py-1 text-xs bg-gray-400 text-gray-200 rounded cursor-not-allowed'
+        : 'px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.disabled = cancelDisabled;
+    if (!cancelDisabled) {
+        cancelBtn.onclick = function() {
+            window.dispatchEvent(new CustomEvent('cancel_order', {
+                detail: {
+                    client_order_id: params.data?.client_order_id || '',
+                    symbol: params.data?.symbol || '',
+                    broker_order_id: params.data?._broker_order_id || ''
+                }
+            }));
+        };
+    }
+
+    container.appendChild(modifyBtn);
+    container.appendChild(cancelBtn);
+    return container;
 };
 
 window.closePositionRenderer = function(params) {

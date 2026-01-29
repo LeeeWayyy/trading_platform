@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+from contextlib import contextmanager
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apps.execution_gateway.app_factory import create_mock_context, create_test_config
 from apps.execution_gateway.dependencies import get_config, get_context
-from apps.execution_gateway.fat_finger_validator import FatFingerThresholds, FatFingerValidator
+from apps.execution_gateway.fat_finger_validator import FatFingerBreach, FatFingerThresholds, FatFingerValidator
 from apps.execution_gateway.routes import orders
 from apps.execution_gateway.schemas import OrderDetail
 from libs.core.common.api_auth_dependency import AuthContext
@@ -37,7 +39,7 @@ class _ReservationResult:
 
 def _mock_auth_context() -> AuthContext:
     return AuthContext(
-        user=None,
+        user={"role": "operator", "strategies": ["alpha_baseline"], "user_id": "test-user"},
         internal_claims=None,
         auth_type="test",
         is_authenticated=True,
@@ -78,9 +80,11 @@ def _build_test_app(ctx: Any, config: Any) -> TestClient:
     app.dependency_overrides[get_config] = lambda: config
     app.dependency_overrides[orders.order_submit_auth] = _mock_auth_context
     app.dependency_overrides[orders.order_cancel_auth] = _mock_auth_context
+    app.dependency_overrides[orders.order_modify_auth] = _mock_auth_context
     app.dependency_overrides[orders.order_read_auth] = _mock_auth_context
     app.dependency_overrides[orders.order_submit_rl] = lambda: 1
     app.dependency_overrides[orders.order_cancel_rl] = lambda: 1
+    app.dependency_overrides[orders.order_modify_rl] = lambda: 1
 
     return TestClient(app)
 
@@ -153,6 +157,53 @@ class TestSubmitOrder:
 
         reservation.release.assert_called_once_with("AAPL", "token-1")
         db.create_order.assert_called_once()
+
+    def test_submit_order_rejects_twap(self) -> None:
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-1", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.return_value = None
+
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 100,
+            "order_type": "market",
+            "time_in_force": "day",
+            "execution_style": "twap",
+            "twap_duration_minutes": 10,
+            "twap_interval_seconds": 60,
+        }
+
+        response = client.post("/api/v1/orders", json=order_payload)
+        assert response.status_code == 400
+        body = response.json()
+        assert body["detail"]["error"] == "twap_not_supported"
+        reservation.reserve.assert_not_called()
 
     def test_submit_order_idempotent_returns_existing(self) -> None:
         reservation = MagicMock()
@@ -1270,6 +1321,50 @@ class TestBrokerSubmission:
         assert response.status_code == 400
         assert "validation failed" in response.json()["detail"].lower()
 
+    def test_alpaca_value_error_returns_422(self) -> None:
+        """Test 422 when Alpaca client raises ValueError."""
+        mocks = self._create_base_mocks()
+
+        alpaca = MagicMock()
+        alpaca.submit_order.side_effect = ValueError("missing stop_price")
+
+        ctx = create_mock_context(
+            db=mocks["db"],
+            recovery_manager=mocks["recovery_manager"],
+            reconciliation_service=mocks["recon_service"],
+            redis=mocks["mock_redis"],
+            alpaca=alpaca,
+            risk_config=RiskConfig(),
+            fat_finger_validator=mocks["fat_finger_validator"],
+        )
+        config = create_test_config(dry_run=False)
+        client = _build_test_app(ctx, config)
+
+        with (
+            patch("apps.execution_gateway.routes.orders.generate_client_order_id") as gen_id,
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new_callable=AsyncMock,
+            ) as resolve_context,
+        ):
+            gen_id.return_value = "client-123"
+            resolve_context.return_value = (Decimal("100"), 1000000)
+
+            response = client.post(
+                "/api/v1/orders",
+                json={
+                    "symbol": "AAPL",
+                    "side": "buy",
+                    "qty": 10,
+                    "order_type": "market",
+                    "time_in_force": "day",
+                },
+            )
+
+        assert response.status_code == 422
+        assert "validation failed" in response.json()["detail"].lower()
+        mocks["reservation"].release.assert_called_once()
+
     def test_alpaca_rejection_error_returns_422(self) -> None:
         """Test 422 when broker rejects order."""
         from apps.execution_gateway.alpaca_client import AlpacaRejectionError
@@ -1860,6 +1955,326 @@ class TestPendingOrdersReduceOnly:
         open_orders = [{"side": "sell", "qty": 50, "filled_qty": 0}]
         result = _is_reduce_only_order(order, {"qty": 100}, open_orders)
         assert result is False
+
+
+class TestModifyOrder:
+    def _build_context(self, order: OrderDetail) -> tuple[Any, Any]:
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = MagicMock()
+        recovery_manager.position_reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-1", new_position=Decimal("10")
+        )
+
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order
+        db.get_modification_by_idempotency_key.return_value = None
+        db.get_position_by_symbol.return_value = 0
+        db.get_next_modification_seq.return_value = 1
+        db.insert_pending_modification.return_value = "mod-1"
+        db.finalize_modification.return_value = None
+        db.update_order_status_simple_with_conn.return_value = order
+        db.insert_replacement_order.return_value = order
+
+        conn = MagicMock()
+
+        @contextmanager
+        def _tx():
+            yield conn
+
+        db.transaction = _tx
+
+        risk_config = MagicMock()
+        risk_config.position_limits.max_position_size = 1000
+
+        fat_result = MagicMock()
+        fat_result.breached = False
+        fat_result.breaches = []
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=risk_config,
+            fat_finger_validator=MagicMock(),
+        )
+        ctx.fat_finger_validator.get_effective_thresholds.return_value = FatFingerThresholds(
+            max_notional=Decimal("1000000"),
+            max_qty=100000,
+            max_adv_pct=Decimal("1"),
+        )
+        ctx.fat_finger_validator.validate.return_value = fat_result
+        ctx.alpaca.replace_order.return_value = {
+            "id": "broker-new",
+            "client_order_id": "replace-1",
+            "status": "accepted",
+        }
+        return ctx, db
+
+    def test_modify_order_updates_qty(self) -> None:
+        order = OrderDetail(
+            client_order_id="client-1",
+            strategy_id="alpha_baseline",
+            symbol="AAPL",
+            side="buy",
+            qty=10,
+            order_type="limit",
+            limit_price=Decimal("100"),
+            stop_price=None,
+            time_in_force="day",
+            status="new",
+            broker_order_id="broker-1",
+            error_message=None,
+            retry_count=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            submitted_at=None,
+            filled_at=None,
+            filled_qty=Decimal("0"),
+            filled_avg_price=None,
+            metadata={},
+        )
+        ctx, _ = self._build_context(order)
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new=AsyncMock(return_value=(Decimal("100"), 100000)),
+        ), patch(
+            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+            return_value="replace-1",
+        ):
+            response = client.patch("/api/v1/orders/client-1", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["new_client_order_id"] == "replace-1"
+        assert data["status"] == "completed"
+        ctx.recovery_manager.position_reservation.reserve.assert_called_once_with(
+            symbol="AAPL",
+            side="buy",
+            qty=2,
+            max_limit=1000,
+            current_position=0,
+        )
+        ctx.recovery_manager.position_reservation.confirm.assert_called_once_with(
+            "AAPL",
+            "token-1",
+        )
+
+    def test_modify_order_buy_stop_lower_skips_fat_finger(self) -> None:
+        order = OrderDetail(
+            client_order_id="client-stop-buy",
+            strategy_id="alpha_baseline",
+            symbol="AAPL",
+            side="buy",
+            qty=10,
+            order_type="stop",
+            limit_price=None,
+            stop_price=Decimal("100"),
+            time_in_force="day",
+            status="new",
+            broker_order_id="broker-stop-buy",
+            error_message=None,
+            retry_count=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            submitted_at=None,
+            filled_at=None,
+            filled_qty=Decimal("0"),
+            filled_avg_price=None,
+            metadata={},
+        )
+        ctx, _ = self._build_context(order)
+        ctx.fat_finger_validator.validate = MagicMock()
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "stop_price": 95.0}
+        with patch(
+            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+            return_value="replace-1",
+        ):
+            response = client.patch("/api/v1/orders/client-stop-buy", json=payload)
+
+        assert response.status_code == 200
+        ctx.fat_finger_validator.validate.assert_not_called()
+
+    def test_modify_order_sell_stop_lower_triggers_fat_finger(self) -> None:
+        order = OrderDetail(
+            client_order_id="client-stop-sell",
+            strategy_id="alpha_baseline",
+            symbol="AAPL",
+            side="sell",
+            qty=10,
+            order_type="stop",
+            limit_price=None,
+            stop_price=Decimal("100"),
+            time_in_force="day",
+            status="new",
+            broker_order_id="broker-stop-sell",
+            error_message=None,
+            retry_count=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            submitted_at=None,
+            filled_at=None,
+            filled_qty=Decimal("0"),
+            filled_avg_price=None,
+            metadata={},
+        )
+        ctx, _ = self._build_context(order)
+        fat_result = MagicMock()
+        fat_result.breached = True
+        fat_result.breaches = (
+            FatFingerBreach(
+                threshold_type="notional",
+                limit=Decimal("1000"),
+                actual=Decimal("2000"),
+                metadata={"reason": "test"},
+            ),
+        )
+        ctx.fat_finger_validator.validate.return_value = fat_result
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "stop_price": 90.0}
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new=AsyncMock(return_value=(Decimal("100"), 100000)),
+        ):
+            response = client.patch("/api/v1/orders/client-stop-sell", json=payload)
+
+        assert response.status_code == 422
+
+    def test_modify_order_finalization_failure_marks_submitted_unconfirmed(self) -> None:
+        order = _make_order_detail("client-10", status="new")
+        order.broker_order_id = "broker-10"
+        ctx, db = self._build_context(order)
+        db.finalize_modification.side_effect = RuntimeError("db down")
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new=AsyncMock(return_value=(Decimal("100"), 100000)),
+        ), patch(
+            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+            return_value="replace-1",
+        ):
+            response = client.patch("/api/v1/orders/client-10", json=payload)
+
+        assert response.status_code == 500
+        db.update_modification_status.assert_called_once()
+        args, kwargs = db.update_modification_status.call_args
+        assert args[0] == "mod-1"
+        assert kwargs["status"] == "submitted_unconfirmed"
+
+    def test_modify_order_blocked_when_kill_switch_engaged(self) -> None:
+        order = _make_order_detail("client-2", status="new")
+        order.broker_order_id = "broker-2"
+        ctx, _ = self._build_context(order)
+        ctx.recovery_manager.kill_switch.is_engaged.return_value = True
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "limit_price": 101.0}
+        response = client.patch("/api/v1/orders/client-2", json=payload)
+        assert response.status_code == 503
+
+    def test_modify_order_allows_risk_reducing_during_kill_switch(self) -> None:
+        order = OrderDetail(
+            client_order_id="client-3",
+            strategy_id="alpha_baseline",
+            symbol="AAPL",
+            side="buy",
+            qty=10,
+            order_type="limit",
+            limit_price=Decimal("100"),
+            stop_price=None,
+            time_in_force="day",
+            status="new",
+            broker_order_id="broker-3",
+            error_message=None,
+            retry_count=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            submitted_at=None,
+            filled_at=None,
+            filled_qty=Decimal("0"),
+            filled_avg_price=None,
+            metadata={},
+        )
+        ctx, _ = self._build_context(order)
+        ctx.recovery_manager.kill_switch.is_engaged.return_value = True
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "qty": 5}
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new=AsyncMock(return_value=(Decimal("100"), 100000)),
+        ), patch(
+            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+            return_value="replace-1",
+        ):
+            response = client.patch("/api/v1/orders/client-3", json=payload)
+
+        assert response.status_code == 200
+        ctx.recovery_manager.position_reservation.reserve.assert_not_called()
+        ctx.recovery_manager.position_reservation.confirm.assert_not_called()
+
+    def test_modify_order_blocks_qty_increase_when_reservation_unavailable(self) -> None:
+        order = _make_order_detail("client-4", status="new")
+        order.broker_order_id = "broker-4"
+        ctx, _ = self._build_context(order)
+        ctx.recovery_manager.is_position_reservation_unavailable.return_value = True
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
+        response = client.patch("/api/v1/orders/client-4", json=payload)
+        assert response.status_code == 503
+
+    def test_modify_order_idempotent_pending_returns_202(self) -> None:
+        order = _make_order_detail("client-5", status="new")
+        order.broker_order_id = "broker-5"
+        ctx, _ = self._build_context(order)
+        ctx.db.get_modification_by_idempotency_key.return_value = {
+            "original_client_order_id": "client-5",
+            "new_client_order_id": "replace-5",
+            "modification_id": "mod-5",
+            "modified_at": datetime.now(UTC),
+            "changes": {"qty": [10, 12]},
+            "status": "pending",
+        }
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
+        response = client.patch("/api/v1/orders/client-5", json=payload)
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+
+    def test_modify_order_idempotent_failed_returns_409(self) -> None:
+        order = _make_order_detail("client-6", status="new")
+        order.broker_order_id = "broker-6"
+        ctx, _ = self._build_context(order)
+        ctx.db.get_modification_by_idempotency_key.return_value = {
+            "original_client_order_id": "client-6",
+            "new_client_order_id": "replace-6",
+            "modification_id": "mod-6",
+            "modified_at": datetime.now(UTC),
+            "changes": {"qty": [10, 12]},
+            "status": "failed",
+            "error_message": "broker unavailable",
+        }
+        client = _build_test_app(ctx, create_test_config())
+
+        payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
+        response = client.patch("/api/v1/orders/client-6", json=payload)
+        assert response.status_code == 409
 
     def test_pending_buys_reduce_available_short_cover(self) -> None:
         """Test pending buys reduce available cover for more buys on short."""

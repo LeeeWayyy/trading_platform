@@ -171,6 +171,18 @@ async def handle_order_webhook(
             or filled_qty is None
             or filled_avg_price is None
         ):
+            existing_order = ctx.db.get_order_by_client_id(client_order_id)
+            if existing_order and existing_order.status == "replaced":
+                logger.info(
+                    "Ignoring webhook for replaced order",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "broker_order_id": broker_order_id,
+                        "webhook_status": order_status,
+                    },
+                )
+                return {"status": "ignored", "reason": "order_replaced"}
+
             broker_updated_at = parse_webhook_timestamp(
                 order_data.get("updated_at"),
                 payload.get("timestamp"),
@@ -236,6 +248,16 @@ async def handle_order_webhook(
             if not order:
                 logger.warning(f"Order not found for webhook: {client_order_id}")
                 return {"status": "ignored", "reason": "order_not_found"}
+            if order.status == "replaced":
+                logger.info(
+                    "Ignoring webhook for replaced order (transactional path)",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "broker_order_id": broker_order_id,
+                        "webhook_status": order_status,
+                    },
+                )
+                return {"status": "ignored", "reason": "order_replaced"}
 
             # Use Decimal values but compute integer delta from cumulative quantities
             # This ensures fractional fills accumulate at integer boundaries

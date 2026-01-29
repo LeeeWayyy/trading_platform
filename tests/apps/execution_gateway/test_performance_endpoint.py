@@ -498,7 +498,11 @@ class TestDailyPerformanceEndpoint:
         tx_ctx.__exit__.return_value = False
         mock_db.transaction.return_value = tx_ctx
         mock_db.get_order_for_update.return_value = SimpleNamespace(
-            filled_qty=Decimal("0"), symbol="AAPL", side="buy"
+            filled_qty=Decimal("0"),
+            symbol="AAPL",
+            side="buy",
+            status="new",
+            stop_price=None,
         )
         mock_db.get_position_for_update.return_value = None
         mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(
@@ -648,7 +652,13 @@ class TestOutOfOrderWebhooks:
         tx_ctx.__enter__.return_value = MagicMock()
         tx_ctx.__exit__.return_value = False
         mock_db.transaction.return_value = tx_ctx
-        mock_order = SimpleNamespace(filled_qty=Decimal("100"), symbol="AAPL", side="buy")
+        mock_order = SimpleNamespace(
+            filled_qty=Decimal("100"),
+            symbol="AAPL",
+            side="buy",
+            status="filled",
+            stop_price=None,
+        )
         mock_db.get_order_for_update.return_value = mock_order
 
         # webhook_secret=None in mock_context disables signature verification
@@ -759,7 +769,13 @@ class TestBrokerTimestamps:
         tx_ctx.__enter__.return_value = MagicMock()
         tx_ctx.__exit__.return_value = False
         mock_db.transaction.return_value = tx_ctx
-        mock_order = SimpleNamespace(filled_qty=Decimal("0"), symbol="AAPL", side="buy")
+        mock_order = SimpleNamespace(
+            filled_qty=Decimal("0"),
+            symbol="AAPL",
+            side="buy",
+            status="new",
+            stop_price=None,
+        )
         mock_db.get_order_for_update.return_value = mock_order
         mock_db.get_position_for_update.return_value = None
         mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(
@@ -807,7 +823,13 @@ class TestConcurrentWebhooks:
         mock_db.transaction.return_value = tx_ctx
 
         # Order before any fills
-        order = SimpleNamespace(filled_qty=Decimal("0"), symbol="AAPL", side="sell")
+        order = SimpleNamespace(
+            filled_qty=Decimal("0"),
+            symbol="AAPL",
+            side="sell",
+            status="new",
+            stop_price=None,
+        )
         mock_db.get_order_for_update.return_value = order
         mock_db.get_position_for_update.return_value = None
         mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(
@@ -861,7 +883,11 @@ class TestConcurrentWebhooks:
         tx_ctx.__exit__.return_value = False
         mock_db.transaction.return_value = tx_ctx
         mock_db.get_order_for_update.return_value = SimpleNamespace(
-            filled_qty=Decimal("0"), symbol="NEW", side="buy"
+            filled_qty=Decimal("0"),
+            symbol="NEW",
+            side="buy",
+            status="new",
+            stop_price=None,
         )
         mock_db.get_position_for_update.return_value = None
         mock_db.update_position_on_fill_with_conn.side_effect = _update_position
