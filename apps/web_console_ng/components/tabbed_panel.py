@@ -194,7 +194,7 @@ class TabbedPanel:
         except Exception as exc:
             logger.warning(
                 "tabbed_panel_state_save_failed",
-                extra={"error": type(exc).__name__, "message": str(exc)},
+                extra={"error": type(exc).__name__, "error_msg": str(exc)},
             )
 
 

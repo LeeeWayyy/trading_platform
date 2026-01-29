@@ -74,3 +74,17 @@ def test_create_symbol_filter_updates_state(dummy_ui) -> None:
     state.select.trigger_change(filter_module.ALL_SYMBOL_LABEL)
     assert state.value is None
     assert state.select.value == filter_module.ALL_SYMBOL_LABEL
+
+
+def test_symbol_filter_state_updates_options() -> None:
+    state = filter_module.SymbolFilterState(value=None, select=None)
+    state.update_options(["AAPL"])
+    assert state.value is None
+
+    select = DummySelect(options=["All"], label="Symbol", value="All")
+    state = filter_module.SymbolFilterState(value=None, select=select)
+    state.update_options(["AAPL", "MSFT"])
+    assert "AAPL" in select.options
+    state.set_value("tsla")
+    assert "TSLA" in select.options
+    assert select.value == "TSLA"

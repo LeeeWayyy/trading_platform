@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-29 - P6T5 grid enhancements + parent_order_id filter for efficient child order queries -->
+<!-- Last reviewed: 2026-01-29 - P6T5 grid enhancements + parent_order_id filter + test coverage improvements -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
