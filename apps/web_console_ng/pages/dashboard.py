@@ -866,9 +866,9 @@ async def dashboard(client: Client) -> None:
         parent_order_id = str(detail.get("parent_order_id", "")).strip()
         symbol = str(detail.get("symbol", "")).strip() or "unknown"
 
-        # SECURITY: Fetch fresh orders from API instead of using potentially stale
-        # snapshot. This ensures we're operating on the most up-to-date data and
-        # prevents race conditions where the UI shows stale state.
+        # SECURITY: Fetch child orders directly from API by parent_order_id instead
+        # of fetching all orders. This is more efficient for users with many orders
+        # and ensures we're operating on the most up-to-date data.
         server_children: list[dict[str, Any]] = []
         if parent_order_id:
             try:
@@ -876,12 +876,9 @@ async def dashboard(client: Client) -> None:
                     user_id,
                     role=user_role,
                     strategies=user_strategies,
+                    parent_order_id=parent_order_id,
                 )
-                fresh_orders = fresh_orders_response.get("orders", [])
-                server_children = [
-                    order for order in fresh_orders
-                    if str(order.get("parent_order_id", "")) == parent_order_id
-                ]
+                server_children = fresh_orders_response.get("orders", [])
             except httpx.HTTPStatusError as exc:
                 logger.warning(
                     "cancel_parent_order_fetch_failed",

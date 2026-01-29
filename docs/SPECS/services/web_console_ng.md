@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-28 - P6T5 grid enhancements (hierarchical orders, tabbed panel, DOM/L2, sparklines) - Codex/Claude reviewed -->
+<!-- Last reviewed: 2026-01-29 - P6T5 grid enhancements + parent_order_id filter for efficient child order queries -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
