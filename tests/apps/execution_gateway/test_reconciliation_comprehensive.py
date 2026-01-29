@@ -68,6 +68,7 @@ def mock_db_client():
     client.append_fill_to_order_metadata = Mock(return_value=True)
     client.get_orders_by_broker_ids = Mock(return_value={})
     client.recalculate_trade_realized_pnl = Mock(return_value={"trades_updated": 0})
+    client.get_pending_modifications_older_than = Mock(return_value=[])
 
     # Mock transaction context manager
     @contextmanager

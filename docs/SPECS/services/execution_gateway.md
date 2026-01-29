@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-29 - Added parent_order_id filter to /orders/pending endpoint -->
+<!-- Last reviewed: 2026-01-29 - Extracted _format_alpaca_order helper for DRY response formatting, improved type safety in modification status handling -->
 
 ## Identity
 - **Type:** Service
@@ -42,6 +42,8 @@
 | `/api/v1/orders/pending` | GET | Manual controls | `PendingOrdersResponse` |
 | `/api/v1/orders/recent-fills` | GET | Manual controls | `RecentFillsResponse` |
 | `/api/v1/manual/orders` | POST | `ManualOrderRequest` | `OrderResponse` |
+| `/api/v1/orders/twap-preview` | POST | `TWAPPreviewRequest` | `TWAPPreviewResponse` |
+| `/api/v1/orders/{client_order_id}` | PATCH | `OrderModifyRequest` | `OrderModifyResponse` |
 | `/api/v1/reconciliation/fills-backfill` | POST | `ReconciliationFillsBackfillRequest` | Status JSON |
 | `/metrics` | GET | None | Prometheus metrics |
 
@@ -252,7 +254,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-19 (Reconciliation package references updated after legacy file removal)
+- **Last Updated:** 2026-01-29 (P6T6 Advanced Orders - mypy type fixes for Protocol definitions)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`

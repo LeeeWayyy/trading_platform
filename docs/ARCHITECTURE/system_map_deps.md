@@ -60,6 +60,7 @@ flowchart TB
   svc_execution_gateway -.-> lib_trading
   svc_market_data_service -.-> lib_core
   svc_market_data_service -.-> lib_data
+  svc_market_data_service -.-> lib_platform
   svc_model_registry -.-> lib_models
   svc_orchestrator -.-> lib_core
   svc_orchestrator -.-> lib_trading

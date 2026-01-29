@@ -503,7 +503,16 @@ class TestBuildAlpacaRequest:
 
     def test_build_limit_order_missing_price_raises(self, mock_executor):
         """Should raise ValueError if limit_price is missing for limit order."""
-        order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="limit")
+        order = OrderRequest.model_construct(
+            symbol="AAPL",
+            side="buy",
+            qty=10,
+            order_type="limit",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+            execution_style="instant",
+        )
 
         with pytest.raises(ValueError, match="limit_price is required"):
             mock_executor._build_alpaca_request(order, "client_123")
@@ -522,7 +531,16 @@ class TestBuildAlpacaRequest:
 
     def test_build_stop_order_missing_price_raises(self, mock_executor):
         """Should raise ValueError if stop_price is missing for stop order."""
-        order = OrderRequest(symbol="AAPL", side="sell", qty=10, order_type="stop")
+        order = OrderRequest.model_construct(
+            symbol="AAPL",
+            side="sell",
+            qty=10,
+            order_type="stop",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+            execution_style="instant",
+        )
 
         with pytest.raises(ValueError, match="stop_price is required"):
             mock_executor._build_alpaca_request(order, "client_123")
@@ -534,31 +552,43 @@ class TestBuildAlpacaRequest:
             side="sell",
             qty=10,
             order_type="stop_limit",
-            limit_price=Decimal("145.00"),
-            stop_price=Decimal("144.00"),
+            limit_price=Decimal("144.00"),
+            stop_price=Decimal("145.00"),
         )
         mock_executor._build_alpaca_request(order, "client_123")
 
         mock_executor._mock_stop_limit.assert_called_once()
         call_kwargs = mock_executor._mock_stop_limit.call_args.kwargs
         assert call_kwargs["symbol"] == "AAPL"
-        assert call_kwargs["limit_price"] == 145.00
-        assert call_kwargs["stop_price"] == 144.00
+        assert call_kwargs["limit_price"] == 144.00
+        assert call_kwargs["stop_price"] == 145.00
 
     def test_build_stop_limit_order_missing_prices_raises(self, mock_executor):
         """Should raise ValueError if prices are missing for stop_limit order."""
         # Missing both
-        order = OrderRequest(symbol="AAPL", side="sell", qty=10, order_type="stop_limit")
-        with pytest.raises(ValueError, match="Both limit_price and stop_price are required"):
-            mock_executor._build_alpaca_request(order, "client_123")
-
-        # Missing limit_price
-        order = OrderRequest(
+        order = OrderRequest.model_construct(
             symbol="AAPL",
             side="sell",
             qty=10,
             order_type="stop_limit",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+            execution_style="instant",
+        )
+        with pytest.raises(ValueError, match="Both limit_price and stop_price are required"):
+            mock_executor._build_alpaca_request(order, "client_123")
+
+        # Missing limit_price
+        order = OrderRequest.model_construct(
+            symbol="AAPL",
+            side="sell",
+            qty=10,
+            order_type="stop_limit",
+            limit_price=None,
             stop_price=Decimal("144.00"),
+            time_in_force="day",
+            execution_style="instant",
         )
         with pytest.raises(ValueError, match="Both limit_price and stop_price are required"):
             mock_executor._build_alpaca_request(order, "client_123")

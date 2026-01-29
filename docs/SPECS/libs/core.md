@@ -61,6 +61,6 @@ See [libs/redis_client.md](./redis_client.md) for detailed specification.
 - **Run Tests:** `pytest tests/libs/core -v`
 
 ## Metadata
-- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from collocated directories to tests/libs/core/)
+- **Last Updated:** 2026-01-28 (api_auth_dependency.py: Added MODIFY_ORDER permission support)
 - **Source Files:** `libs/core/` (group index)
 - **ADRs:** N/A

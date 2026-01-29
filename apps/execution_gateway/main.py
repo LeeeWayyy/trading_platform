@@ -5,6 +5,7 @@ See ADR-0014 for architecture decisions.
 """
 
 import asyncio
+import json
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -14,6 +15,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
 from pydantic import ValidationError
@@ -117,6 +120,8 @@ from apps.execution_gateway.schemas import (  # noqa: F401
     SlicingRequest,
     StrategiesListResponse,
     StrategyStatusResponse,
+    TWAPPreviewError,
+    TWAPValidationException,
 )
 from apps.execution_gateway.webhook_security import (  # noqa: F401
     extract_signature_from_header,
@@ -421,6 +426,61 @@ def _build_metrics() -> dict[str, Any]:
 # =============================================================================
 # Exception Handlers
 # =============================================================================
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler_twap(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Handle request validation errors with special formatting for TWAP endpoints.
+
+    TWAP-related requests get a specialized error response format (TWAPPreviewError)
+    for better frontend integration. Detection uses:
+    1. URL path matching for TWAP preview endpoint
+    2. Request body inspection for TWAP execution style
+
+    Note: Body parsing may fail if already consumed or malformed, which is handled
+    gracefully by falling back to standard error format.
+    """
+    # Known TWAP endpoint paths
+    TWAP_PREVIEW_PATH = "/api/v1/orders/twap-preview"
+    TWAP_ORDER_PATH = "/api/v1/orders"
+
+    is_twap_preview = request.url.path == TWAP_PREVIEW_PATH
+    is_twap_submit = False
+
+    # Only attempt body parsing for order submission endpoint
+    if not is_twap_preview and request.url.path == TWAP_ORDER_PATH:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                is_twap_submit = body.get("execution_style") == "twap"
+        except (json.JSONDecodeError, UnicodeDecodeError, RuntimeError):
+            # JSONDecodeError: malformed JSON
+            # UnicodeDecodeError: binary/non-UTF8 body
+            # RuntimeError: body already consumed (Starlette raises this)
+            is_twap_submit = False
+
+    if not (is_twap_preview or is_twap_submit):
+        return await request_validation_exception_handler(request, exc)
+
+    errors = []
+    for error in exc.errors():
+        msg = error.get("msg", "")
+        loc = ".".join(str(part) for part in error.get("loc", []))
+        errors.append(f"{loc}: {msg}" if loc else msg)
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=TWAPPreviewError(errors=errors).model_dump(),
+    )
+
+
+@app.exception_handler(TWAPValidationException)
+async def twap_validation_exception_handler(
+    _request: Request, exc: TWAPValidationException
+) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content=exc.detail)
 
 
 @app.exception_handler(ValidationError)

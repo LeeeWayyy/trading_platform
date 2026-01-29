@@ -94,6 +94,18 @@ class DatabaseClientProtocol(Protocol):
         """Create a TWAP child slice record."""
         ...
 
+    def create_slice_schedule(
+        self,
+        parent_order_id: str,
+        slice_index: int,
+        scheduled_at: datetime,
+        qty: int,
+        status: str = "pending",
+        conn: Any | None = None,
+    ) -> None:
+        """Create a slice schedule record."""
+        ...
+
     def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         """Fetch an order by client_order_id."""
         ...
@@ -210,6 +222,93 @@ class DatabaseClientProtocol(Protocol):
 
     def cancel_pending_slices(self, parent_order_id: str) -> int:
         """Cancel pending slice orders for a parent."""
+        ...
+
+    def get_modification_by_idempotency_key(
+        self,
+        original_client_order_id: str,
+        idempotency_key: str,
+        conn: Any | None = None,
+    ) -> dict[str, Any] | None:
+        """Get existing modification record by idempotency key."""
+        ...
+
+    def insert_pending_modification(
+        self,
+        *,
+        original_client_order_id: str,
+        new_client_order_id: str,
+        original_broker_order_id: str | None,
+        modification_seq: int,
+        idempotency_key: str,
+        status: str,
+        modified_by: str,
+        reason: str | None,
+        changes: dict[str, Any],
+        conn: Any | None = None,
+    ) -> str:
+        """Insert a pending modification record and return modification_id."""
+        ...
+
+    def update_modification_status(
+        self,
+        modification_id: str,
+        *,
+        status: str,
+        error_message: str | None = None,
+        conn: Any | None = None,
+    ) -> None:
+        """Update modification record status."""
+        ...
+
+    def finalize_modification(
+        self,
+        modification_id: str,
+        *,
+        new_broker_order_id: str | None,
+        status: str,
+        new_client_order_id: str | None = None,
+        conn: Any | None = None,
+    ) -> None:
+        """Finalize modification record with broker response."""
+        ...
+
+    def get_next_modification_seq(
+        self,
+        client_order_id: str,
+        conn: Any,
+    ) -> int:
+        """Get next modification sequence number with advisory lock."""
+        ...
+
+    def update_order_status_simple_with_conn(
+        self,
+        client_order_id: str,
+        status: str,
+        conn: Any,
+    ) -> OrderDetail | None:
+        """Update order status within a transaction (no CAS logic)."""
+        ...
+
+    def insert_replacement_order(
+        self,
+        *,
+        client_order_id: str,
+        replaced_order_id: str,
+        strategy_id: str,
+        order_request: OrderRequest,
+        status: str,
+        broker_order_id: str | None,
+        conn: Any | None = None,
+    ) -> OrderDetail:
+        """Insert replacement order record for order modification."""
+        ...
+
+    def get_modifications_for_order(
+        self,
+        client_order_id: str,
+    ) -> list[dict[str, Any]]:
+        """Get all modification records for an order."""
         ...
 
 
@@ -337,6 +436,42 @@ class AlpacaClientProtocol(Protocol):
 
     def check_connection(self) -> bool:
         """Check if connection to Alpaca is healthy."""
+        ...
+
+    def replace_order(
+        self,
+        broker_order_id: str,
+        *,
+        qty: int | None = None,
+        limit_price: Decimal | None = None,
+        stop_price: Decimal | None = None,
+        time_in_force: str | None = None,
+        new_client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace an existing order with new parameters.
+
+        Args:
+            broker_order_id: Alpaca broker order ID to replace
+            qty: New quantity (optional)
+            limit_price: New limit price (optional)
+            stop_price: New stop price (optional)
+            time_in_force: New time in force (optional)
+            new_client_order_id: Client order ID for replacement order
+
+        Returns:
+            Replacement order response dict with 'id', 'status', etc.
+        """
+        ...
+
+    def get_latest_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """Get latest quotes for symbols.
+
+        Args:
+            symbols: List of stock symbols
+
+        Returns:
+            Dict mapping symbol to quote data with bid_price, ask_price, etc.
+        """
         ...
 
 

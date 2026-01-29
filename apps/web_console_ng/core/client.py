@@ -30,6 +30,7 @@ class AsyncTradingClient:
 
     def __init__(self) -> None:
         self._http_client: httpx.AsyncClient | None = None
+        self._market_data_client: httpx.AsyncClient | None = None
 
     @classmethod
     def get(cls) -> AsyncTradingClient:
@@ -43,11 +44,26 @@ class AsyncTradingClient:
             raise RuntimeError("Client not initialized - call startup() first")
         return self._http_client
 
+    @property
+    def _market_client(self) -> httpx.AsyncClient:
+        if self._market_data_client is None:
+            raise RuntimeError("Market data client not initialized - call startup() first")
+        return self._market_data_client
+
     async def startup(self) -> None:
         """Initialize client on app startup."""
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
                 base_url=config.EXECUTION_GATEWAY_URL,
+                timeout=httpx.Timeout(5.0, connect=2.0),
+                headers={"Content-Type": "application/json"},
+            )
+        if self._market_data_client is None:
+            market_data_url = config.SERVICE_URLS.get("market_data_service")
+            if not market_data_url:
+                raise RuntimeError("Market data service URL not configured")
+            self._market_data_client = httpx.AsyncClient(
+                base_url=market_data_url,
                 timeout=httpx.Timeout(5.0, connect=2.0),
                 headers={"Content-Type": "application/json"},
             )
@@ -57,6 +73,9 @@ class AsyncTradingClient:
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
+        if self._market_data_client is not None:
+            await self._market_data_client.aclose()
+            self._market_data_client = None
 
     def _get_auth_headers(
         self,
@@ -272,6 +291,51 @@ class AsyncTradingClient:
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_fat_finger_thresholds(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch fat-finger thresholds (GET - idempotent)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/fat-finger/thresholds", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_adv(
+        self,
+        symbol: str,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch 20-day average daily volume (ADV) for a symbol."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._market_client.get(
+            f"/api/v1/market-data/{symbol}/adv", headers=headers
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def fetch_twap_preview(
+        self,
+        payload: dict[str, Any],
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch TWAP slicing preview (POST)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.post(
+            "/api/v1/orders/twap-preview", headers=headers, json=payload
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
     async def fetch_recent_fills(
         self,
         user_id: str,
@@ -368,6 +432,20 @@ class AsyncTradingClient:
         """Cancel an order by client_order_id (POST)."""
         headers = self._get_auth_headers(user_id, role, None)
         resp = await self._client.post(f"/api/v1/orders/{order_id}/cancel", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="PATCH")
+    async def modify_order(
+        self,
+        order_id: str,
+        payload: dict[str, Any],
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Modify an order by client_order_id (PATCH)."""
+        headers = self._get_auth_headers(user_id, role, None)
+        resp = await self._client.patch(f"/api/v1/orders/{order_id}", headers=headers, json=payload)
         resp.raise_for_status()
         return self._json_dict(resp)
 

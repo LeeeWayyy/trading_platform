@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import math
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
-from apps.execution_gateway.schemas import OrderDetail, Position
+from apps.execution_gateway.schemas import (
+    TWAP_MAX_DURATION_MINUTES,
+    TWAP_MAX_INTERVAL_SECONDS,
+    TWAP_MIN_DURATION_MINUTES,
+    TWAP_MIN_INTERVAL_SECONDS,
+    TWAP_MIN_SLICE_QTY,
+    TWAP_MIN_SLICES,
+    OrderDetail,
+    OrderResponse,
+    Position,
+)
 
 
 class ErrorPayload(BaseModel):
@@ -96,6 +107,10 @@ class ManualOrderRequest(BaseModel):
     qty: Decimal
     order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
     time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day"
+    execution_style: Literal["instant", "twap"] = "instant"
+    twap_duration_minutes: int | None = None
+    twap_interval_seconds: int | None = None
+    start_time: datetime | None = None
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
     reason: str = Field(..., min_length=10)
@@ -137,6 +152,80 @@ class ManualOrderRequest(BaseModel):
         if value is not None and value <= 0:
             raise ValueError("stop_price must be positive")
         return value
+
+    @model_validator(mode="after")
+    def validate_twap_fields(self) -> ManualOrderRequest:
+        if self.execution_style != "twap":
+            return self
+
+        if self.order_type not in ("market", "limit"):
+            raise ValueError(
+                "TWAP execution only supports market or limit order types"
+            )
+
+        if self.time_in_force != "day":
+            raise ValueError("TWAP execution only supports time_in_force=day")
+
+        if self.twap_duration_minutes is None:
+            raise ValueError("twap_duration_minutes required for TWAP orders")
+        if self.twap_interval_seconds is None:
+            raise ValueError("twap_interval_seconds required for TWAP orders")
+
+        if not (
+            TWAP_MIN_DURATION_MINUTES
+            <= self.twap_duration_minutes
+            <= TWAP_MAX_DURATION_MINUTES
+        ):
+            raise ValueError(
+                f"twap_duration_minutes must be between {TWAP_MIN_DURATION_MINUTES} "
+                f"and {TWAP_MAX_DURATION_MINUTES}"
+            )
+
+        if not (
+            TWAP_MIN_INTERVAL_SECONDS
+            <= self.twap_interval_seconds
+            <= TWAP_MAX_INTERVAL_SECONDS
+        ):
+            raise ValueError(
+                f"twap_interval_seconds must be between {TWAP_MIN_INTERVAL_SECONDS} "
+                f"and {TWAP_MAX_INTERVAL_SECONDS}"
+            )
+
+        duration_seconds = self.twap_duration_minutes * 60
+        num_slices = max(1, math.ceil(duration_seconds / self.twap_interval_seconds))
+        if num_slices < TWAP_MIN_SLICES:
+            raise ValueError(
+                f"TWAP requires at least {TWAP_MIN_SLICES} slices "
+                f"(duration/interval produces {num_slices} slices)"
+            )
+
+        if self.qty == self.qty.to_integral_value():
+            base_slice_qty = int(self.qty) // num_slices
+            if base_slice_qty < TWAP_MIN_SLICE_QTY:
+                raise ValueError(
+                    f"TWAP minimum slice size is {TWAP_MIN_SLICE_QTY} shares "
+                    f"(got {base_slice_qty} shares per slice)"
+                )
+
+        if self.start_time is not None:
+            now = datetime.now(UTC)
+            start_time = (
+                self.start_time.replace(tzinfo=UTC)
+                if self.start_time.tzinfo is None
+                else self.start_time.astimezone(UTC)
+            )
+            if start_time < now - timedelta(minutes=1):
+                raise ValueError("start_time cannot be in the past")
+            if start_time > now + timedelta(days=5):
+                raise ValueError("start_time cannot be more than 5 days in the future")
+
+        return self
+
+
+class ManualOrderResponse(OrderResponse):
+    slice_count: int | None = None
+    first_slice_at: datetime | None = None
+    last_slice_at: datetime | None = None
 
 
 class AdjustPositionRequest(BaseModel):

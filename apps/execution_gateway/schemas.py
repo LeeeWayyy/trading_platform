@@ -7,10 +7,12 @@ and validation at the API boundary.
 
 import math
 import os
-from datetime import date, datetime, timedelta
+import uuid
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from libs.core.common import TimestampSerializerMixin
@@ -41,9 +43,19 @@ OrderStatus: TypeAlias = Literal[
     "submitted_unconfirmed",  # Broker submitted but DB update failed (reconciliation needed)
     "dry_run",
     "failed",
+    "scheduled",
     "blocked_kill_switch",
     "blocked_circuit_breaker",
 ]
+
+# TWAP configuration constants (T6.0.1)
+TWAP_MIN_DURATION_MINUTES = 5  # Prevent overly short TWAPs that behave like instant orders.
+TWAP_MAX_DURATION_MINUTES = 480  # Cap to one trading day (8 hours) for v1 scheduling.
+TWAP_MIN_INTERVAL_SECONDS = 30  # Avoid excessive slice frequency / API rate pressure.
+TWAP_MAX_INTERVAL_SECONDS = 300  # Avoid overly sparse slices that reduce TWAP benefit.
+TWAP_MIN_SLICES = 2  # TWAP requires at least two slices to be meaningful.
+TWAP_MIN_SLICE_QTY = 10  # Avoid tiny odd-lot slices that increase fees/slippage.
+TWAP_MIN_SLICE_NOTIONAL = Decimal("500")  # Alpaca minimum notional per order/slice.
 
 # ============================================================================
 # Order Schemas
@@ -92,6 +104,21 @@ class OrderRequest(BaseModel):
     time_in_force: Literal["day", "gtc", "ioc", "fok"] = Field(
         default="day", description="Time in force"
     )
+    execution_style: Literal["instant", "twap"] = Field(
+        default="instant", description="Execution style"
+    )
+    twap_duration_minutes: int | None = Field(
+        default=None,
+        description="TWAP duration in minutes (required for execution_style=twap)",
+    )
+    twap_interval_seconds: int | None = Field(
+        default=None,
+        description="TWAP interval in seconds (required for execution_style=twap)",
+    )
+    start_time: datetime | None = Field(
+        default=None,
+        description="Optional scheduled start time (UTC) for TWAP execution",
+    )
 
     @field_validator("symbol")
     @classmethod
@@ -106,6 +133,100 @@ class OrderRequest(BaseModel):
         if v is not None and v <= 0:
             raise ValueError("Price must be positive")
         return v
+
+    @model_validator(mode="after")
+    def validate_order_type_prices(self) -> "OrderRequest":
+        """Validate price requirements for order types."""
+        if self.order_type in ("limit", "stop_limit") and self.limit_price is None:
+            raise ValueError(f"limit_price required for order_type={self.order_type}")
+
+        if self.order_type in ("stop", "stop_limit") and self.stop_price is None:
+            raise ValueError(f"stop_price required for order_type={self.order_type}")
+
+        if self.order_type == "stop_limit":
+            if self.limit_price is not None and self.stop_price is not None:
+                if self.side == "buy" and self.limit_price < self.stop_price:
+                    raise ValueError(
+                        "Buy stop-limit requires limit_price >= stop_price "
+                        f"(got limit={self.limit_price}, stop={self.stop_price})"
+                    )
+                if self.side == "sell" and self.limit_price > self.stop_price:
+                    raise ValueError(
+                        "Sell stop-limit requires limit_price <= stop_price "
+                        f"(got limit={self.limit_price}, stop={self.stop_price})"
+                    )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_twap_constraints(self) -> "OrderRequest":
+        """Validate TWAP-specific constraints (backend defense in depth)."""
+        if self.execution_style == "twap":
+            if self.order_type not in ("market", "limit"):
+                raise ValueError(
+                    f"TWAP execution not supported for order_type={self.order_type}. "
+                    "Use 'market' or 'limit' only."
+                )
+
+            if self.time_in_force != "day":
+                raise ValueError(
+                    f"TWAP execution not supported for time_in_force={self.time_in_force}. "
+                    "Use 'day' only. Multi-day TWAP (gtc) and IOC/FOK are not supported."
+                )
+
+            if self.twap_duration_minutes is None:
+                raise ValueError("twap_duration_minutes required for TWAP orders")
+            if self.twap_interval_seconds is None:
+                raise ValueError("twap_interval_seconds required for TWAP orders")
+
+            if not (
+                TWAP_MIN_DURATION_MINUTES
+                <= self.twap_duration_minutes
+                <= TWAP_MAX_DURATION_MINUTES
+            ):
+                raise ValueError(
+                    f"twap_duration_minutes must be between {TWAP_MIN_DURATION_MINUTES} and "
+                    f"{TWAP_MAX_DURATION_MINUTES} (got {self.twap_duration_minutes})"
+                )
+
+            if not (
+                TWAP_MIN_INTERVAL_SECONDS
+                <= self.twap_interval_seconds
+                <= TWAP_MAX_INTERVAL_SECONDS
+            ):
+                raise ValueError(
+                    f"twap_interval_seconds must be between {TWAP_MIN_INTERVAL_SECONDS} and "
+                    f"{TWAP_MAX_INTERVAL_SECONDS} (got {self.twap_interval_seconds})"
+                )
+
+            duration_seconds = self.twap_duration_minutes * 60
+            num_slices = max(1, math.ceil(duration_seconds / self.twap_interval_seconds))
+            if num_slices < TWAP_MIN_SLICES:
+                raise ValueError(
+                    f"TWAP requires at least {TWAP_MIN_SLICES} slices "
+                    f"(duration/interval produces {num_slices} slices)"
+                )
+
+            base_slice_qty = self.qty // num_slices
+            if base_slice_qty < TWAP_MIN_SLICE_QTY:
+                raise ValueError(
+                    f"TWAP minimum slice size is {TWAP_MIN_SLICE_QTY} shares "
+                    f"(got {base_slice_qty} shares per slice)"
+                )
+
+            if self.start_time is not None:
+                now = datetime.now(UTC)
+                start_time = (
+                    self.start_time.replace(tzinfo=UTC)
+                    if self.start_time.tzinfo is None
+                    else self.start_time.astimezone(UTC)
+                )
+                if start_time < now - timedelta(minutes=1):
+                    raise ValueError("start_time cannot be in the past")
+                if start_time > now + timedelta(days=5):
+                    raise ValueError("start_time cannot be more than 5 days in the future")
+
+        return self
 
     model_config = {
         "json_schema_extra": {
@@ -146,6 +267,7 @@ class OrderResponse(BaseModel):
         qty: Order quantity
         order_type: Order type
         limit_price: Limit price (if applicable)
+        stop_price: Stop price (if applicable)
         created_at: Order creation timestamp
         message: Human-readable status message
     """
@@ -158,6 +280,7 @@ class OrderResponse(BaseModel):
     qty: int
     order_type: Literal["market", "limit", "stop", "stop_limit"]
     limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
     created_at: datetime
     message: str
 
@@ -173,6 +296,7 @@ class OrderResponse(BaseModel):
                     "qty": 10,
                     "order_type": "market",
                     "limit_price": None,
+                    "stop_price": None,
                     "created_at": "2024-10-17T16:30:00Z",
                     "message": "Order submitted to broker",
                 },
@@ -185,12 +309,101 @@ class OrderResponse(BaseModel):
                     "qty": 5,
                     "order_type": "limit",
                     "limit_price": "300.50",
+                    "stop_price": None,
                     "created_at": "2024-10-17T16:31:00Z",
                     "message": "Order logged (DRY_RUN mode)",
                 },
             ]
         }
     }
+
+
+class OrderModifyRequest(BaseModel):
+    """Request to modify a working order via atomic replace."""
+
+    idempotency_key: str
+    qty: int | None = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    time_in_force: Literal["day", "gtc"] | None = None
+    reason: str | None = None
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def validate_idempotency_key(cls, v: str) -> str:
+        try:
+            uuid.UUID(v)
+        except ValueError:
+            raise ValueError("idempotency_key must be a valid UUID") from None
+        return v
+
+    @field_validator("qty")
+    @classmethod
+    def validate_qty(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if v <= 0:
+            raise ValueError("qty must be positive")
+        return v
+
+    @field_validator("limit_price", "stop_price")
+    @classmethod
+    def validate_prices(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and v <= 0:
+            raise ValueError("price must be positive")
+        return v
+
+    @field_validator("time_in_force")
+    @classmethod
+    def validate_tif(cls, v: str | None) -> str | None:
+        if v in ("ioc", "fok"):
+            raise ValueError(
+                "time_in_force ioc/fok is not allowed for order modifications. "
+                "Use day or gtc instead."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "OrderModifyRequest":
+        if (
+            self.qty is None
+            and self.limit_price is None
+            and self.stop_price is None
+            and self.time_in_force is None
+        ):
+            raise ValueError("At least one field must be provided to modify an order")
+        return self
+
+
+class OrderModifyResponse(BaseModel):
+    """Response after successful order modification."""
+
+    original_client_order_id: str
+    new_client_order_id: str
+    modification_id: str
+    modified_at: datetime
+    status: Literal["pending", "completed", "failed", "submitted_unconfirmed"]
+    changes: dict[str, tuple[Any, Any]]
+
+
+class OrderModificationRecord(BaseModel):
+    """Record of a single order modification."""
+
+    modification_id: str
+    original_client_order_id: str
+    new_client_order_id: str
+    modified_at: datetime
+    modified_by: str
+    changes: dict[str, tuple[Any, Any]]
+    reason: str | None = None
+
+
+class OrderSubmitResponse(BaseModel):
+    """Response after submitting an order (supports TWAP warnings)."""
+
+    client_order_id: str
+    status: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class OrderDetail(BaseModel):
@@ -215,8 +428,10 @@ class OrderDetail(BaseModel):
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
     time_in_force: Literal["day", "gtc", "ioc", "fok"]
+    execution_style: Literal["instant", "twap"] | None = None
     status: OrderStatus
     broker_order_id: str | None = None
+    replaced_order_id: str | None = None
     error_message: str | None = None
     retry_count: int
     created_at: datetime
@@ -939,6 +1154,83 @@ class SlicingPlan(BaseModel):
 # ============================================================================
 # Error Schema
 # ============================================================================
+
+
+class TWAPPreviewRequest(BaseModel):
+    """Request for TWAP slicing preview."""
+
+    symbol: str
+    side: Literal["buy", "sell"]
+    qty: int
+    order_type: Literal["market", "limit"]
+    limit_price: Decimal | None = None
+    time_in_force: Literal["day"] = "day"
+    duration_minutes: int = Field(ge=TWAP_MIN_DURATION_MINUTES, le=TWAP_MAX_DURATION_MINUTES)
+    interval_seconds: int = Field(ge=TWAP_MIN_INTERVAL_SECONDS, le=TWAP_MAX_INTERVAL_SECONDS)
+    start_time: datetime | None = None
+    strategy_id: str
+    timezone: str = "UTC"
+
+    @field_validator("symbol")
+    @classmethod
+    def preview_symbol_uppercase(cls, v: str) -> str:
+        return v.upper()
+
+    @field_validator("limit_price")
+    @classmethod
+    def preview_price_positive(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and v <= 0:
+            raise ValueError("Price must be positive")
+        return v
+
+    @model_validator(mode="after")
+    def validate_preview(self) -> "TWAPPreviewRequest":
+        if self.order_type == "limit" and self.limit_price is None:
+            raise ValueError("limit_price required for limit orders")
+
+        if self.start_time is not None:
+            now = datetime.now(UTC)
+            start_time = (
+                self.start_time.replace(tzinfo=UTC)
+                if self.start_time.tzinfo is None
+                else self.start_time.astimezone(UTC)
+            )
+            if start_time < now - timedelta(minutes=1):
+                raise ValueError("start_time cannot be in the past")
+            if start_time > now + timedelta(days=5):
+                raise ValueError("start_time cannot be more than 5 days in the future")
+
+        return self
+
+
+class TWAPPreviewResponse(BaseModel):
+    """Response from TWAP preview endpoint."""
+
+    slice_count: int
+    base_slice_qty: int
+    remainder_distribution: list[int]
+    scheduled_times: list[datetime]
+    display_times: list[str]
+    first_slice_at: datetime
+    last_slice_at: datetime
+    estimated_duration_minutes: int
+    market_hours_warning: str | None
+    notional_warning: str | None
+    slice_notional: Decimal | None
+    validation_errors: list[str]
+
+
+class TWAPPreviewError(BaseModel):
+    error: Literal["validation_error"] = "validation_error"
+    errors: list[str]
+
+
+class TWAPValidationException(HTTPException):
+    def __init__(self, errors: list[str]):
+        super().__init__(
+            status_code=422,
+            detail=TWAPPreviewError(errors=errors).model_dump(),
+        )
 
 
 # ============================================================================

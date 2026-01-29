@@ -14,6 +14,7 @@
 | `/api/v1/subscribe/{symbol}` | DELETE | Path `symbol` | `UnsubscribeResponse` |
 | `/api/v1/subscriptions` | GET | None | `SubscriptionsResponse` |
 | `/api/v1/subscriptions/stats` | GET | None | Subscription manager stats JSON |
+| `/api/v1/adv/{symbol}` | GET | Path `symbol` | `ADVResponse` (average_daily_volume, as_of) |
 | `/metrics` | GET | None | Prometheus metrics |
 
 ## Behavioral Contracts
@@ -148,6 +149,6 @@ curl -s -X POST http://localhost:8004/api/v1/subscribe   -H 'Content-Type: appli
 - `../libs/market_data.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from apps/market_data_service/tests/ to tests/apps/market_data_service/)
-- **Source Files:** `apps/market_data_service/main.py`, `apps/market_data_service/config.py`, `apps/market_data_service/position_sync.py`, `libs/market_data`
+- **Last Updated:** 2026-01-29 (Type annotation fixes for dependencies)
+- **Source Files:** `apps/market_data_service/main.py`, `apps/market_data_service/config.py`, `apps/market_data_service/position_sync.py`, `apps/market_data_service/schemas.py`, `apps/market_data_service/routes/market_data.py`, `apps/market_data_service/api/dependencies.py`, `libs/market_data`
 - **ADRs:** N/A
