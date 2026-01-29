@@ -96,7 +96,7 @@ def _coerce_number(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     if isinstance(value, str):
         try:
             return Decimal(value)
-        except Exception:
+        except (TypeError, ValueError):
             return default
     return default
 

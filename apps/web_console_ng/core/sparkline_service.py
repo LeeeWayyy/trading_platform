@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -136,8 +137,6 @@ class SparklineDataService:
         self, user_id: str, symbols: list[str]
     ) -> dict[str, list[float]]:
         """Fetch sparkline data for multiple symbols in parallel."""
-        import asyncio
-
         valid_symbols = [s for s in symbols if s]
         if not valid_symbols:
             return {}
@@ -147,7 +146,7 @@ class SparklineDataService:
         data_list = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: dict[str, list[float]] = {}
-        for symbol, data in zip(valid_symbols, data_list, strict=False):
+        for symbol, data in zip(valid_symbols, data_list, strict=True):
             if isinstance(data, BaseException):
                 logger.warning(
                     "sparkline_parallel_fetch_failed",

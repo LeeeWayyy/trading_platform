@@ -45,6 +45,9 @@ WORKING_ORDER_STATUSES = {
     "new",
     "pending_new",
     "partially_filled",
+    "accepted",
+    "pending_cancel",
+    "pending_replace",
 }
 
 
