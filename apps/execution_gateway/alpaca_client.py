@@ -223,10 +223,14 @@ class AlpacaExecutor:
                 "status": alpaca_order.status.value if alpaca_order.status is not None else None,
                 "created_at": alpaca_order.created_at,
                 "limit_price": (
-                    Decimal(str(alpaca_order.limit_price)) if alpaca_order.limit_price else None
+                    Decimal(str(alpaca_order.limit_price))
+                    if alpaca_order.limit_price is not None
+                    else None
                 ),
                 "stop_price": (
-                    Decimal(str(alpaca_order.stop_price)) if alpaca_order.stop_price else None
+                    Decimal(str(alpaca_order.stop_price))
+                    if alpaca_order.stop_price is not None
+                    else None
                 ),
             }
 
@@ -499,10 +503,14 @@ class AlpacaExecutor:
                 "status": alpaca_order.status.value if alpaca_order.status is not None else None,
                 "created_at": alpaca_order.created_at,
                 "limit_price": (
-                    Decimal(str(alpaca_order.limit_price)) if alpaca_order.limit_price else None
+                    Decimal(str(alpaca_order.limit_price))
+                    if alpaca_order.limit_price is not None
+                    else None
                 ),
                 "stop_price": (
-                    Decimal(str(alpaca_order.stop_price)) if alpaca_order.stop_price else None
+                    Decimal(str(alpaca_order.stop_price))
+                    if alpaca_order.stop_price is not None
+                    else None
                 ),
             }
 

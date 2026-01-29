@@ -4,22 +4,27 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from psycopg import IntegrityError, OperationalError
+from pydantic import BaseModel, ValidationError
 
 from apps.execution_gateway.api import dependencies as deps
 from apps.execution_gateway.api import manual_controls as manual_controls_module
 from apps.execution_gateway.api.manual_controls import router
 from apps.execution_gateway.app_context import AppContext
+from apps.execution_gateway.app_factory import create_mock_context
 from apps.execution_gateway.fat_finger_validator import FatFingerValidator
 from apps.execution_gateway.order_slicer import TWAPSlicer
-from apps.execution_gateway.schemas import FatFingerThresholds, OrderDetail, Position
+from apps.execution_gateway.schemas import FatFingerThresholds, OrderDetail, OrderRequest, Position
 from libs.platform.web_console_auth.audit_logger import AuditLogger
 from libs.platform.web_console_auth.exceptions import (
     InvalidAudienceError,
@@ -37,6 +42,7 @@ from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.platform.web_console_auth.permissions import Role
 from libs.platform.web_console_auth.rate_limiter import RateLimiter
 from libs.trading.risk_management import RiskConfig
+from libs.trading.risk_management.config import PositionLimits
 
 
 def _err(resp: Any) -> dict[str, Any]:
@@ -953,6 +959,53 @@ def test_cancel_order_no_broker_order_id():
     assert db.status_updates["ord-no-broker"] == "canceled"
 
 
+def test_cancel_order_db_update_error_returns_500():
+    """Test cancel order fails when DB update before broker call fails."""
+
+    class ErrorDB(StubDB):
+        def update_order_status(self, client_order_id: str, status: str, **_: Any) -> OrderDetail | None:
+            raise OperationalError("db down")
+
+    client = build_client(overrides={deps.get_db_client: lambda: ErrorDB()})
+    response = client.post(
+        "/orders/ord-1/cancel",
+        json={
+            "reason": "trigger db update error",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 500
+    assert _err(response)["error"] == "db_error"
+
+
+def test_cancel_order_validation_error_returns_500():
+    """Test cancel order fails when DB update raises validation error."""
+
+    class ValidationErrorDB(StubDB):
+        def update_order_status(self, client_order_id: str, status: str, **_: Any) -> OrderDetail | None:
+            class DummyModel(BaseModel):
+                qty: int
+
+            try:
+                DummyModel(qty="bad")
+            except ValidationError as exc:
+                raise exc
+            return None
+
+    client = build_client(overrides={deps.get_db_client: lambda: ValidationErrorDB()})
+    response = client.post(
+        "/orders/ord-1/cancel",
+        json={
+            "reason": "trigger validation error",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 500
+    assert _err(response)["error"] == "validation_error"
+
+
 def test_cancel_order_broker_unavailable():
     """Test cancel order fails when broker executor is unavailable."""
     client = build_client(overrides={deps.get_alpaca_executor: lambda: None})
@@ -971,11 +1024,29 @@ def test_cancel_order_broker_unavailable():
 def test_cancel_order_broker_timeout():
     """Test cancel order handles broker timeout gracefully."""
 
+    class FlakyDB(StubDB):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def update_order_status(
+            self, client_order_id: str, status: str, **_: Any
+        ) -> OrderDetail | None:
+            self.calls += 1
+            if self.calls == 1:
+                return super().update_order_status(client_order_id, status)
+            raise OperationalError("db down")
+
     class TimeoutAlpaca(StubAlpaca):
         def cancel_order(self, order_id: str) -> bool:
             raise TimeoutError("broker timeout")
 
-    client = build_client(overrides={deps.get_alpaca_executor: lambda: TimeoutAlpaca()})
+    client = build_client(
+        overrides={
+            deps.get_alpaca_executor: lambda: TimeoutAlpaca(),
+            deps.get_db_client: lambda: FlakyDB(),
+        }
+    )
     response = client.post(
         "/orders/ord-1/cancel",
         json={
@@ -992,11 +1063,29 @@ def test_cancel_order_broker_error():
     """Test cancel order handles broker errors gracefully."""
     from apps.execution_gateway.alpaca_client import AlpacaClientError
 
+    class FlakyDB(StubDB):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def update_order_status(
+            self, client_order_id: str, status: str, **_: Any
+        ) -> OrderDetail | None:
+            self.calls += 1
+            if self.calls == 1:
+                return super().update_order_status(client_order_id, status)
+            raise OperationalError("db down")
+
     class ErrorAlpaca(StubAlpaca):
         def cancel_order(self, order_id: str) -> bool:
             raise AlpacaClientError("order already filled")
 
-    client = build_client(overrides={deps.get_alpaca_executor: lambda: ErrorAlpaca()})
+    client = build_client(
+        overrides={
+            deps.get_alpaca_executor: lambda: ErrorAlpaca(),
+            deps.get_db_client: lambda: FlakyDB(),
+        }
+    )
     response = client.post(
         "/orders/ord-1/cancel",
         json={
@@ -1032,6 +1121,51 @@ def test_cancel_all_orders_success():
     data = response.json()
     assert data["cancelled_count"] == 2
     assert len(data["order_ids"]) == 2
+
+
+def test_cancel_all_orders_skips_unauthorized_orders():
+    """Test cancel all skips orders outside authorized strategies."""
+
+    class UnscopedDB(StubDB):
+        def get_pending_orders(self, *args: Any, **kwargs: Any) -> tuple[list[OrderDetail], int]:
+            order = _order("s2", "ord-unauth")
+            return [order], 1
+
+    client = build_client(overrides={deps.get_db_client: lambda: UnscopedDB()})
+    response = client.post(
+        "/orders/cancel-all",
+        json={
+            "symbol": "AAPL",
+            "reason": "cancel all for AAPL",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cancelled_count"] == 0
+
+
+def test_cancel_all_orders_no_broker_order_id_cancels_directly():
+    """Test cancel all updates status directly when broker_order_id is missing."""
+    db = StubDB()
+    order = _order("s1", "ord-no-broker")
+    order.broker_order_id = None
+    db.pending = [order]
+    client = build_client(overrides={deps.get_db_client: lambda: db})
+
+    response = client.post(
+        "/orders/cancel-all",
+        json={
+            "symbol": "AAPL",
+            "reason": "cancel all for AAPL",
+            "requested_by": "user-1",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cancelled_count"] == 1
 
 
 def test_cancel_all_orders_no_pending():
@@ -2299,3 +2433,661 @@ async def test_check_circuit_breaker_open():
         reason="testing",
         audit_logger=audit,
     )
+
+
+def test_get_fat_finger_max_price_age_seconds_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS", "bad")
+    assert (
+        manual_controls_module._get_fat_finger_max_price_age_seconds()
+        == manual_controls_module.FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    )
+
+
+def test_get_fat_finger_max_price_age_seconds_non_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS", "0")
+    assert (
+        manual_controls_module._get_fat_finger_max_price_age_seconds()
+        == manual_controls_module.FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+    )
+
+
+def test_get_fat_finger_max_price_age_seconds_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS", "45")
+    assert manual_controls_module._get_fat_finger_max_price_age_seconds() == 45
+
+
+def test_strategy_allowed_none_returns_false() -> None:
+    user = AuthenticatedUser("user", Role.OPERATOR, ["s1"], 1, "req")
+    assert manual_controls_module._strategy_allowed(user, None) is False
+
+
+@pytest.mark.asyncio()
+async def test_require_non_empty_strategy_scope_denies_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = AuthenticatedUser("user", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+    monkeypatch.setattr(manual_controls_module, "get_authorized_strategies", lambda _u: [])
+    monkeypatch.setattr(manual_controls_module, "_manual_controls_allowed", lambda _u: False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await manual_controls_module._require_non_empty_strategy_scope(
+            user,
+            action="list_pending_orders",
+            audit_logger=audit_logger,
+            resource_type="orders",
+            resource_id="*",
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_generate_manual_order_id_includes_stop_price() -> None:
+    base = manual_controls_module._generate_manual_order_id(
+        action="manual_order",
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("10"),
+        user_id="user-1",
+    )
+    with_stop = manual_controls_module._generate_manual_order_id(
+        action="manual_order",
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("10"),
+        user_id="user-1",
+        stop_price=Decimal("99.5"),
+    )
+    assert len(base) == 24
+    assert base != with_stop
+
+
+@pytest.mark.asyncio()
+async def test_enforce_rate_limit_logs_and_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        manual_controls_module,
+        "check_rate_limit_with_fallback",
+        AsyncMock(return_value=(False, 0, True)),
+    )
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await manual_controls_module._enforce_rate_limit(
+            StubRateLimiter(), "user-1", "close_position", audit_logger
+        )
+
+    assert exc_info.value.status_code == 429
+    audit_logger.log_action.assert_called_once()
+
+
+@pytest.mark.asyncio()
+async def test_check_kill_switch_unavailable() -> None:
+    ctx = create_mock_context()
+    ctx.recovery_manager.is_kill_switch_unavailable.return_value = True
+    ctx.recovery_manager.kill_switch = None
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._check_kill_switch(
+            ctx,
+            user=user,
+            action="manual_order",
+            reason="testing reason",
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 503
+
+
+@pytest.mark.asyncio()
+async def test_check_kill_switch_engaged() -> None:
+    ctx = create_mock_context()
+    ctx.recovery_manager.is_kill_switch_unavailable.return_value = False
+    kill_switch = MagicMock()
+    kill_switch.is_engaged.return_value = True
+    ctx.recovery_manager.kill_switch = kill_switch
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._check_kill_switch(
+            ctx,
+            user=user,
+            action="manual_order",
+            reason="testing reason",
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 503
+
+
+@pytest.mark.asyncio()
+async def test_submit_dry_run_manual_order_duplicate_no_existing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_client = MagicMock()
+    db_client.create_order.side_effect = IntegrityError("dupe")
+    db_client.get_order_by_client_id.return_value = None
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=10,
+        order_type="market",
+        time_in_force="day",
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_dry_run_manual_order(
+            db_client=db_client,
+            order_req=order_req,
+            order_id="ord-dup",
+            qty_int=10,
+            sanitized_reason="testing reason",
+            user=user,
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 409
+
+
+@pytest.mark.asyncio()
+async def test_submit_live_manual_order_duplicate_no_existing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_client = MagicMock()
+    db_client.create_order.side_effect = IntegrityError("dupe")
+    db_client.get_order_by_client_id.return_value = None
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=10,
+        order_type="market",
+        time_in_force="day",
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_live_manual_order(
+            db_client=db_client,
+            alpaca_executor=MagicMock(),
+            redis_client=None,
+            order_req=order_req,
+            order_id="ord-dup",
+            qty_int=10,
+            sanitized_reason="testing reason",
+            user=user,
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 409
+
+
+@pytest.mark.asyncio()
+async def test_submit_twap_manual_order_naive_datetime_schedules_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = create_mock_context()
+    ctx.recovery_manager.slice_scheduler = MagicMock()
+    ctx.db = MagicMock()
+
+    conn = MagicMock()
+
+    @contextmanager
+    def _tx():
+        yield conn
+
+    ctx.db.transaction = _tx
+
+    requested_at = datetime(2026, 1, 15, 12, 0, 0)
+    plan = SimpleNamespace(
+        total_slices=2,
+        slices=[
+            SimpleNamespace(slice_num=0, qty=50, scheduled_time=datetime.now(UTC)),
+            SimpleNamespace(slice_num=1, qty=50, scheduled_time=datetime.now(UTC)),
+        ],
+    )
+    ctx.twap_slicer.plan = MagicMock(return_value=plan)
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=100,
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+    )
+    request = manual_controls_module.ManualOrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("100"),
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+        reason="testing reason",
+        requested_by="user-1",
+        requested_at=requested_at,
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    monkeypatch.setattr(
+        manual_controls_module,
+        "reconstruct_order_params_hash",
+        MagicMock(side_effect=["parent-1", "child-1", "child-2"]),
+    )
+
+    response = await manual_controls_module._submit_twap_manual_order(
+        ctx=ctx,
+        order_req=order_req,
+        request=request,
+        user=user,
+        qty_int=100,
+        sanitized_reason="testing reason",
+        audit_logger=audit_logger,
+        alpaca_executor=MagicMock(),
+    )
+
+    assert response.status == "scheduled"
+    assert response.slice_count == 2
+    ctx.twap_slicer.plan.assert_called_once()
+    assert ctx.twap_slicer.plan.call_args.kwargs["trade_date"] == requested_at.date()
+    ctx.recovery_manager.slice_scheduler.schedule_slices.assert_called_once()
+    audit_logger.log_action.assert_called_once()
+
+
+@pytest.mark.asyncio()
+async def test_submit_twap_manual_order_broker_unavailable_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that TWAP orders fail closed when broker is unavailable in live mode."""
+    monkeypatch.setattr(manual_controls_module, "DRY_RUN", False)
+    ctx = create_mock_context()
+    ctx.recovery_manager.slice_scheduler = MagicMock()
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=100,
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+    )
+    request = manual_controls_module.ManualOrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("100"),
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+        reason="testing reason",
+        requested_by="user-1",
+        requested_at=datetime.now(UTC),
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_twap_manual_order(
+            ctx=ctx,
+            order_req=order_req,
+            request=request,
+            user=user,
+            qty_int=100,
+            sanitized_reason="testing reason",
+            audit_logger=audit_logger,
+            alpaca_executor=None,  # Broker unavailable
+        )
+
+    assert excinfo.value.status_code == 503
+    assert "broker_unavailable" in str(excinfo.value.detail)
+    audit_logger.log_action.assert_called_once()
+    assert audit_logger.log_action.call_args.kwargs["outcome"] == "failed"
+
+
+@pytest.mark.asyncio()
+async def test_submit_twap_manual_order_rejects_start_time() -> None:
+    ctx = create_mock_context()
+    ctx.recovery_manager.slice_scheduler = MagicMock()
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=100,
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+        start_time=datetime.now(UTC),
+    )
+    request = manual_controls_module.ManualOrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("100"),
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+        start_time=datetime.now(UTC),
+        reason="testing reason",
+        requested_by="user-1",
+        requested_at=datetime.now(UTC),
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_twap_manual_order(
+            ctx=ctx,
+            order_req=order_req,
+            request=request,
+            user=user,
+            qty_int=100,
+            sanitized_reason="testing reason",
+            audit_logger=audit_logger,
+            alpaca_executor=MagicMock(),
+        )
+
+    assert excinfo.value.status_code == 400
+
+
+@pytest.mark.asyncio()
+async def test_submit_twap_manual_order_idempotent_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = create_mock_context()
+    ctx.recovery_manager.slice_scheduler = MagicMock()
+    ctx.db = MagicMock()
+
+    conn = MagicMock()
+
+    @contextmanager
+    def _tx():
+        yield conn
+
+    ctx.db.transaction = _tx
+    ctx.db.create_parent_order.side_effect = IntegrityError("dupe")
+
+    existing = _order("s1", client_id="parent-1", status="scheduled")
+    existing.parent_order_id = None
+    slice_one = _order("s1", client_id="child-1", status="pending_new")
+    slice_one.scheduled_time = datetime.now(UTC)
+    slice_two = _order("s1", client_id="child-2", status="pending_new")
+    slice_two.scheduled_time = datetime.now(UTC)
+    ctx.db.get_order_by_client_id.return_value = existing
+    ctx.db.get_slices_by_parent_id.return_value = [slice_one, slice_two]
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=100,
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+    )
+    request = manual_controls_module.ManualOrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("100"),
+        order_type="market",
+        time_in_force="day",
+        execution_style="twap",
+        twap_duration_minutes=10,
+        twap_interval_seconds=60,
+        reason="testing reason",
+        requested_by="user-1",
+        requested_at=datetime.now(UTC),
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    response = await manual_controls_module._submit_twap_manual_order(
+        ctx=ctx,
+        order_req=order_req,
+        request=request,
+        user=user,
+        qty_int=100,
+        sanitized_reason="testing reason",
+        audit_logger=audit_logger,
+        alpaca_executor=MagicMock(),
+    )
+
+    assert response.client_order_id == "parent-1"
+    assert response.message == "Order already submitted (idempotent retry)"
+    assert response.slice_count == 2
+
+
+@pytest.mark.asyncio()
+async def test_submit_dry_run_manual_order_idempotent_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_client = MagicMock()
+    db_client.create_order.side_effect = IntegrityError("dupe")
+    existing = _order("s1", client_id="ord-1", status="dry_run")
+    db_client.get_order_by_client_id.return_value = existing
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=10,
+        order_type="market",
+        time_in_force="day",
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    response = await manual_controls_module._submit_dry_run_manual_order(
+        db_client=db_client,
+        order_req=order_req,
+        order_id="ord-1",
+        qty_int=10,
+        sanitized_reason="testing reason",
+        user=user,
+        audit_logger=audit_logger,
+    )
+
+    assert response.message == "Order already submitted (idempotent retry)"
+
+
+@pytest.mark.asyncio()
+async def test_submit_live_manual_order_circuit_breaker_updates_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_client = MagicMock()
+    created = _order("s1", client_id="ord-1", status="pending_new")
+    db_client.create_order.return_value = created
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+    monkeypatch.setattr(
+        manual_controls_module,
+        "_check_circuit_breaker",
+        AsyncMock(side_effect=HTTPException(status_code=503, detail={"error": "cb"})),
+    )
+
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=10,
+        order_type="market",
+        time_in_force="day",
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+    alpaca = MagicMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_live_manual_order(
+            db_client=db_client,
+            alpaca_executor=alpaca,
+            redis_client=None,
+            order_req=order_req,
+            order_id="ord-1",
+            qty_int=10,
+            sanitized_reason="testing reason",
+            user=user,
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 503
+    db_client.update_order_status.assert_called_once()
+
+
+@pytest.mark.asyncio()
+async def test_submit_live_manual_order_broker_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_client = MagicMock()
+    created = _order("s1", client_id="ord-1", status="pending_new")
+    db_client.create_order.return_value = created
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+
+    alpaca = MagicMock()
+    alpaca.submit_order.side_effect = manual_controls_module.AlpacaClientError("bad broker")
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=10,
+        order_type="market",
+        time_in_force="day",
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_live_manual_order(
+            db_client=db_client,
+            alpaca_executor=alpaca,
+            redis_client=SimpleNamespace(get=AsyncMock(return_value=b'{"state":"OPEN"}')),
+            order_req=order_req,
+            order_id="ord-1",
+            qty_int=10,
+            sanitized_reason="testing reason",
+            user=user,
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 502
+    db_client.update_order_status.assert_called_once()
+
+
+@pytest.mark.asyncio()
+async def test_submit_live_manual_order_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    db_client = MagicMock()
+    created = _order("s1", client_id="ord-1", status="pending_new")
+    db_client.create_order.return_value = created
+
+    async def _fake_db_call(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(manual_controls_module, "_db_call", _fake_db_call)
+
+    alpaca = MagicMock()
+    alpaca.submit_order.return_value = {"id": "brk-1", "status": "accepted"}
+    db_client.update_order_status.side_effect = OperationalError("db down")
+    order_req = OrderRequest(
+        symbol="AAPL",
+        side="buy",
+        qty=10,
+        order_type="market",
+        time_in_force="day",
+    )
+    user = AuthenticatedUser("user-1", Role.OPERATOR, ["s1"], 1, "req")
+    audit_logger = MagicMock()
+    audit_logger.log_action = AsyncMock()
+
+    with pytest.raises(HTTPException) as excinfo:
+        await manual_controls_module._submit_live_manual_order(
+            db_client=db_client,
+            alpaca_executor=alpaca,
+            redis_client=SimpleNamespace(get=AsyncMock(return_value=b'{"state":"OPEN"}')),
+            order_req=order_req,
+            order_id="ord-1",
+            qty_int=10,
+            sanitized_reason="testing reason",
+            user=user,
+            audit_logger=audit_logger,
+        )
+
+    assert excinfo.value.status_code == 500
+
+
+def test_manual_order_position_limit_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    client = build_client()
+    client.app.state.context.risk_config = RiskConfig(
+        position_limits=PositionLimits(max_position_size=10)
+    )
+
+    with caplog.at_level("WARNING"):
+        response = client.post(
+            "/manual/orders",
+            json={
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 20,
+                "order_type": "market",
+                "time_in_force": "day",
+                "execution_style": "instant",
+                "reason": "position limit test",
+                "requested_by": "user-1",
+                "requested_at": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    assert response.status_code == 200
+    assert any("manual_order_position_limit_exceeded" in rec.message for rec in caplog.records)

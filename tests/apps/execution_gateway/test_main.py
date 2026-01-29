@@ -11,6 +11,8 @@ Tests cover:
 
 import asyncio
 import importlib
+import json
+import runpy
 import sys
 from collections.abc import Generator
 from datetime import UTC, datetime
@@ -20,8 +22,10 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
+from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
 from apps.execution_gateway.app_context import AppContext
@@ -58,6 +62,26 @@ def _reload_main(monkeypatch, clean_registry):  # noqa: ARG001 - fixture hook
     if "apps.execution_gateway.main" in sys.modules:
         return importlib.reload(sys.modules["apps.execution_gateway.main"])
     return importlib.import_module("apps.execution_gateway.main")
+
+
+def _make_request(path: str, body: bytes = b"{}") -> Request:
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    return Request(scope, receive)
 
 
 @pytest.fixture()
@@ -858,3 +882,101 @@ async def test_lifespan_sets_globals(monkeypatch):
     async with main.lifespan(main.app):
         assert main.db_client.name == "db"
         assert main.WEBHOOK_SECRET == "secret"
+
+
+@pytest.mark.asyncio()
+async def test_request_validation_exception_handler_twap_preview():
+    from apps.execution_gateway import main
+
+    exc = RequestValidationError([{"loc": ("body", "qty"), "msg": "field required"}])
+    request = _make_request("/api/v1/orders/twap-preview")
+
+    response = await main.request_validation_exception_handler_twap(request, exc)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 422
+    assert payload["error"] == "validation_error"
+    assert "qty" in payload["errors"][0]
+
+
+@pytest.mark.asyncio()
+async def test_request_validation_exception_handler_twap_submit():
+    from apps.execution_gateway import main
+
+    exc = RequestValidationError([{"loc": ("body", "qty"), "msg": "field required"}])
+    request = _make_request("/api/v1/orders", body=b'{"execution_style": "twap"}')
+
+    response = await main.request_validation_exception_handler_twap(request, exc)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 422
+    assert payload["error"] == "validation_error"
+    assert "qty" in payload["errors"][0]
+
+
+@pytest.mark.asyncio()
+async def test_request_validation_exception_handler_non_twap_falls_back():
+    from apps.execution_gateway import main
+
+    exc = RequestValidationError([{"loc": ("body", "qty"), "msg": "field required"}])
+    request = _make_request("/api/v1/orders", body=b'{"execution_style": "instant"}')
+
+    response = await main.request_validation_exception_handler_twap(request, exc)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 422
+    assert "detail" in payload
+
+
+@pytest.mark.asyncio()
+async def test_request_validation_exception_handler_invalid_json_falls_back():
+    from apps.execution_gateway import main
+
+    exc = RequestValidationError([{"loc": ("body", "qty"), "msg": "field required"}])
+    request = _make_request("/api/v1/orders", body=b"{")
+
+    response = await main.request_validation_exception_handler_twap(request, exc)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 422
+    assert "detail" in payload
+
+
+@pytest.mark.asyncio()
+async def test_twap_validation_exception_handler():
+    from apps.execution_gateway import main
+
+    request = _make_request("/api/v1/orders/twap-preview")
+    response = await main.twap_validation_exception_handler(
+        request, main.TWAPValidationException(["bad"])
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 422
+    assert payload["error"] == "validation_error"
+
+
+@pytest.mark.asyncio()
+async def test_validation_exception_handler():
+    from apps.execution_gateway import main
+
+    class DummyModel(BaseModel):
+        qty: int
+
+    try:
+        DummyModel(qty="bad")
+    except ValidationError as exc:
+        request = _make_request("/api/v1/orders")
+        response = await main.validation_exception_handler(request, exc)
+        payload = json.loads(response.body)
+        assert response.status_code == 422
+        assert payload["error"] == "Validation error"
+
+
+def test_main_entrypoint_invokes_uvicorn(monkeypatch):
+    mock_run = Mock()
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=mock_run))
+
+    runpy.run_module("apps.execution_gateway.main", run_name="__main__")
+
+    assert mock_run.called

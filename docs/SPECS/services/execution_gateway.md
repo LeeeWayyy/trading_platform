@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-29 - Added parent_order_id filter to /orders/pending endpoint -->
+<!-- Last reviewed: 2026-01-29 - Added broker availability check for TWAP orders, extracted IntegrityError helper, added idempotent handling for submitted_unconfirmed status -->
 
 ## Identity
 - **Type:** Service

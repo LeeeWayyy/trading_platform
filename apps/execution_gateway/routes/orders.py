@@ -613,22 +613,32 @@ def _validate_modify_fields(order: OrderDetail, payload: OrderModifyRequest) -> 
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="; ".join(errors))
 
 
+# Valid modification statuses for idempotent response handling
+_MODIFICATION_STATUSES: set[str] = {"pending", "completed", "failed", "submitted_unconfirmed"}
+
+
 def _handle_idempotent_modification_response(
     existing: dict[str, Any] | None,
     response: Response | None,
 ) -> OrderModifyResponse | None:
     """Handle idempotent responses for existing modifications.
 
-    Returns OrderModifyResponse if existing record found (for completed/pending),
-    raises HTTPException for failed records, or returns None if no existing record.
+    Returns OrderModifyResponse if existing record found:
+    - completed: 200 OK
+    - pending: 202 Accepted
+    - submitted_unconfirmed: 202 Accepted (broker accepted, DB finalize pending)
+
+    Raises HTTPException for failed records, or returns None if no existing record.
     """
     if not existing:
         return None
 
     status_value = str(existing.get("status") or "pending")
-    # Cast to the literal type expected by OrderModifyResponse
+    # Validate and cast status to expected literal type
+    if status_value not in _MODIFICATION_STATUSES:
+        status_value = "pending"
     status_literal: Literal["pending", "completed", "failed", "submitted_unconfirmed"] = (
-        status_value if status_value in ("pending", "completed", "failed", "submitted_unconfirmed") else "pending"  # type: ignore[assignment]
+        status_value  # type: ignore[assignment]
     )
     idempotent_response = OrderModifyResponse(
         original_client_order_id=existing["original_client_order_id"],
@@ -640,10 +650,14 @@ def _handle_idempotent_modification_response(
     )
     if status_value == "completed":
         return idempotent_response
-    if status_value == "pending":
+    if status_value in ("pending", "submitted_unconfirmed"):
+        # Both pending and submitted_unconfirmed return 202:
+        # - pending: modification in progress
+        # - submitted_unconfirmed: broker accepted but DB finalize failed
         if response is not None:
             response.status_code = status.HTTP_202_ACCEPTED
         return idempotent_response
+    # status == "failed"
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail=existing.get("error_message") or "Previous modification failed",

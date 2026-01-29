@@ -1721,6 +1721,7 @@ async def _submit_twap_manual_order(
     qty_int: int,
     sanitized_reason: str,
     audit_logger: AuditLogger,
+    alpaca_executor: AlpacaExecutor | None,
 ) -> ManualOrderResponse:
     """Submit a TWAP manual order.
 
@@ -1734,6 +1735,7 @@ async def _submit_twap_manual_order(
         qty_int: Validated quantity as integer.
         sanitized_reason: Sanitized reason string.
         audit_logger: Audit logger.
+        alpaca_executor: Alpaca executor (may be None if broker unavailable).
 
     Returns:
         ManualOrderResponse for TWAP order.
@@ -1741,6 +1743,32 @@ async def _submit_twap_manual_order(
     Raises:
         HTTPException: On validation or submission errors.
     """
+    # Fail-closed: TWAP requires broker for slice execution in live mode
+    if alpaca_executor is None and not DRY_RUN:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="manual_order",
+            resource_type="order",
+            resource_id=f"twap_{order_req.symbol}",
+            outcome="failed",
+            details={
+                "symbol": order_req.symbol,
+                "side": order_req.side,
+                "qty": qty_int,
+                "order_type": order_req.order_type,
+                "execution_style": "twap",
+                "reason": sanitized_reason,
+                "error": "broker_unavailable",
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_detail(
+                "broker_unavailable",
+                "Broker connection unavailable. TWAP orders require broker in live mode.",
+            ),
+        )
+
     if ctx.recovery_manager.slice_scheduler is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1948,6 +1976,46 @@ async def _submit_twap_manual_order(
     )
 
 
+async def _handle_idempotent_order_retry(
+    db_client: DatabaseClient,
+    order_id: str,
+) -> ManualOrderResponse:
+    """Handle idempotent retry for duplicate order submission.
+
+    Called when IntegrityError indicates a duplicate order insert attempt.
+    Fetches the existing order and returns an idempotent response.
+
+    Args:
+        db_client: Database client.
+        order_id: The client_order_id that triggered the duplicate error.
+
+    Returns:
+        ManualOrderResponse with existing order details and idempotent retry message.
+
+    Raises:
+        HTTPException: 409 CONFLICT if existing order not found (race condition).
+    """
+    existing = await _db_call(db_client.get_order_by_client_id, order_id)
+    if existing:
+        return ManualOrderResponse(
+            client_order_id=order_id,
+            status=existing.status,
+            broker_order_id=existing.broker_order_id,
+            symbol=existing.symbol,
+            side=existing.side,
+            qty=existing.qty,
+            order_type=existing.order_type,
+            limit_price=existing.limit_price,
+            stop_price=existing.stop_price,
+            created_at=existing.created_at,
+            message="Order already submitted (idempotent retry)",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=error_detail("duplicate_order", "Order already submitted"),
+    ) from None
+
+
 async def _submit_dry_run_manual_order(
     db_client: DatabaseClient,
     order_req: OrderRequest,
@@ -1986,25 +2054,7 @@ async def _submit_dry_run_manual_order(
             broker_order_id=None,
         )
     except IntegrityError:
-        existing = await _db_call(db_client.get_order_by_client_id, order_id)
-        if existing:
-            return ManualOrderResponse(
-                client_order_id=order_id,
-                status=existing.status,
-                broker_order_id=existing.broker_order_id,
-                symbol=existing.symbol,
-                side=existing.side,
-                qty=existing.qty,
-                order_type=existing.order_type,
-                limit_price=existing.limit_price,
-                stop_price=existing.stop_price,
-                created_at=existing.created_at,
-                message="Order already submitted (idempotent retry)",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=error_detail("duplicate_order", "Order already submitted"),
-        ) from None
+        return await _handle_idempotent_order_retry(db_client, order_id)
 
     await audit_logger.log_action(
         user_id=user.user_id,
@@ -2079,25 +2129,7 @@ async def _submit_live_manual_order(
             broker_order_id=None,
         )
     except IntegrityError:
-        existing = await _db_call(db_client.get_order_by_client_id, order_id)
-        if existing:
-            return ManualOrderResponse(
-                client_order_id=order_id,
-                status=existing.status,
-                broker_order_id=existing.broker_order_id,
-                symbol=existing.symbol,
-                side=existing.side,
-                qty=existing.qty,
-                order_type=existing.order_type,
-                limit_price=existing.limit_price,
-                stop_price=existing.stop_price,
-                created_at=existing.created_at,
-                message="Order already submitted (idempotent retry)",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=error_detail("duplicate_order", "Order already submitted"),
-        ) from None
+        return await _handle_idempotent_order_retry(db_client, order_id)
 
     # Re-check circuit breaker before broker submission
     try:
@@ -2384,6 +2416,7 @@ async def submit_manual_order(
             qty_int=qty_int,
             sanitized_reason=sanitized_reason,
             audit_logger=audit_logger,
+            alpaca_executor=alpaca_executor,
         )
 
     # Handle broker unavailable: fail-closed for live, allow dry run
