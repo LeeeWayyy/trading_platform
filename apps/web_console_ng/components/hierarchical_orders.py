@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -96,7 +96,7 @@ def _coerce_number(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     if isinstance(value, str):
         try:
             return Decimal(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, InvalidOperation):
             return default
     return default
 
