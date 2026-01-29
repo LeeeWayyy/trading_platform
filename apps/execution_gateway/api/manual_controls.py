@@ -1927,6 +1927,7 @@ async def submit_manual_order(
 async def list_pending_orders(
     strategy_id: str | None = Query(default=None),
     symbol: str | None = Query(default=None),
+    parent_order_id: str | None = Query(default=None),
     limit: int = Query(default=100, le=1000, ge=1),
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="created_at"),
@@ -2000,6 +2001,7 @@ async def list_pending_orders(
         db_client.get_pending_orders,
         symbol=symbol.upper() if symbol else None,
         strategy_ids=scope,
+        parent_order_id=parent_order_id,
         limit=limit,
         offset=offset,
         sort_by=sort_by,
@@ -2016,6 +2018,7 @@ async def list_pending_orders(
         details={
             "strategy_filter": strategy_id,
             "symbol_filter": symbol,
+            "parent_order_id_filter": parent_order_id,
             "results_count": len(orders),
             "total_matching": total,
         },

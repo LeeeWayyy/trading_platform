@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
     from redis.asyncio import Redis as AsyncRedis
 
+    from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
     from apps.web_console_ng.components.market_context import MarketContextComponent
     from apps.web_console_ng.components.order_ticket import OrderTicketComponent
     from apps.web_console_ng.components.price_chart import PriceChartComponent
@@ -81,6 +82,7 @@ class OrderEntryContext:
     OWNER_KILL_SWITCH = "kill_switch"
     OWNER_CIRCUIT_BREAKER = "circuit_breaker"
     OWNER_CONNECTION = "connection"
+    OWNER_LEVEL2 = "level2"
 
     # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
@@ -107,13 +109,20 @@ class OrderEntryContext:
             user_id: User ID for API calls and subscriptions.
             role: User role for authorization.
             strategies: Strategies for position filtering.
+
+        Raises:
+            ValueError: If user_id is empty or whitespace-only.
         """
+        # Validate user_id to prevent authorization bypass in channel subscriptions
+        if not user_id or not user_id.strip():
+            raise ValueError("user_id must be non-empty")
+
         self._realtime = realtime_updater
         self._client = trading_client
         self._state_manager = state_manager
         self._connection_monitor = connection_monitor
         self._redis = redis
-        self._user_id = user_id
+        self._user_id = user_id.strip()
         self._role = role
         self._strategies = strategies
 
@@ -134,12 +143,15 @@ class OrderEntryContext:
 
         # Track current selected channel for unsubscribe
         self._current_selected_channel: str | None = None
+        self._current_l2_channel: str | None = None
+        self._current_l2_symbol: str | None = None
 
         # Child components (set externally via set_* methods)
         self._order_ticket: OrderTicketComponent | None = None
         self._market_context: MarketContextComponent | None = None
         self._watchlist: WatchlistComponent | None = None
         self._price_chart: PriceChartComponent | None = None
+        self._dom_ladder: DOMLadderComponent | None = None
 
         # Current selected symbol (shared state)
         self._selected_symbol: str | None = None
@@ -152,6 +164,10 @@ class OrderEntryContext:
 
         # Risk limits refresh task tracking
         self._risk_refresh_task: asyncio.Task[None] | None = None
+
+        from apps.web_console_ng.core.level2_websocket import Level2WebSocketService
+
+        self._level2_service = Level2WebSocketService.get()
 
     # =========================================================================
     # Component Setters
@@ -234,6 +250,13 @@ class OrderEntryContext:
             trading_client=self._client,
         )
         return self._price_chart.create(width=width, height=height)
+
+    def create_dom_ladder(self) -> Any:
+        """Create and configure the DOM ladder component."""
+        from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
+
+        self._dom_ladder = DOMLadderComponent()
+        return self._dom_ladder.create()
 
     def create_order_ticket(self) -> Any:
         """Create and configure the OrderTicket component.
@@ -877,6 +900,28 @@ class OrderEntryContext:
             await self._release_channel(self._current_selected_channel, self.OWNER_SELECTED_SYMBOL)
             self._current_selected_channel = None
 
+    async def _subscribe_to_l2_channel(self, symbol: str) -> None:
+        """Subscribe to Level 2 updates for selected symbol."""
+        try:
+            normalized = validate_and_normalize_symbol(symbol)
+        except ValueError as exc:
+            logger.warning(f"Invalid L2 symbol for subscription: {symbol!r} - {exc}")
+            return
+
+        from apps.web_console_ng.core.level2_websocket import l2_channel
+
+        channel = l2_channel(self._user_id, normalized)
+        await self._acquire_channel(channel, self.OWNER_LEVEL2, self._on_l2_update)
+        self._current_l2_channel = channel
+        self._current_l2_symbol = normalized
+
+    async def _unsubscribe_from_l2_channel(self) -> None:
+        """Release selected symbol Level 2 subscription."""
+        if self._current_l2_channel:
+            await self._release_channel(self._current_l2_channel, self.OWNER_LEVEL2)
+            self._current_l2_channel = None
+            self._current_l2_symbol = None
+
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""
         if self._disposed:
@@ -936,6 +981,35 @@ class OrderEntryContext:
         if self._watchlist:
             self._watchlist.set_symbol_price_data(symbol, data)
 
+    async def _on_l2_update(self, data: dict[str, Any]) -> None:
+        """Handle Level 2 order book updates from Redis."""
+        if self._disposed:
+            return
+        if self._dom_ladder is None:
+            return
+        if not isinstance(data, dict):
+            logger.warning(f"Invalid L2 update payload type: {type(data).__name__}")
+            return
+
+        # Drop updates when no L2 subscription is active (after unsubscribe)
+        if not self._current_l2_symbol:
+            return
+
+        # Validate symbol matches current subscription to prevent stale updates
+        # after fast symbol switches
+        payload_symbol = str(data.get("S") or data.get("symbol") or "").upper()
+        if payload_symbol and self._current_l2_symbol and payload_symbol != self._current_l2_symbol:
+            logger.debug(
+                "l2_update_symbol_mismatch",
+                extra={
+                    "payload_symbol": payload_symbol,
+                    "current_symbol": self._current_l2_symbol,
+                },
+            )
+            return
+
+        self._dom_ladder.handle_orderbook_update(data)
+
     # =========================================================================
     # Symbol Selection
     # =========================================================================
@@ -965,8 +1039,13 @@ class OrderEntryContext:
         self._selection_version += 1
         current_version = self._selection_version
 
+        previous_symbol = self._selected_symbol
+
         # Unsubscribe from previous symbol's price channel
         await self._unsubscribe_from_price_channel()
+        await self._unsubscribe_from_l2_channel()
+        if previous_symbol and self._dom_ladder and self._dom_ladder.is_enabled():
+            await self._level2_service.unsubscribe(self._user_id, previous_symbol)
 
         if self._selection_version != current_version:
             return  # Stale - newer selection in progress
@@ -987,10 +1066,45 @@ class OrderEntryContext:
                     await self._market_context.on_symbol_changed(None)
                 if self._price_chart:
                     await self._price_chart.on_symbol_changed(None)
+                if self._dom_ladder:
+                    self._dom_ladder.set_symbol(None)
                 return
 
         if self._selection_version != current_version:
             return  # Stale - newer selection in progress
+
+        # Level 2 subscription (optional, requires entitlement)
+        if symbol and self._dom_ladder and self._dom_ladder.is_enabled():
+            allowed = await self._level2_service.subscribe(self._user_id, symbol)
+
+            # Check for stale subscription after await - roll back if symbol changed
+            if self._selection_version != current_version:
+                if allowed:
+                    await self._level2_service.unsubscribe(self._user_id, symbol)
+                return
+
+            if not allowed:
+                ui.notify(
+                    "Level 2 subscription limit reached (max 30 symbols)",
+                    type="warning",
+                )
+                # Mark ladder as unavailable - don't continue to set_symbol
+                # which would show "Streaming {symbol}" without actual updates
+                self._dom_ladder.set_symbol(None)
+            else:
+                try:
+                    await self._subscribe_to_l2_channel(symbol)
+
+                    # Check for stale subscription after channel subscribe
+                    # Must release BOTH the Redis channel AND the L2 service subscription
+                    if self._selection_version != current_version:
+                        await self._unsubscribe_from_l2_channel()  # Release Redis channel
+                        await self._level2_service.unsubscribe(self._user_id, symbol)  # Release refcount
+                        return
+                except Exception as exc:
+                    logger.warning(f"Failed to subscribe to L2 channel for {symbol}: {exc}")
+                    # Roll back the L2 service subscription to avoid refcount leak
+                    await self._level2_service.unsubscribe(self._user_id, symbol)
 
         # Notify all child components
         if self._order_ticket:
@@ -1005,6 +1119,16 @@ class OrderEntryContext:
 
         if self._price_chart:
             await self._price_chart.on_symbol_changed(symbol)
+
+        if self._dom_ladder:
+            self._dom_ladder.set_symbol(symbol)
+
+    async def handle_dom_price_click(self, symbol: str, side: str, price: Any) -> None:
+        """Handle DOM ladder price clicks to prefill order ticket."""
+        if not self._order_ticket:
+            ui.notify("Order ticket unavailable", type="warning")
+            return
+        await self._order_ticket.apply_dom_price_click(symbol, side, price)
 
     # =========================================================================
     # Watchlist Subscription Management
@@ -1304,6 +1428,9 @@ class OrderEntryContext:
             except Exception as exc:
                 logger.warning(f"Error unsubscribing from {channel}: {exc}")
 
+        if self._current_l2_symbol:
+            await self._level2_service.unsubscribe(self._user_id, self._current_l2_symbol)
+
         # Dispose child components
         if self._watchlist:
             await self._watchlist.dispose()
@@ -1313,6 +1440,8 @@ class OrderEntryContext:
             await self._market_context.dispose()
         if self._price_chart:
             await self._price_chart.dispose()
+        if self._dom_ladder:
+            self._dom_ladder.dispose()
 
         logger.info(f"OrderEntryContext disposed for user {self._user_id}")
 

@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-19 - Reconciliation package references (legacy path cleanup) -->
+<!-- Last reviewed: 2026-01-29 - Added parent_order_id filter to /orders/pending endpoint -->
 
 ## Identity
 - **Type:** Service

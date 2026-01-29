@@ -87,6 +87,25 @@ async def test_save_grid_state_success(service: WorkspacePersistenceService, mon
 
 
 @pytest.mark.asyncio()
+async def test_save_panel_state_success(service: WorkspacePersistenceService, monkeypatch) -> None:
+    cursor = AsyncMock()
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    state = {"active_tab": "working"}
+    result = await service.save_panel_state("user-1", "tabbed_panel", state)
+
+    assert result is True
+    cursor.execute.assert_called_once()
+    args, params = cursor.execute.call_args[0]
+    assert "INSERT INTO workspace_state" in args
+    assert params[0] == "user-1"
+    assert params[1] == "panel.tabbed_panel"
+    assert json.loads(params[2]) == state
+    assert params[3] == workspace_persistence.SCHEMA_VERSIONS["panel"]
+
+
+@pytest.mark.asyncio()
 async def test_load_grid_state_missing(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()
     cursor.fetchone.return_value = None
@@ -119,6 +138,22 @@ async def test_load_grid_state_from_dict(service: WorkspacePersistenceService, m
 
     assert result == {"a": 1}
 
+
+@pytest.mark.asyncio()
+async def test_load_panel_state_from_json(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.fetchone.return_value = (
+        json.dumps({"active_tab": "positions"}),
+        workspace_persistence.SCHEMA_VERSIONS["panel"],
+    )
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    result = await service.load_panel_state("user", "tabbed_panel")
+
+    assert result == {"active_tab": "positions"}
 
 @pytest.mark.asyncio()
 async def test_load_grid_state_from_json(service: WorkspacePersistenceService, monkeypatch) -> None:

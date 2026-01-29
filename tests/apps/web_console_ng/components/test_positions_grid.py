@@ -77,6 +77,7 @@ def test_create_positions_grid_columns(dummy_ui: None) -> None:
         "qty",
         "avg_entry_price",
         "current_price",
+        "sparkline_svg",
         "unrealized_pl",
         "unrealized_plpc",
         "actions",

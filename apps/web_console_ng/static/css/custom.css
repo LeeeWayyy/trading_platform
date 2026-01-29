@@ -123,3 +123,72 @@
 .grid-degraded .cell-flash-down {
     animation: none;
 }
+
+/* DOM ladder styling */
+.dom-ladder-root {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dom-ladder-row,
+.dom-ladder-mid,
+.dom-ladder-empty {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+}
+
+.dom-ladder-mid {
+    justify-items: center;
+    color: var(--text-secondary);
+    opacity: 0.8;
+}
+
+.dom-ladder-empty {
+    color: var(--text-secondary);
+    opacity: 0.7;
+    padding: 6px 0;
+}
+
+.dom-ladder-size {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+        "Courier New", monospace;
+    color: var(--text-secondary);
+}
+
+.dom-ladder-price {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+        "Courier New", monospace;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.dom-ladder-price:hover {
+    color: var(--info);
+}
+
+.dom-ladder-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+}
+
+.dom-ladder-bid .dom-ladder-bar {
+    justify-self: end;
+    background: rgba(0, 230, 118, 0.25);
+}
+
+.dom-ladder-ask .dom-ladder-bar {
+    justify-self: start;
+    background: rgba(255, 82, 82, 0.25);
+}
+
+.dom-ladder-large .dom-ladder-price {
+    color: var(--warning);
+    font-weight: 600;
+}

@@ -30,6 +30,7 @@ window.addEventListener('trading_state_change', function(event) {
     }
     if (window._positionsGridApi) window._positionsGridApi.refreshCells();
     if (window._ordersGridApi) window._ordersGridApi.refreshCells();
+    if (window._hierarchicalOrdersGridApi) window._hierarchicalOrdersGridApi.refreshCells();
 });
 
 function isClosePositionDisabled() {
