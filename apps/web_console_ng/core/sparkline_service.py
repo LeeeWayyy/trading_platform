@@ -8,6 +8,7 @@ import time
 from typing import Any
 
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ class SparklineDataService:
             if size > self._max_points:
                 await self._redis.zremrangebyrank(key, 0, -(self._max_points + 1))
             await self._redis.expire(key, self._ttl_seconds)
-        except Exception as exc:  # noqa: BLE001
+        except RedisError as exc:
             logger.warning(
                 "sparkline_record_failed",
                 extra={"user_id": user_id, "symbol": symbol, "error": type(exc).__name__},
@@ -123,7 +124,7 @@ class SparklineDataService:
         key = self._key(user_id, symbol)
         try:
             members = await self._redis.zrange(key, 0, -1)
-        except Exception as exc:  # noqa: BLE001
+        except RedisError as exc:
             logger.warning(
                 "sparkline_fetch_failed",
                 extra={"user_id": user_id, "symbol": symbol, "error": type(exc).__name__},

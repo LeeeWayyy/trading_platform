@@ -1088,6 +1088,9 @@ class OrderEntryContext:
                     "Level 2 subscription limit reached (max 30 symbols)",
                     type="warning",
                 )
+                # Mark ladder as unavailable - don't continue to set_symbol
+                # which would show "Streaming {symbol}" without actual updates
+                self._dom_ladder.set_symbol(None)
             else:
                 try:
                     await self._subscribe_to_l2_channel(symbol)

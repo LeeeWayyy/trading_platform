@@ -866,15 +866,42 @@ async def dashboard(client: Client) -> None:
         parent_order_id = str(detail.get("parent_order_id", "")).strip()
         symbol = str(detail.get("symbol", "")).strip() or "unknown"
 
-        # SECURITY: Rebuild children list from server-side snapshot instead of
-        # trusting client-supplied data. This prevents cancelling unrelated orders
-        # through crafted events.
+        # SECURITY: Fetch fresh orders from API instead of using potentially stale
+        # snapshot. This ensures we're operating on the most up-to-date data and
+        # prevents race conditions where the UI shows stale state.
         server_children: list[dict[str, Any]] = []
         if parent_order_id:
-            server_children = [
-                order for order in orders_snapshot
-                if str(order.get("parent_order_id", "")) == parent_order_id
-            ]
+            try:
+                fresh_orders_response = await trading_client.fetch_open_orders(
+                    user_id,
+                    role=user_role,
+                    strategies=user_strategies,
+                )
+                fresh_orders = fresh_orders_response.get("orders", [])
+                server_children = [
+                    order for order in fresh_orders
+                    if str(order.get("parent_order_id", "")) == parent_order_id
+                ]
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "cancel_parent_order_fetch_failed",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "status_code": exc.response.status_code,
+                    },
+                )
+                ui.notify("Failed to fetch current orders", type="negative")
+                return
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "cancel_parent_order_request_error",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "error": type(exc).__name__,
+                    },
+                )
+                ui.notify("Network error fetching orders", type="negative")
+                return
 
         await on_cancel_parent_order(
             parent_order_id or None,

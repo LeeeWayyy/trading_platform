@@ -58,8 +58,8 @@ class DOMDataProcessor:
         if not isinstance(bids_raw, list) or not isinstance(asks_raw, list):
             return None
 
-        bids = self._normalize_levels(bids_raw, side="bid", descending=True)
-        asks = self._normalize_levels(asks_raw, side="ask", descending=False)
+        bids = self._normalize_levels(bids_raw, descending=True)
+        asks = self._normalize_levels(asks_raw, descending=False)
 
         if not bids and not asks:
             return DepthSnapshot(
@@ -119,7 +119,7 @@ class DOMDataProcessor:
         )
 
     def _normalize_levels(
-        self, raw: list[Any], *, side: str, descending: bool
+        self, raw: list[Any], *, descending: bool
     ) -> list[dict[str, float]]:
         levels: list[dict[str, float]] = []
         for entry in raw:
