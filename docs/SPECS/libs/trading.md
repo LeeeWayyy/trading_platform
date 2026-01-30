@@ -41,13 +41,15 @@ See [libs/alpha.md](./alpha.md) for detailed specification.
 ### libs/trading/backtest
 See [libs/backtest.md](./backtest.md) for detailed specification.
 
-**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, and RQ queue/worker utilities.
+**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, transaction cost modeling, and RQ queue/worker utilities.
 
 **Key Features:**
 - Job queue management
 - Monte Carlo simulation
 - Walk-forward optimization
 - Parameter search
+- Transaction cost model (Almgren-Chriss)
+- Capacity analysis
 
 ### libs/trading/risk
 See [libs/risk.md](./risk.md) for detailed specification.
