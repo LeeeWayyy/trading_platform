@@ -246,6 +246,9 @@ class AsyncTradingClient:
         resp.raise_for_status()
         payload = self._json_dict(resp)
         state = str(payload.get("state", "")).upper()
+        # Backend uses ACTIVE = "normal trading allowed" (not engaged)
+        # Frontend expects DISENGAGED = "safe to trade", ENGAGED = "blocked"
+        # See libs/trading/risk_management/kill_switch.py KillSwitchState enum
         if state == "ACTIVE":
             payload["state"] = "DISENGAGED"
         return payload
@@ -428,10 +431,32 @@ class AsyncTradingClient:
         order_id: str,
         user_id: str,
         role: str | None = None,
+        strategies: list[str] | None = None,
+        *,
+        reason: str,
+        requested_by: str,
+        requested_at: str,
     ) -> dict[str, Any]:
-        """Cancel an order by client_order_id (POST)."""
-        headers = self._get_auth_headers(user_id, role, None)
-        resp = await self._client.post(f"/api/v1/orders/{order_id}/cancel", headers=headers)
+        """Cancel an order by client_order_id (POST with CancelOrderRequest body).
+
+        Args:
+            order_id: The client_order_id to cancel
+            user_id: User ID for auth
+            role: User role for auth
+            strategies: Strategy scope for multi-strategy auth
+            reason: Cancellation reason (min 10 chars)
+            requested_by: User who requested cancellation
+            requested_at: ISO timestamp of cancel request
+        """
+        headers = self._get_auth_headers(user_id, role, strategies)
+        payload = {
+            "reason": reason,
+            "requested_by": requested_by,
+            "requested_at": requested_at,
+        }
+        resp = await self._client.post(
+            f"/api/v1/orders/{order_id}/cancel", headers=headers, json=payload
+        )
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -468,9 +493,10 @@ class AsyncTradingClient:
         order_data: dict[str, Any],
         user_id: str,
         role: str | None = None,
+        strategies: list[str] | None = None,
     ) -> dict[str, Any]:
         """Submit a manual order (POST)."""
-        headers = self._get_auth_headers(user_id, role, None)
+        headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.post("/api/v1/manual/orders", headers=headers, json=order_data)
         resp.raise_for_status()
         return self._json_dict(resp)
@@ -487,6 +513,7 @@ class AsyncTradingClient:
         user_id: str,
         role: str | None = None,
         qty: int | None = None,
+        strategies: list[str] | None = None,
     ) -> dict[str, Any]:
         """Close a position for a symbol (POST).
 
@@ -498,11 +525,12 @@ class AsyncTradingClient:
             user_id: User ID for auth headers.
             role: User role for authorization.
             qty: Optional partial close quantity.
+            strategies: Strategy scope for multi-strategy users.
 
         Returns:
             ClosePositionResponse with status, order_id, qty_to_close.
         """
-        headers = self._get_auth_headers(user_id, role, None)
+        headers = self._get_auth_headers(user_id, role, strategies)
         payload: dict[str, Any] = {
             "reason": reason,
             "requested_by": requested_by,
@@ -525,6 +553,7 @@ class AsyncTradingClient:
         requested_at: str,
         user_id: str,
         role: str | None = None,
+        strategies: list[str] | None = None,
     ) -> dict[str, Any]:
         """Cancel all orders for a symbol (POST).
 
@@ -535,11 +564,12 @@ class AsyncTradingClient:
             requested_at: ISO timestamp of request.
             user_id: User ID for auth headers.
             role: User role for authorization.
+            strategies: Strategy scope for multi-strategy users.
 
         Returns:
             CancelAllOrdersResponse with cancelled_count, order_ids.
         """
-        headers = self._get_auth_headers(user_id, role, None)
+        headers = self._get_auth_headers(user_id, role, strategies)
         payload = {
             "symbol": symbol.upper(),
             "reason": reason,
@@ -559,6 +589,7 @@ class AsyncTradingClient:
         id_token: str,
         user_id: str,
         role: str | None = None,
+        strategies: list[str] | None = None,
     ) -> dict[str, Any]:
         """Flatten all positions (POST) - requires MFA.
 
@@ -572,11 +603,12 @@ class AsyncTradingClient:
             id_token: MFA token from auth session.
             user_id: User ID for auth headers.
             role: User role for authorization.
+            strategies: Strategy scope for multi-strategy users.
 
         Returns:
             FlattenAllResponse with positions_closed, orders_created.
         """
-        headers = self._get_auth_headers(user_id, role, None)
+        headers = self._get_auth_headers(user_id, role, strategies)
         payload = {
             "reason": reason,
             "requested_by": requested_by,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -552,6 +553,7 @@ async def on_cancel_order(
     user_id: str,
     user_role: str,
     broker_order_id: str | None = None,
+    strategies: list[str] | None = None,
 ) -> None:
     """Handle cancel order button click.
 
@@ -561,6 +563,14 @@ async def on_cancel_order(
 
     Note: Backend cancel endpoint requires client_order_id. Broker_order_id cannot be used
     as a fallback because the endpoint is keyed by client_order_id.
+
+    Args:
+        order_id: The client_order_id to cancel
+        symbol: Symbol for logging and notifications
+        user_id: User ID for auth
+        user_role: User role for auth
+        broker_order_id: Broker's order ID (for logging only)
+        strategies: Strategy scope for multi-strategy auth
     """
     if not order_id:
         logger.warning(
@@ -618,7 +628,15 @@ async def on_cancel_order(
 
     client = AsyncTradingClient.get()
     try:
-        await client.cancel_order(order_id, user_id, role=user_role)
+        await client.cancel_order(
+            order_id,
+            user_id,
+            role=user_role,
+            strategies=strategies,
+            reason="Manual cancel from orders table",
+            requested_by=user_id,
+            requested_at=datetime.now(UTC).isoformat(),
+        )
         logger.info(
             "cancel_order_submitted",
             extra={

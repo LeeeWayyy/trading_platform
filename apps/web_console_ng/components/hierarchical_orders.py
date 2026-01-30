@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -243,8 +244,18 @@ async def on_cancel_parent_order(
     children: list[dict[str, Any]],
     user_id: str,
     user_role: str,
+    strategies: list[str] | None = None,
 ) -> None:
-    """Handle cancel-all for a TWAP parent order."""
+    """Handle cancel-all for a TWAP parent order.
+
+    Args:
+        parent_order_id: The parent TWAP order ID
+        symbol: Symbol for notifications
+        children: List of child slice orders
+        user_id: User ID for auth
+        user_role: User role for auth
+        strategies: Strategy scope for multi-strategy auth
+    """
     if user_role == "viewer":
         ui.notify("Viewers cannot cancel orders", type="warning")
         return
@@ -283,7 +294,15 @@ async def on_cancel_parent_order(
                     if not child_id:
                         return None
                     try:
-                        await client.cancel_order(child_id, user_id, role=user_role)
+                        await client.cancel_order(
+                            child_id,
+                            user_id,
+                            role=user_role,
+                            strategies=strategies,
+                            reason="Cancel parent TWAP order - child slice",
+                            requested_by=user_id,
+                            requested_at=datetime.now(UTC).isoformat(),
+                        )
                         logger.info(
                             "cancel_child_slice_submitted",
                             extra={
