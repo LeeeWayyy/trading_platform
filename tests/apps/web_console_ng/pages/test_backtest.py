@@ -100,6 +100,12 @@ class DummyElement:
             self._on_event = (event, fn)
         return self
 
+    def bind_visibility_from(
+        self, target: Any, property_name: str = "value"
+    ) -> DummyElement:
+        """Mock bind_visibility_from for NiceGUI elements."""
+        return self
+
     def set_text(self, value: str) -> None:
         self.text = value
 
@@ -129,6 +135,7 @@ class DummyUI:
         self.tables: list[dict[str, Any]] = []
         self.expansions: list[DummyElement] = []
         self.separators: list[DummyElement] = []
+        self.switches: list[DummyElement] = []
         self.context = SimpleNamespace(client=SimpleNamespace(storage={"client_id": "test_client"}))
 
     def label(self, text: str = "") -> DummyElement:
@@ -154,6 +161,18 @@ class DummyUI:
     ) -> DummyElement:
         el = DummyElement(self, "input", label=label, placeholder=placeholder, value=value)
         self.inputs.append(el)
+        return el
+
+    def number(
+        self,
+        label: str | None = None,
+        value: float | None = None,
+        min: float | None = None,
+        max: float | None = None,
+        step: float | None = None,
+    ) -> DummyElement:
+        el = DummyElement(self, "number", label=label, value=value)
+        self.inputs.append(el)  # Reuse inputs list for numbers
         return el
 
     def select(
@@ -184,6 +203,11 @@ class DummyUI:
     def checkbox(self, text: str = "", value: bool = False) -> DummyElement:
         el = DummyElement(self, "checkbox", text=text, value=value)
         self.checkboxes.append(el)
+        return el
+
+    def switch(self, text: str = "", value: bool = False) -> DummyElement:
+        el = DummyElement(self, "switch", text=text, value=value)
+        self.switches.append(el)
         return el
 
     def card(self) -> DummyElement:
@@ -234,7 +258,7 @@ class DummyUI:
         self.separators.append(el)
         return el
 
-    def expansion(self, text: str = "") -> DummyElement:
+    def expansion(self, text: str = "", icon: str | None = None) -> DummyElement:
         el = DummyElement(self, "expansion", text=text)
         self.expansions.append(el)
         return el
