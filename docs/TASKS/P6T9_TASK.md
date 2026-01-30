@@ -2552,14 +2552,14 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 **T9.1 (Transaction Cost Model):**
 - [x] AUM/portfolio_value_usd configurable in job config (CostModelConfig.portfolio_value_usd)
 - [x] Trade size calculation from weight changes documented and implemented (compute_daily_costs)
-- [ ] PIT-compliant ADV/volatility loading with 20-day windows
+- [x] PIT-compliant ADV/volatility loading with 20-day windows (load_pit_adv_volatility)
 - [ ] dataset_version_ids extended for cost data source
-- [x] Deterministic fallback for missing ADV/volatility with logging (returns 0 impact)
+- [x] Deterministic fallback for missing ADV/volatility with logging (apply_adv_fallback, apply_volatility_fallback)
 - [ ] Cost config included in job_id hash
 - [x] summary.json extended with cost fields (canonical source)
 - [ ] BacktestResult reconstruction includes cost data
 - [ ] Server-side validation with size limits
-- [x] Unit tests for cost model core (46 tests in test_cost_model.py)
+- [x] Unit tests for cost model core (71 tests in test_cost_model.py with 93% coverage)
 
 **T9.2 (UI Configuration):**
 - [x] Cost model configuration form in backtest.py
