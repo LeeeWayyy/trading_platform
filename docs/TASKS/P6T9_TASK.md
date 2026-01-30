@@ -2555,7 +2555,7 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] PIT-compliant ADV/volatility loading with 20-day windows (load_pit_adv_volatility)
 - [ ] dataset_version_ids extended for cost data source
 - [x] Deterministic fallback for missing ADV/volatility with logging (apply_adv_fallback, apply_volatility_fallback)
-- [ ] Cost config included in job_id hash
+- [x] Cost config included in job_id hash (via extra_params which is in compute_job_id)
 - [x] summary.json extended with cost fields (canonical source)
 - [ ] BacktestResult reconstruction includes cost data
 - [ ] Server-side validation with size limits
