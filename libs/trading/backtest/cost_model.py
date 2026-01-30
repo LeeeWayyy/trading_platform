@@ -71,14 +71,26 @@ class CostModelConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
+        # Check for NaN/Inf to prevent corruption of cost calculations and JSON output
+        if not math.isfinite(self.bps_per_trade):
+            raise ValueError(f"bps_per_trade must be finite, got {self.bps_per_trade}")
         if self.bps_per_trade < 0:
             raise ValueError(f"bps_per_trade must be >= 0, got {self.bps_per_trade}")
+
+        if not math.isfinite(self.impact_coefficient):
+            raise ValueError(f"impact_coefficient must be finite, got {self.impact_coefficient}")
         if self.impact_coefficient < 0:
             raise ValueError(f"impact_coefficient must be >= 0, got {self.impact_coefficient}")
+
+        if not math.isfinite(self.participation_limit):
+            raise ValueError(f"participation_limit must be finite, got {self.participation_limit}")
         if not 0 < self.participation_limit <= 1:
             raise ValueError(
                 f"participation_limit must be in (0, 1], got {self.participation_limit}"
             )
+
+        if not math.isfinite(self.portfolio_value_usd):
+            raise ValueError(f"portfolio_value_usd must be finite, got {self.portfolio_value_usd}")
         if self.portfolio_value_usd <= 0:
             raise ValueError(
                 f"portfolio_value_usd must be > 0, got {self.portfolio_value_usd}"

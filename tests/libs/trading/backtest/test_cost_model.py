@@ -111,6 +111,26 @@ class TestCostModelConfig:
         assert config.bps_per_trade == 5.0  # default
         assert config.impact_coefficient == 0.1  # default
 
+    def test_validation_rejects_nan_bps(self):
+        """Test validation rejects NaN for bps_per_trade."""
+        with pytest.raises(ValueError, match="bps_per_trade must be finite"):
+            CostModelConfig(bps_per_trade=float("nan"))
+
+    def test_validation_rejects_inf_impact(self):
+        """Test validation rejects Inf for impact_coefficient."""
+        with pytest.raises(ValueError, match="impact_coefficient must be finite"):
+            CostModelConfig(impact_coefficient=float("inf"))
+
+    def test_validation_rejects_nan_portfolio_value(self):
+        """Test validation rejects NaN for portfolio_value_usd."""
+        with pytest.raises(ValueError, match="portfolio_value_usd must be finite"):
+            CostModelConfig(portfolio_value_usd=float("nan"))
+
+    def test_validation_rejects_negative_inf_participation(self):
+        """Test validation rejects negative Inf for participation_limit."""
+        with pytest.raises(ValueError, match="participation_limit must be finite"):
+            CostModelConfig(participation_limit=float("-inf"))
+
     def test_to_dict(self):
         """Test serialization to dictionary."""
         config = CostModelConfig(bps_per_trade=7.5, adv_source=ADVSource.ALPACA)
