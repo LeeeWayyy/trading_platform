@@ -566,41 +566,51 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 if cost_config is not None and job_config.provider == DataProvider.CRSP:
                     # Load PIT-compliant ADV/volatility from CRSP
                     permnos = result.daily_weights.select("permno").unique().to_series().to_list()
-                    adv_volatility = load_pit_adv_volatility(
-                        crsp_provider=crsp_provider,
-                        permnos=permnos,
-                        start_date=job_config.start_date,
-                        end_date=job_config.end_date,
-                    )
 
-                    # Compute costs
-                    cost_result = compute_backtest_costs(
-                        daily_weights=result.daily_weights,
-                        gross_returns=result.daily_portfolio_returns,
-                        adv_volatility=adv_volatility,
-                        config=cost_config,
-                    )
-                    cost_summary = cost_result.cost_summary
-                    capacity_analysis = cost_result.capacity_analysis.to_dict()
-                    worker.logger.info(
-                        "cost_model_computed",
-                        job_id=job_id,
-                        total_cost_usd=cost_summary.total_cost_usd,
-                        net_sharpe=cost_summary.net_sharpe,
-                        adv_fallbacks=cost_result.adv_fallback_count,
-                        vol_fallbacks=cost_result.volatility_fallback_count,
-                        participation_violations=cost_result.participation_violations,
-                    )
+                    # Skip cost computation if no weights/permnos (edge case: empty backtest)
+                    if not permnos:
+                        worker.logger.warning(
+                            "cost_model_skipped_empty_weights",
+                            job_id=job_id,
+                            reason="No permnos in daily_weights; skipping cost computation",
+                        )
+                        cost_config = None  # Clear to prevent UI showing "Cost data unavailable"
+                    else:
+                        adv_volatility = load_pit_adv_volatility(
+                            crsp_provider=crsp_provider,
+                            permnos=permnos,
+                            start_date=job_config.start_date,
+                            end_date=job_config.end_date,
+                        )
 
-                    # Extract net returns for Parquet export (T9.4)
-                    net_returns_df = cost_result.net_returns_df
+                        # Compute costs
+                        cost_result = compute_backtest_costs(
+                            daily_weights=result.daily_weights,
+                            gross_returns=result.daily_portfolio_returns,
+                            adv_volatility=adv_volatility,
+                            config=cost_config,
+                        )
+                        cost_summary = cost_result.cost_summary
+                        capacity_analysis = cost_result.capacity_analysis.to_dict()
+                        worker.logger.info(
+                            "cost_model_computed",
+                            job_id=job_id,
+                            total_cost_usd=cost_summary.total_cost_usd,
+                            net_sharpe=cost_summary.net_sharpe,
+                            adv_fallbacks=cost_result.adv_fallback_count,
+                            vol_fallbacks=cost_result.volatility_fallback_count,
+                            participation_violations=cost_result.participation_violations,
+                        )
 
-                    # Extend dataset_version_ids with cost data source info
-                    # Cost data comes from same CRSP provider, so use crsp_daily version
-                    if result.dataset_version_ids is not None:
-                        crsp_version = result.dataset_version_ids.get("crsp_daily", "unknown")
-                        result.dataset_version_ids["cost_data_source"] = "crsp"
-                        result.dataset_version_ids["cost_data_version"] = crsp_version
+                        # Extract net returns for Parquet export (T9.4)
+                        net_returns_df = cost_result.net_returns_df
+
+                        # Extend dataset_version_ids with cost data source info
+                        # Cost data comes from same CRSP provider, so use crsp_daily version
+                        if result.dataset_version_ids is not None:
+                            crsp_version = result.dataset_version_ids.get("crsp_daily", "unknown")
+                            result.dataset_version_ids["cost_data_source"] = "crsp"
+                            result.dataset_version_ids["cost_data_version"] = crsp_version
 
                 elif cost_config is not None and job_config.provider == DataProvider.YFINANCE:
                     # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)

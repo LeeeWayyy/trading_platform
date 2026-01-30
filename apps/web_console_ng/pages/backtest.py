@@ -441,16 +441,26 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     "Max fraction of daily volume per trade (for capacity analysis)"
                 ).classes("text-xs text-gray-500 -mt-2")
 
-        def build_cost_config() -> dict[str, Any] | None:
-            """Build cost model config dict for extra_params."""
+        def build_cost_config(provider: DataProvider) -> dict[str, Any] | None:
+            """Build cost model config dict for extra_params.
+
+            Args:
+                provider: Selected data provider (determines adv_source)
+
+            Returns:
+                Cost model config dict or None if disabled
+            """
             if not cost_enabled.value:
                 return None
+            # Set adv_source based on provider to accurately represent data provenance
+            # CRSP provider uses PIT-compliant CRSP ADV data; Yahoo uses yahoo data
+            adv_source = "crsp" if provider == DataProvider.CRSP else "yahoo"
             return {
                 "enabled": True,
                 "bps_per_trade": float(bps_per_trade_input.value or 5.0),
                 "impact_coefficient": float(impact_coefficient_input.value or 0.1),
                 "participation_limit": float(participation_limit_input.value or 5.0) / 100,
-                "adv_source": "yahoo",
+                "adv_source": adv_source,
                 "portfolio_value_usd": float(portfolio_value_input.value or 1_000_000),
             }
 
@@ -534,8 +544,15 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                 job_config.extra_params["universe"] = universe
 
             # Add cost model configuration if enabled (T9.2)
-            cost_config = build_cost_config()
+            cost_config = build_cost_config(data_provider)
             if cost_config is not None:
+                if data_provider == DataProvider.YFINANCE:
+                    # Warn user that cost model will be skipped for Yahoo
+                    ui.notify(
+                        "Cost model enabled but Yahoo Finance lacks PIT ADV data. "
+                        "Cost calculations will be skipped. Use CRSP for cost analysis.",
+                        type="warning",
+                    )
                 job_config.extra_params["cost_model"] = cost_config
 
             try:

@@ -42,6 +42,7 @@ class ADVSource(str, Enum):
 
     YAHOO = "yahoo"
     ALPACA = "alpaca"
+    CRSP = "crsp"  # PIT-compliant CRSP data (used when provider=CRSP)
 
 
 # Minimum standard deviation for Sharpe ratio calculation (avoid division by near-zero)
