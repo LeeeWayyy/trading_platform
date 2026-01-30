@@ -392,6 +392,68 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     value="normal",
                 ).classes("w-full")
 
+        # Cost Model Configuration (T9.2)
+        with ui.expansion("Cost Model Settings", icon="attach_money").classes("w-full"):
+            cost_enabled = ui.switch("Enable Cost Model", value=False)
+
+            with ui.column().classes("w-full gap-2").bind_visibility_from(cost_enabled, "value"):
+                portfolio_value_input = ui.number(
+                    "Portfolio Value (USD)",
+                    value=1_000_000,
+                    min=10_000,
+                    max=1_000_000_000,
+                    step=100_000,
+                ).props("prefix=$").classes("w-full")
+                ui.label(
+                    "Constant notional AUM for cost calculations"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+                bps_per_trade_input = ui.number(
+                    "Commission + Spread (bps)",
+                    value=5.0,
+                    min=0,
+                    max=50,
+                    step=0.5,
+                ).classes("w-full")
+                ui.label(
+                    "Fixed cost per trade (commission + half-spread)"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+                impact_coefficient_input = ui.number(
+                    "Impact Coefficient (eta)",
+                    value=0.1,
+                    min=0.01,
+                    max=1.0,
+                    step=0.01,
+                ).classes("w-full")
+                ui.label(
+                    "Almgren-Chriss market impact parameter"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+                participation_limit_input = ui.number(
+                    "ADV Participation Limit (%)",
+                    value=5.0,
+                    min=1,
+                    max=20,
+                    step=1,
+                ).classes("w-full")
+                ui.label(
+                    "Max fraction of daily volume per trade (for capacity analysis)"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+        def build_cost_config() -> dict[str, Any] | None:
+            """Build cost model config dict for extra_params."""
+            if not cost_enabled.value:
+                return None
+            return {
+                "enabled": True,
+                "bps_per_trade": float(bps_per_trade_input.value or 5.0),
+                "impact_coefficient": float(impact_coefficient_input.value or 0.1),
+                "participation_limit": float(participation_limit_input.value or 5.0) / 100,
+                "adv_source": "yahoo",
+                "portfolio_value_usd": float(portfolio_value_input.value or 1_000_000),
+            }
+
         async def submit_job() -> None:
             ui.notify("Submitting backtest...", type="info")
             selected_provider = data_provider_select.value
@@ -470,6 +532,11 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             )
             if universe:
                 job_config.extra_params["universe"] = universe
+
+            # Add cost model configuration if enabled (T9.2)
+            cost_config = build_cost_config()
+            if cost_config is not None:
+                job_config.extra_params["cost_model"] = cost_config
 
             try:
                 user_id = _get_user_id(user)
@@ -1302,6 +1369,94 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
 
     if ic_note:
         ui.label(ic_note).classes("text-xs text-gray-500 mb-4")
+
+    # Cost Analysis Summary (T9.2) - displayed when cost model data is available
+    # Check for cost data in result attributes (added by P6T9)
+    cost_summary = getattr(result, "cost_summary", None)
+    cost_config = getattr(result, "cost_config", None)
+    capacity_analysis = getattr(result, "capacity_analysis", None)
+
+    if cost_config and cost_summary:
+        ui.separator().classes("my-4")
+        ui.label("Cost Analysis").classes("text-lg font-bold mb-2")
+
+        with ui.row().classes("w-full gap-4 mb-4"):
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Gross Return").classes("text-sm text-gray-500")
+                gross_ret = cost_summary.get("total_gross_return")
+                ui.label(_fmt_pct(gross_ret, "{:.2f}%")).classes("text-lg font-bold")
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Net Return").classes("text-sm text-gray-500")
+                net_ret = cost_summary.get("total_net_return")
+                ui.label(_fmt_pct(net_ret, "{:.2f}%")).classes("text-lg font-bold")
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Total Cost").classes("text-sm text-gray-500")
+                total_cost = cost_summary.get("total_cost_usd", 0)
+                ui.label(f"${total_cost:,.0f}").classes("text-lg font-bold")
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Avg Cost").classes("text-sm text-gray-500")
+                avg_cost_bps = cost_summary.get("avg_trade_cost_bps", 0)
+                ui.label(f"{avg_cost_bps:.1f} bps").classes("text-lg font-bold")
+
+        # Cost breakdown details
+        with ui.expansion("Cost Breakdown", icon="expand_more").classes("w-full mb-4"):
+            with ui.row().classes("gap-4"):
+                comm_cost = cost_summary.get("commission_spread_cost_usd", 0)
+                impact_cost = cost_summary.get("market_impact_cost_usd", 0)
+                ui.label(f"Commission + Spread: ${comm_cost:,.0f}").classes("text-sm")
+                ui.label(f"Market Impact: ${impact_cost:,.0f}").classes("text-sm")
+                num_trades = cost_summary.get("num_trades", 0)
+                ui.label(f"Number of Trades: {num_trades}").classes("text-sm")
+
+            # Net risk metrics
+            net_sharpe = cost_summary.get("net_sharpe")
+            net_max_dd = cost_summary.get("net_max_drawdown")
+            if net_sharpe is not None or net_max_dd is not None:
+                with ui.row().classes("gap-4 mt-2"):
+                    if net_sharpe is not None:
+                        ui.label(f"Net Sharpe: {net_sharpe:.2f}").classes("text-sm")
+                    if net_max_dd is not None:
+                        ui.label(f"Net Max Drawdown: {net_max_dd:.1%}").classes("text-sm")
+
+        # Capacity Analysis (T9.3 display)
+        if capacity_analysis:
+            with ui.expansion("Capacity Analysis", icon="analytics").classes("w-full mb-4"):
+                implied_cap = capacity_analysis.get("implied_max_capacity")
+                limiting = capacity_analysis.get("limiting_factor")
+
+                if implied_cap is not None:
+                    cap_formatted = f"${implied_cap:,.0f}" if implied_cap < 1e12 else "Unlimited"
+                    ui.label(f"Implied Capacity: {cap_formatted}").classes("text-lg font-bold")
+                    if limiting:
+                        ui.label(f"Binding Constraint: {limiting}").classes("text-sm text-gray-500")
+
+                with ui.row().classes("gap-4 mt-2"):
+                    turnover = capacity_analysis.get("avg_daily_turnover")
+                    if turnover is not None:
+                        ui.label(f"Avg Daily Turnover: {turnover:.1%}").classes("text-sm")
+                    holding = capacity_analysis.get("avg_holding_period_days")
+                    if holding is not None:
+                        ui.label(f"Avg Holding Period: {holding:.1f} days").classes("text-sm")
+
+                # Constraint details
+                impact_5 = capacity_analysis.get("impact_aum_5bps")
+                participation = capacity_analysis.get("participation_aum")
+                breakeven = capacity_analysis.get("breakeven_aum")
+
+                with ui.column().classes("mt-2 text-sm"):
+                    if impact_5 is not None:
+                        ui.label(f"At 5 bps impact: ${impact_5:,.0f}")
+                    if participation is not None:
+                        ui.label(f"At participation limit: ${participation:,.0f}")
+                    if breakeven is not None:
+                        ui.label(f"Breakeven AUM: ${breakeven:,.0f}")
+
+    elif cost_config:
+        # Cost model enabled but no summary (job incomplete or legacy)
+        ui.separator().classes("my-4")
+        with ui.card().classes("w-full p-4"):
+            ui.label("Cost Analysis").classes("text-lg font-bold")
+            ui.label("Cost data unavailable for this backtest.").classes("text-sm text-amber-500")
 
     # Render Yahoo Finance-specific details (universe, signals, charts, trades)
     _render_yahoo_backtest_details(result, user)
