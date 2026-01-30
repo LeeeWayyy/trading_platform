@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-30 - P6T7 Order Actions: safety gate, flatten/reverse controls, one-click handler -->
+<!-- Last reviewed: 2026-01-30 - P6T7 Order Actions: safety gate, flatten/reverse controls, one-click handler, connection state handling -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

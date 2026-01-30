@@ -700,8 +700,16 @@ class FlattenControls:
                                         type="warning",
                                     )
                                     actual_closed_qty = response_qty_int
-                            except (ValueError, TypeError):
-                                pass  # Keep authoritative_qty
+                            except (ValueError, TypeError) as exc:
+                                logger.warning(
+                                    "unparseable_close_response_qty",
+                                    extra={
+                                        "symbol": symbol,
+                                        "response_qty": response_qty,
+                                        "error": str(exc),
+                                    },
+                                )
+                                # Keep authoritative_qty as fallback
                 except Exception as close_exc:
                     ui.notify(f"Close failed: {close_exc}", type="negative")
                     return

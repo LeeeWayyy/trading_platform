@@ -861,8 +861,13 @@ class OrderEntryContext:
         except Exception as exc:
             logger.warning(f"Invalid connection payload: {exc}, treating as read-only")
             self._last_connection_state = "UNKNOWN"
+            # CRITICAL: Update cached state for T7 components (FAIL-CLOSED safety)
+            # Without this, OneClickHandler/SafetyGate would use stale state
+            self._cached_connection_state = "UNKNOWN"
             if self._order_ticket:
                 self._order_ticket.set_connection_state("UNKNOWN", True)
+            # Sync to T7 components so risk-increasing actions fail closed
+            self._sync_one_click_cached_state()
             return
 
         # Track previous state for reconnect detection
