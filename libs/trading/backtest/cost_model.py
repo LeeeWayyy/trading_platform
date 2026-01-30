@@ -678,8 +678,8 @@ def compute_capacity_analysis(
         gross_alpha_annual = (1 + gross_alpha) ** (252 / trading_days) - 1
 
     # Capacity constraints
-    impact_aum_5bps = _compute_impact_aum(5.0, portfolio_adv, portfolio_sigma, config)
-    impact_aum_10bps = _compute_impact_aum(10.0, portfolio_adv, portfolio_sigma, config)
+    impact_aum_5bps = _compute_impact_aum(5.0, portfolio_adv, portfolio_sigma, avg_turnover, config)
+    impact_aum_10bps = _compute_impact_aum(10.0, portfolio_adv, portfolio_sigma, avg_turnover, config)
     participation_aum = _compute_participation_aum(
         portfolio_adv, avg_turnover, config.participation_limit
     )
@@ -720,17 +720,20 @@ def _compute_impact_aum(
     target_impact_bps: float,
     portfolio_adv: float | None,
     portfolio_sigma: float | None,
+    avg_turnover: float | None,
     config: CostModelConfig,
 ) -> float | None:
     """Compute AUM at which average market impact reaches target.
 
     From Almgren-Chriss: impact = eta * sigma * sqrt(trade / ADV)
     Solving for trade at target impact: trade = (target / (eta * sigma))^2 * ADV
-    AUM = trade / avg_turnover (but we use portfolio_adv directly for sizing)
+    AUM = trade / avg_turnover
     """
     if portfolio_adv is None or portfolio_adv <= 0 or not math.isfinite(portfolio_adv):
         return None
     if portfolio_sigma is None or portfolio_sigma <= 0 or not math.isfinite(portfolio_sigma):
+        return None
+    if avg_turnover is None or avg_turnover <= 0 or not math.isfinite(avg_turnover):
         return None
     if config.impact_coefficient <= 0:
         return None
@@ -743,9 +746,8 @@ def _compute_impact_aum(
     participation_at_target = (target_impact_bps / (config.impact_coefficient * portfolio_sigma * 10000)) ** 2
     trade_at_target = portfolio_adv * participation_at_target
 
-    # This is the trade size at target impact; AUM depends on turnover
-    # For simplicity, return as implied AUM (assuming avg turnover trades this much)
-    return trade_at_target
+    # Convert trade size to AUM: AUM = trade / avg_turnover
+    return trade_at_target / avg_turnover
 
 
 def _compute_participation_aum(

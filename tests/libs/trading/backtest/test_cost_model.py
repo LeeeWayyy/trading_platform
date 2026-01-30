@@ -1324,3 +1324,95 @@ class TestBacktestCostResult:
         assert result.adv_fallback_count == 5
         assert result.volatility_fallback_count == 3
         assert result.participation_violations == 2
+
+
+class TestImpactAumScaling:
+    """Tests for impact AUM computation with avg_turnover scaling."""
+
+    def test_impact_aum_scales_with_turnover(self):
+        """Verify impact_aum = trade_at_target / avg_turnover."""
+        from libs.trading.backtest.cost_model import _compute_impact_aum
+
+        config = CostModelConfig(
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        # Known inputs
+        target_impact_bps = 5.0
+        portfolio_adv = 10_000_000.0
+        portfolio_sigma = 0.02
+        avg_turnover = 0.10  # 10% daily turnover
+
+        result = _compute_impact_aum(
+            target_impact_bps, portfolio_adv, portfolio_sigma, avg_turnover, config
+        )
+
+        # Manual calculation:
+        # participation_at_target = (5 / (0.1 * 0.02 * 10000))^2
+        #                        = (5 / 20)^2 = 0.0625
+        # trade_at_target = 10_000_000 * 0.0625 = 625_000
+        # AUM = 625_000 / 0.10 = 6_250_000
+        expected_aum = 6_250_000.0
+
+        assert result is not None
+        assert abs(result - expected_aum) < 1.0  # Allow small float precision difference
+
+    def test_impact_aum_none_when_no_turnover(self):
+        """Verify impact_aum returns None when avg_turnover is None or zero."""
+        from libs.trading.backtest.cost_model import _compute_impact_aum
+
+        config = CostModelConfig(impact_coefficient=0.1)
+
+        # None turnover
+        result = _compute_impact_aum(5.0, 10_000_000.0, 0.02, None, config)
+        assert result is None
+
+        # Zero turnover
+        result = _compute_impact_aum(5.0, 10_000_000.0, 0.02, 0.0, config)
+        assert result is None
+
+    def test_impact_aum_higher_turnover_means_lower_capacity(self):
+        """Higher turnover means we trade more, so capacity is lower."""
+        from libs.trading.backtest.cost_model import _compute_impact_aum
+
+        config = CostModelConfig(impact_coefficient=0.1)
+
+        low_turnover_aum = _compute_impact_aum(5.0, 10_000_000.0, 0.02, 0.05, config)
+        high_turnover_aum = _compute_impact_aum(5.0, 10_000_000.0, 0.02, 0.20, config)
+
+        assert low_turnover_aum is not None
+        assert high_turnover_aum is not None
+        assert low_turnover_aum > high_turnover_aum  # Lower turnover = higher capacity
+
+    def test_capacity_analysis_impact_consistent_with_participation(self):
+        """Verify impact and participation AUM use same scaling (trade/turnover)."""
+        from libs.trading.backtest.cost_model import (
+            _compute_impact_aum,
+            _compute_participation_aum,
+        )
+
+        config = CostModelConfig(
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+        )
+
+        portfolio_adv = 10_000_000.0
+        portfolio_sigma = 0.02
+        avg_turnover = 0.10
+
+        impact_aum = _compute_impact_aum(5.0, portfolio_adv, portfolio_sigma, avg_turnover, config)
+        participation_aum = _compute_participation_aum(
+            portfolio_adv, avg_turnover, config.participation_limit
+        )
+
+        # Both should return AUM values (not trade sizes)
+        # participation_aum = 0.05 * 10_000_000 / 0.10 = 5_000_000
+        assert impact_aum is not None
+        assert participation_aum is not None
+        assert participation_aum == 5_000_000.0
+
+        # Impact AUM at 5bps should be comparable in magnitude
+        # (both are AUM values, not trade sizes)
+        assert impact_aum > 1_000_000  # Should be millions, not hundreds of thousands
