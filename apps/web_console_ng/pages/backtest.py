@@ -1483,6 +1483,18 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
             if result.turnover_result:
                 metrics_dict["average_turnover"] = result.turnover_result.average_turnover
 
+            # Add cost data to metrics if available (T9.4)
+            cost_summary = getattr(result, "cost_summary", None)
+            cost_config = getattr(result, "cost_config", None)
+            capacity_analysis = getattr(result, "capacity_analysis", None)
+
+            if cost_summary:
+                metrics_dict["cost_summary"] = cost_summary
+            if cost_config:
+                metrics_dict["cost_config"] = cost_config
+            if capacity_analysis:
+                metrics_dict["capacity_analysis"] = capacity_analysis
+
             metrics_json = json.dumps(metrics_dict, indent=2, default=str)
 
             def download_metrics() -> None:
@@ -1491,7 +1503,81 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                     filename=f"metrics_{result.backtest_id}.json",
                 )
 
-            ui.button("Download Metrics JSON", on_click=download_metrics)
+            # Daily returns CSV export (T9.4)
+            def download_returns_csv() -> None:
+                """Export daily portfolio returns as CSV."""
+                if not hasattr(result, "daily_portfolio_returns") or result.daily_portfolio_returns is None:
+                    ui.notify("No daily returns data available", type="warning")
+                    return
+
+                df = result.daily_portfolio_returns
+                # Add cost columns if available
+                if cost_summary:
+                    # For now, export basic returns; cost breakdown requires full integration
+                    pass
+
+                csv_content = df.write_csv()
+                ui.download(
+                    csv_content.encode() if isinstance(csv_content, str) else csv_content,
+                    filename=f"returns_{result.backtest_id}.csv",
+                )
+
+            # Full summary JSON export (T9.4)
+            def download_full_summary() -> None:
+                """Export complete backtest summary including cost analysis."""
+                summary_dict = {
+                    "job_id": result.backtest_id,
+                    "backtest_period": {
+                        "start": str(result.start_date),
+                        "end": str(result.end_date),
+                    },
+                    "alpha_name": result.alpha_name,
+                    "weight_method": result.weight_method,
+                    "results": {
+                        "mean_ic": result.mean_ic,
+                        "icir": result.icir,
+                        "hit_rate": result.hit_rate,
+                        "coverage": result.coverage,
+                        "n_days": result.n_days,
+                        "n_symbols_avg": result.n_symbols_avg,
+                    },
+                    "dataset_version_ids": result.dataset_version_ids,
+                    "snapshot_id": result.snapshot_id,
+                }
+
+                if result.turnover_result:
+                    summary_dict["results"]["average_turnover"] = result.turnover_result.average_turnover
+
+                # Add cost analysis data if available (T9.4)
+                if cost_config:
+                    summary_dict["cost_model_config"] = cost_config
+                    summary_dict["portfolio_value_usd"] = cost_config.get("portfolio_value_usd", 1_000_000)
+
+                if cost_summary:
+                    summary_dict["results"]["gross_total_return"] = cost_summary.get("total_gross_return")
+                    summary_dict["results"]["net_total_return"] = cost_summary.get("total_net_return")
+                    summary_dict["results"]["total_cost_usd"] = cost_summary.get("total_cost_usd")
+                    summary_dict["results"]["net_sharpe"] = cost_summary.get("net_sharpe")
+                    summary_dict["results"]["net_max_drawdown"] = cost_summary.get("net_max_drawdown")
+
+                if capacity_analysis:
+                    summary_dict["capacity_analysis"] = {
+                        "implied_capacity": capacity_analysis.get("implied_max_capacity"),
+                        "binding_constraint": capacity_analysis.get("limiting_factor"),
+                        "avg_daily_turnover": capacity_analysis.get("avg_daily_turnover"),
+                        "avg_holding_period_days": capacity_analysis.get("avg_holding_period_days"),
+                    }
+
+                summary_json = json.dumps(summary_dict, indent=2, default=str)
+                ui.download(
+                    summary_json.encode(),
+                    filename=f"summary_{result.backtest_id}.json",
+                )
+
+            with ui.row().classes("gap-2"):
+                ui.button("Download Metrics JSON", on_click=download_metrics)
+                ui.button("Download Returns CSV", on_click=download_returns_csv)
+                ui.button("Download Full Summary", on_click=download_full_summary)
     else:
         ui.label("Export requires EXPORT_DATA permission (Operator or Admin role)").classes(
             "text-sm text-gray-500 mt-4"
