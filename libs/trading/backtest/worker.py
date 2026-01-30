@@ -524,13 +524,28 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             capacity_analysis: dict[str, Any] | None = None
             net_returns_df: Any | None = None  # For T9.4 Parquet export
             cost_params = job_config.extra_params.get("cost_model")
-            if cost_params is not None and isinstance(cost_params, dict):
+            if cost_params is not None:
+                # Validate cost_model is a dict (fail loudly on malformed input)
+                if not isinstance(cost_params, dict):
+                    raise ValueError(
+                        f"cost_model must be a dict, got {type(cost_params).__name__}. "
+                        "To disable cost model, omit the config entirely."
+                    )
+
                 # Validate size BEFORE parsing (security: prevent resource exhaustion)
                 _validate_config_size(cost_params)
 
+                # Validate enabled field is boolean (prevent string "false" being truthy)
+                enabled_value = cost_params.get("enabled")
+                if enabled_value is not None and not isinstance(enabled_value, bool):
+                    raise ValueError(
+                        f"cost_model.enabled must be a boolean, got {type(enabled_value).__name__} "
+                        f"with value {enabled_value!r}. Use true/false (JSON boolean), not strings."
+                    )
+
                 # Short-circuit on enabled=False BEFORE parsing (fail-safe design)
                 # This prevents validation errors from invalid fields when user wants to disable
-                if cost_params.get("enabled") is False:
+                if enabled_value is False:
                     worker.logger.warning(
                         "cost_model_disabled_in_config",
                         job_id=job_id,

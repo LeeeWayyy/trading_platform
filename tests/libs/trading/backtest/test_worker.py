@@ -1295,3 +1295,228 @@ class TestValidateCostConfig:
         call_args = logger.warning.call_args
         assert "cost_model_disabled_in_config" in call_args.args[0]
         assert call_args.kwargs["job_id"] == "job123"
+
+
+# =============================================================================
+# Cost Model Type Validation Tests (P6T9)
+# =============================================================================
+
+
+class TestCostModelTypeValidation:
+    """Tests for cost_model type and enabled field validation in run_backtest."""
+
+    @pytest.mark.unit()
+    def test_non_dict_cost_model_raises_error(self, monkeypatch):
+        """Test that non-dict cost_model raises ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        # Mock PITBacktester to return a valid result
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+
+        # Non-dict cost_model should raise ValueError
+        with pytest.raises(ValueError, match="cost_model must be a dict"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "extra_params": {
+                        "cost_model": "not_a_dict",  # Invalid: string instead of dict
+                    },
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_non_boolean_enabled_raises_error(self, monkeypatch):
+        """Test that non-boolean enabled field raises ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+
+        # String "false" for enabled should raise ValueError (would be truthy otherwise)
+        with pytest.raises(ValueError, match="enabled must be a boolean"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "extra_params": {
+                        "cost_model": {
+                            "enabled": "false",  # Invalid: string instead of boolean
+                        },
+                    },
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_list_cost_model_raises_error(self, monkeypatch):
+        """Test that list cost_model raises ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+
+        # List cost_model should raise ValueError
+        with pytest.raises(ValueError, match="cost_model must be a dict"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "extra_params": {
+                        "cost_model": [{"enabled": True}],  # Invalid: list instead of dict
+                    },
+                },
+                created_by="test_user",
+            )
