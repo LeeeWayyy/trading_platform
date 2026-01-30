@@ -82,6 +82,10 @@ class BacktestJob:
     snapshot_id: str | None = None
     dataset_version_ids: dict[str, str] | None = None
 
+    # Cost model fields (P6T9)
+    cost_config: dict[str, Any] | None = None
+    cost_summary: dict[str, Any] | None = None
+
     # Error handling
     error_message: str | None = None
     retry_count: int = 0
@@ -166,6 +170,8 @@ def row_to_backtest_job(row: dict[str, Any]) -> BacktestJob:
         decay_half_life=safe_float(row.get("decay_half_life")),
         snapshot_id=row.get("snapshot_id"),
         dataset_version_ids=dataset_version_ids,
+        cost_config=row.get("cost_config"),
+        cost_summary=row.get("cost_summary"),
         error_message=row.get("error_message"),
         retry_count=int(row.get("retry_count") or 0),
     )

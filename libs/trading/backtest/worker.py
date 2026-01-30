@@ -30,6 +30,10 @@ from libs.trading.alpha.exceptions import JobCancelled
 from libs.trading.alpha.metrics import AlphaMetricsAdapter
 from libs.trading.alpha.research_platform import BacktestResult, PITBacktester
 from libs.trading.alpha.simple_backtester import SimpleBacktester
+from libs.trading.backtest.cost_model import (
+    CostModelConfig,
+    CostSummary,
+)
 from libs.trading.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
 
 
@@ -465,11 +469,21 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 # This should never happen due to enum validation in from_dict
                 raise ValueError(f"Unknown provider: {job_config.provider}")
 
+            # Extract cost model configuration from extra_params (if provided)
+            cost_config: CostModelConfig | None = None
+            cost_summary: CostSummary | None = None
+            cost_params = job_config.extra_params.get("cost_model")
+            if cost_params is not None and isinstance(cost_params, dict):
+                cost_config = CostModelConfig.from_dict(cost_params)
+                # TODO(P6T9): Compute cost_summary when ADV/volatility loading is implemented
+                # For now, cost_config is stored but costs are not computed
+                # Future: cost_summary = _compute_backtest_costs(result, cost_config)
+
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
-            result_path = _save_parquet_artifacts(job_id, result)
+            result_path = _save_parquet_artifacts(job_id, result, cost_config, cost_summary)
 
             worker.update_progress(job_id, 95, "saving_db", job_timeout=job_timeout)
-            _save_result_to_db(conn, job_id, result, result_path)
+            _save_result_to_db(conn, job_id, result, result_path, cost_config, cost_summary)
 
             worker.update_progress(job_id, 100, "completed", job_timeout=job_timeout)
             worker.update_db_status(job_id, "completed", completed_at=datetime.now(UTC))
@@ -536,9 +550,20 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             raise
 
 
-def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
+def _save_parquet_artifacts(
+    job_id: str,
+    result: BacktestResult,
+    cost_config: CostModelConfig | None = None,
+    cost_summary: CostSummary | None = None,
+) -> Path:
     """
     Save bulk time-series data to Parquet files.
+
+    Args:
+        job_id: Job identifier
+        result: BacktestResult with data
+        cost_config: Optional cost model configuration
+        cost_summary: Optional cost summary
     """
     import polars as pl
 
@@ -615,25 +640,60 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
             compression="snappy",
         )
 
-    _write_summary_json(result_dir, result)
+    _write_summary_json(result_dir, result, cost_config, cost_summary)
 
     return result_dir
 
 
-def _write_summary_json(result_dir: Path, result: BacktestResult) -> None:
-    """Persist summary metrics and reproducibility metadata alongside Parquet artifacts."""
-    summary = {
+def _write_summary_json(
+    result_dir: Path,
+    result: BacktestResult,
+    cost_config: CostModelConfig | None = None,
+    cost_summary: CostSummary | None = None,
+) -> None:
+    """Persist summary metrics and reproducibility metadata alongside Parquet artifacts.
+
+    Args:
+        result_dir: Directory to write summary.json
+        result: BacktestResult with metrics
+        cost_config: Optional cost model configuration
+        cost_summary: Optional cost summary (computed if cost_config.enabled)
+    """
+    summary: dict[str, Any] = {
         "mean_ic": result.mean_ic,
         "icir": result.icir,
         "hit_rate": result.hit_rate,
         "snapshot_id": result.snapshot_id,
         "dataset_version_ids": result.dataset_version_ids,
     }
+
+    # Include cost model data if provided
+    if cost_config is not None:
+        summary["cost_config"] = cost_config.to_dict()
+    if cost_summary is not None:
+        summary["cost_summary"] = cost_summary.to_dict()
+
     (result_dir / "summary.json").write_text(json.dumps(summary, default=str, indent=2))
 
 
-def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_path: Path) -> None:
-    """Save summary metrics to Postgres (psycopg)."""
+def _save_result_to_db(
+    conn: Any,
+    job_id: str,
+    result: BacktestResult,
+    result_path: Path,
+    cost_config: CostModelConfig | None = None,
+    cost_summary: CostSummary | None = None,
+) -> None:
+    """Save summary metrics to Postgres (psycopg).
+
+    Args:
+        conn: Database connection
+        job_id: Job identifier
+        result: BacktestResult with metrics
+        result_path: Path to result directory
+        cost_config: Optional cost model configuration
+        cost_summary: Optional cost summary (computed if cost_config.enabled)
+    """
     if result.snapshot_id is None or result.dataset_version_ids is None:
         raise ValueError(
             "BacktestResult must include snapshot_id and dataset_version_ids for reproducibility"
@@ -643,6 +703,14 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
         dataset_version_payload: Any = result.dataset_version_ids
         if isinstance(dataset_version_payload, dict):
             dataset_version_payload = Json(dataset_version_payload)
+
+        # Serialize cost data if provided
+        cost_config_payload: Any = None
+        cost_summary_payload: Any = None
+        if cost_config is not None:
+            cost_config_payload = Json(cost_config.to_dict())
+        if cost_summary is not None:
+            cost_summary_payload = Json(cost_summary.to_dict())
 
         cur.execute(
             """
@@ -658,6 +726,8 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 decay_half_life=%s,
                 snapshot_id=%s,
                 dataset_version_ids=%s,
+                cost_config=%s,
+                cost_summary=%s,
                 completed_at=%s
             WHERE job_id=%s
             """,
@@ -672,6 +742,8 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 result.decay_half_life,
                 result.snapshot_id,
                 dataset_version_payload,
+                cost_config_payload,
+                cost_summary_payload,
                 datetime.now(UTC),
                 job_id,
             ),
