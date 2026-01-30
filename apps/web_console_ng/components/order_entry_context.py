@@ -43,7 +43,9 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis as AsyncRedis
 
     from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
+    from apps.web_console_ng.components.flatten_controls import FlattenControls
     from apps.web_console_ng.components.market_context import MarketContextComponent
+    from apps.web_console_ng.components.one_click_handler import OneClickHandler
     from apps.web_console_ng.components.order_ticket import OrderTicketComponent
     from apps.web_console_ng.components.price_chart import PriceChartComponent
     from apps.web_console_ng.components.watchlist import WatchlistComponent
@@ -153,6 +155,18 @@ class OrderEntryContext:
         self._price_chart: PriceChartComponent | None = None
         self._dom_ladder: DOMLadderComponent | None = None
 
+        # T7 Order Actions components
+        self._flatten_controls: FlattenControls | None = None
+        self._one_click_handler: OneClickHandler | None = None
+
+        # Cached safety state for T7 components (instant UI response)
+        self._cached_kill_switch: bool | None = None
+        self._cached_circuit_breaker: bool | None = None
+        self._cached_connection_state: str | None = None
+
+        # Cached prices for one-click trading (symbol -> (price, timestamp))
+        self._cached_prices: dict[str, tuple[Decimal, datetime]] = {}
+
         # Current selected symbol (shared state)
         self._selected_symbol: str | None = None
 
@@ -188,6 +202,42 @@ class OrderEntryContext:
     def set_price_chart(self, component: PriceChartComponent) -> None:
         """Set the PriceChart component reference."""
         self._price_chart = component
+
+    def set_flatten_controls(self, component: FlattenControls) -> None:
+        """Set the FlattenControls component reference."""
+        self._flatten_controls = component
+
+    def set_one_click_handler(self, handler: OneClickHandler) -> None:
+        """Set the OneClickHandler reference and sync cached state."""
+        self._one_click_handler = handler
+        # Sync initial cached state
+        self._sync_one_click_cached_state()
+
+    def _sync_one_click_cached_state(self) -> None:
+        """Sync cached safety state to OneClickHandler."""
+        if self._one_click_handler:
+            self._one_click_handler.set_cached_safety_state(
+                kill_switch=self._cached_kill_switch,
+                connection_state=self._cached_connection_state,
+                circuit_breaker=self._cached_circuit_breaker,
+            )
+            self._one_click_handler.set_cached_prices(self._cached_prices)
+
+    # =========================================================================
+    # Cached State Getters (for T7 components)
+    # =========================================================================
+
+    def get_cached_kill_switch(self) -> bool | None:
+        """Get cached kill switch state for T7 components."""
+        return self._cached_kill_switch
+
+    def get_cached_circuit_breaker(self) -> bool | None:
+        """Get cached circuit breaker state for T7 components."""
+        return self._cached_circuit_breaker
+
+    def get_cached_connection_state(self) -> str | None:
+        """Get cached connection state for T7 components."""
+        return self._cached_connection_state
 
     # =========================================================================
     # Component Factory Methods
@@ -425,6 +475,9 @@ class OrderEntryContext:
                     logger.warning(f"Invalid circuit breaker JSON: {exc}")
                     cb_reason = "Initial state: Invalid data"
 
+            # Update cached state for T7 components
+            self._cached_circuit_breaker = cb_tripped
+
             if self._order_ticket:
                 self._order_ticket.set_circuit_breaker_state(cb_tripped, cb_reason)
 
@@ -472,19 +525,33 @@ class OrderEntryContext:
                     logger.warning(f"Invalid kill switch JSON: {exc}")
                     ks_reason = "Initial state: Invalid data"
 
+            # Update cached state for T7 components
+            self._cached_kill_switch = ks_engaged
+
             if self._order_ticket:
                 self._order_ticket.set_kill_switch_state(ks_engaged, ks_reason)
 
+            # Sync to T7 components after both states are set
+            self._sync_one_click_cached_state()
+
         except TimeoutError:
             logger.warning("Timeout fetching initial safety state from Redis")
+            # Fail-closed: treat as engaged/tripped
+            self._cached_circuit_breaker = True
+            self._cached_kill_switch = True
             if self._order_ticket:
                 self._order_ticket.set_circuit_breaker_state(True, "Safety state fetch timed out")
                 self._order_ticket.set_kill_switch_state(True, "Safety state fetch timed out")
+            self._sync_one_click_cached_state()
         except Exception as exc:
             logger.warning(f"Failed to fetch initial safety state: {exc}")
+            # Fail-closed: treat as engaged/tripped
+            self._cached_circuit_breaker = True
+            self._cached_kill_switch = True
             if self._order_ticket:
                 self._order_ticket.set_circuit_breaker_state(True, "Unable to verify safety state")
                 self._order_ticket.set_kill_switch_state(True, "Unable to verify safety state")
+            self._sync_one_click_cached_state()
 
     async def _load_initial_risk_limits(self) -> None:
         """Load initial risk limits for order validation.
@@ -708,8 +775,14 @@ class OrderEntryContext:
             engaged = False
             reason = None
 
+        # Update cached state for T7 components
+        self._cached_kill_switch = engaged
+
         if self._order_ticket:
             self._order_ticket.set_kill_switch_state(engaged, reason)
+
+        # Sync to T7 components
+        self._sync_one_click_cached_state()
 
     async def _subscribe_to_circuit_breaker_channel(self) -> None:
         """Subscribe to circuit breaker state - OrderEntryContext owns this."""
@@ -762,8 +835,14 @@ class OrderEntryContext:
             tripped = False
             reason = None
 
+        # Update cached state for T7 components
+        self._cached_circuit_breaker = tripped
+
         if self._order_ticket:
             self._order_ticket.set_circuit_breaker_state(tripped, reason)
+
+        # Sync to T7 components
+        self._sync_one_click_cached_state()
 
     async def _subscribe_to_connection_channel(self) -> None:
         """Subscribe to connection state - OrderEntryContext owns this."""
@@ -821,8 +900,14 @@ class OrderEntryContext:
             await self._resubscribe_all_channels()
             await self._retry_failed_subscriptions()
 
+        # Update cached state for T7 components
+        self._cached_connection_state = state
+
         if self._order_ticket:
             self._order_ticket.set_connection_state(state, is_read_only)
+
+        # Sync to T7 components
+        self._sync_one_click_cached_state()
 
     async def _subscribe_to_positions_channel(self) -> None:
         """Subscribe to position updates - OrderEntryContext owns this."""
@@ -968,6 +1053,11 @@ class OrderEntryContext:
 
             effective_timestamp = timestamp if price is not None else None
             self._order_ticket.set_price_data(symbol, price, effective_timestamp)
+
+            # Cache price for one-click trading (T7)
+            if price is not None and effective_timestamp is not None:
+                self._cached_prices[symbol] = (price, effective_timestamp)
+                self._sync_one_click_cached_state()
 
         # Dispatch to MarketContext for display (ONLY if selected symbol)
         if self._market_context and symbol == self._selected_symbol:

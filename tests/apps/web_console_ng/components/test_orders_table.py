@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import types
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -531,7 +531,13 @@ async def test_on_cancel_order_succeeds_with_valid_client_order_id(
     )
 
     mock_client.cancel_order.assert_awaited_once_with(
-        "valid-client-order-id", "user-1", role="admin"
+        "valid-client-order-id",
+        "user-1",
+        role="admin",
+        strategies=None,
+        reason="Manual cancel from orders table",
+        requested_by="user-1",
+        requested_at=ANY,  # Dynamic timestamp
     )
     assert any("Cancel requested" in message for message, _ in dummy_ui)
 
