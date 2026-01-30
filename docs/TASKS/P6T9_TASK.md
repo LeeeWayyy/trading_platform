@@ -2553,11 +2553,11 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] AUM/portfolio_value_usd configurable in job config (CostModelConfig.portfolio_value_usd)
 - [x] Trade size calculation from weight changes documented and implemented (compute_daily_costs)
 - [x] PIT-compliant ADV/volatility loading with 20-day windows (load_pit_adv_volatility)
-- [ ] dataset_version_ids extended for cost data source
+- [x] dataset_version_ids extended for cost data source (cost_data_source, cost_data_version)
 - [x] Deterministic fallback for missing ADV/volatility with logging (apply_adv_fallback, apply_volatility_fallback)
 - [x] Cost config included in job_id hash (via extra_params which is in compute_job_id)
 - [x] summary.json extended with cost fields (canonical source)
-- [ ] BacktestResult reconstruction includes cost data
+- [x] BacktestResult reconstruction includes cost data (cost_config, cost_summary, capacity_analysis)
 - [ ] Server-side validation with size limits
 - [x] Unit tests for cost model core (71 tests in test_cost_model.py with 93% coverage)
 
@@ -2566,7 +2566,7 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] Portfolio value input with validation
 - [x] Cost summary display in results view
 - [x] Capacity analysis display with constraint details
-- [ ] Warning indicators for fallbacks and violations (requires backend integration)
+- [x] Warning indicators for fallbacks and violations (in Cost Breakdown section)
 
 **T9.3 (Capacity Analysis):**
 - [x] Capacity defined with explicit constraints and formulas (compute_capacity_analysis)
