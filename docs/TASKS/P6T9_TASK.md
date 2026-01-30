@@ -2580,7 +2580,7 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] JSON summary export with metadata (download_full_summary in backtest.py)
 - [x] Export buttons in UI with download handlers (four-button row with conditional Parquet)
 
-- [ ] Code reviewed and approved
+- [x] Code reviewed and approved (Claude, Codex, Gemini - shared-context iteration)
 
 ---
 
