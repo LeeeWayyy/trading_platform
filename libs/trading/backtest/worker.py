@@ -290,30 +290,47 @@ def record_retry(job: Any, *exc_info: Any) -> bool:
 MAX_COST_CONFIG_SIZE = 4096  # 4KB max for cost_model_config JSON (UTF-8 bytes)
 
 
-def _validate_cost_config(config: CostModelConfig, raw_params: dict[str, Any]) -> None:
-    """Validate cost model configuration on server side.
+def _validate_config_size(raw_params: dict[str, Any]) -> None:
+    """Validate that JSON-serialized config doesn't exceed size limit.
+
+    Called BEFORE parsing to prevent resource exhaustion from untrusted data.
 
     Args:
-        config: Parsed CostModelConfig object
-        raw_params: Raw dict from extra_params (for size check)
+        raw_params: Raw dict from extra_params
 
     Raises:
-        ValueError: If validation fails
+        ValueError: If config exceeds size limit
     """
-    # Rule: enabled must be True when config is present
-    if not config.enabled:
-        raise ValueError(
-            "cost_model_config.enabled must be True when config is present. "
-            "To disable cost model, omit the config entirely."
-        )
-
-    # Validate config size doesn't exceed limit
     config_json = json.dumps(raw_params, sort_keys=True)
     config_size = len(config_json.encode("utf-8"))
     if config_size > MAX_COST_CONFIG_SIZE:
         raise ValueError(
             f"cost_model_config exceeds size limit: {config_size} bytes > {MAX_COST_CONFIG_SIZE} bytes"
         )
+
+
+def _validate_cost_config(config: CostModelConfig, logger: Any, job_id: str) -> bool:
+    """Validate cost model configuration on server side.
+
+    Args:
+        config: Parsed CostModelConfig object
+        logger: Structured logger for warnings
+        job_id: Job ID for logging context
+
+    Returns:
+        True if cost model should be applied, False if it should be skipped
+    """
+    # If enabled=False, warn and skip (fail-safe design)
+    if not config.enabled:
+        logger.warning(
+            "cost_model_disabled_in_config",
+            job_id=job_id,
+            message="cost_model_config.enabled=False; ignoring config. "
+            "To disable cost model, omit the config entirely.",
+        )
+        return False
+
+    return True
 
 
 def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
@@ -508,13 +525,16 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             net_returns_df: Any | None = None  # For T9.4 Parquet export
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None and isinstance(cost_params, dict):
+                # Validate size BEFORE parsing (security: prevent resource exhaustion)
+                _validate_config_size(cost_params)
+
                 cost_config = CostModelConfig.from_dict(cost_params)
 
-                # Server-side validation (P6T9)
-                _validate_cost_config(cost_config, cost_params)
+                # Validate config and check if cost model should be applied
+                should_apply_costs = _validate_cost_config(cost_config, worker.logger, job_id)
 
-                # Compute costs if cost model is enabled
-                if cost_config.enabled and job_config.provider == DataProvider.CRSP:
+                # Compute costs if cost model is enabled and validation passed
+                if should_apply_costs and job_config.provider == DataProvider.CRSP:
                     # Load PIT-compliant ADV/volatility from CRSP
                     permnos = result.daily_weights.select("permno").unique().to_series().to_list()
                     adv_volatility = load_pit_adv_volatility(
@@ -553,7 +573,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         result.dataset_version_ids["cost_data_source"] = "crsp"
                         result.dataset_version_ids["cost_data_version"] = crsp_version
 
-                elif cost_config.enabled and job_config.provider == DataProvider.YFINANCE:
+                elif should_apply_costs and job_config.provider == DataProvider.YFINANCE:
                     # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
                     worker.logger.info(
                         "cost_model_skipped_yfinance",

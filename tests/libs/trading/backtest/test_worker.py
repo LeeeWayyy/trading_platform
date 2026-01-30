@@ -38,6 +38,7 @@ from libs.trading.backtest.cost_model import CostModelConfig
 from libs.trading.backtest.worker import (
     MAX_COST_CONFIG_SIZE,
     BacktestWorker,
+    _validate_config_size,
     _validate_cost_config,
     record_retry,
 )
@@ -1185,40 +1186,27 @@ class TestProviderRouting:
 # =============================================================================
 
 
-class TestValidateCostConfig:
-    """Tests for _validate_cost_config server-side validation."""
+class TestValidateConfigSize:
+    """Tests for _validate_config_size server-side size validation."""
 
     @pytest.mark.unit()
-    def test_valid_config_passes(self):
-        """Test that valid cost config passes validation."""
-        config = CostModelConfig(enabled=True, bps_per_trade=5.0)
+    def test_valid_size_passes(self):
+        """Test that config within size limit passes."""
         raw_params = {"enabled": True, "bps_per_trade": 5.0}
         # Should not raise
-        _validate_cost_config(config, raw_params)
-
-    @pytest.mark.unit()
-    def test_disabled_config_raises_error(self):
-        """Test that enabled=False raises ValueError."""
-        config = CostModelConfig(enabled=False)
-        raw_params = {"enabled": False}
-        with pytest.raises(ValueError, match="enabled must be True when config is present"):
-            _validate_cost_config(config, raw_params)
+        _validate_config_size(raw_params)
 
     @pytest.mark.unit()
     def test_oversized_config_raises_error(self):
         """Test that config exceeding size limit raises ValueError."""
-        config = CostModelConfig(enabled=True)
-        # Create a raw_params dict with a large string to exceed 4KB
         large_value = "x" * (MAX_COST_CONFIG_SIZE + 1)
         raw_params = {"enabled": True, "large_field": large_value}
         with pytest.raises(ValueError, match="exceeds size limit"):
-            _validate_cost_config(config, raw_params)
+            _validate_config_size(raw_params)
 
     @pytest.mark.unit()
     def test_config_at_size_limit_passes(self):
         """Test that config at exactly the size limit passes."""
-        config = CostModelConfig(enabled=True)
-        # Create a config that is just under the limit
         # Account for JSON overhead: {"enabled": true, "padding": "xxx..."}
         base_json = '{"enabled": true, "padding": ""}'
         base_size = len(base_json.encode("utf-8"))
@@ -1230,13 +1218,11 @@ class TestValidateCostConfig:
         assert len(config_json.encode("utf-8")) == MAX_COST_CONFIG_SIZE
 
         # Should not raise
-        _validate_cost_config(config, raw_params)
+        _validate_config_size(raw_params)
 
     @pytest.mark.unit()
     def test_config_just_under_limit_passes(self):
         """Test that config just under size limit passes."""
-        config = CostModelConfig(enabled=True)
-        # Create a config that is 100 bytes under the limit
         base_json = '{"enabled": true, "padding": ""}'
         base_size = len(base_json.encode("utf-8"))
         padding_size = MAX_COST_CONFIG_SIZE - base_size - 100
@@ -1247,13 +1233,11 @@ class TestValidateCostConfig:
         assert len(config_json.encode("utf-8")) < MAX_COST_CONFIG_SIZE
 
         # Should not raise
-        _validate_cost_config(config, raw_params)
+        _validate_config_size(raw_params)
 
     @pytest.mark.unit()
     def test_config_one_byte_over_limit_raises(self):
         """Test that config one byte over the limit raises."""
-        config = CostModelConfig(enabled=True)
-        # Create a config that is exactly 1 byte over the limit
         base_json = '{"enabled": true, "padding": ""}'
         base_size = len(base_json.encode("utf-8"))
         padding_size = MAX_COST_CONFIG_SIZE - base_size + 1
@@ -1264,4 +1248,50 @@ class TestValidateCostConfig:
         assert len(config_json.encode("utf-8")) == MAX_COST_CONFIG_SIZE + 1
 
         with pytest.raises(ValueError, match="exceeds size limit"):
-            _validate_cost_config(config, raw_params)
+            _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_unicode_characters_sized_correctly(self):
+        """Test that Unicode characters are correctly sized (multi-byte UTF-8)."""
+        # € is 3 bytes in UTF-8
+        unicode_str = "€" * (MAX_COST_CONFIG_SIZE // 3)
+        raw_params = {"enabled": True, "unicode_field": unicode_str}
+
+        # Should raise because UTF-8 encoding exceeds limit
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_json_escaping_accounted(self):
+        """Test that JSON escaping is accounted for in size calculation."""
+        # Newlines double in size when JSON-encoded ("\n" → "\\n")
+        raw_params = {"enabled": True, "field": "\n" * (MAX_COST_CONFIG_SIZE // 2)}
+
+        # Should raise because JSON escaping exceeds limit
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_config_size(raw_params)
+
+
+class TestValidateCostConfig:
+    """Tests for _validate_cost_config enabled flag validation."""
+
+    @pytest.mark.unit()
+    def test_enabled_config_returns_true(self):
+        """Test that enabled=True config returns True (apply costs)."""
+        config = CostModelConfig(enabled=True, bps_per_trade=5.0)
+        logger = MagicMock()
+        result = _validate_cost_config(config, logger, "job123")
+        assert result is True
+        logger.warning.assert_not_called()
+
+    @pytest.mark.unit()
+    def test_disabled_config_returns_false_and_warns(self):
+        """Test that enabled=False returns False and logs warning."""
+        config = CostModelConfig(enabled=False)
+        logger = MagicMock()
+        result = _validate_cost_config(config, logger, "job123")
+        assert result is False
+        logger.warning.assert_called_once()
+        call_args = logger.warning.call_args
+        assert "cost_model_disabled_in_config" in call_args.args[0]
+        assert call_args.kwargs["job_id"] == "job123"
