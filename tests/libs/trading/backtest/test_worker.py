@@ -1823,3 +1823,140 @@ class TestCostModelWorkflowIntegration:
         assert len(load_pit_adv_called) == 0, (
             "load_pit_adv_volatility should NOT be called for empty weights"
         )
+
+
+# =============================================================================
+# Additional Coverage Tests for Worker Edge Cases (P6T9)
+# =============================================================================
+
+
+class TestWorkerEdgeCases:
+    """Tests for edge cases to improve code coverage."""
+
+    @pytest.mark.unit()
+    def test_update_db_status_invalid_columns_raises_error(self):
+        """Test that invalid column names raise ValueError."""
+        redis = MagicMock()
+        redis.exists.return_value = 0
+        pool = MagicMock()
+        worker = BacktestWorker(redis, pool)
+
+        with pytest.raises(ValueError, match="Invalid column names"):
+            worker.update_db_status("job123", "running", invalid_column="value")
+
+    @pytest.mark.unit()
+    def test_update_db_status_nonexistent_job_returns_early(self):
+        """Test that update on non-existent job returns without error."""
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        cursor.__enter__ = MagicMock(return_value=cursor)
+        cursor.__exit__ = MagicMock(return_value=False)
+
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+
+        pool = MagicMock()
+        pool.connection.return_value = conn
+
+        redis = MagicMock()
+        redis.exists.return_value = 0
+
+        worker = BacktestWorker(redis, pool)
+        # Should not raise; just return early
+        worker.update_db_status("nonexistent_job", "running")
+        # Verify we only did the SELECT, not the UPDATE
+        assert cursor.execute.call_count == 1
+
+    @pytest.mark.unit()
+    def test_cost_model_with_yfinance_provider_skipped(self, monkeypatch, tmp_path):
+        """Test that cost model is skipped for Yahoo Finance provider."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "test")  # Required for Yahoo Finance
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                cursor = MagicMock()
+                cursor.__enter__.return_value = cursor
+                cursor.__exit__.return_value = False
+                conn.cursor.return_value = cursor
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        # Track if cost computation was called
+        compute_costs_called = []
+
+        def mock_compute_costs(*args, **kwargs):
+            compute_costs_called.append(True)
+            return MagicMock()
+
+        monkeypatch.setattr(worker_module, "compute_backtest_costs", mock_compute_costs)
+
+        # Mock SimpleBacktester for Yahoo Finance
+        class MockSimpleBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                import polars as pl
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=pl.DataFrame({"date": [], "symbol": [], "signal": []}),
+                    daily_weights=pl.DataFrame({"date": [], "symbol": [], "weight": []}),
+                    daily_ic=pl.DataFrame({"date": [], "ic": []}),
+                    daily_portfolio_returns=pl.DataFrame({"date": [], "return": []}),
+                    turnover_result=types.SimpleNamespace(average_turnover=0.1),
+                )
+
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+
+        # Run backtest with Yahoo provider and cost model enabled
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "yfinance",  # Yahoo Finance
+                "extra_params": {
+                    "cost_model": {"enabled": True},
+                },
+            },
+            created_by="test_user",
+        )
+
+        # Verify compute_backtest_costs was NOT called (skipped for Yahoo)
+        assert len(compute_costs_called) == 0, (
+            "compute_backtest_costs should NOT be called for Yahoo Finance provider"
+        )

@@ -403,36 +403,43 @@ def compute_trade_cost(
     )
 
 
-def compute_daily_costs(
+def _compute_daily_costs_generic(
     daily_weights: pl.DataFrame,
-    adv_data: pl.DataFrame,
-    volatility_data: pl.DataFrame,
+    adv_volatility: pl.DataFrame,
     config: CostModelConfig,
-) -> tuple[pl.DataFrame, list[TradeCost]]:
-    """Compute daily transaction costs from weight changes.
+    identifier_col: str = "symbol",
+    use_fallbacks: bool = False,
+) -> tuple[pl.DataFrame, list[TradeCost], int, int, int]:
+    """Generic function to compute daily transaction costs from weight changes.
+
+    This function supports both symbol-keyed (Yahoo Finance) and permno-keyed (CRSP)
+    data by using the identifier_col parameter.
 
     Args:
-        daily_weights: DataFrame with columns [date, symbol, weight]
-        adv_data: DataFrame with columns [date, symbol, adv_usd]
-        volatility_data: DataFrame with columns [date, symbol, volatility]
+        daily_weights: DataFrame with columns [date, <identifier_col>, weight]
+        adv_volatility: DataFrame with columns [date, <identifier_col>, adv_usd, volatility]
         config: Cost model configuration
+        identifier_col: Column name for security identifier ("symbol" or "permno")
+        use_fallbacks: Whether to apply ADV/volatility fallbacks and count violations
 
     Returns:
         Tuple of:
         - DataFrame with columns [date, cost_drag] (daily cost as fraction of AUM)
         - List of TradeCost objects for each trade
+        - ADV fallback count (0 if use_fallbacks=False)
+        - Volatility fallback count (0 if use_fallbacks=False)
+        - Participation violation count (0 if use_fallbacks=False)
     """
     if not config.enabled:
-        # Return zero costs if model disabled
         dates = daily_weights.select("date").unique().sort("date")
-        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), []
+        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
 
-    # Sort by date and symbol for consistent processing
-    daily_weights = daily_weights.sort(["symbol", "date"])
+    # Sort by identifier and date for consistent processing
+    daily_weights = daily_weights.sort([identifier_col, "date"])
 
     # Compute weight changes (turnover)
     weight_changes = daily_weights.with_columns(
-        (pl.col("weight") - pl.col("weight").shift(1).over("symbol")).alias("weight_change")
+        (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col)).alias("weight_change")
     )
 
     # First day weight change is the full weight (starting from cash)
@@ -451,23 +458,44 @@ def compute_daily_costs(
     # Filter to only trades (non-zero weight changes)
     trades = weight_changes.filter(pl.col("trade_value_usd") > 0.01)  # Min $0.01
 
-    # Join with ADV and volatility data (PIT: use D-1 data for D trades)
-    # ADV/volatility should already be lagged in the input data
-    trades = trades.join(adv_data, on=["date", "symbol"], how="left")
-    trades = trades.join(volatility_data, on=["date", "symbol"], how="left")
+    # Join with ADV and volatility data
+    trades = trades.join(adv_volatility, on=["date", identifier_col], how="left")
 
     # Compute costs for each trade
     trade_costs: list[TradeCost] = []
     daily_costs: dict[date, float] = {}
+    adv_fallback_count = 0
+    vol_fallback_count = 0
+    participation_violations = 0
 
     for row in trades.iter_rows(named=True):
         trade_date = row["date"]
+        identifier = row[identifier_col]
+        trade_value = row["trade_value_usd"]
+
+        # Get ADV and volatility, applying fallbacks if enabled
+        adv_usd = row.get("adv_usd")
+        volatility = row.get("volatility")
+
+        if use_fallbacks:
+            adv_usd, used_adv_fallback = apply_adv_fallback(adv_usd, identifier)
+            volatility, used_vol_fallback = apply_volatility_fallback(volatility, identifier)
+            if used_adv_fallback:
+                adv_fallback_count += 1
+            if used_vol_fallback:
+                vol_fallback_count += 1
+
+            # Check participation violation
+            participation_pct = trade_value / adv_usd if adv_usd > 0 else 0.0
+            if participation_pct > config.participation_limit:
+                participation_violations += 1
+
         cost = compute_trade_cost(
-            symbol=row["symbol"],
+            symbol=str(identifier),
             trade_date=trade_date,
-            trade_value_usd=row["trade_value_usd"],
-            adv_usd=row.get("adv_usd"),
-            volatility=row.get("volatility"),
+            trade_value_usd=trade_value,
+            adv_usd=adv_usd,
+            volatility=volatility,
             config=config,
         )
         trade_costs.append(cost)
@@ -484,18 +512,53 @@ def compute_daily_costs(
     ]
 
     if not cost_drag_data:
-        # No trades, return zero costs for all dates
         dates = daily_weights.select("date").unique().sort("date")
-        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), []
+        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
 
     cost_drag_df = pl.DataFrame(cost_drag_data).sort("date")
 
-    # Ensure all dates from daily_weights are included (with 0 cost for non-trade days)
+    # Ensure all dates from daily_weights are included
     all_dates = daily_weights.select("date").unique().sort("date")
     cost_drag_df = all_dates.join(cost_drag_df, on="date", how="left").with_columns(
         pl.col("cost_drag").fill_null(0.0)
     )
 
+    return cost_drag_df, trade_costs, adv_fallback_count, vol_fallback_count, participation_violations
+
+
+def compute_daily_costs(
+    daily_weights: pl.DataFrame,
+    adv_data: pl.DataFrame,
+    volatility_data: pl.DataFrame,
+    config: CostModelConfig,
+) -> tuple[pl.DataFrame, list[TradeCost]]:
+    """Compute daily transaction costs from weight changes (symbol-keyed).
+
+    This is a convenience wrapper around _compute_daily_costs_generic for
+    symbol-keyed data (e.g., Yahoo Finance). For CRSP data, use
+    compute_daily_costs_permno which includes fallback counting.
+
+    Args:
+        daily_weights: DataFrame with columns [date, symbol, weight]
+        adv_data: DataFrame with columns [date, symbol, adv_usd]
+        volatility_data: DataFrame with columns [date, symbol, volatility]
+        config: Cost model configuration
+
+    Returns:
+        Tuple of:
+        - DataFrame with columns [date, cost_drag] (daily cost as fraction of AUM)
+        - List of TradeCost objects for each trade
+    """
+    # Combine ADV and volatility data for the generic function
+    adv_volatility = adv_data.join(volatility_data, on=["date", "symbol"], how="outer")
+
+    cost_drag_df, trade_costs, _, _, _ = _compute_daily_costs_generic(
+        daily_weights=daily_weights,
+        adv_volatility=adv_volatility,
+        config=config,
+        identifier_col="symbol",
+        use_fallbacks=False,
+    )
     return cost_drag_df, trade_costs
 
 
@@ -1039,6 +1102,10 @@ def compute_daily_costs_permno(
 ) -> tuple[pl.DataFrame, list[TradeCost], int, int, int]:
     """Compute daily transaction costs from weight changes (permno-keyed).
 
+    This is a convenience wrapper around _compute_daily_costs_generic for
+    permno-keyed data (CRSP). Includes ADV/volatility fallback counting
+    and participation violation tracking.
+
     Args:
         daily_weights: DataFrame with columns [permno, date, weight].
         adv_volatility: DataFrame with columns [permno, date, adv_usd, volatility].
@@ -1052,98 +1119,13 @@ def compute_daily_costs_permno(
         - Volatility fallback count
         - Participation violation count
     """
-    if not config.enabled:
-        dates = daily_weights.select("date").unique().sort("date")
-        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
-
-    # Sort by date and permno for consistent processing
-    daily_weights = daily_weights.sort(["permno", "date"])
-
-    # Compute weight changes (turnover)
-    weight_changes = daily_weights.with_columns(
-        (pl.col("weight") - pl.col("weight").shift(1).over("permno")).alias("weight_change")
+    return _compute_daily_costs_generic(
+        daily_weights=daily_weights,
+        adv_volatility=adv_volatility,
+        config=config,
+        identifier_col="permno",
+        use_fallbacks=True,
     )
-
-    # First day weight change is the full weight (starting from cash)
-    weight_changes = weight_changes.with_columns(
-        pl.when(pl.col("weight_change").is_null())
-        .then(pl.col("weight"))
-        .otherwise(pl.col("weight_change"))
-        .alias("weight_change")
-    )
-
-    # Trade value = |weight_change| * portfolio_value
-    weight_changes = weight_changes.with_columns(
-        (pl.col("weight_change").abs() * config.portfolio_value_usd).alias("trade_value_usd")
-    )
-
-    # Filter to only trades (non-zero weight changes)
-    trades = weight_changes.filter(pl.col("trade_value_usd") > 0.01)  # Min $0.01
-
-    # Join with ADV and volatility data
-    trades = trades.join(adv_volatility, on=["permno", "date"], how="left")
-
-    # Compute costs for each trade with fallbacks
-    trade_costs: list[TradeCost] = []
-    daily_costs: dict[date, float] = {}
-    adv_fallback_count = 0
-    vol_fallback_count = 0
-    participation_violations = 0
-
-    for row in trades.iter_rows(named=True):
-        trade_date = row["date"]
-        permno = row["permno"]
-        trade_value = row["trade_value_usd"]
-
-        # Apply fallbacks
-        adv_usd, used_adv_fallback = apply_adv_fallback(row.get("adv_usd"), permno)
-        volatility, used_vol_fallback = apply_volatility_fallback(row.get("volatility"), permno)
-
-        if used_adv_fallback:
-            adv_fallback_count += 1
-        if used_vol_fallback:
-            vol_fallback_count += 1
-
-        # Check participation violation
-        participation_pct = trade_value / adv_usd if adv_usd > 0 else 0.0
-        if participation_pct > config.participation_limit:
-            participation_violations += 1
-
-        # Compute cost
-        cost = compute_trade_cost(
-            symbol=str(permno),  # Use permno as symbol for now
-            trade_date=trade_date,
-            trade_value_usd=trade_value,
-            adv_usd=adv_usd,
-            volatility=volatility,
-            config=config,
-        )
-        trade_costs.append(cost)
-
-        # Accumulate daily cost
-        if trade_date not in daily_costs:
-            daily_costs[trade_date] = 0.0
-        daily_costs[trade_date] += cost.total_cost_usd
-
-    # Convert to cost drag (fraction of AUM)
-    cost_drag_data = [
-        {"date": d, "cost_drag": cost / config.portfolio_value_usd}
-        for d, cost in daily_costs.items()
-    ]
-
-    if not cost_drag_data:
-        dates = daily_weights.select("date").unique().sort("date")
-        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
-
-    cost_drag_df = pl.DataFrame(cost_drag_data).sort("date")
-
-    # Ensure all dates from daily_weights are included
-    all_dates = daily_weights.select("date").unique().sort("date")
-    cost_drag_df = all_dates.join(cost_drag_df, on="date", how="left").with_columns(
-        pl.col("cost_drag").fill_null(0.0)
-    )
-
-    return cost_drag_df, trade_costs, adv_fallback_count, vol_fallback_count, participation_violations
 
 
 @dataclass

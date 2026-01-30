@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-30 - P6T9 download net returns when available -->
+<!-- Last reviewed: 2026-01-30 - P6T9 remove hardcoded portfolio_value_usd default -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

@@ -1597,7 +1597,8 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                 # Add cost analysis data if available (T9.4)
                 if cost_config:
                     summary_dict["cost_model_config"] = cost_config
-                    summary_dict["portfolio_value_usd"] = cost_config.get("portfolio_value_usd", 1_000_000)
+                    # portfolio_value_usd is guaranteed by backend's CostModelConfig.from_dict
+                    summary_dict["portfolio_value_usd"] = cost_config.get("portfolio_value_usd")
 
                 if cost_summary:
                     summary_dict["results"]["gross_total_return"] = cost_summary.get("total_gross_return")
