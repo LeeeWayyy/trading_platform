@@ -6,18 +6,26 @@ import polars as pl
 import pytest
 
 from libs.trading.backtest.cost_model import (
+    ADV_FLOOR_USD,
+    VOL_FLOOR,
     ADVSource,
+    BacktestCostResult,
     CapacityAnalysis,
     CostModelConfig,
     CostSummary,
     TradeCost,
+    apply_adv_fallback,
+    apply_volatility_fallback,
+    compute_backtest_costs,
     compute_capacity_analysis,
     compute_compounded_return,
     compute_cost_summary,
     compute_daily_costs,
+    compute_daily_costs_permno,
     compute_market_impact,
     compute_max_drawdown,
     compute_net_returns,
+    compute_rolling_adv_volatility,
     compute_sharpe_ratio,
     compute_trade_cost,
 )
@@ -932,3 +940,387 @@ class TestCapacityHelperFunctions:
 
         # Breakeven AUM should be None for negative gross return
         assert analysis.breakeven_aum is None
+
+
+class TestFallbackFunctions:
+    """Tests for ADV and volatility fallback functions."""
+
+    def test_apply_adv_fallback_with_valid_value(self):
+        """Test fallback returns valid value unchanged."""
+        value, used_fallback = apply_adv_fallback(1_000_000.0, 12345)
+        assert value == 1_000_000.0
+        assert used_fallback is False
+
+    def test_apply_adv_fallback_with_none(self):
+        """Test fallback applies floor for None value."""
+        value, used_fallback = apply_adv_fallback(None, 12345)
+        assert value == ADV_FLOOR_USD
+        assert used_fallback is True
+
+    def test_apply_adv_fallback_with_zero(self):
+        """Test fallback applies floor for zero value."""
+        value, used_fallback = apply_adv_fallback(0.0, 12345)
+        assert value == ADV_FLOOR_USD
+        assert used_fallback is True
+
+    def test_apply_adv_fallback_with_negative(self):
+        """Test fallback applies floor for negative value."""
+        value, used_fallback = apply_adv_fallback(-100.0, 12345)
+        assert value == ADV_FLOOR_USD
+        assert used_fallback is True
+
+    def test_apply_adv_fallback_with_nan(self):
+        """Test fallback applies floor for NaN value."""
+        value, used_fallback = apply_adv_fallback(float("nan"), 12345)
+        assert value == ADV_FLOOR_USD
+        assert used_fallback is True
+
+    def test_apply_adv_fallback_with_inf(self):
+        """Test fallback applies floor for infinity value."""
+        value, used_fallback = apply_adv_fallback(float("inf"), 12345)
+        assert value == ADV_FLOOR_USD
+        assert used_fallback is True
+
+    def test_apply_volatility_fallback_with_valid_value(self):
+        """Test volatility fallback returns valid value unchanged."""
+        value, used_fallback = apply_volatility_fallback(0.02, 12345)
+        assert value == 0.02
+        assert used_fallback is False
+
+    def test_apply_volatility_fallback_with_none(self):
+        """Test volatility fallback applies floor for None value."""
+        value, used_fallback = apply_volatility_fallback(None, 12345)
+        assert value == VOL_FLOOR
+        assert used_fallback is True
+
+    def test_apply_volatility_fallback_with_zero(self):
+        """Test volatility fallback applies floor for zero value."""
+        value, used_fallback = apply_volatility_fallback(0.0, 12345)
+        assert value == VOL_FLOOR
+        assert used_fallback is True
+
+
+class TestComputeRollingAdvVolatility:
+    """Tests for rolling ADV/volatility computation."""
+
+    def test_empty_input(self):
+        """Test with empty DataFrame returns empty result."""
+        empty_df = pl.DataFrame(
+            schema={
+                "permno": pl.Int64,
+                "date": pl.Date,
+                "prc": pl.Float64,
+                "vol": pl.Float64,
+                "ret": pl.Float64,
+            }
+        )
+        result = compute_rolling_adv_volatility(empty_df, date(2024, 1, 1), date(2024, 1, 31))
+        assert result.height == 0
+        assert set(result.columns) == {"permno", "date", "adv_usd", "volatility"}
+
+    def test_rolling_computation_short_window(self):
+        """Test rolling computation with fewer than 20 days returns nulls."""
+        # Create 10 days of data (less than 20-day window)
+        dates = [date(2024, 1, i + 1) for i in range(10)]
+        df = pl.DataFrame(
+            {
+                "permno": [12345] * 10,
+                "date": dates,
+                "prc": [100.0] * 10,
+                "vol": [1_000_000.0] * 10,
+                "ret": [0.01] * 10,
+            }
+        )
+
+        result = compute_rolling_adv_volatility(df, date(2024, 1, 1), date(2024, 1, 10))
+
+        # With only 10 days, we can't compute 20-day rolling stats
+        # ADV and volatility should be null due to min_samples=20
+        assert result.height == 10
+        # All values should be null (not enough data for 20-day window)
+        assert result.filter(pl.col("adv_usd").is_not_null()).height == 0
+
+    def test_rolling_computation_with_sufficient_data(self):
+        """Test rolling computation with sufficient data produces values."""
+        # Create 30 days of data
+        dates = [date(2024, 1, i + 1) for i in range(30)]
+        df = pl.DataFrame(
+            {
+                "permno": [12345] * 30,
+                "date": dates,
+                "prc": [100.0] * 30,
+                "vol": [1_000_000.0] * 30,
+                "ret": [0.01 * (1 if i % 2 == 0 else -1) for i in range(30)],  # Alternating returns
+            }
+        )
+
+        result = compute_rolling_adv_volatility(df, date(2024, 1, 22), date(2024, 1, 30))
+
+        # After 21 days (20 days of rolling + 1 day lag), we should have values
+        non_null_adv = result.filter(pl.col("adv_usd").is_not_null())
+        assert non_null_adv.height > 0
+
+
+class TestComputeDailyCostsPermno:
+    """Tests for permno-keyed daily cost computation."""
+
+    def test_disabled_cost_model(self):
+        """Test disabled cost model returns zero costs."""
+        config = CostModelConfig(enabled=False)
+        daily_weights = pl.DataFrame(
+            {
+                "permno": [12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "weight": [0.10, 0.20],
+            }
+        )
+        adv_vol = pl.DataFrame(
+            schema={
+                "permno": pl.Int64,
+                "date": pl.Date,
+                "adv_usd": pl.Float64,
+                "volatility": pl.Float64,
+            }
+        )
+
+        cost_drag_df, trade_costs, adv_fb, vol_fb, violations = compute_daily_costs_permno(
+            daily_weights, adv_vol, config
+        )
+
+        assert len(trade_costs) == 0
+        assert adv_fb == 0
+        assert vol_fb == 0
+        assert violations == 0
+        assert cost_drag_df.filter(pl.col("cost_drag") > 0).height == 0
+
+    def test_basic_cost_computation(self):
+        """Test basic cost computation with ADV/volatility data."""
+        config = CostModelConfig(
+            enabled=True,
+            bps_per_trade=5.0,
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "permno": [12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "weight": [0.10, 0.20],
+            }
+        )
+
+        adv_vol = pl.DataFrame(
+            {
+                "permno": [12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "adv_usd": [10_000_000.0, 10_000_000.0],
+                "volatility": [0.02, 0.02],
+            }
+        )
+
+        cost_drag_df, trade_costs, adv_fb, vol_fb, violations = compute_daily_costs_permno(
+            daily_weights, adv_vol, config
+        )
+
+        assert len(trade_costs) == 2  # Day 1: 10% position, Day 2: 10% change
+        assert adv_fb == 0
+        assert vol_fb == 0
+        assert cost_drag_df.height >= 2
+
+    def test_fallback_counting(self):
+        """Test fallback counts are incremented for missing ADV/volatility."""
+        config = CostModelConfig(
+            enabled=True,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "permno": [12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "weight": [0.10, 0.20],
+            }
+        )
+
+        # Empty ADV/vol data - will trigger fallbacks
+        adv_vol = pl.DataFrame(
+            schema={
+                "permno": pl.Int64,
+                "date": pl.Date,
+                "adv_usd": pl.Float64,
+                "volatility": pl.Float64,
+            }
+        )
+
+        _, trade_costs, adv_fb, vol_fb, _ = compute_daily_costs_permno(
+            daily_weights, adv_vol, config
+        )
+
+        assert adv_fb == 2  # Both trades use fallback
+        assert vol_fb == 2
+
+    def test_participation_violation_counting(self):
+        """Test participation violations are counted correctly."""
+        config = CostModelConfig(
+            enabled=True,
+            participation_limit=0.01,  # 1% limit
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "permno": [12345],
+                "date": [date(2024, 1, 1)],
+                "weight": [0.50],  # 50% position = $500K trade
+            }
+        )
+
+        adv_vol = pl.DataFrame(
+            {
+                "permno": [12345],
+                "date": [date(2024, 1, 1)],
+                "adv_usd": [1_000_000.0],  # $1M ADV
+                "volatility": [0.02],
+            }
+        )
+
+        # $500K / $1M = 50% participation > 1% limit
+        _, _, _, _, violations = compute_daily_costs_permno(daily_weights, adv_vol, config)
+
+        assert violations == 1
+
+
+class TestComputeBacktestCosts:
+    """Tests for full backtest cost computation."""
+
+    def test_basic_backtest_costs(self):
+        """Test basic backtest cost computation."""
+        config = CostModelConfig(
+            enabled=True,
+            bps_per_trade=5.0,
+            impact_coefficient=0.1,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "permno": [12345, 12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "weight": [0.10, 0.15, 0.20],
+            }
+        )
+
+        gross_returns = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "return": [0.01, 0.02, -0.01],
+            }
+        )
+
+        adv_vol = pl.DataFrame(
+            {
+                "permno": [12345, 12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "adv_usd": [10_000_000.0] * 3,
+                "volatility": [0.02] * 3,
+            }
+        )
+
+        result = compute_backtest_costs(daily_weights, gross_returns, adv_vol, config)
+
+        assert isinstance(result, BacktestCostResult)
+        assert result.cost_summary is not None
+        assert result.cost_summary.total_cost_usd > 0
+        assert result.net_returns_df.height == 3
+        assert "net_return" in result.net_returns_df.columns
+
+    def test_backtest_costs_capacity_analysis(self):
+        """Test capacity analysis is computed in backtest costs."""
+        config = CostModelConfig(
+            enabled=True,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "permno": [12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "weight": [0.10, 0.20],
+            }
+        )
+
+        gross_returns = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "return": [0.01, 0.02],
+            }
+        )
+
+        adv_vol = pl.DataFrame(
+            {
+                "permno": [12345, 12345],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "adv_usd": [10_000_000.0] * 2,
+                "volatility": [0.02] * 2,
+            }
+        )
+
+        result = compute_backtest_costs(daily_weights, gross_returns, adv_vol, config)
+
+        assert result.capacity_analysis is not None
+        # Should have turnover data
+        assert result.capacity_analysis.avg_daily_turnover is not None
+
+
+class TestBacktestCostResult:
+    """Tests for BacktestCostResult dataclass."""
+
+    def test_backtest_cost_result_attributes(self):
+        """Test BacktestCostResult has all expected attributes."""
+        cost_summary = CostSummary(
+            total_gross_return=0.10,
+            total_net_return=0.08,
+            total_cost_drag=0.02,
+            total_cost_usd=1000,
+            commission_spread_cost_usd=500,
+            market_impact_cost_usd=500,
+            gross_sharpe=1.5,
+            net_sharpe=1.2,
+            gross_max_drawdown=0.05,
+            net_max_drawdown=0.06,
+            num_trades=10,
+            avg_trade_cost_bps=5.0,
+        )
+
+        capacity = CapacityAnalysis(
+            avg_daily_turnover=0.05,
+            avg_holding_period_days=20.0,
+            portfolio_adv=10_000_000.0,
+            portfolio_sigma=0.02,
+            gross_alpha_annualized=0.15,
+            impact_aum_5bps=50_000_000.0,
+            impact_aum_10bps=100_000_000.0,
+            participation_aum=40_000_000.0,
+            breakeven_aum=80_000_000.0,
+            implied_max_capacity=40_000_000.0,
+            limiting_factor="participation",
+        )
+
+        result = BacktestCostResult(
+            cost_summary=cost_summary,
+            capacity_analysis=capacity,
+            net_returns_df=pl.DataFrame({"date": [], "net_return": []}),
+            cost_drag_df=pl.DataFrame({"date": [], "cost_drag": []}),
+            trade_costs=[],
+            adv_fallback_count=5,
+            volatility_fallback_count=3,
+            participation_violations=2,
+        )
+
+        assert result.cost_summary == cost_summary
+        assert result.capacity_analysis == capacity
+        assert result.adv_fallback_count == 5
+        assert result.volatility_fallback_count == 3
+        assert result.participation_violations == 2

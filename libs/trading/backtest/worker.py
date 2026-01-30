@@ -33,6 +33,8 @@ from libs.trading.alpha.simple_backtester import SimpleBacktester
 from libs.trading.backtest.cost_model import (
     CostModelConfig,
     CostSummary,
+    compute_backtest_costs,
+    load_pit_adv_volatility,
 )
 from libs.trading.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
 
@@ -475,9 +477,42 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None and isinstance(cost_params, dict):
                 cost_config = CostModelConfig.from_dict(cost_params)
-                # TODO(P6T9): Compute cost_summary when ADV/volatility loading is implemented
-                # For now, cost_config is stored but costs are not computed
-                # Future: cost_summary = _compute_backtest_costs(result, cost_config)
+
+                # Compute costs if cost model is enabled
+                if cost_config.enabled and job_config.provider == DataProvider.CRSP:
+                    # Load PIT-compliant ADV/volatility from CRSP
+                    permnos = result.daily_weights.select("permno").unique().to_series().to_list()
+                    adv_volatility = load_pit_adv_volatility(
+                        crsp_provider=crsp_provider,
+                        permnos=permnos,
+                        start_date=job_config.start_date,
+                        end_date=job_config.end_date,
+                    )
+
+                    # Compute costs
+                    cost_result = compute_backtest_costs(
+                        daily_weights=result.daily_weights,
+                        gross_returns=result.daily_portfolio_returns,
+                        adv_volatility=adv_volatility,
+                        config=cost_config,
+                    )
+                    cost_summary = cost_result.cost_summary
+                    worker.logger.info(
+                        "cost_model_computed",
+                        job_id=job_id,
+                        total_cost_usd=cost_summary.total_cost_usd,
+                        net_sharpe=cost_summary.net_sharpe,
+                        adv_fallbacks=cost_result.adv_fallback_count,
+                        vol_fallbacks=cost_result.volatility_fallback_count,
+                        participation_violations=cost_result.participation_violations,
+                    )
+                elif cost_config.enabled and job_config.provider == DataProvider.YFINANCE:
+                    # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
+                    worker.logger.info(
+                        "cost_model_skipped_yfinance",
+                        job_id=job_id,
+                        reason="Yahoo Finance does not provide PIT-compliant ADV/volatility",
+                    )
 
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
             result_path = _save_parquet_artifacts(job_id, result, cost_config, cost_summary)

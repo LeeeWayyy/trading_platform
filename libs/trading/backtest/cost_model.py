@@ -15,11 +15,26 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
+import structlog
+
+if TYPE_CHECKING:
+    from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
+
+logger = structlog.get_logger(__name__)
+
+# Rolling window constants
+ADV_WINDOW_DAYS = 20  # 20 trading days for ADV
+VOL_WINDOW_DAYS = 20  # 20 trading days for volatility
+LOOKBACK_CALENDAR_DAYS = 40  # 2x calendar days for trading days buffer
+
+# Fallback floor values (conservative to avoid understating costs)
+ADV_FLOOR_USD = 100_000  # $100K minimum ADV (~10th percentile S&P 500)
+VOL_FLOOR = 0.01  # 1% daily volatility minimum
 
 
 class ADVSource(str, Enum):
@@ -776,19 +791,380 @@ def _compute_breakeven_aum(
     return (low + high) / 2
 
 
+def compute_rolling_adv_volatility(
+    price_volume_data: pl.DataFrame,
+    start_date: date,
+    end_date: date,
+) -> pl.DataFrame:
+    """Compute rolling ADV and volatility from price/volume data.
+
+    Computes 20-day rolling averages with 1-day lag for PIT compliance.
+
+    Args:
+        price_volume_data: DataFrame with columns [permno, date, prc, vol, ret]
+            where prc is price, vol is volume, ret is return.
+        start_date: Start of date range for output (inclusive).
+        end_date: End of date range for output (inclusive).
+
+    Returns:
+        DataFrame with columns [permno, date, adv_usd, volatility]
+        Both metrics are LAGGED by 1 day (use D-1 values for D trades).
+    """
+    if price_volume_data.height == 0:
+        return pl.DataFrame(
+            schema={
+                "permno": pl.Int64,
+                "date": pl.Date,
+                "adv_usd": pl.Float64,
+                "volatility": pl.Float64,
+            }
+        )
+
+    # Sort by permno and date for correct rolling computation
+    df = price_volume_data.sort(["permno", "date"])
+
+    # Compute dollar volume for ADV (handle null prices/volumes)
+    df = df.with_columns(
+        pl.when(pl.col("prc").is_not_null() & pl.col("vol").is_not_null())
+        .then(pl.col("prc").abs() * pl.col("vol"))
+        .otherwise(None)
+        .alias("dollar_vol")
+    )
+
+    # Compute rolling ADV and volatility per permno
+    # Using Polars rolling_mean/rolling_std with min_samples (renamed from min_periods in 1.21.0)
+    df = df.with_columns(
+        [
+            pl.col("dollar_vol")
+            .rolling_mean(window_size=ADV_WINDOW_DAYS, min_samples=ADV_WINDOW_DAYS)
+            .over("permno")
+            .alias("adv_usd_raw"),
+            pl.col("ret")
+            .rolling_std(window_size=VOL_WINDOW_DAYS, min_samples=VOL_WINDOW_DAYS, ddof=1)
+            .over("permno")
+            .alias("volatility_raw"),
+        ]
+    )
+
+    # Lag by 1 day (use D-1 values for D trades)
+    df = df.with_columns(
+        [
+            pl.col("adv_usd_raw").shift(1).over("permno").alias("adv_usd"),
+            pl.col("volatility_raw").shift(1).over("permno").alias("volatility"),
+        ]
+    )
+
+    # Filter to requested date range
+    result = df.filter(
+        (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
+    ).select(["permno", "date", "adv_usd", "volatility"])
+
+    return result
+
+
+def load_pit_adv_volatility(
+    crsp_provider: CRSPLocalProvider,
+    permnos: list[int],
+    start_date: date,
+    end_date: date,
+) -> pl.DataFrame:
+    """Load PIT-compliant ADV and volatility from CRSP provider.
+
+    Uses same PIT-compliant data path as returns for reproducibility.
+
+    Args:
+        crsp_provider: CRSP data provider.
+        permnos: List of PERMNOs to load data for.
+        start_date: Start of date range (inclusive).
+        end_date: End of date range (inclusive).
+
+    Returns:
+        DataFrame with columns [permno, date, adv_usd, volatility]
+        Both metrics are LAGGED by 1 day to avoid lookahead bias.
+    """
+    # Extra lookback for rolling window + lag
+    lookback_start = start_date - timedelta(days=LOOKBACK_CALENDAR_DAYS)
+
+    # Load price/volume/return data from CRSP
+    price_data = crsp_provider.get_daily_prices(
+        start_date=lookback_start,
+        end_date=end_date,
+        permnos=permnos,
+        columns=["permno", "date", "prc", "vol", "ret"],
+        adjust_prices=True,  # Use absolute price values
+    )
+
+    if price_data.height == 0:
+        logger.warning(
+            "no_price_data_for_adv",
+            start_date=str(start_date),
+            end_date=str(end_date),
+            num_permnos=len(permnos),
+        )
+        return pl.DataFrame(
+            schema={
+                "permno": pl.Int64,
+                "date": pl.Date,
+                "adv_usd": pl.Float64,
+                "volatility": pl.Float64,
+            }
+        )
+
+    return compute_rolling_adv_volatility(price_data, start_date, end_date)
+
+
+def apply_adv_fallback(adv_raw: float | None, permno: int) -> tuple[float, bool]:
+    """Get ADV with deterministic fallback.
+
+    Args:
+        adv_raw: Raw ADV value (may be None, non-positive, NaN, or inf).
+        permno: PERMNO for logging.
+
+    Returns:
+        Tuple of (adv_value, used_fallback).
+    """
+    if adv_raw is None or not math.isfinite(adv_raw) or adv_raw <= 0:
+        logger.debug("adv_fallback_used", permno=permno, fallback=ADV_FLOOR_USD)
+        return ADV_FLOOR_USD, True
+    return adv_raw, False
+
+
+def apply_volatility_fallback(vol_raw: float | None, permno: int) -> tuple[float, bool]:
+    """Get volatility with deterministic fallback.
+
+    Args:
+        vol_raw: Raw volatility value (may be None, non-positive, NaN, or inf).
+        permno: PERMNO for logging.
+
+    Returns:
+        Tuple of (volatility_value, used_fallback).
+    """
+    if vol_raw is None or not math.isfinite(vol_raw) or vol_raw <= 0:
+        logger.debug("volatility_fallback_used", permno=permno, fallback=VOL_FLOOR)
+        return VOL_FLOOR, True
+    return vol_raw, False
+
+
+def compute_daily_costs_permno(
+    daily_weights: pl.DataFrame,
+    adv_volatility: pl.DataFrame,
+    config: CostModelConfig,
+) -> tuple[pl.DataFrame, list[TradeCost], int, int, int]:
+    """Compute daily transaction costs from weight changes (permno-keyed).
+
+    Args:
+        daily_weights: DataFrame with columns [permno, date, weight].
+        adv_volatility: DataFrame with columns [permno, date, adv_usd, volatility].
+        config: Cost model configuration.
+
+    Returns:
+        Tuple of:
+        - DataFrame with columns [date, cost_drag] (daily cost as fraction of AUM)
+        - List of TradeCost objects for each trade
+        - ADV fallback count
+        - Volatility fallback count
+        - Participation violation count
+    """
+    if not config.enabled:
+        dates = daily_weights.select("date").unique().sort("date")
+        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
+
+    # Sort by date and permno for consistent processing
+    daily_weights = daily_weights.sort(["permno", "date"])
+
+    # Compute weight changes (turnover)
+    weight_changes = daily_weights.with_columns(
+        (pl.col("weight") - pl.col("weight").shift(1).over("permno")).alias("weight_change")
+    )
+
+    # First day weight change is the full weight (starting from cash)
+    weight_changes = weight_changes.with_columns(
+        pl.when(pl.col("weight_change").is_null())
+        .then(pl.col("weight"))
+        .otherwise(pl.col("weight_change"))
+        .alias("weight_change")
+    )
+
+    # Trade value = |weight_change| * portfolio_value
+    weight_changes = weight_changes.with_columns(
+        (pl.col("weight_change").abs() * config.portfolio_value_usd).alias("trade_value_usd")
+    )
+
+    # Filter to only trades (non-zero weight changes)
+    trades = weight_changes.filter(pl.col("trade_value_usd") > 0.01)  # Min $0.01
+
+    # Join with ADV and volatility data
+    trades = trades.join(adv_volatility, on=["permno", "date"], how="left")
+
+    # Compute costs for each trade with fallbacks
+    trade_costs: list[TradeCost] = []
+    daily_costs: dict[date, float] = {}
+    adv_fallback_count = 0
+    vol_fallback_count = 0
+    participation_violations = 0
+
+    for row in trades.iter_rows(named=True):
+        trade_date = row["date"]
+        permno = row["permno"]
+        trade_value = row["trade_value_usd"]
+
+        # Apply fallbacks
+        adv_usd, used_adv_fallback = apply_adv_fallback(row.get("adv_usd"), permno)
+        volatility, used_vol_fallback = apply_volatility_fallback(row.get("volatility"), permno)
+
+        if used_adv_fallback:
+            adv_fallback_count += 1
+        if used_vol_fallback:
+            vol_fallback_count += 1
+
+        # Check participation violation
+        participation_pct = trade_value / adv_usd if adv_usd > 0 else 0.0
+        if participation_pct > config.participation_limit:
+            participation_violations += 1
+
+        # Compute cost
+        cost = compute_trade_cost(
+            symbol=str(permno),  # Use permno as symbol for now
+            trade_date=trade_date,
+            trade_value_usd=trade_value,
+            adv_usd=adv_usd,
+            volatility=volatility,
+            config=config,
+        )
+        trade_costs.append(cost)
+
+        # Accumulate daily cost
+        if trade_date not in daily_costs:
+            daily_costs[trade_date] = 0.0
+        daily_costs[trade_date] += cost.total_cost_usd
+
+    # Convert to cost drag (fraction of AUM)
+    cost_drag_data = [
+        {"date": d, "cost_drag": cost / config.portfolio_value_usd}
+        for d, cost in daily_costs.items()
+    ]
+
+    if not cost_drag_data:
+        dates = daily_weights.select("date").unique().sort("date")
+        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
+
+    cost_drag_df = pl.DataFrame(cost_drag_data).sort("date")
+
+    # Ensure all dates from daily_weights are included
+    all_dates = daily_weights.select("date").unique().sort("date")
+    cost_drag_df = all_dates.join(cost_drag_df, on="date", how="left").with_columns(
+        pl.col("cost_drag").fill_null(0.0)
+    )
+
+    return cost_drag_df, trade_costs, adv_fallback_count, vol_fallback_count, participation_violations
+
+
+@dataclass
+class BacktestCostResult:
+    """Complete result of cost model computation.
+
+    Attributes:
+        cost_summary: Summary statistics for transaction costs.
+        capacity_analysis: Capacity analysis for strategy sizing.
+        net_returns_df: DataFrame with daily net returns.
+        cost_drag_df: DataFrame with daily cost drag.
+        trade_costs: List of individual trade costs.
+        adv_fallback_count: Number of trades using ADV fallback.
+        volatility_fallback_count: Number of trades using volatility fallback.
+        participation_violations: Number of trades exceeding participation limit.
+    """
+
+    cost_summary: CostSummary
+    capacity_analysis: CapacityAnalysis
+    net_returns_df: pl.DataFrame
+    cost_drag_df: pl.DataFrame
+    trade_costs: list[TradeCost]
+    adv_fallback_count: int
+    volatility_fallback_count: int
+    participation_violations: int
+
+
+def compute_backtest_costs(
+    daily_weights: pl.DataFrame,
+    gross_returns: pl.DataFrame,
+    adv_volatility: pl.DataFrame,
+    config: CostModelConfig,
+) -> BacktestCostResult:
+    """Compute full cost analysis for a backtest.
+
+    Args:
+        daily_weights: DataFrame with columns [permno, date, weight].
+        gross_returns: DataFrame with columns [date, return].
+        adv_volatility: DataFrame with columns [permno, date, adv_usd, volatility].
+        config: Cost model configuration.
+
+    Returns:
+        BacktestCostResult with full cost analysis.
+    """
+    # Compute daily costs
+    cost_drag_df, trade_costs, adv_fallback, vol_fallback, violations = compute_daily_costs_permno(
+        daily_weights, adv_volatility, config
+    )
+
+    # Compute net returns
+    net_returns_df = compute_net_returns(gross_returns, cost_drag_df)
+
+    # Extract return lists for summary computation
+    gross_return_list = net_returns_df.select("gross_return").to_series().to_list()
+    net_return_list = net_returns_df.select("net_return").to_series().to_list()
+
+    # Compute cost summary
+    cost_summary = compute_cost_summary(
+        gross_returns=gross_return_list,
+        net_returns=net_return_list,
+        trade_costs=trade_costs,
+        portfolio_value_usd=config.portfolio_value_usd,
+    )
+
+    # Compute capacity analysis
+    capacity_analysis = compute_capacity_analysis(
+        daily_weights=daily_weights.rename({"permno": "symbol"}),
+        trade_costs=trade_costs,
+        cost_summary=cost_summary,
+        config=config,
+    )
+
+    return BacktestCostResult(
+        cost_summary=cost_summary,
+        capacity_analysis=capacity_analysis,
+        net_returns_df=net_returns_df,
+        cost_drag_df=cost_drag_df,
+        trade_costs=trade_costs,
+        adv_fallback_count=adv_fallback,
+        volatility_fallback_count=vol_fallback,
+        participation_violations=violations,
+    )
+
+
 __all__ = [
     "ADVSource",
+    "ADV_FLOOR_USD",
+    "ADV_WINDOW_DAYS",
+    "BacktestCostResult",
     "CostModelConfig",
     "TradeCost",
     "CostSummary",
     "CapacityAnalysis",
-    "compute_market_impact",
-    "compute_trade_cost",
+    "VOL_FLOOR",
+    "VOL_WINDOW_DAYS",
+    "apply_adv_fallback",
+    "apply_volatility_fallback",
+    "compute_backtest_costs",
     "compute_daily_costs",
+    "compute_daily_costs_permno",
+    "compute_market_impact",
     "compute_net_returns",
     "compute_compounded_return",
+    "compute_rolling_adv_volatility",
     "compute_sharpe_ratio",
     "compute_max_drawdown",
     "compute_cost_summary",
     "compute_capacity_analysis",
+    "compute_trade_cost",
+    "load_pit_adv_volatility",
 ]
