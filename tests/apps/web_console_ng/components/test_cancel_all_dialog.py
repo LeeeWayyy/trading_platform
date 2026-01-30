@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from apps.web_console_ng.components.cancel_all_dialog import (
+from apps.web_console_ng.components.cancel_all_dialog import CancelAllDialog
+from apps.web_console_ng.utils.orders import (
     FALLBACK_ID_PREFIX,
     SYNTHETIC_ID_PREFIX,
-    CancelAllDialog,
 )
 
 

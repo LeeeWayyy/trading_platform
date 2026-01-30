@@ -23,14 +23,12 @@ from typing import TYPE_CHECKING
 
 from nicegui import ui
 
+from apps.web_console_ng.utils.orders import is_cancellable_order_id
+
 if TYPE_CHECKING:
     from apps.web_console_ng.core.client import AsyncTradingClient
 
 logger = logging.getLogger(__name__)
-
-# ID prefixes that indicate uncancellable orders
-SYNTHETIC_ID_PREFIX = "SYNTH-"
-FALLBACK_ID_PREFIX = "FALLBACK-"
 
 
 class CancelAllDialog:
@@ -111,21 +109,15 @@ class CancelAllDialog:
         elif side_filter == "Sell Only":
             filtered = [o for o in filtered if o.get("side") == "sell"]
 
-        # Separate valid IDs from uncancellable orders (missing/synthetic/fallback IDs)
+        # Separate valid IDs from uncancellable orders using shared utility
         valid: list[dict[str, object]] = []
         skipped: list[dict[str, object]] = []
         for order in filtered:
             order_id = order.get("client_order_id")
-            # Skip falsy IDs (missing/empty) same as on_cancel_order policy
-            if not order_id:
-                skipped.append(order)
-            elif isinstance(order_id, str) and (
-                order_id.startswith(SYNTHETIC_ID_PREFIX)
-                or order_id.startswith(FALLBACK_ID_PREFIX)
-            ):
-                skipped.append(order)
-            else:
+            if is_cancellable_order_id(order_id):
                 valid.append(order)
+            else:
+                skipped.append(order)
 
         return valid, skipped
 

@@ -10,13 +10,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from apps.web_console_ng.components.one_click_handler import (
-    FALLBACK_ID_PREFIX,
     PRICE_STALENESS_THRESHOLD_S,
-    SYNTHETIC_ID_PREFIX,
     OneClickConfig,
     OneClickHandler,
 )
 from apps.web_console_ng.components.safety_gate import SafetyCheckResult
+from apps.web_console_ng.utils.orders import (
+    FALLBACK_ID_PREFIX,
+    SYNTHETIC_ID_PREFIX,
+)
 
 
 def create_mock_handler(
@@ -208,6 +210,44 @@ class TestFreshPrice:
         price, error = handler._get_fresh_price("AAPL")
         assert price is None
         assert "No price data" in error
+
+    def test_get_fresh_price_invalid_timestamp_type(self) -> None:
+        """Invalid timestamp type returns None with error."""
+        handler, *_ = create_mock_handler()
+        # Set timestamp as string instead of datetime (malformed cache)
+        handler._cached_prices = {"AAPL": (Decimal("150.00"), "not-a-datetime")}  # type: ignore[dict-item]
+
+        price, error = handler._get_fresh_price("AAPL")
+        assert price is None
+        assert "invalid" in error.lower() or "malformed" in error.lower()
+
+    def test_get_fresh_price_invalid_price_value_zero(self) -> None:
+        """Zero price returns error."""
+        handler, *_ = create_mock_handler()
+        handler.set_cached_prices({"AAPL": (Decimal("0"), datetime.now(UTC))})
+
+        price, error = handler._get_fresh_price("AAPL")
+        assert price is None
+        assert "Invalid price" in error
+
+    def test_get_fresh_price_invalid_price_value_negative(self) -> None:
+        """Negative price returns error."""
+        handler, *_ = create_mock_handler()
+        handler.set_cached_prices({"AAPL": (Decimal("-10.00"), datetime.now(UTC))})
+
+        price, error = handler._get_fresh_price("AAPL")
+        assert price is None
+        assert "Invalid price" in error
+
+    def test_get_fresh_price_malformed_cache_entry(self) -> None:
+        """Malformed cache entry (non-Decimal price) returns error."""
+        handler, *_ = create_mock_handler()
+        # Set price as string instead of Decimal
+        handler._cached_prices = {"AAPL": ("150.00", datetime.now(UTC))}  # type: ignore[dict-item]
+
+        price, error = handler._get_fresh_price("AAPL")
+        assert price is None
+        assert "Invalid price" in error or "malformed" in error.lower()
 
 
 class TestOnShiftClick:

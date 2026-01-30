@@ -16,6 +16,7 @@ import json
 import os
 import time
 from typing import Any, cast
+from urllib.parse import quote as url_quote
 
 import httpx
 
@@ -454,8 +455,10 @@ class AsyncTradingClient:
             "requested_by": requested_by,
             "requested_at": requested_at,
         }
+        # URL-encode order_id to prevent path traversal attacks
+        safe_order_id = url_quote(order_id, safe="")
         resp = await self._client.post(
-            f"/api/v1/orders/{order_id}/cancel", headers=headers, json=payload
+            f"/api/v1/orders/{safe_order_id}/cancel", headers=headers, json=payload
         )
         resp.raise_for_status()
         return self._json_dict(resp)
@@ -470,7 +473,9 @@ class AsyncTradingClient:
     ) -> dict[str, Any]:
         """Modify an order by client_order_id (PATCH)."""
         headers = self._get_auth_headers(user_id, role, None)
-        resp = await self._client.patch(f"/api/v1/orders/{order_id}", headers=headers, json=payload)
+        # URL-encode order_id to prevent path traversal attacks
+        safe_order_id = url_quote(order_id, safe="")
+        resp = await self._client.patch(f"/api/v1/orders/{safe_order_id}", headers=headers, json=payload)
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -538,8 +543,10 @@ class AsyncTradingClient:
         }
         if qty is not None:
             payload["qty"] = qty
+        # URL-encode symbol to prevent path traversal attacks
+        safe_symbol = url_quote(symbol.upper(), safe="")
         resp = await self._client.post(
-            f"/api/v1/positions/{symbol.upper()}/close", headers=headers, json=payload
+            f"/api/v1/positions/{safe_symbol}/close", headers=headers, json=payload
         )
         resp.raise_for_status()
         return self._json_dict(resp)

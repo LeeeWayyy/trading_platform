@@ -40,6 +40,8 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 
 from apps.web_console_ng.components.safety_gate import SafetyGate, SafetyPolicy
+from apps.web_console_ng.utils.orders import is_cancellable_order_id
+from apps.web_console_ng.utils.time import parse_iso_timestamp
 
 if TYPE_CHECKING:
     from apps.web_console_ng.components.fat_finger_validator import FatFingerValidator
@@ -49,10 +51,6 @@ logger = logging.getLogger(__name__)
 
 # Price staleness threshold for FAIL-CLOSED operations
 PRICE_STALENESS_THRESHOLD_S = 30
-
-# ID prefixes that indicate uncancellable orders
-SYNTHETIC_ID_PREFIX = "SYNTH-"
-FALLBACK_ID_PREFIX = "FALLBACK-"
 
 
 class FlattenControls:
@@ -122,8 +120,6 @@ class FlattenControls:
                 if raw_ts:
                     try:
                         if isinstance(raw_ts, str):
-                            from apps.web_console_ng.utils.time import parse_iso_timestamp
-
                             ts = parse_iso_timestamp(raw_ts)
                         elif isinstance(raw_ts, datetime):
                             ts = raw_ts
@@ -227,22 +223,18 @@ class FlattenControls:
                 if o.get("symbol", "").upper() == symbol.upper()
             ]
 
-            # Detect uncancellable orders
+            # Detect uncancellable orders using shared utility
             uncancellable = [
                 o
                 for o in all_symbol_orders
-                if not o.get("client_order_id")
-                or o.get("client_order_id", "").startswith(SYNTHETIC_ID_PREFIX)
-                or o.get("client_order_id", "").startswith(FALLBACK_ID_PREFIX)
+                if not is_cancellable_order_id(o.get("client_order_id"))
             ]
 
             # Cancel orders with valid IDs
             cancellable = [
                 o
                 for o in all_symbol_orders
-                if o.get("client_order_id")
-                and not o.get("client_order_id", "").startswith(SYNTHETIC_ID_PREFIX)
-                and not o.get("client_order_id", "").startswith(FALLBACK_ID_PREFIX)
+                if is_cancellable_order_id(o.get("client_order_id"))
             ]
 
             cancelled = 0
@@ -528,9 +520,7 @@ class FlattenControls:
             uncancellable_orders = [
                 o
                 for o in all_symbol_orders
-                if not o.get("client_order_id")
-                or o.get("client_order_id", "").startswith(SYNTHETIC_ID_PREFIX)
-                or o.get("client_order_id", "").startswith(FALLBACK_ID_PREFIX)
+                if not is_cancellable_order_id(o.get("client_order_id"))
             ]
             if uncancellable_orders:
                 ui.notify(
@@ -543,9 +533,7 @@ class FlattenControls:
                 [
                     o
                     for o in all_symbol_orders
-                    if o.get("client_order_id")
-                    and not o.get("client_order_id", "").startswith(SYNTHETIC_ID_PREFIX)
-                    and not o.get("client_order_id", "").startswith(FALLBACK_ID_PREFIX)
+                    if is_cancellable_order_id(o.get("client_order_id"))
                 ]
             )
         except Exception as fetch_exc:
@@ -719,9 +707,8 @@ class FlattenControls:
                     return
 
                 # Step 2: Poll until flat with FAIL_CLOSED strictness
-                # FAIL_CLOSED: Only explicit qty=0 confirms flat (missing symbol = unknown)
-                # This protects against opening opposite leg while position is still open
-                # NOTE: If backend omits zero-qty positions, reverse will timeout (safe behavior)
+                # Flat confirmation: position missing OR qty=0 (APIs may filter WHERE qty != 0)
+                # Require 2 consecutive confirmations to guard against transient states
                 start_time = datetime.now(UTC)
                 confirmed_flat = False
                 consecutive_flat_polls = 0  # Require 2 consecutive confirmations for safety
@@ -740,9 +727,12 @@ class FlattenControls:
                             None,
                         )
                         if symbol_pos is None:
-                            # FAIL_CLOSED: Missing symbol = unknown, keep polling
-                            # Cannot assume flat without explicit confirmation
-                            consecutive_flat_polls = 0
+                            # Missing symbol = flat (API filters out zero-qty positions)
+                            # Increment counter to confirm across consecutive polls
+                            consecutive_flat_polls += 1
+                            if consecutive_flat_polls >= 2:
+                                confirmed_flat = True
+                                break
                         else:
                             # Parse qty (handles string from API)
                             poll_qty = abs(int(symbol_pos.get("qty", 0)))
