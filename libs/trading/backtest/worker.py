@@ -474,6 +474,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             # Extract cost model configuration from extra_params (if provided)
             cost_config: CostModelConfig | None = None
             cost_summary: CostSummary | None = None
+            capacity_analysis: dict[str, Any] | None = None
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None and isinstance(cost_params, dict):
                 cost_config = CostModelConfig.from_dict(cost_params)
@@ -497,6 +498,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         config=cost_config,
                     )
                     cost_summary = cost_result.cost_summary
+                    capacity_analysis = cost_result.capacity_analysis.to_dict()
                     worker.logger.info(
                         "cost_model_computed",
                         job_id=job_id,
@@ -506,6 +508,14 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         vol_fallbacks=cost_result.volatility_fallback_count,
                         participation_violations=cost_result.participation_violations,
                     )
+
+                    # Extend dataset_version_ids with cost data source info
+                    # Cost data comes from same CRSP provider, so use crsp_daily version
+                    if result.dataset_version_ids is not None:
+                        crsp_version = result.dataset_version_ids.get("crsp_daily", "unknown")
+                        result.dataset_version_ids["cost_data_source"] = "crsp"
+                        result.dataset_version_ids["cost_data_version"] = crsp_version
+
                 elif cost_config.enabled and job_config.provider == DataProvider.YFINANCE:
                     # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
                     worker.logger.info(
@@ -515,7 +525,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     )
 
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
-            result_path = _save_parquet_artifacts(job_id, result, cost_config, cost_summary)
+            result_path = _save_parquet_artifacts(
+                job_id, result, cost_config, cost_summary, capacity_analysis
+            )
 
             worker.update_progress(job_id, 95, "saving_db", job_timeout=job_timeout)
             _save_result_to_db(conn, job_id, result, result_path, cost_config, cost_summary)
@@ -590,6 +602,7 @@ def _save_parquet_artifacts(
     result: BacktestResult,
     cost_config: CostModelConfig | None = None,
     cost_summary: CostSummary | None = None,
+    capacity_analysis: dict[str, Any] | None = None,
 ) -> Path:
     """
     Save bulk time-series data to Parquet files.
@@ -599,6 +612,7 @@ def _save_parquet_artifacts(
         result: BacktestResult with data
         cost_config: Optional cost model configuration
         cost_summary: Optional cost summary
+        capacity_analysis: Optional capacity analysis dict
     """
     import polars as pl
 
@@ -675,7 +689,7 @@ def _save_parquet_artifacts(
             compression="snappy",
         )
 
-    _write_summary_json(result_dir, result, cost_config, cost_summary)
+    _write_summary_json(result_dir, result, cost_config, cost_summary, capacity_analysis)
 
     return result_dir
 
@@ -685,6 +699,7 @@ def _write_summary_json(
     result: BacktestResult,
     cost_config: CostModelConfig | None = None,
     cost_summary: CostSummary | None = None,
+    capacity_analysis: dict[str, Any] | None = None,
 ) -> None:
     """Persist summary metrics and reproducibility metadata alongside Parquet artifacts.
 
@@ -693,6 +708,7 @@ def _write_summary_json(
         result: BacktestResult with metrics
         cost_config: Optional cost model configuration
         cost_summary: Optional cost summary (computed if cost_config.enabled)
+        capacity_analysis: Optional capacity analysis dict
     """
     summary: dict[str, Any] = {
         "mean_ic": result.mean_ic,
@@ -707,6 +723,8 @@ def _write_summary_json(
         summary["cost_config"] = cost_config.to_dict()
     if cost_summary is not None:
         summary["cost_summary"] = cost_summary.to_dict()
+    if capacity_analysis is not None:
+        summary["capacity_analysis"] = capacity_analysis
 
     (result_dir / "summary.json").write_text(json.dumps(summary, default=str, indent=2))
 

@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 
@@ -86,6 +86,11 @@ class BacktestResult:
     computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     n_days: int = 0
     n_symbols_avg: float = 0.0
+
+    # Cost model data (P6T9) - optional, populated when cost model is enabled
+    cost_config: dict[str, Any] | None = None
+    cost_summary: dict[str, Any] | None = None
+    capacity_analysis: dict[str, Any] | None = None
 
     @property
     def average_turnover(self) -> float:
