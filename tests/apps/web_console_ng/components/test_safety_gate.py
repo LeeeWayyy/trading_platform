@@ -554,3 +554,183 @@ class TestSafetyGateCheckWithApiVerification:
         )
         assert result.allowed is False
         assert "UNKNOWN" in result.reason
+
+    @pytest.mark.asyncio()
+    async def test_fail_open_request_error_warns_and_allows(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_OPEN should warn but allow on network errors (risk-reducing)."""
+        mock_client.fetch_kill_switch_status.side_effect = httpx.RequestError(
+            "Connection refused"
+        )
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_OPEN,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is True
+        assert any("unreachable" in w for w in result.warnings)
+
+    @pytest.mark.asyncio()
+    async def test_fail_closed_unexpected_exception_blocks(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_CLOSED should block on unexpected exceptions in kill switch check."""
+        # Simulate unexpected error (not httpx.HTTPStatusError or RequestError)
+        mock_client.fetch_kill_switch_status.side_effect = ValueError("Bad JSON")
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_CLOSED,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is False
+        assert "error" in result.reason.lower()
+
+    @pytest.mark.asyncio()
+    async def test_fail_open_unexpected_exception_warns(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_OPEN should warn but allow on unexpected exceptions."""
+        mock_client.fetch_kill_switch_status.side_effect = ValueError("Bad JSON")
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_OPEN,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is True
+        assert any("error" in w.lower() for w in result.warnings)
+
+    @pytest.mark.asyncio()
+    async def test_fail_closed_circuit_breaker_unexpected_exception_blocks(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_CLOSED should block on unexpected circuit breaker exceptions."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+        mock_client.fetch_circuit_breaker_status.side_effect = TypeError("Invalid type")
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_CLOSED,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is False
+        assert "error" in result.reason.lower()
+
+    @pytest.mark.asyncio()
+    async def test_fail_open_circuit_breaker_unexpected_exception_warns(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_OPEN should warn but allow on unexpected circuit breaker exceptions."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+        mock_client.fetch_circuit_breaker_status.side_effect = TypeError("Invalid type")
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_OPEN,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is True
+        assert any("error" in w.lower() for w in result.warnings)
+
+    @pytest.mark.asyncio()
+    async def test_fail_closed_circuit_breaker_request_error_blocks(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_CLOSED should block on circuit breaker network errors."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+        mock_client.fetch_circuit_breaker_status.side_effect = httpx.RequestError(
+            "Connection refused"
+        )
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_CLOSED,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is False
+        assert "unreachable" in result.reason
+
+    @pytest.mark.asyncio()
+    async def test_fail_open_circuit_breaker_request_error_warns(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_OPEN should warn but allow on circuit breaker network errors."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+        mock_client.fetch_circuit_breaker_status.side_effect = httpx.RequestError(
+            "Connection refused"
+        )
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_OPEN,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is True
+        assert any("unreachable" in w for w in result.warnings)
+
+    @pytest.mark.asyncio()
+    async def test_fail_closed_circuit_breaker_http_error_blocks(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_CLOSED should block on circuit breaker HTTP errors."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+        response = MagicMock()
+        response.status_code = 500
+        mock_client.fetch_circuit_breaker_status.side_effect = httpx.HTTPStatusError(
+            "Internal error", request=MagicMock(), response=response
+        )
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_CLOSED,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is False
+        assert "500" in result.reason
+
+    @pytest.mark.asyncio()
+    async def test_fail_open_circuit_breaker_http_error_warns(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_OPEN should warn but allow on circuit breaker HTTP errors."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+        response = MagicMock()
+        response.status_code = 503
+        mock_client.fetch_circuit_breaker_status.side_effect = httpx.HTTPStatusError(
+            "Service unavailable", request=MagicMock(), response=response
+        )
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_OPEN,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is True
+        assert any("503" in w for w in result.warnings)
+
+    @pytest.mark.asyncio()
+    async def test_fail_closed_kill_switch_engaged_blocks(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_CLOSED should block when kill switch is engaged."""
+        mock_client.fetch_kill_switch_status.return_value = {"state": "ENGAGED"}
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_CLOSED,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is False
+        assert "Kill Switch engaged" in result.reason
+
+    @pytest.mark.asyncio()
+    async def test_fail_open_unrecognized_connection_state_warns(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_OPEN should warn on unrecognized connection state."""
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_OPEN,
+            cached_connection_state="LIMBO",  # Unrecognized
+        )
+        assert result.allowed is True
+        assert any("unknown" in w.lower() for w in result.warnings)
+
+    @pytest.mark.asyncio()
+    async def test_fail_closed_4xx_http_error_blocks(
+        self, gate: SafetyGate, mock_client: AsyncMock
+    ) -> None:
+        """FAIL_CLOSED should block on 4xx HTTP errors (invalid request)."""
+        response = MagicMock()
+        response.status_code = 403
+        mock_client.fetch_kill_switch_status.side_effect = httpx.HTTPStatusError(
+            "Forbidden", request=MagicMock(), response=response
+        )
+        result = await gate.check_with_api_verification(
+            policy=SafetyPolicy.FAIL_CLOSED,
+            cached_connection_state="CONNECTED",
+        )
+        assert result.allowed is False
+        assert "403" in result.reason

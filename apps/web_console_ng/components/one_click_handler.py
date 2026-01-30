@@ -38,6 +38,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from nicegui import ui
 
 from apps.web_console_ng.components.safety_gate import SafetyGate, SafetyPolicy
+from apps.web_console_ng.utils.orders import (
+    is_cancellable_order_id,
+    validate_symbol,
+)
 
 if TYPE_CHECKING:
     from apps.web_console_ng.components.fat_finger_validator import FatFingerValidator
@@ -49,10 +53,6 @@ logger = logging.getLogger(__name__)
 # Safety thresholds
 PRICE_STALENESS_THRESHOLD_S = 30  # Block if price older than 30s
 PRICE_MATCH_TOLERANCE = Decimal("0.01")  # $0.01 tolerance for order matching
-
-# ID prefixes that indicate uncancellable orders
-SYNTHETIC_ID_PREFIX = "SYNTH-"
-FALLBACK_ID_PREFIX = "FALLBACK-"
 
 
 @dataclass
@@ -393,13 +393,8 @@ class OneClickHandler:
         failed = 0
         for order in orders_at_level:
             order_id = order.get("client_order_id")
-            # Skip synthetic AND fallback IDs
-            if (
-                not order_id
-                or not isinstance(order_id, str)
-                or order_id.startswith(SYNTHETIC_ID_PREFIX)
-                or order_id.startswith(FALLBACK_ID_PREFIX)
-            ):
+            # Skip uncancellable orders using shared utility
+            if not is_cancellable_order_id(order_id):
                 skipped += 1
                 continue
             try:
@@ -441,12 +436,22 @@ class OneClickHandler:
             args: Event detail dict with mode, symbol, price, side
         """
         mode = args.get("mode")
-        symbol = args.get("symbol")
+        symbol_raw = args.get("symbol")
         price_raw = args.get("price")
         side_raw = args.get("side")
 
-        if not symbol:
+        if not symbol_raw:
             logger.warning("handle_one_click_missing_symbol", extra={"args": args})
+            return
+
+        # Validate and normalize symbol to prevent path traversal attacks
+        symbol, symbol_error = validate_symbol(symbol_raw)
+        if symbol is None:
+            logger.warning(
+                "handle_one_click_invalid_symbol",
+                extra={"args": args, "error": symbol_error},
+            )
+            ui.notify(f"Invalid symbol: {symbol_error}", type="negative")
             return
 
         if mode == "shift_limit":

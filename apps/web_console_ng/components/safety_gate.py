@@ -54,6 +54,14 @@ class SafetyCheckResult:
 READ_ONLY_STATES = {"DISCONNECTED", "RECONNECTING", "DEGRADED"}
 KNOWN_GOOD_STATES = {"CONNECTED"}
 
+# Kill switch state constants
+KILL_SWITCH_ENGAGED_STATES = {"ENGAGED"}
+KILL_SWITCH_SAFE_STATES = {"DISENGAGED", "OFF", "INACTIVE"}
+
+# Circuit breaker state constants
+CIRCUIT_BREAKER_TRIPPED_STATES = {"TRIPPED", "ENGAGED", "ON", "QUIET_PERIOD"}
+CIRCUIT_BREAKER_SAFE_STATES = {"OPEN", "OFF", "INACTIVE", "DISENGAGED"}
+
 
 class SafetyGate:
     """Reusable safety gate for order actions.
@@ -239,12 +247,12 @@ class SafetyGate:
                 self._user_id, role=self._user_role, strategies=self._strategies
             )
             ks_state = str(ks.get("state", "")).upper()
-            if ks_state == "ENGAGED":
+            if ks_state in KILL_SWITCH_ENGAGED_STATES:
                 if policy == SafetyPolicy.FAIL_CLOSED:
                     return SafetyCheckResult(False, "Kill Switch engaged", [])
                 # FAIL_OPEN: Allow risk-reducing actions (flatten/cancel) during kill switch
                 warnings.append("Kill switch ENGAGED - allowed for risk reduction")
-            elif ks_state not in {"DISENGAGED", "OFF", "INACTIVE"}:
+            elif ks_state not in KILL_SWITCH_SAFE_STATES:
                 # Unknown state handling
                 if policy == SafetyPolicy.FAIL_CLOSED:
                     return SafetyCheckResult(
@@ -297,12 +305,12 @@ class SafetyGate:
                 self._user_id, role=self._user_role, strategies=self._strategies
             )
             cb_state = str(cb.get("state", "")).upper()
-            if cb_state in {"TRIPPED", "ENGAGED", "ON", "QUIET_PERIOD"}:
+            if cb_state in CIRCUIT_BREAKER_TRIPPED_STATES:
                 if policy == SafetyPolicy.FAIL_CLOSED:
                     return SafetyCheckResult(False, f"Circuit breaker is {cb_state}", [])
                 # FAIL_OPEN: Warn but allow risk-reducing action
                 warnings.append(f"Warning: Circuit breaker is {cb_state}")
-            elif cb_state not in {"OPEN", "OFF", "INACTIVE", "DISENGAGED"}:
+            elif cb_state not in CIRCUIT_BREAKER_SAFE_STATES:
                 # Unknown state handling
                 if policy == SafetyPolicy.FAIL_CLOSED:
                     return SafetyCheckResult(
@@ -344,4 +352,8 @@ __all__ = [
     "SafetyCheckResult",
     "READ_ONLY_STATES",
     "KNOWN_GOOD_STATES",
+    "KILL_SWITCH_ENGAGED_STATES",
+    "KILL_SWITCH_SAFE_STATES",
+    "CIRCUIT_BREAKER_TRIPPED_STATES",
+    "CIRCUIT_BREAKER_SAFE_STATES",
 ]

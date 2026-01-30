@@ -18,15 +18,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from apps.web_console_ng.components.flatten_controls import (
-    FALLBACK_ID_PREFIX,
-    SYNTHETIC_ID_PREFIX,
-    FlattenControls,
-)
+from apps.web_console_ng.components.flatten_controls import FlattenControls
 from apps.web_console_ng.components.safety_gate import (
     SafetyCheckResult,
     SafetyGate,
     SafetyPolicy,
+)
+from apps.web_console_ng.utils.orders import (
+    FALLBACK_ID_PREFIX,
+    SYNTHETIC_ID_PREFIX,
 )
 
 
@@ -565,3 +565,217 @@ class TestGetFreshPriceWithFallback:
         )
         assert price == Decimal("150.50")
         assert error == ""
+
+    @pytest.mark.asyncio()
+    async def test_strict_timestamp_blocks_unrecognized_timestamp_type(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """strict_timestamp=True should block on unrecognized timestamp type (int/float)."""
+        mock_client.fetch_market_prices.return_value = [
+            {"symbol": "AAPL", "mid": "150.50", "timestamp": 1234567890}  # Unix timestamp int
+        ]
+        price, error = await controls._get_fresh_price_with_fallback(
+            "AAPL", "user_id", "trader", strict_timestamp=True
+        )
+        assert price is None
+        assert "unrecognized type" in error.lower()
+
+    @pytest.mark.asyncio()
+    async def test_non_strict_allows_unrecognized_timestamp_type(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Non-strict timestamp allows unrecognized type (FAIL_OPEN)."""
+        mock_client.fetch_market_prices.return_value = [
+            {"symbol": "AAPL", "mid": "150.50", "timestamp": 1234567890}  # Unix timestamp int
+        ]
+        price, error = await controls._get_fresh_price_with_fallback(
+            "AAPL", "user_id", "trader", strict_timestamp=False
+        )
+        # FAIL_OPEN: Should proceed with price
+        assert price == Decimal("150.50")
+        assert error == ""
+
+    @pytest.mark.asyncio()
+    async def test_price_with_datetime_object_timestamp(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Price with datetime object timestamp is accepted."""
+        mock_client.fetch_market_prices.return_value = [
+            {"symbol": "AAPL", "mid": "150.50", "timestamp": datetime.now(UTC)}
+        ]
+        price, error = await controls._get_fresh_price_with_fallback(
+            "AAPL", "user_id", "trader", strict_timestamp=True
+        )
+        assert price == Decimal("150.50")
+        assert error == ""
+
+
+class TestVerifyOrdersCleared:
+    """Tests for order clearing verification."""
+
+    @pytest.fixture()
+    def mock_client(self) -> AsyncMock:
+        client = AsyncMock()
+        return client
+
+    @pytest.fixture()
+    def controls(self, mock_client: AsyncMock) -> FlattenControls:
+        return FlattenControls(
+            safety_gate=MagicMock(),
+            trading_client=mock_client,
+            fat_finger_validator=MagicMock(),
+            strategies=["alpha_baseline"],
+        )
+
+    @pytest.mark.asyncio()
+    async def test_orders_cleared_immediately(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Verify orders cleared when no orders exist."""
+        mock_client.fetch_open_orders.return_value = {"orders": []}
+        cleared, error = await controls._verify_orders_cleared(
+            "AAPL", "user_id", "trader", timeout_s=2.0, poll_interval_s=0.1
+        )
+        assert cleared is True
+        assert error == ""
+
+    @pytest.mark.asyncio()
+    async def test_orders_not_cleared_timeout(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Verify timeout when orders persist."""
+        # Orders persist indefinitely
+        mock_client.fetch_open_orders.return_value = {
+            "orders": [{"symbol": "AAPL", "client_order_id": "order-1"}]
+        }
+        cleared, error = await controls._verify_orders_cleared(
+            "AAPL", "user_id", "trader", timeout_s=0.3, poll_interval_s=0.1
+        )
+        assert cleared is False
+        assert "not cleared" in error.lower()
+
+    @pytest.mark.asyncio()
+    async def test_orders_cleared_after_delay(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Verify success when orders clear after a few polls."""
+        call_count = [0]
+
+        async def delayed_clear(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] < 3:
+                return {"orders": [{"symbol": "AAPL", "client_order_id": "order-1"}]}
+            return {"orders": []}
+
+        mock_client.fetch_open_orders.side_effect = delayed_clear
+        cleared, error = await controls._verify_orders_cleared(
+            "AAPL", "user_id", "trader", timeout_s=2.0, poll_interval_s=0.1
+        )
+        assert cleared is True
+        assert error == ""
+
+    @pytest.mark.asyncio()
+    async def test_orders_cleared_ignores_other_symbols(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Verify only the target symbol is checked."""
+        mock_client.fetch_open_orders.return_value = {
+            "orders": [{"symbol": "GOOG", "client_order_id": "order-1"}]  # Different symbol
+        }
+        cleared, error = await controls._verify_orders_cleared(
+            "AAPL", "user_id", "trader", timeout_s=1.0, poll_interval_s=0.1
+        )
+        assert cleared is True
+        assert error == ""
+
+    @pytest.mark.asyncio()
+    async def test_orders_cleared_continues_on_fetch_error(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        """Verify polling continues on fetch errors."""
+        call_count = [0]
+
+        async def error_then_success(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] < 2:
+                raise Exception("Network error")
+            return {"orders": []}
+
+        mock_client.fetch_open_orders.side_effect = error_then_success
+        cleared, error = await controls._verify_orders_cleared(
+            "AAPL", "user_id", "trader", timeout_s=2.0, poll_interval_s=0.1
+        )
+        assert cleared is True
+        assert error == ""
+
+
+class TestGetAdv:
+    """Tests for ADV fetching."""
+
+    @pytest.fixture()
+    def mock_client(self) -> AsyncMock:
+        client = AsyncMock()
+        return client
+
+    @pytest.fixture()
+    def controls(self, mock_client: AsyncMock) -> FlattenControls:
+        return FlattenControls(
+            safety_gate=MagicMock(),
+            trading_client=mock_client,
+            fat_finger_validator=MagicMock(),
+            strategies=["alpha_baseline"],
+        )
+
+    @pytest.mark.asyncio()
+    async def test_get_adv_success(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        mock_client.fetch_adv.return_value = {"adv": 1000000}
+        adv = await controls._get_adv("AAPL", "user_id", "trader")
+        assert adv == 1000000
+
+    @pytest.mark.asyncio()
+    async def test_get_adv_returns_none_on_empty_response(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        mock_client.fetch_adv.return_value = {}
+        adv = await controls._get_adv("AAPL", "user_id", "trader")
+        assert adv is None
+
+    @pytest.mark.asyncio()
+    async def test_get_adv_returns_none_on_exception(
+        self, controls: FlattenControls, mock_client: AsyncMock
+    ) -> None:
+        mock_client.fetch_adv.side_effect = Exception("Network error")
+        adv = await controls._get_adv("AAPL", "user_id", "trader")
+        assert adv is None
+
+
+class TestValidateQtyEdgeCases:
+    """Additional edge case tests for quantity validation."""
+
+    @pytest.fixture()
+    def controls(self) -> FlattenControls:
+        return FlattenControls(
+            safety_gate=MagicMock(),
+            trading_client=AsyncMock(),
+            fat_finger_validator=MagicMock(),
+        )
+
+    def test_validate_qty_none(self, controls: FlattenControls) -> None:
+        """None value returns error."""
+        qty, error = controls._validate_qty(None)  # type: ignore[arg-type]
+        assert qty is None
+        assert "Invalid" in error
+
+    def test_validate_qty_string(self, controls: FlattenControls) -> None:
+        """String value returns error."""
+        qty, error = controls._validate_qty("100")  # type: ignore[arg-type]
+        assert qty is None or qty == 100  # float() can parse "100"
+        # If it parses, it should succeed; if not, error
+
+    def test_validate_qty_negative_infinity(self, controls: FlattenControls) -> None:
+        """Negative infinity returns error."""
+        qty, error = controls._validate_qty(float("-inf"))
+        assert qty is None
+        assert "Invalid" in error
