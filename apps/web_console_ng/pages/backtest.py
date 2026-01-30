@@ -1550,17 +1550,19 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
             # Daily returns CSV export (T9.4)
             def download_returns_csv() -> None:
                 """Export daily portfolio returns as CSV."""
-                if not hasattr(result, "daily_portfolio_returns") or result.daily_portfolio_returns is None:
+                df_to_export = None
+                if hasattr(result, "net_portfolio_returns") and result.net_portfolio_returns is not None:
+                    # Prefer net returns DataFrame as it contains gross, cost, and net.
+                    df_to_export = result.net_portfolio_returns
+                elif hasattr(result, "daily_portfolio_returns") and result.daily_portfolio_returns is not None:
+                    # Fallback to gross returns if net is not available.
+                    df_to_export = result.daily_portfolio_returns
+
+                if df_to_export is None:
                     ui.notify("No daily returns data available", type="warning")
                     return
 
-                df = result.daily_portfolio_returns
-                # Add cost columns if available
-                if cost_summary:
-                    # For now, export basic returns; cost breakdown requires full integration
-                    pass
-
-                csv_content = df.write_csv()
+                csv_content = df_to_export.write_csv()
                 ui.download(
                     csv_content.encode() if isinstance(csv_content, str) else csv_content,
                     filename=f"returns_{result.backtest_id}.csv",

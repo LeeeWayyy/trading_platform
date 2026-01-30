@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-30 - P6T9 cost model validation helper extraction -->
+<!-- Last reviewed: 2026-01-30 - P6T9 breakeven guard for low AUM -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

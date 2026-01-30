@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-30 - P6T9 cost model UI configuration -->
+<!-- Last reviewed: 2026-01-30 - P6T9 download net returns when available -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

@@ -851,6 +851,12 @@ def _compute_breakeven_aum(
     # Binary search for breakeven
     low, high = 1000.0, 10_000_000_000.0  # $1K to $10B
 
+    # Guard: Check if net alpha is already negative at lower bound
+    # If so, the strategy is unprofitable even at minimal AUM (costs exceed alpha)
+    net_alpha_at_low = compute_net_alpha(low)
+    if net_alpha_at_low is not None and net_alpha_at_low <= 0:
+        return None  # Strategy unprofitable at minimal AUM, no valid breakeven
+
     # Guard: Check if net alpha is still positive at upper bound
     # If so, breakeven is above our search range (capacity > $10B)
     net_alpha_at_high = compute_net_alpha(high)
