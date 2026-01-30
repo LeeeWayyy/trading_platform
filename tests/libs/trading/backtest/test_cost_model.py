@@ -659,3 +659,276 @@ class TestComputeCapacityAnalysis:
         assert analysis.avg_daily_turnover is None
         assert analysis.implied_max_capacity is None
         assert analysis.limiting_factor is None
+
+    def test_capacity_with_no_adv_volatility(self):
+        """Test capacity analysis when trades have no ADV/volatility data."""
+        config = CostModelConfig(
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "weight": [0.10, 0.20],
+            }
+        )
+
+        # Trades without ADV/volatility
+        trade_costs = [
+            TradeCost(
+                symbol="AAPL",
+                trade_date=date(2024, 1, 1),
+                trade_value_usd=100_000,
+                commission_spread_cost=50,
+                market_impact_cost=0,
+                total_cost_usd=50,
+                total_cost_bps=5.0,
+                adv_usd=None,  # No ADV
+                volatility=None,  # No volatility
+                participation_pct=None,
+            ),
+        ]
+
+        cost_summary = CostSummary(
+            total_gross_return=0.05,
+            total_net_return=0.045,
+            total_cost_drag=0.005,
+            total_cost_usd=50,
+            commission_spread_cost_usd=50,
+            market_impact_cost_usd=0,
+            gross_sharpe=1.5,
+            net_sharpe=1.2,
+            gross_max_drawdown=0.05,
+            net_max_drawdown=0.06,
+            num_trades=1,
+            avg_trade_cost_bps=5.0,
+        )
+
+        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+
+        # Should have turnover but no ADV/sigma due to missing data
+        assert analysis.avg_daily_turnover is not None
+        assert analysis.portfolio_adv is None
+        assert analysis.portfolio_sigma is None
+
+
+class TestCostModelConfigEdgeCases:
+    """Additional edge case tests for CostModelConfig."""
+
+    def test_from_dict_unknown_adv_source(self):
+        """Test from_dict falls back to yahoo for unknown ADV source."""
+        d = {
+            "enabled": True,
+            "bps_per_trade": 5.0,
+            "adv_source": "unknown_source",  # Invalid source
+        }
+        config = CostModelConfig.from_dict(d)
+        assert config.adv_source == ADVSource.YAHOO  # Fallback
+
+
+class TestComputeDailyCostsEdgeCases:
+    """Additional edge case tests for compute_daily_costs."""
+
+    def test_no_trades_tiny_weight_changes(self):
+        """Test compute_daily_costs when all weight changes are below threshold."""
+        config = CostModelConfig(
+            bps_per_trade=5.0,
+            impact_coefficient=0.0,
+            portfolio_value_usd=1_000_000,
+        )
+
+        # Weight changes are very small (< $0.01 trade value)
+        daily_weights = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "weight": [0.0, 0.0, 0.0],  # No weight, no trades
+            }
+        )
+        adv_data = pl.DataFrame({"date": [], "symbol": [], "adv_usd": []}).cast(
+            {"date": pl.Date, "symbol": pl.Utf8, "adv_usd": pl.Float64}
+        )
+        vol_data = pl.DataFrame({"date": [], "symbol": [], "volatility": []}).cast(
+            {"date": pl.Date, "symbol": pl.Utf8, "volatility": pl.Float64}
+        )
+
+        cost_drag_df, trade_costs = compute_daily_costs(
+            daily_weights, adv_data, vol_data, config
+        )
+
+        assert len(trade_costs) == 0
+        assert cost_drag_df.height == 3
+        assert cost_drag_df["cost_drag"].sum() == 0.0
+
+
+class TestCapacityHelperFunctions:
+    """Tests for capacity helper functions via compute_capacity_analysis."""
+
+    def test_capacity_with_valid_gross_alpha(self):
+        """Test capacity analysis computes all constraints with valid data."""
+        config = CostModelConfig(
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "date": [date(2024, 1, i) for i in range(1, 11)],
+                "symbol": ["AAPL"] * 10,
+                "weight": [0.1, 0.15, 0.1, 0.15, 0.1, 0.15, 0.1, 0.15, 0.1, 0.15],
+            }
+        )
+
+        # Trades with full ADV/volatility for capacity calculations
+        trade_costs = [
+            TradeCost(
+                symbol="AAPL",
+                trade_date=date(2024, 1, i),
+                trade_value_usd=50_000,
+                commission_spread_cost=25,
+                market_impact_cost=10,
+                total_cost_usd=35,
+                total_cost_bps=7.0,
+                adv_usd=10_000_000,
+                volatility=0.02,
+                participation_pct=0.005,
+            )
+            for i in range(1, 10)
+        ]
+
+        cost_summary = CostSummary(
+            total_gross_return=0.10,  # 10% gross return
+            total_net_return=0.08,
+            total_cost_drag=0.02,
+            total_cost_usd=20000,
+            commission_spread_cost_usd=12000,
+            market_impact_cost_usd=8000,
+            gross_sharpe=1.5,
+            net_sharpe=1.2,
+            gross_max_drawdown=0.05,
+            net_max_drawdown=0.06,
+            num_trades=9,
+            avg_trade_cost_bps=7.0,
+        )
+
+        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+
+        # All fields should be populated with valid data
+        assert analysis.avg_daily_turnover is not None
+        assert analysis.avg_holding_period_days is not None
+        assert analysis.portfolio_adv is not None
+        assert analysis.portfolio_sigma is not None
+        assert analysis.gross_alpha_annualized is not None
+        assert analysis.impact_aum_5bps is not None
+        assert analysis.impact_aum_10bps is not None
+        assert analysis.participation_aum is not None
+        assert analysis.breakeven_aum is not None
+        assert analysis.implied_max_capacity is not None
+        assert analysis.limiting_factor is not None
+
+    def test_capacity_with_zero_impact_coefficient(self):
+        """Test capacity analysis when impact coefficient is zero."""
+        config = CostModelConfig(
+            impact_coefficient=0.0,  # Zero impact
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "weight": [0.10, 0.20],
+            }
+        )
+
+        trade_costs = [
+            TradeCost(
+                symbol="AAPL",
+                trade_date=date(2024, 1, 1),
+                trade_value_usd=100_000,
+                commission_spread_cost=50,
+                market_impact_cost=0,
+                total_cost_usd=50,
+                total_cost_bps=5.0,
+                adv_usd=10_000_000,
+                volatility=0.02,
+                participation_pct=0.01,
+            ),
+        ]
+
+        cost_summary = CostSummary(
+            total_gross_return=0.05,
+            total_net_return=0.045,
+            total_cost_drag=0.005,
+            total_cost_usd=50,
+            commission_spread_cost_usd=50,
+            market_impact_cost_usd=0,
+            gross_sharpe=1.5,
+            net_sharpe=1.2,
+            gross_max_drawdown=0.05,
+            net_max_drawdown=0.06,
+            num_trades=1,
+            avg_trade_cost_bps=5.0,
+        )
+
+        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+
+        # Impact AUM should be None when impact_coefficient is 0
+        assert analysis.impact_aum_5bps is None
+        assert analysis.impact_aum_10bps is None
+
+    def test_capacity_with_negative_gross_return(self):
+        """Test capacity analysis when gross return is negative (no breakeven)."""
+        config = CostModelConfig(
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "weight": [0.10, 0.20],
+            }
+        )
+
+        trade_costs = [
+            TradeCost(
+                symbol="AAPL",
+                trade_date=date(2024, 1, 1),
+                trade_value_usd=100_000,
+                commission_spread_cost=50,
+                market_impact_cost=20,
+                total_cost_usd=70,
+                total_cost_bps=7.0,
+                adv_usd=10_000_000,
+                volatility=0.02,
+                participation_pct=0.01,
+            ),
+        ]
+
+        cost_summary = CostSummary(
+            total_gross_return=-0.05,  # Negative return
+            total_net_return=-0.06,
+            total_cost_drag=0.01,
+            total_cost_usd=100,
+            commission_spread_cost_usd=50,
+            market_impact_cost_usd=50,
+            gross_sharpe=-0.5,
+            net_sharpe=-0.6,
+            gross_max_drawdown=0.10,
+            net_max_drawdown=0.12,
+            num_trades=1,
+            avg_trade_cost_bps=7.0,
+        )
+
+        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+
+        # Breakeven AUM should be None for negative gross return
+        assert analysis.breakeven_aum is None
