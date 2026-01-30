@@ -34,7 +34,13 @@ if _missing:
 
 import libs.trading.backtest.worker as worker_module
 from libs.trading.alpha.exceptions import JobCancelled
-from libs.trading.backtest.worker import BacktestWorker, record_retry
+from libs.trading.backtest.cost_model import CostModelConfig
+from libs.trading.backtest.worker import (
+    MAX_COST_CONFIG_SIZE,
+    BacktestWorker,
+    _validate_cost_config,
+    record_retry,
+)
 
 
 @pytest.fixture()
@@ -1172,3 +1178,90 @@ class TestProviderRouting:
                 },
                 created_by="test_user",
             )
+
+
+# =============================================================================
+# Cost Config Validation Tests (P6T9)
+# =============================================================================
+
+
+class TestValidateCostConfig:
+    """Tests for _validate_cost_config server-side validation."""
+
+    @pytest.mark.unit()
+    def test_valid_config_passes(self):
+        """Test that valid cost config passes validation."""
+        config = CostModelConfig(enabled=True, bps_per_trade=5.0)
+        raw_params = {"enabled": True, "bps_per_trade": 5.0}
+        # Should not raise
+        _validate_cost_config(config, raw_params)
+
+    @pytest.mark.unit()
+    def test_disabled_config_raises_error(self):
+        """Test that enabled=False raises ValueError."""
+        config = CostModelConfig(enabled=False)
+        raw_params = {"enabled": False}
+        with pytest.raises(ValueError, match="enabled must be True when config is present"):
+            _validate_cost_config(config, raw_params)
+
+    @pytest.mark.unit()
+    def test_oversized_config_raises_error(self):
+        """Test that config exceeding size limit raises ValueError."""
+        config = CostModelConfig(enabled=True)
+        # Create a raw_params dict with a large string to exceed 4KB
+        large_value = "x" * (MAX_COST_CONFIG_SIZE + 1)
+        raw_params = {"enabled": True, "large_field": large_value}
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_cost_config(config, raw_params)
+
+    @pytest.mark.unit()
+    def test_config_at_size_limit_passes(self):
+        """Test that config at exactly the size limit passes."""
+        config = CostModelConfig(enabled=True)
+        # Create a config that is just under the limit
+        # Account for JSON overhead: {"enabled": true, "padding": "xxx..."}
+        base_json = '{"enabled": true, "padding": ""}'
+        base_size = len(base_json.encode("utf-8"))
+        padding_size = MAX_COST_CONFIG_SIZE - base_size
+        raw_params = {"enabled": True, "padding": "x" * padding_size}
+
+        # Verify it's at exactly the limit
+        config_json = json.dumps(raw_params, sort_keys=True)
+        assert len(config_json.encode("utf-8")) == MAX_COST_CONFIG_SIZE
+
+        # Should not raise
+        _validate_cost_config(config, raw_params)
+
+    @pytest.mark.unit()
+    def test_config_just_under_limit_passes(self):
+        """Test that config just under size limit passes."""
+        config = CostModelConfig(enabled=True)
+        # Create a config that is 100 bytes under the limit
+        base_json = '{"enabled": true, "padding": ""}'
+        base_size = len(base_json.encode("utf-8"))
+        padding_size = MAX_COST_CONFIG_SIZE - base_size - 100
+        raw_params = {"enabled": True, "padding": "y" * padding_size}
+
+        # Verify it's under the limit
+        config_json = json.dumps(raw_params, sort_keys=True)
+        assert len(config_json.encode("utf-8")) < MAX_COST_CONFIG_SIZE
+
+        # Should not raise
+        _validate_cost_config(config, raw_params)
+
+    @pytest.mark.unit()
+    def test_config_one_byte_over_limit_raises(self):
+        """Test that config one byte over the limit raises."""
+        config = CostModelConfig(enabled=True)
+        # Create a config that is exactly 1 byte over the limit
+        base_json = '{"enabled": true, "padding": ""}'
+        base_size = len(base_json.encode("utf-8"))
+        padding_size = MAX_COST_CONFIG_SIZE - base_size + 1
+        raw_params = {"enabled": True, "padding": "z" * padding_size}
+
+        # Verify it's over the limit by exactly 1 byte
+        config_json = json.dumps(raw_params, sort_keys=True)
+        assert len(config_json.encode("utf-8")) == MAX_COST_CONFIG_SIZE + 1
+
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_cost_config(config, raw_params)

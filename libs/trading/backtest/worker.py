@@ -286,6 +286,36 @@ def record_retry(job: Any, *exc_info: Any) -> bool:
     return False
 
 
+# Server-side validation constants (P6T9)
+MAX_COST_CONFIG_SIZE = 4096  # 4KB max for cost_model_config JSON (UTF-8 bytes)
+
+
+def _validate_cost_config(config: CostModelConfig, raw_params: dict[str, Any]) -> None:
+    """Validate cost model configuration on server side.
+
+    Args:
+        config: Parsed CostModelConfig object
+        raw_params: Raw dict from extra_params (for size check)
+
+    Raises:
+        ValueError: If validation fails
+    """
+    # Rule: enabled must be True when config is present
+    if not config.enabled:
+        raise ValueError(
+            "cost_model_config.enabled must be True when config is present. "
+            "To disable cost model, omit the config entirely."
+        )
+
+    # Validate config size doesn't exceed limit
+    config_json = json.dumps(raw_params, sort_keys=True)
+    config_size = len(config_json.encode("utf-8"))
+    if config_size > MAX_COST_CONFIG_SIZE:
+        raise ValueError(
+            f"cost_model_config exceeds size limit: {config_size} bytes > {MAX_COST_CONFIG_SIZE} bytes"
+        )
+
+
 def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
     """
     RQ job entrypoint for backtest execution.
@@ -478,6 +508,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None and isinstance(cost_params, dict):
                 cost_config = CostModelConfig.from_dict(cost_params)
+
+                # Server-side validation (P6T9)
+                _validate_cost_config(cost_config, cost_params)
 
                 # Compute costs if cost model is enabled
                 if cost_config.enabled and job_config.provider == DataProvider.CRSP:

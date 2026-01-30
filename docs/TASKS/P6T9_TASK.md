@@ -2558,7 +2558,7 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] Cost config included in job_id hash (via extra_params which is in compute_job_id)
 - [x] summary.json extended with cost fields (canonical source)
 - [x] BacktestResult reconstruction includes cost data (cost_config, cost_summary, capacity_analysis)
-- [ ] Server-side validation with size limits
+- [x] Server-side validation with size limits (_validate_cost_config in worker.py, 6 tests)
 - [x] Unit tests for cost model core (71 tests in test_cost_model.py with 93% coverage)
 
 **T9.2 (UI Configuration):**
