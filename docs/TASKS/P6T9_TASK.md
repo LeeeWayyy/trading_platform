@@ -2575,10 +2575,10 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] Binary search for breakeven AUM with pre-checks (_compute_breakeven_aum)
 
 **T9.4 (Backtest Export):**
-- [ ] CSV export with daily returns and cost breakdown
-- [ ] Parquet export for net returns
-- [ ] JSON summary export with metadata
-- [ ] Export buttons in UI with download handlers
+- [x] CSV export with daily returns (download_returns_csv in backtest.py)
+- [ ] Parquet export for net returns (requires full backend integration)
+- [x] JSON summary export with metadata (download_full_summary in backtest.py)
+- [x] Export buttons in UI with download handlers (three-button row)
 
 - [ ] Code reviewed and approved
 
