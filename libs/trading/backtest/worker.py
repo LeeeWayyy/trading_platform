@@ -309,27 +309,75 @@ def _validate_config_size(raw_params: dict[str, Any]) -> None:
         )
 
 
+def _validate_cost_params_preparse(
+    cost_params: Any, logger: Any, job_id: str
+) -> bool:
+    """Pre-parse validation for cost model parameters.
+
+    Validates the raw cost_params dict BEFORE parsing with CostModelConfig.from_dict().
+    This provides fail-fast security checks and handles enabled=False short-circuit.
+
+    Args:
+        cost_params: Raw value from extra_params["cost_model"]
+        logger: Structured logger for warnings
+        job_id: Job ID for logging context
+
+    Returns:
+        True if cost_params should be parsed with from_dict()
+        False if cost model is explicitly disabled (enabled=False)
+
+    Raises:
+        ValueError: If cost_params is malformed (not a dict, exceeds size, bad enabled type)
+    """
+    # Validate cost_model is a dict (fail loudly on malformed input)
+    if not isinstance(cost_params, dict):
+        raise ValueError(
+            f"cost_model must be a dict, got {type(cost_params).__name__}. "
+            "To disable cost model, omit the config entirely."
+        )
+
+    # Validate size BEFORE parsing (security: prevent resource exhaustion)
+    _validate_config_size(cost_params)
+
+    # Validate enabled field is boolean (prevent string "false" being truthy)
+    enabled_value = cost_params.get("enabled")
+    if enabled_value is not None and not isinstance(enabled_value, bool):
+        raise ValueError(
+            f"cost_model.enabled must be a boolean, got {type(enabled_value).__name__} "
+            f"with value {enabled_value!r}. Use true/false (JSON boolean), not strings."
+        )
+
+    # Short-circuit on enabled=False BEFORE parsing (fail-safe design)
+    # This prevents validation errors from invalid fields when user wants to disable
+    if enabled_value is False:
+        logger.warning(
+            "cost_model_disabled_in_config",
+            job_id=job_id,
+            message="cost_model_config.enabled=False; skipping validation and computation. "
+            "To disable cost model, omit the config entirely.",
+        )
+        return False
+
+    return True
+
+
 def _validate_cost_config(config: CostModelConfig, logger: Any, job_id: str) -> bool:
     """Validate cost model configuration on server side.
 
+    Note: enabled=False is handled BEFORE parsing in the caller (fail-safe design).
+    This function validates the parsed config after from_dict() succeeds.
+
     Args:
-        config: Parsed CostModelConfig object
+        config: Parsed CostModelConfig object (enabled=True at this point)
         logger: Structured logger for warnings
         job_id: Job ID for logging context
 
     Returns:
         True if cost model should be applied, False if it should be skipped
     """
-    # If enabled=False, warn and skip (fail-safe design)
-    if not config.enabled:
-        logger.warning(
-            "cost_model_disabled_in_config",
-            job_id=job_id,
-            message="cost_model_config.enabled=False; ignoring config. "
-            "To disable cost model, omit the config entirely.",
-        )
-        return False
-
+    # Note: enabled=False is short-circuited before parsing in run_backtest_job().
+    # If we reach here, config.enabled is True (from_dict default or explicit True).
+    # No additional enabled check needed - validation happens pre-parse.
     return True
 
 
@@ -525,39 +573,12 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             net_returns_df: Any | None = None  # For T9.4 Parquet export
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None:
-                # Validate cost_model is a dict (fail loudly on malformed input)
-                if not isinstance(cost_params, dict):
-                    raise ValueError(
-                        f"cost_model must be a dict, got {type(cost_params).__name__}. "
-                        "To disable cost model, omit the config entirely."
-                    )
-
-                # Validate size BEFORE parsing (security: prevent resource exhaustion)
-                _validate_config_size(cost_params)
-
-                # Validate enabled field is boolean (prevent string "false" being truthy)
-                enabled_value = cost_params.get("enabled")
-                if enabled_value is not None and not isinstance(enabled_value, bool):
-                    raise ValueError(
-                        f"cost_model.enabled must be a boolean, got {type(enabled_value).__name__} "
-                        f"with value {enabled_value!r}. Use true/false (JSON boolean), not strings."
-                    )
-
-                # Short-circuit on enabled=False BEFORE parsing (fail-safe design)
-                # This prevents validation errors from invalid fields when user wants to disable
-                if enabled_value is False:
-                    worker.logger.warning(
-                        "cost_model_disabled_in_config",
-                        job_id=job_id,
-                        message="cost_model_config.enabled=False; skipping validation and computation. "
-                        "To disable cost model, omit the config entirely.",
-                    )
-                    # cost_config remains None, preventing UI/DB persistence
-                else:
-                    # Only parse and validate if enabled
+                # Pre-parse validation (type, size, enabled checks)
+                if _validate_cost_params_preparse(cost_params, worker.logger, job_id):
+                    # Parse and validate config (enabled != False)
                     cost_config = CostModelConfig.from_dict(cost_params)
 
-                    # Validate config and check if cost model should be applied
+                    # Post-parse validation (reserved for future checks)
                     if not _validate_cost_config(cost_config, worker.logger, job_id):
                         # Validation failed (e.g., enabled field missing/invalid)
                         cost_config = None  # Ensure cost_config is None if validation fails

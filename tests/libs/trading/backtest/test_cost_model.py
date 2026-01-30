@@ -853,17 +853,20 @@ class TestCapacityHelperFunctions:
             for i in range(1, 10)
         ]
 
+        # Use realistic returns that produce achievable breakeven:
+        # 0.4% gross return over 10 days annualizes to ~10% alpha
+        # (1 + 0.004)^(252/10) - 1 ≈ 0.10
         cost_summary = CostSummary(
-            total_gross_return=0.10,  # 10% gross return
-            total_net_return=0.08,
-            total_cost_drag=0.02,
-            total_cost_usd=20000,
-            commission_spread_cost_usd=12000,
-            market_impact_cost_usd=8000,
+            total_gross_return=0.004,  # 0.4% gross return (realistic for 10 days)
+            total_net_return=0.003,
+            total_cost_drag=0.001,
+            total_cost_usd=1000,
+            commission_spread_cost_usd=600,
+            market_impact_cost_usd=400,
             gross_sharpe=1.5,
             net_sharpe=1.2,
-            gross_max_drawdown=0.05,
-            net_max_drawdown=0.06,
+            gross_max_drawdown=0.02,
+            net_max_drawdown=0.025,
             num_trades=9,
             avg_trade_cost_bps=7.0,
         )
@@ -879,6 +882,9 @@ class TestCapacityHelperFunctions:
         assert analysis.impact_aum_5bps is not None
         assert analysis.impact_aum_10bps is not None
         assert analysis.participation_aum is not None
+        # breakeven_aum may be None if alpha is too high or impact is too low
+        # to reach breakeven within search bounds ($10B). With realistic data,
+        # it should be populated.
         assert analysis.breakeven_aum is not None
         assert analysis.implied_max_capacity is not None
         assert analysis.limiting_factor is not None

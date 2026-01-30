@@ -850,6 +850,13 @@ def _compute_breakeven_aum(
 
     # Binary search for breakeven
     low, high = 1000.0, 10_000_000_000.0  # $1K to $10B
+
+    # Guard: Check if net alpha is still positive at upper bound
+    # If so, breakeven is above our search range (capacity > $10B)
+    net_alpha_at_high = compute_net_alpha(high)
+    if net_alpha_at_high is not None and net_alpha_at_high > 0:
+        return None  # Capacity exceeds $10B, no breakeven in search range
+
     for _ in range(50):  # Max iterations
         mid = (low + high) / 2
         net_alpha = compute_net_alpha(mid)

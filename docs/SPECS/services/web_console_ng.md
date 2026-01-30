@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-29 - P6T5 grid enhancements + parent_order_id filter + test coverage improvements -->
+<!-- Last reviewed: 2026-01-30 - P6T9 cost model UI configuration -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

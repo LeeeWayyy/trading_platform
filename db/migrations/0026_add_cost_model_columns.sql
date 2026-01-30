@@ -29,7 +29,7 @@ ALTER TABLE backtest_jobs
 ADD COLUMN IF NOT EXISTS cost_summary JSONB DEFAULT NULL;
 
 -- Partial index for cost-enabled backtests (optimizes queries filtering by cost enabled)
--- Uses GIN operator class for JSONB containment queries
+-- Uses B-tree expression index on extracted text value with boolean cast
 CREATE INDEX IF NOT EXISTS idx_backtest_jobs_cost_enabled
 ON backtest_jobs ((cost_config->>'enabled'))
 WHERE cost_config IS NOT NULL AND (cost_config->>'enabled')::boolean = true;

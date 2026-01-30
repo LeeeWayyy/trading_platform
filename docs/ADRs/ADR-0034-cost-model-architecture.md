@@ -1,6 +1,6 @@
 # ADR-0034: Cost Model Architecture for Backtesting
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-01-29
 
 ## Context
@@ -80,7 +80,7 @@ Add partial index for cost-enabled backtests:
 ```sql
 CREATE INDEX IF NOT EXISTS idx_backtest_jobs_cost_enabled
 ON backtest_jobs ((cost_config->>'enabled'))
-WHERE cost_config IS NOT NULL AND cost_config->>'enabled' = 'true';
+WHERE cost_config IS NOT NULL AND (cost_config->>'enabled')::boolean = true;
 ```
 
 ### 3. Capacity Analysis

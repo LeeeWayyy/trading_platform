@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-18 - portfolio_optimizer.py empty universe handling -->
+<!-- Last reviewed: 2026-01-30 - P6T9 cost model validation helper extraction -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

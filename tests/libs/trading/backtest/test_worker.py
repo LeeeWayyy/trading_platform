@@ -1273,7 +1273,11 @@ class TestValidateConfigSize:
 
 
 class TestValidateCostConfig:
-    """Tests for _validate_cost_config enabled flag validation."""
+    """Tests for _validate_cost_config post-parse validation.
+
+    Note: enabled=False is handled pre-parse in _validate_cost_params_preparse.
+    _validate_cost_config only sees configs where enabled != False.
+    """
 
     @pytest.mark.unit()
     def test_enabled_config_returns_true(self):
@@ -1285,16 +1289,73 @@ class TestValidateCostConfig:
         logger.warning.assert_not_called()
 
     @pytest.mark.unit()
-    def test_disabled_config_returns_false_and_warns(self):
-        """Test that enabled=False returns False and logs warning."""
-        config = CostModelConfig(enabled=False)
+    def test_post_parse_always_returns_true(self):
+        """Test that _validate_cost_config always returns True (enabled=False handled pre-parse)."""
+        # Note: enabled=False configs never reach _validate_cost_config;
+        # they are short-circuited in _validate_cost_params_preparse.
+        # This test verifies the function returns True for any config that reaches it.
+        config = CostModelConfig(enabled=True, bps_per_trade=10.0, impact_coefficient=0.2)
         logger = MagicMock()
-        result = _validate_cost_config(config, logger, "job123")
+        result = _validate_cost_config(config, logger, "job456")
+        assert result is True
+
+
+class TestValidateCostParamsPreparse:
+    """Tests for _validate_cost_params_preparse pre-parse validation."""
+
+    @pytest.mark.unit()
+    def test_enabled_false_returns_false_and_warns(self):
+        """Test that enabled=False returns False and logs warning."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"enabled": False}
+        logger = MagicMock()
+        result = _validate_cost_params_preparse(cost_params, logger, "job123")
         assert result is False
         logger.warning.assert_called_once()
         call_args = logger.warning.call_args
         assert "cost_model_disabled_in_config" in call_args.args[0]
         assert call_args.kwargs["job_id"] == "job123"
+
+    @pytest.mark.unit()
+    def test_enabled_true_returns_true(self):
+        """Test that enabled=True returns True (proceed with parsing)."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"enabled": True, "bps_per_trade": 5.0}
+        logger = MagicMock()
+        result = _validate_cost_params_preparse(cost_params, logger, "job123")
+        assert result is True
+        logger.warning.assert_not_called()
+
+    @pytest.mark.unit()
+    def test_enabled_none_returns_true(self):
+        """Test that missing enabled field (None) returns True (default is enabled)."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"bps_per_trade": 5.0}  # enabled not specified
+        logger = MagicMock()
+        result = _validate_cost_params_preparse(cost_params, logger, "job123")
+        assert result is True
+
+    @pytest.mark.unit()
+    def test_non_dict_raises_error(self):
+        """Test that non-dict cost_params raises ValueError."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        logger = MagicMock()
+        with pytest.raises(ValueError, match="cost_model must be a dict"):
+            _validate_cost_params_preparse("not a dict", logger, "job123")
+
+    @pytest.mark.unit()
+    def test_string_enabled_raises_error(self):
+        """Test that string enabled value raises ValueError."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"enabled": "true"}  # String, not boolean
+        logger = MagicMock()
+        with pytest.raises(ValueError, match="must be a boolean"):
+            _validate_cost_params_preparse(cost_params, logger, "job123")
 
 
 # =============================================================================

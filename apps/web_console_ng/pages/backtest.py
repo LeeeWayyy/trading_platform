@@ -455,18 +455,18 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             # Set adv_source based on provider to accurately represent data provenance
             # CRSP provider uses PIT-compliant CRSP ADV data; Yahoo uses yahoo data
             adv_source = "crsp" if provider == DataProvider.CRSP else "yahoo"
-            # Use explicit None checks to allow valid zero values (e.g., 0 bps commission)
-            bps = bps_per_trade_input.value if bps_per_trade_input.value is not None else 5.0
-            impact = impact_coefficient_input.value if impact_coefficient_input.value is not None else 0.1
-            part_limit = participation_limit_input.value if participation_limit_input.value is not None else 5.0
-            port_value = portfolio_value_input.value if portfolio_value_input.value is not None else 1_000_000
+            # Let the backend handle None values and type coercion.
+            # The UI provides the participation limit in %, so we convert it to a fraction.
+            part_limit_val = participation_limit_input.value
+            part_limit_fraction = (part_limit_val / 100.0) if part_limit_val is not None else None
+
             return {
                 "enabled": True,
-                "bps_per_trade": float(bps),
-                "impact_coefficient": float(impact),
-                "participation_limit": float(part_limit) / 100,
+                "bps_per_trade": bps_per_trade_input.value,
+                "impact_coefficient": impact_coefficient_input.value,
+                "participation_limit": part_limit_fraction,
                 "adv_source": adv_source,
-                "portfolio_value_usd": float(port_value),
+                "portfolio_value_usd": portfolio_value_input.value,
             }
 
         async def submit_job() -> None:
