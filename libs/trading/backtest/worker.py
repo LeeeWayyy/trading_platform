@@ -505,6 +505,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             cost_config: CostModelConfig | None = None
             cost_summary: CostSummary | None = None
             capacity_analysis: dict[str, Any] | None = None
+            net_returns_df: Any | None = None  # For T9.4 Parquet export
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None and isinstance(cost_params, dict):
                 cost_config = CostModelConfig.from_dict(cost_params)
@@ -542,6 +543,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         participation_violations=cost_result.participation_violations,
                     )
 
+                    # Extract net returns for Parquet export (T9.4)
+                    net_returns_df = cost_result.net_returns_df
+
                     # Extend dataset_version_ids with cost data source info
                     # Cost data comes from same CRSP provider, so use crsp_daily version
                     if result.dataset_version_ids is not None:
@@ -559,7 +563,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
 
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
             result_path = _save_parquet_artifacts(
-                job_id, result, cost_config, cost_summary, capacity_analysis
+                job_id, result, cost_config, cost_summary, capacity_analysis, net_returns_df
             )
 
             worker.update_progress(job_id, 95, "saving_db", job_timeout=job_timeout)
@@ -636,6 +640,7 @@ def _save_parquet_artifacts(
     cost_config: CostModelConfig | None = None,
     cost_summary: CostSummary | None = None,
     capacity_analysis: dict[str, Any] | None = None,
+    net_returns_df: Any | None = None,
 ) -> Path:
     """
     Save bulk time-series data to Parquet files.
@@ -719,6 +724,22 @@ def _save_parquet_artifacts(
             price_cols.append("symbol")
         result.daily_prices.select(price_cols).write_parquet(
             result_dir / "daily_prices.parquet",
+            compression="snappy",
+        )
+
+    # Save net returns if cost model computed (T9.4)
+    if net_returns_df is not None and not net_returns_df.is_empty():
+        required_net_return_schema = {
+            "date": pl.Date,
+            "gross_return": pl.Float64,
+            "cost_drag": pl.Float64,
+            "net_return": pl.Float64,
+        }
+        _validate_schema(net_returns_df, required_net_return_schema)
+        net_returns_df.select(
+            ["date", "gross_return", "cost_drag", "net_return"]
+        ).cast(cast(Any, required_net_return_schema)).write_parquet(
+            result_dir / "net_portfolio_returns.parquet",
             compression="snappy",
         )
 

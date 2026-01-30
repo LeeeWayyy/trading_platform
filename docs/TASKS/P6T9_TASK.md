@@ -2576,9 +2576,9 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 
 **T9.4 (Backtest Export):**
 - [x] CSV export with daily returns (download_returns_csv in backtest.py)
-- [ ] Parquet export for net returns (requires full backend integration)
+- [x] Parquet export for net returns (net_portfolio_returns.parquet with full backend integration)
 - [x] JSON summary export with metadata (download_full_summary in backtest.py)
-- [x] Export buttons in UI with download handlers (three-button row)
+- [x] Export buttons in UI with download handlers (four-button row with conditional Parquet)
 
 - [ ] Code reviewed and approved
 

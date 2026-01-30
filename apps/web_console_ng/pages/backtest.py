@@ -1596,10 +1596,29 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                     filename=f"summary_{result.backtest_id}.json",
                 )
 
+            # Net returns Parquet export (T9.4)
+            def download_net_returns_parquet() -> None:
+                """Export net portfolio returns as Parquet file."""
+                if not hasattr(result, "net_portfolio_returns") or result.net_portfolio_returns is None:
+                    ui.notify("No net returns data available (cost model not applied)", type="warning")
+                    return
+
+                import io
+                buffer = io.BytesIO()
+                result.net_portfolio_returns.write_parquet(buffer)
+                buffer.seek(0)
+                ui.download(
+                    buffer.getvalue(),
+                    filename=f"net_returns_{result.backtest_id}.parquet",
+                )
+
             with ui.row().classes("gap-2"):
                 ui.button("Download Metrics JSON", on_click=download_metrics)
                 ui.button("Download Returns CSV", on_click=download_returns_csv)
                 ui.button("Download Full Summary", on_click=download_full_summary)
+                # Only show Parquet button if net returns available
+                if hasattr(result, "net_portfolio_returns") and result.net_portfolio_returns is not None:
+                    ui.button("Download Net Returns Parquet", on_click=download_net_returns_parquet)
     else:
         ui.label("Export requires EXPORT_DATA permission (Operator or Admin role)").classes(
             "text-sm text-gray-500 mt-4"

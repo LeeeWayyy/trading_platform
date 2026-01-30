@@ -92,6 +92,9 @@ class BacktestResult:
     cost_summary: dict[str, Any] | None = None
     capacity_analysis: dict[str, Any] | None = None
 
+    # Net portfolio returns (T9.4) - includes gross_return, cost_drag, net_return per date
+    net_portfolio_returns: pl.DataFrame | None = None
+
     @property
     def average_turnover(self) -> float:
         """Average daily turnover."""
