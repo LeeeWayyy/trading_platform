@@ -5,14 +5,11 @@ phase: P6
 task: T9
 priority: P1
 owner: "@development-team"
-state: PLANNING
+state: IMPLEMENTATION
 created: 2026-01-13
 updated: 2026-01-29
 dependencies: [P5]
-related_adrs: [ADR-0031-nicegui-migration]
-# NOTE: ADR for cost-model-architecture MUST be created as first implementation step
-# Location: docs/ADRs/ADR-{next}-cost-model-architecture.md
-# The ADR number will be assigned when created (next available after ADR-0031)
+related_adrs: [ADR-0031-nicegui-migration, ADR-0034-cost-model-architecture]
 related_docs: [P6_PLANNING.md]
 features: [T9.1, T9.2, T9.3, T9.4]
 ---
@@ -2547,12 +2544,10 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 ## Definition of Done
 
 **Pre-Implementation (BLOCKING - Complete BEFORE any code):**
-- [ ] **Create ADR for cost-model-architecture** (required per repo policy)
-  - First step: Find next ADR number: `ls docs/ADRs/ | grep -oE 'ADR-[0-9]+' | sort -V | tail -1`
-  - Create: `docs/ADRs/ADR-{next}-cost-model-architecture.md` (increment last number by 1)
+- [x] **Create ADR for cost-model-architecture** (required per repo policy)
+  - Created: `docs/ADRs/ADR-0034-cost-model-architecture.md`
   - Content: Database schema decisions, cost model architecture, export API design
-  - Update this task file's `related_adrs` with the assigned ADR number
-  - This ADR MUST be merged before any implementation code is written
+  - Updated `related_adrs` with ADR-0034
 
 **T9.1 (Transaction Cost Model):**
 - [ ] AUM/portfolio_value_usd configurable in job config
