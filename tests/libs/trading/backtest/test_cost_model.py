@@ -86,6 +86,31 @@ class TestCostModelConfig:
         with pytest.raises(ValueError, match="portfolio_value_usd must be > 0"):
             CostModelConfig(portfolio_value_usd=-100.0)
 
+    def test_from_dict_coerces_string_to_float(self):
+        """Test from_dict raises ValueError for string numeric fields."""
+        with pytest.raises(ValueError, match="cost_model.bps_per_trade must be a number"):
+            CostModelConfig.from_dict({"bps_per_trade": "five"})
+
+    def test_from_dict_coerces_string_number_to_float(self):
+        """Test from_dict coerces valid string numbers to float."""
+        # Valid numeric strings should be coerced
+        config = CostModelConfig.from_dict({"bps_per_trade": "5.5"})
+        assert config.bps_per_trade == 5.5
+
+    def test_from_dict_rejects_string_boolean(self):
+        """Test from_dict rejects string 'true'/'false' for enabled field."""
+        with pytest.raises(ValueError, match="cost_model.enabled must be a boolean"):
+            CostModelConfig.from_dict({"enabled": "true"})
+
+    def test_from_dict_handles_none_with_defaults(self):
+        """Test from_dict uses defaults when values are None."""
+        config = CostModelConfig.from_dict({
+            "bps_per_trade": None,
+            "impact_coefficient": None,
+        })
+        assert config.bps_per_trade == 5.0  # default
+        assert config.impact_coefficient == 0.1  # default
+
     def test_to_dict(self):
         """Test serialization to dictionary."""
         config = CostModelConfig(bps_per_trade=7.5, adv_source=ADVSource.ALPACA)
@@ -1324,6 +1349,109 @@ class TestBacktestCostResult:
         assert result.adv_fallback_count == 5
         assert result.volatility_fallback_count == 3
         assert result.participation_violations == 2
+
+
+class TestCapacityGrossReturnEdgeCases:
+    """Tests for capacity analysis with extreme gross returns."""
+
+    def test_capacity_handles_negative_100_percent_return(self):
+        """Test capacity analysis doesn't crash on -100% gross return."""
+        config = CostModelConfig(
+            impact_coefficient=0.1,
+            participation_limit=0.05,
+            portfolio_value_usd=1_000_000,
+        )
+
+        daily_weights = pl.DataFrame(
+            {
+                "date": [date(2024, 1, i) for i in range(1, 6)],
+                "symbol": ["AAPL"] * 5,
+                "weight": [0.1] * 5,
+            }
+        )
+
+        trade_costs = [
+            TradeCost(
+                symbol="AAPL",
+                trade_date=date(2024, 1, i),
+                trade_value_usd=50_000,
+                commission_spread_cost=25,
+                market_impact_cost=10,
+                total_cost_usd=35,
+                total_cost_bps=7.0,
+                adv_usd=10_000_000,
+                volatility=0.02,
+                participation_pct=0.005,
+            )
+            for i in range(1, 5)
+        ]
+
+        # Extreme case: -100% gross return (total loss)
+        cost_summary = CostSummary(
+            total_gross_return=-1.0,  # -100% return
+            total_net_return=-1.02,
+            total_cost_drag=0.02,
+            total_cost_usd=20000,
+            commission_spread_cost_usd=12000,
+            market_impact_cost_usd=8000,
+            gross_sharpe=-2.0,
+            net_sharpe=-2.5,
+            gross_max_drawdown=1.0,
+            net_max_drawdown=1.02,
+            num_trades=4,
+            avg_trade_cost_bps=7.0,
+        )
+
+        # Should not raise - gross_alpha_annual should be None
+        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+
+        # gross_alpha_annualized should be None (guarded against -100% return)
+        assert analysis.gross_alpha_annualized is None
+        # breakeven_aum should also be None (depends on gross_alpha_annualized)
+        assert analysis.breakeven_aum is None
+
+    def test_capacity_handles_worse_than_negative_100_percent(self):
+        """Test capacity analysis doesn't crash on < -100% gross return."""
+        config = CostModelConfig()
+
+        daily_weights = pl.DataFrame(
+            {"date": [date(2024, 1, 1)], "symbol": ["AAPL"], "weight": [0.1]}
+        )
+
+        trade_costs = [
+            TradeCost(
+                symbol="AAPL",
+                trade_date=date(2024, 1, 1),
+                trade_value_usd=50_000,
+                commission_spread_cost=25,
+                market_impact_cost=10,
+                total_cost_usd=35,
+                total_cost_bps=7.0,
+                adv_usd=10_000_000,
+                volatility=0.02,
+                participation_pct=0.005,
+            )
+        ]
+
+        # Extreme case: -150% gross return (leveraged loss)
+        cost_summary = CostSummary(
+            total_gross_return=-1.5,  # -150% return (possible with leverage)
+            total_net_return=-1.52,
+            total_cost_drag=0.02,
+            total_cost_usd=1000,
+            commission_spread_cost_usd=600,
+            market_impact_cost_usd=400,
+            gross_sharpe=-3.0,
+            net_sharpe=-3.2,
+            gross_max_drawdown=1.5,
+            net_max_drawdown=1.52,
+            num_trades=1,
+            avg_trade_cost_bps=7.0,
+        )
+
+        # Should not raise
+        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        assert analysis.gross_alpha_annualized is None
 
 
 class TestImpactAumScaling:

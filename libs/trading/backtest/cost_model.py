@@ -97,7 +97,11 @@ class CostModelConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CostModelConfig:
-        """Deserialize from dictionary."""
+        """Deserialize from dictionary with type coercion.
+
+        Raises:
+            ValueError: If required fields cannot be coerced to expected types.
+        """
         adv_source_str = data.get("adv_source", "yahoo")
         try:
             adv_source = ADVSource(adv_source_str)
@@ -105,13 +109,40 @@ class CostModelConfig:
             # Fallback to yahoo for unknown sources
             adv_source = ADVSource.YAHOO
 
+        # Type coercion with explicit error messages
+        def _coerce_float(field: str, value: Any, default: float) -> float:
+            if value is None:
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError) as e:
+                raise ValueError(
+                    f"cost_model.{field} must be a number, got {type(value).__name__}: {value!r}"
+                ) from e
+
+        def _coerce_bool(field: str, value: Any, default: bool) -> bool:
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return value
+            # Reject string "true"/"false" - must be actual boolean
+            raise ValueError(
+                f"cost_model.{field} must be a boolean, got {type(value).__name__}: {value!r}"
+            )
+
         return cls(
-            enabled=data.get("enabled", True),
-            bps_per_trade=data.get("bps_per_trade", 5.0),
-            impact_coefficient=data.get("impact_coefficient", 0.1),
-            participation_limit=data.get("participation_limit", 0.05),
+            enabled=_coerce_bool("enabled", data.get("enabled"), True),
+            bps_per_trade=_coerce_float("bps_per_trade", data.get("bps_per_trade"), 5.0),
+            impact_coefficient=_coerce_float(
+                "impact_coefficient", data.get("impact_coefficient"), 0.1
+            ),
+            participation_limit=_coerce_float(
+                "participation_limit", data.get("participation_limit"), 0.05
+            ),
             adv_source=adv_source,
-            portfolio_value_usd=data.get("portfolio_value_usd", 1_000_000.0),
+            portfolio_value_usd=_coerce_float(
+                "portfolio_value_usd", data.get("portfolio_value_usd"), 1_000_000.0
+            ),
         )
 
 
@@ -671,10 +702,17 @@ def compute_capacity_analysis(
         portfolio_sigma = weighted_sigma / total_trade_value if weighted_sigma > 0 else None
 
     # Gross alpha annualized
+    # Guard: gross_alpha must be > -1 to avoid complex/undefined exponentiation
+    # A gross return of -100% or worse means total loss; capacity is irrelevant
     gross_alpha = cost_summary.total_gross_return
     trading_days = num_days
     gross_alpha_annual = None
-    if gross_alpha is not None and math.isfinite(gross_alpha) and trading_days > 0:
+    if (
+        gross_alpha is not None
+        and math.isfinite(gross_alpha)
+        and gross_alpha > -1.0  # Prevent (1+gross_alpha) <= 0 causing crash
+        and trading_days > 0
+    ):
         gross_alpha_annual = (1 + gross_alpha) ** (252 / trading_days) - 1
 
     # Capacity constraints
