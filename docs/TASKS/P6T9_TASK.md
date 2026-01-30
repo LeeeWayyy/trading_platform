@@ -2562,17 +2562,17 @@ tests/libs/trading/backtest/test_capacity_analysis.py
 - [x] Unit tests for cost model core (46 tests in test_cost_model.py)
 
 **T9.2 (UI Configuration):**
-- [ ] Cost model configuration form in backtest.py
-- [ ] Portfolio value input with validation
-- [ ] Cost summary display in results view
-- [ ] Capacity analysis display with constraint details
-- [ ] Warning indicators for fallbacks and violations
+- [x] Cost model configuration form in backtest.py
+- [x] Portfolio value input with validation
+- [x] Cost summary display in results view
+- [x] Capacity analysis display with constraint details
+- [ ] Warning indicators for fallbacks and violations (requires backend integration)
 
 **T9.3 (Capacity Analysis):**
-- [ ] Capacity defined with explicit constraints and formulas
-- [ ] Trade-weighted ADV/volatility aggregation
-- [ ] Net alpha computation implemented (compounded basis)
-- [ ] Binary search for breakeven AUM with pre-checks
+- [x] Capacity defined with explicit constraints and formulas (compute_capacity_analysis)
+- [x] Trade-weighted ADV/volatility aggregation (in compute_capacity_analysis)
+- [x] Net alpha computation implemented (compounded basis - compute_compounded_return)
+- [x] Binary search for breakeven AUM with pre-checks (_compute_breakeven_aum)
 
 **T9.4 (Backtest Export):**
 - [ ] CSV export with daily returns and cost breakdown
