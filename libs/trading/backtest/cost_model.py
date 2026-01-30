@@ -147,6 +147,9 @@ class CostSummary:
         net_max_drawdown: Maximum drawdown of net returns, None if invalid
         num_trades: Total number of trades
         avg_trade_cost_bps: Average cost per trade in basis points
+        adv_fallback_count: Number of trades using ADV fallback
+        volatility_fallback_count: Number of trades using volatility fallback
+        participation_violations: Number of trades exceeding participation limit
     """
 
     total_gross_return: float | None
@@ -161,6 +164,9 @@ class CostSummary:
     net_max_drawdown: float | None
     num_trades: int
     avg_trade_cost_bps: float
+    adv_fallback_count: int = 0
+    volatility_fallback_count: int = 0
+    participation_violations: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
@@ -177,6 +183,9 @@ class CostSummary:
             "net_max_drawdown": self.net_max_drawdown,
             "num_trades": self.num_trades,
             "avg_trade_cost_bps": self.avg_trade_cost_bps,
+            "adv_fallback_count": self.adv_fallback_count,
+            "volatility_fallback_count": self.volatility_fallback_count,
+            "participation_violations": self.participation_violations,
         }
 
     @classmethod
@@ -195,6 +204,9 @@ class CostSummary:
             net_max_drawdown=data.get("net_max_drawdown"),
             num_trades=data.get("num_trades", 0),
             avg_trade_cost_bps=data.get("avg_trade_cost_bps", 0.0),
+            adv_fallback_count=data.get("adv_fallback_count", 0),
+            volatility_fallback_count=data.get("volatility_fallback_count", 0),
+            participation_violations=data.get("participation_violations", 0),
         )
 
 
@@ -539,6 +551,9 @@ def compute_cost_summary(
     net_returns: list[float],
     trade_costs: list[TradeCost],
     portfolio_value_usd: float,
+    adv_fallback_count: int = 0,
+    volatility_fallback_count: int = 0,
+    participation_violations: int = 0,
 ) -> CostSummary:
     """Compute summary statistics for transaction costs.
 
@@ -547,6 +562,9 @@ def compute_cost_summary(
         net_returns: List of daily net returns
         trade_costs: List of TradeCost objects
         portfolio_value_usd: Portfolio value (for cost drag calculation)
+        adv_fallback_count: Number of trades using ADV fallback
+        volatility_fallback_count: Number of trades using volatility fallback
+        participation_violations: Number of trades exceeding participation limit
 
     Returns:
         CostSummary with aggregated statistics
@@ -571,6 +589,9 @@ def compute_cost_summary(
         net_max_drawdown=compute_max_drawdown(net_returns),
         num_trades=len(trade_costs),
         avg_trade_cost_bps=avg_cost_bps,
+        adv_fallback_count=adv_fallback_count,
+        volatility_fallback_count=volatility_fallback_count,
+        participation_violations=participation_violations,
     )
 
 
@@ -1119,6 +1140,9 @@ def compute_backtest_costs(
         net_returns=net_return_list,
         trade_costs=trade_costs,
         portfolio_value_usd=config.portfolio_value_usd,
+        adv_fallback_count=adv_fallback,
+        volatility_fallback_count=vol_fallback,
+        participation_violations=violations,
     )
 
     # Compute capacity analysis

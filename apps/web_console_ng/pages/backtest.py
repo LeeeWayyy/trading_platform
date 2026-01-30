@@ -1418,6 +1418,28 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                     if net_max_dd is not None:
                         ui.label(f"Net Max Drawdown: {net_max_dd:.1%}").classes("text-sm")
 
+            # Data quality warnings (P6T9 - T9.2)
+            adv_fallbacks = cost_summary.get("adv_fallback_count", 0)
+            vol_fallbacks = cost_summary.get("volatility_fallback_count", 0)
+            violations = cost_summary.get("participation_violations", 0)
+
+            if adv_fallbacks > 0 or vol_fallbacks > 0 or violations > 0:
+                ui.separator().classes("my-2")
+                ui.label("Data Quality Warnings").classes("text-sm font-bold text-amber-600")
+                with ui.column().classes("gap-1 mt-1"):
+                    if adv_fallbacks > 0:
+                        ui.label(
+                            f"⚠️ {adv_fallbacks} trades used ADV fallback (missing volume data)"
+                        ).classes("text-xs text-amber-600")
+                    if vol_fallbacks > 0:
+                        ui.label(
+                            f"⚠️ {vol_fallbacks} trades used volatility fallback (missing return data)"
+                        ).classes("text-xs text-amber-600")
+                    if violations > 0:
+                        ui.label(
+                            f"⚠️ {violations} trades exceeded ADV participation limit"
+                        ).classes("text-xs text-amber-600")
+
         # Capacity Analysis (T9.3 display)
         if capacity_analysis:
             with ui.expansion("Capacity Analysis", icon="analytics").classes("w-full mb-4"):
