@@ -528,13 +528,27 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 # Validate size BEFORE parsing (security: prevent resource exhaustion)
                 _validate_config_size(cost_params)
 
-                cost_config = CostModelConfig.from_dict(cost_params)
+                # Short-circuit on enabled=False BEFORE parsing (fail-safe design)
+                # This prevents validation errors from invalid fields when user wants to disable
+                if cost_params.get("enabled") is False:
+                    worker.logger.warning(
+                        "cost_model_disabled_in_config",
+                        job_id=job_id,
+                        message="cost_model_config.enabled=False; skipping validation and computation. "
+                        "To disable cost model, omit the config entirely.",
+                    )
+                    # cost_config remains None, preventing UI/DB persistence
+                else:
+                    # Only parse and validate if enabled
+                    cost_config = CostModelConfig.from_dict(cost_params)
 
-                # Validate config and check if cost model should be applied
-                should_apply_costs = _validate_cost_config(cost_config, worker.logger, job_id)
+                    # Validate config and check if cost model should be applied
+                    if not _validate_cost_config(cost_config, worker.logger, job_id):
+                        # Validation failed (e.g., enabled field missing/invalid)
+                        cost_config = None  # Ensure cost_config is None if validation fails
 
                 # Compute costs if cost model is enabled and validation passed
-                if should_apply_costs and job_config.provider == DataProvider.CRSP:
+                if cost_config is not None and job_config.provider == DataProvider.CRSP:
                     # Load PIT-compliant ADV/volatility from CRSP
                     permnos = result.daily_weights.select("permno").unique().to_series().to_list()
                     adv_volatility = load_pit_adv_volatility(
@@ -573,7 +587,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         result.dataset_version_ids["cost_data_source"] = "crsp"
                         result.dataset_version_ids["cost_data_version"] = crsp_version
 
-                elif should_apply_costs and job_config.provider == DataProvider.YFINANCE:
+                elif cost_config is not None and job_config.provider == DataProvider.YFINANCE:
                     # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
                     worker.logger.info(
                         "cost_model_skipped_yfinance",
