@@ -1,4 +1,17 @@
 # Models and result_storage have lighter dependencies - always import
+from .cost_model import (
+    ADVSource,
+    CapacityAnalysis,
+    CostModelConfig,
+    CostSummary,
+    TradeCost,
+    compute_capacity_analysis,
+    compute_cost_summary,
+    compute_daily_costs,
+    compute_market_impact,
+    compute_net_returns,
+    compute_trade_cost,
+)
 from .models import BacktestJob, JobNotFound, ResultPathMissing, row_to_backtest_job
 from .monte_carlo import (
     ConfidenceInterval,
@@ -52,6 +65,18 @@ __all__ = [
     "BacktestJobQueue",
     "BacktestResultStorage",
     "BacktestWorker",
+    # Cost Model
+    "ADVSource",
+    "CapacityAnalysis",
+    "CostModelConfig",
+    "CostSummary",
+    "TradeCost",
+    "compute_capacity_analysis",
+    "compute_cost_summary",
+    "compute_daily_costs",
+    "compute_market_impact",
+    "compute_net_returns",
+    "compute_trade_cost",
     # Monte Carlo
     "ConfidenceInterval",
     "MonteCarloConfig",
