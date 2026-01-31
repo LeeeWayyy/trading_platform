@@ -648,7 +648,8 @@ class FlattenControls:
                         None,
                     )
                     if current_pos:
-                        raw_qty = int(current_pos.get("qty", 0))  # Parse first (handles string qty)
+                        # Parse qty robustly (handles float strings like "100.0" from API)
+                        raw_qty = int(float(current_pos.get("qty", 0)))
                         authoritative_qty = abs(raw_qty)
                     if current_pos and authoritative_qty > 0:
                         # Derive side from position qty sign (positive = long, negative = short)
@@ -693,7 +694,8 @@ class FlattenControls:
                         response_qty = close_response.get("qty") or close_response.get("filled_qty")
                         if response_qty is not None:
                             try:
-                                response_qty_int = abs(int(response_qty))
+                                # Convert via float first (handles "100.0" from API)
+                                response_qty_int = abs(int(float(response_qty)))
                                 if response_qty_int != authoritative_qty:
                                     ui.notify(
                                         f"Warning: Close qty adjusted {authoritative_qty} → {response_qty_int}",
@@ -742,8 +744,8 @@ class FlattenControls:
                                 confirmed_flat = True
                                 break
                         else:
-                            # Parse qty (handles string from API)
-                            poll_qty = abs(int(symbol_pos.get("qty", 0)))
+                            # Parse qty robustly (handles float strings like "100.0" from API)
+                            poll_qty = abs(int(float(symbol_pos.get("qty", 0))))
                             if poll_qty == 0:
                                 # Explicit qty=0 - position confirmed flat
                                 consecutive_flat_polls += 1
