@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-30 - P6T9 remove redundant variable redefinition -->
+<!-- Last reviewed: 2026-01-30 - P6T9 extract _render_export_buttons helper -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

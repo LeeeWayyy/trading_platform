@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-30 - P6T9 vectorized cost computation, remove redundant validation -->
+<!-- Last reviewed: 2026-01-30 - P6T9 simplify weight_change/turnover calculations -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

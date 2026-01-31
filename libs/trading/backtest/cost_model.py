@@ -437,16 +437,10 @@ def _compute_daily_costs_generic(
     # Sort by identifier and date for consistent processing
     daily_weights = daily_weights.sort([identifier_col, "date"])
 
-    # Compute weight changes (turnover)
+    # Compute weight changes (turnover), filling null from shift with 0.0 for the first day
+    # This assumes starting from cash (zero weight), so first day's change equals the full weight
     weight_changes = daily_weights.with_columns(
-        (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col)).alias("weight_change")
-    )
-
-    # First day weight change is the full weight (starting from cash)
-    weight_changes = weight_changes.with_columns(
-        pl.when(pl.col("weight_change").is_null())
-        .then(pl.col("weight"))
-        .otherwise(pl.col("weight_change"))
+        (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col).fill_null(0.0))
         .alias("weight_change")
     )
 
@@ -784,16 +778,11 @@ def compute_capacity_analysis(
     Returns:
         CapacityAnalysis with capacity estimates
     """
-    # Compute daily turnover
+    # Compute daily turnover, filling null from shift with 0.0 for the first day
+    # First day's turnover equals the absolute weight (starting from cash)
     weight_changes = daily_weights.sort(["symbol", "date"]).with_columns(
-        (pl.col("weight") - pl.col("weight").shift(1).over("symbol"))
+        (pl.col("weight") - pl.col("weight").shift(1).over("symbol").fill_null(0.0))
         .abs()
-        .alias("turnover")
-    )
-    weight_changes = weight_changes.with_columns(
-        pl.when(pl.col("turnover").is_null())
-        .then(pl.col("weight").abs())
-        .otherwise(pl.col("turnover"))
         .alias("turnover")
     )
 
