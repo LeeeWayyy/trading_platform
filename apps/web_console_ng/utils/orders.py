@@ -15,6 +15,10 @@ FALLBACK_ID_PREFIX = "FALLBACK-"
 # Combined tuple for startswith checks
 UNCANCELLABLE_PREFIXES = (SYNTHETIC_ID_PREFIX, FALLBACK_ID_PREFIX)
 
+# Default concurrency limit for bulk order cancellation
+# Used across components to avoid overwhelming the backend
+DEFAULT_CONCURRENT_CANCELS = 5
+
 # Symbol validation pattern (alphanumeric, dots, hyphens - typical stock symbols)
 SYMBOL_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,14}$", re.IGNORECASE)
 
@@ -83,6 +87,7 @@ __all__ = [
     "SYNTHETIC_ID_PREFIX",
     "FALLBACK_ID_PREFIX",
     "UNCANCELLABLE_PREFIXES",
+    "DEFAULT_CONCURRENT_CANCELS",
     "is_cancellable_order_id",
     "validate_symbol",
 ]

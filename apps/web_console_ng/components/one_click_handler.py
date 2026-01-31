@@ -40,6 +40,7 @@ from nicegui import ui
 
 from apps.web_console_ng.components.safety_gate import SafetyGate, SafetyPolicy
 from apps.web_console_ng.utils.orders import (
+    DEFAULT_CONCURRENT_CANCELS,
     is_cancellable_order_id,
     validate_symbol,
 )
@@ -398,7 +399,7 @@ class OneClickHandler:
         cancelled = 0
         failed = 0
         if cancellable_orders:
-            semaphore = asyncio.Semaphore(5)
+            semaphore = asyncio.Semaphore(DEFAULT_CONCURRENT_CANCELS)
 
             async def _cancel_one(order: dict[str, Any]) -> bool:
                 order_id = order.get("client_order_id")

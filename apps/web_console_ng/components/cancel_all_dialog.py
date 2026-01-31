@@ -23,7 +23,10 @@ from typing import TYPE_CHECKING
 
 from nicegui import ui
 
-from apps.web_console_ng.utils.orders import is_cancellable_order_id
+from apps.web_console_ng.utils.orders import (
+    DEFAULT_CONCURRENT_CANCELS,
+    is_cancellable_order_id,
+)
 
 if TYPE_CHECKING:
     from apps.web_console_ng.core.client import AsyncTradingClient
@@ -43,7 +46,7 @@ class CancelAllDialog:
     """
 
     # Bounded concurrency to avoid overwhelming backend/network
-    MAX_CONCURRENT_CANCELS = 5
+    MAX_CONCURRENT_CANCELS = DEFAULT_CONCURRENT_CANCELS
 
     def __init__(
         self,

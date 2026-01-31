@@ -40,7 +40,10 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 
 from apps.web_console_ng.components.safety_gate import SafetyGate, SafetyPolicy
-from apps.web_console_ng.utils.orders import is_cancellable_order_id
+from apps.web_console_ng.utils.orders import (
+    DEFAULT_CONCURRENT_CANCELS,
+    is_cancellable_order_id,
+)
 from apps.web_console_ng.utils.time import parse_iso_timestamp
 
 if TYPE_CHECKING:
@@ -262,7 +265,7 @@ class FlattenControls:
             cancelled = 0
             failed = 0
             if cancellable:
-                semaphore = asyncio.Semaphore(5)
+                semaphore = asyncio.Semaphore(DEFAULT_CONCURRENT_CANCELS)
 
                 async def _cancel_one(order_to_cancel: dict[str, object]) -> bool:
                     async with semaphore:
@@ -277,7 +280,15 @@ class FlattenControls:
                                 requested_at=datetime.now(UTC).isoformat(),
                             )
                             return True
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning(
+                                "flatten_controls_cancel_one_failed",
+                                extra={
+                                    "order_id": order_to_cancel.get("client_order_id"),
+                                    "symbol": order_to_cancel.get("symbol"),
+                                    "error": str(exc),
+                                },
+                            )
                             return False
 
                 results = await asyncio.gather(*[_cancel_one(o) for o in cancellable])
@@ -720,6 +731,20 @@ class FlattenControls:
                     )
                     return
 
+                # Step 0c: Re-fetch fresh price before close (addresses staleness from 10s+ order clearing)
+                # The pre-dialog price could be stale by now (PRICE_STALENESS_THRESHOLD_S = 30s)
+                fresh_price_before_close, price_error = await self._get_fresh_price_with_fallback(
+                    symbol, user_id, user_role, strict_timestamp=True
+                )
+                if fresh_price_before_close is None:
+                    ui.notify(
+                        f"Reverse blocked: {price_error} (FAIL-CLOSED)",
+                        type="negative",
+                    )
+                    return
+                # Store for later use in open leg validation (can't re-fetch after close)
+                pre_close_price = fresh_price_before_close
+
                 # Step 1: Close position using authoritative qty
                 # Capture response to detect if backend clamped the qty
                 actual_closed_qty = authoritative_qty  # Default to requested
@@ -789,16 +814,18 @@ class FlattenControls:
                                 confirmed_flat = True
                                 break
                         else:
-                            # Parse qty robustly (handles float strings like "100.0" from API)
-                            poll_qty = abs(int(float(symbol_pos.get("qty", 0))))
-                            if poll_qty == 0:
-                                # Explicit qty=0 - position confirmed flat
+                            # Parse qty as float to detect fractional positions (e.g., 0.5 shares)
+                            # Using float instead of int prevents treating residual fractions as flat
+                            poll_qty_float = abs(float(symbol_pos.get("qty", 0)))
+                            # Epsilon tolerance for floating point comparison (1e-9 = essentially zero)
+                            if poll_qty_float < 1e-9:
+                                # Position confirmed flat (including tiny floating point residuals)
                                 consecutive_flat_polls += 1
                                 if consecutive_flat_polls >= 2:
                                     confirmed_flat = True
                                     break
                             else:
-                                # Position still open, reset consecutive counter
+                                # Position still open (includes fractional shares like 0.5)
                                 consecutive_flat_polls = 0
                     except Exception:
                         # Fetch error - reset consecutive counter, continue polling
@@ -827,8 +854,8 @@ class FlattenControls:
                 # Step 3b: Reuse pre-close price for open leg
                 # NOTE: Cannot re-fetch price here - position-scoped API filters out symbols
                 # with qty=0, so after close the symbol disappears from market_prices endpoint.
-                # The price was validated as fresh before execute_reverse() started.
-                fresh_price = price  # Use pre-close price (already validated)
+                # We use pre_close_price from Step 0c (fetched just before close, with strict_timestamp).
+                fresh_price = pre_close_price  # Use price fetched right before close
 
                 # Step 3c: Re-run fat-finger validation with pre-close price and actual closed qty
                 # Use actual_closed_qty (from Step 1 response), which accounts for backend clamping
