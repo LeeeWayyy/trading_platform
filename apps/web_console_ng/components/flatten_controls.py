@@ -412,8 +412,15 @@ class FlattenControls:
                     None,
                 )
                 if current_pos:
-                    # Parse qty robustly (handles float strings like "100.0" from API)
-                    authoritative_qty = abs(int(float(current_pos.get("qty", 0))))
+                    # Parse qty and handle fractional shares explicitly
+                    qty_float = float(current_pos.get("qty", 0))
+                    authoritative_qty = abs(int(qty_float))
+                    # Warn if fractional shares will be truncated (incomplete flatten)
+                    if abs(qty_float) != authoritative_qty and authoritative_qty > 0:
+                        ui.notify(
+                            f"Warning: Truncating fractional qty {abs(qty_float):.4f} → {authoritative_qty}",
+                            type="warning",
+                        )
                     if authoritative_qty == 0:
                         ui.notify(f"{symbol} position already flat", type="info")
                         return
@@ -658,9 +665,16 @@ class FlattenControls:
                         None,
                     )
                     if current_pos:
-                        # Parse qty robustly (handles float strings like "100.0" from API)
-                        raw_qty = int(float(current_pos.get("qty", 0)))
+                        # Parse qty and handle fractional shares explicitly
+                        qty_float = float(current_pos.get("qty", 0))
+                        raw_qty = int(qty_float)
                         authoritative_qty = abs(raw_qty)
+                        # Warn if fractional shares will cause asymmetric reverse
+                        if abs(qty_float) != authoritative_qty and authoritative_qty > 0:
+                            ui.notify(
+                                f"Warning: Truncating fractional qty {abs(qty_float):.4f} → {authoritative_qty}",
+                                type="warning",
+                            )
                     if current_pos and authoritative_qty > 0:
                         # Derive side from position qty sign (positive = long, negative = short)
                         authoritative_side = "buy" if raw_qty > 0 else "sell"

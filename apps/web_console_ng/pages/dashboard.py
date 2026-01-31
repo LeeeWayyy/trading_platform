@@ -980,10 +980,10 @@ async def dashboard(client: Client) -> None:
             return
         modify_dialog.open(detail)
 
-    async def handle_one_click(event: events.GenericEventArguments) -> None:
-        """Handle one-click trading events from DOM ladder and price chart."""
-        detail = _extract_event_detail(event.args)
-        await one_click_handler.handle_one_click(detail)
+    # NOTE: OneClickHandler is wired to order_context.set_one_click_handler() above
+    # for cached state sync. JS one-click events (shift/ctrl/alt clicks) require
+    # dom_ladder.js to emit modifier key info - currently not implemented.
+    # When JS is updated, add: ui.on("one_click", handle_one_click, args=["detail"])
 
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
@@ -992,7 +992,6 @@ async def dashboard(client: Client) -> None:
     ui.on("modify_order", handle_modify_order, args=["detail"])
     ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
     ui.on("hierarchical_orders_expansion", handle_hierarchical_expansion, args=["detail"])
-    ui.on("one_click", handle_one_click, args=["detail"])
 
     await realtime.subscribe(position_channel(user_id), on_position_update)
     await realtime.subscribe(kill_switch_channel(), on_kill_switch_update)
