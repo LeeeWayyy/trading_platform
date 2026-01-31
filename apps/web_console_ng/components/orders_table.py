@@ -147,7 +147,7 @@ def create_orders_table() -> ui.aggrid:
         {
             "field": "actions",
             "headerName": "",
-            "width": 140,
+            "width": 200,  # P6T8: Increased for Modify/Cancel/Audit buttons
             ":cellRenderer": "window.orderActionsRenderer",
         },
     ]

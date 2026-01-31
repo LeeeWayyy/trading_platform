@@ -27,6 +27,7 @@ from apps.web_console_ng.components.hierarchical_orders import (
 )
 from apps.web_console_ng.components.metric_card import MetricCard
 from apps.web_console_ng.components.one_click_handler import OneClickHandler
+from apps.web_console_ng.components.order_audit_panel import show_order_audit_dialog
 from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.order_modify_dialog import OrderModifyDialog
 from apps.web_console_ng.components.orders_table import (
@@ -990,6 +991,20 @@ async def dashboard(client: Client) -> None:
             return
         modify_dialog.open(detail)
 
+    async def handle_show_order_audit(event: events.GenericEventArguments) -> None:
+        """Show order audit trail dialog (P6T8)."""
+        detail = _extract_event_detail(event.args)
+        client_order_id = str(detail.get("client_order_id", "")).strip()
+        if not client_order_id:
+            ui.notify("Cannot show audit: missing order ID", type="negative")
+            return
+        await show_order_audit_dialog(
+            client_order_id=client_order_id,
+            user_id=user_id,
+            role=user_role,
+            strategies=user_strategies,
+        )
+
     # NOTE: OneClickHandler is wired to order_context.set_one_click_handler() above
     # for cached state sync. JS one-click events (shift/ctrl/alt clicks) require
     # dom_ladder.js to emit modifier key info - currently not implemented.
@@ -1000,6 +1015,7 @@ async def dashboard(client: Client) -> None:
     ui.on("cancel_parent_order", handle_cancel_parent_order, args=["detail"])
     ui.on("dom_price_click", handle_dom_price_click, args=["detail"])
     ui.on("modify_order", handle_modify_order, args=["detail"])
+    ui.on("show_order_audit", handle_show_order_audit, args=["detail"])  # P6T8
     ui.on("grid_filters_restored", handle_grid_filters_restored, args=["detail"])
     ui.on("hierarchical_orders_expansion", handle_hierarchical_expansion, args=["detail"])
 
