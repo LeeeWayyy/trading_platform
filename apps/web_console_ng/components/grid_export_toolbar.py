@@ -170,7 +170,9 @@ class GridExportToolbar:
                     timeout=10.0,
                 )
                 if response.status_code == 201:
-                    return response.json().get("audit_id")
+                    data: dict[str, Any] = response.json()
+                    audit_id: str | None = data.get("audit_id")
+                    return audit_id
                 logger.warning(
                     "Failed to create export audit",
                     extra={"status": response.status_code, "body": response.text},
