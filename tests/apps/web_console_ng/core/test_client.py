@@ -466,16 +466,30 @@ async def test_disengage_kill_switch_without_notes(
 async def test_cancel_order(
     trading_client: AsyncTradingClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test cancel_order calls the correct endpoint."""
+    """Test cancel_order calls the correct endpoint with audit payload."""
     monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
     route = respx.post("http://testserver/api/v1/orders/order-123/cancel").mock(
         return_value=httpx.Response(200, json={"status": "cancelled"})
     )
 
-    result = await trading_client.cancel_order(order_id="order-123", user_id="user-1")
+    result = await trading_client.cancel_order(
+        order_id="order-123",
+        user_id="user-1",
+        reason="Test cancel reason",
+        requested_by="user-1",
+        requested_at="2026-01-30T00:00:00+00:00",
+    )
 
     assert result == {"status": "cancelled"}
     assert route.call_count == 1
+    # Verify payload was sent
+    request = route.calls[0].request
+    import json
+
+    payload = json.loads(request.content)
+    assert payload["reason"] == "Test cancel reason"
+    assert payload["requested_by"] == "user-1"
+    assert payload["requested_at"] == "2026-01-30T00:00:00+00:00"
 
 
 @pytest.mark.asyncio()

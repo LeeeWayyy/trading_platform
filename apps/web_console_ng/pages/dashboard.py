@@ -16,11 +16,17 @@ from nicegui import Client, events, ui
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
+from apps.web_console_ng.components.fat_finger_validator import (
+    FatFingerThresholds,
+    FatFingerValidator,
+)
+from apps.web_console_ng.components.flatten_controls import FlattenControls
 from apps.web_console_ng.components.hierarchical_orders import (
     HierarchicalOrdersState,
     on_cancel_parent_order,
 )
 from apps.web_console_ng.components.metric_card import MetricCard
+from apps.web_console_ng.components.one_click_handler import OneClickHandler
 from apps.web_console_ng.components.order_entry_context import OrderEntryContext
 from apps.web_console_ng.components.order_modify_dialog import OrderModifyDialog
 from apps.web_console_ng.components.orders_table import (
@@ -33,6 +39,7 @@ from apps.web_console_ng.components.positions_grid import (
     on_close_position,
     update_positions_grid,
 )
+from apps.web_console_ng.components.safety_gate import SafetyGate
 from apps.web_console_ng.components.sparkline_renderer import create_sparkline_svg
 from apps.web_console_ng.components.tabbed_panel import (
     TAB_FILLS,
@@ -271,6 +278,40 @@ async def dashboard(client: Client) -> None:
         role=user_role,
         strategies=user_strategies,
     )
+
+    # Create OneClickHandler dependencies and wire it up (P6T7)
+    fat_finger_validator = FatFingerValidator(
+        default_thresholds=FatFingerThresholds(
+            max_notional=Decimal("100000"),  # $100K per order
+            max_qty=10000,  # 10K shares
+            max_adv_pct=Decimal("5"),  # 5% of ADV
+        ),
+    )
+    safety_gate = SafetyGate(
+        client=trading_client,
+        user_id=user_id,
+        user_role=user_role,
+        strategies=user_strategies,
+    )
+    one_click_handler = OneClickHandler(
+        trading_client=trading_client,
+        fat_finger_validator=fat_finger_validator,
+        safety_gate=safety_gate,
+        state_manager=state_manager,
+        user_id=user_id,
+        user_role=user_role,
+        strategies=user_strategies,
+    )
+    order_context.set_one_click_handler(one_click_handler)
+
+    # Create FlattenControls for position row actions (P6T7)
+    flatten_controls = FlattenControls(
+        safety_gate=safety_gate,
+        trading_client=trading_client,
+        fat_finger_validator=fat_finger_validator,
+        strategies=user_strategies,
+    )
+    order_context.set_flatten_controls(flatten_controls)
 
     def _coerce_float(value: Any, default: float = 0.0) -> float:
         if isinstance(value, (int, float, Decimal)):
@@ -948,6 +989,11 @@ async def dashboard(client: Client) -> None:
             ui.notify("Cannot modify order: missing client_order_id", type="negative")
             return
         modify_dialog.open(detail)
+
+    # NOTE: OneClickHandler is wired to order_context.set_one_click_handler() above
+    # for cached state sync. JS one-click events (shift/ctrl/alt clicks) require
+    # dom_ladder.js to emit modifier key info - currently not implemented.
+    # When JS is updated, add: ui.on("one_click", handle_one_click, args=["detail"])
 
     ui.on("close_position", handle_close_position, args=["detail"])
     ui.on("cancel_order", handle_cancel_order, args=["detail"])
