@@ -206,7 +206,16 @@ class OneClickHandler:
         state = await self._state_manager.restore_state()
         preferences = state.get("preferences", {}) if state else {}
         value = preferences.get(notional_key)
-        return Decimal(str(value)) if value else Decimal("0")
+        if not value:
+            return Decimal("0")
+        try:
+            return Decimal(str(value))
+        except InvalidOperation:
+            logger.warning(
+                "one_click_daily_notional_parse_failed",
+                extra={"value": value, "key": notional_key},
+            )
+            return Decimal("0")
 
     async def _update_daily_notional(self, new_total: Decimal) -> None:
         """Update today's accumulated notional in persistent state.
@@ -475,6 +484,10 @@ class OneClickHandler:
                 price = Decimal(str(price_raw))
             except (InvalidOperation, ValueError):
                 ui.notify("Invalid price", type="negative")
+                return
+            # Validate price is positive (risk-increasing action requires strict validation)
+            if price <= 0 or not price.is_finite():
+                ui.notify("Price must be positive", type="negative")
                 return
             if side_raw not in ("buy", "sell"):
                 ui.notify("Invalid side", type="negative")

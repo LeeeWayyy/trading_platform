@@ -407,6 +407,10 @@ class FlattenControls:
                 ui.notify(f"Flatten blocked: {confirm_result.reason}", type="negative")
                 return
 
+            # Show confirm-time warnings (FAIL_OPEN: surface fresh safety state)
+            for warning in confirm_result.warnings:
+                ui.notify(warning, type="warning")
+
             # Step 1: Cancel working orders (FAIL_OPEN: warn on errors but proceed)
             cancelled, failed, uncancellable, had_fetch_error = await self._cancel_symbol_orders(
                 symbol, user_id, user_role, "Flatten symbol - pre-close cancel"

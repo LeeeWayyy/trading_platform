@@ -20,6 +20,7 @@ from apps.web_console_ng.components.fat_finger_validator import (
     FatFingerThresholds,
     FatFingerValidator,
 )
+from apps.web_console_ng.components.flatten_controls import FlattenControls
 from apps.web_console_ng.components.hierarchical_orders import (
     HierarchicalOrdersState,
     on_cancel_parent_order,
@@ -302,6 +303,15 @@ async def dashboard(client: Client) -> None:
         strategies=user_strategies,
     )
     order_context.set_one_click_handler(one_click_handler)
+
+    # Create FlattenControls for position row actions (P6T7)
+    flatten_controls = FlattenControls(
+        safety_gate=safety_gate,
+        trading_client=trading_client,
+        fat_finger_validator=fat_finger_validator,
+        strategies=user_strategies,
+    )
+    order_context.set_flatten_controls(flatten_controls)
 
     def _coerce_float(value: Any, default: float = 0.0) -> float:
         if isinstance(value, (int, float, Decimal)):

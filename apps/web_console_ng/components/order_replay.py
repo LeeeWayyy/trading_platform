@@ -151,6 +151,29 @@ class OrderReplayHandler:
                 except (InvalidOperation, ValueError):
                     pass  # Leave as None
 
+            # Warn about missing required price fields for non-market orders
+            # Order type is preserved; downstream validation will catch missing fields
+            # This allows UI to show the correct order type in the ticket for user review
+            if order_type == "limit" and limit_price is None:
+                logger.warning(
+                    "replay_limit_order_missing_price",
+                    extra={"order_id": original_order_id, "order_type": order_type},
+                )
+            elif order_type == "stop" and stop_price is None:
+                logger.warning(
+                    "replay_stop_order_missing_price",
+                    extra={"order_id": original_order_id, "order_type": order_type},
+                )
+            elif order_type == "stop_limit" and (limit_price is None or stop_price is None):
+                logger.warning(
+                    "replay_stop_limit_order_missing_prices",
+                    extra={
+                        "order_id": original_order_id,
+                        "limit_price": str(limit_price),
+                        "stop_price": str(stop_price),
+                    },
+                )
+
             # Time in force with default
             tif_raw = order.get("time_in_force") or "day"
             if tif_raw not in ("day", "gtc", "ioc", "fok"):
