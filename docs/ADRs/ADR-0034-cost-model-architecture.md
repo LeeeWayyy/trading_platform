@@ -79,8 +79,8 @@ Cost summary structure (stored in `cost_summary`):
 Add partial index for cost-enabled backtests:
 ```sql
 CREATE INDEX IF NOT EXISTS idx_backtest_jobs_cost_enabled
-ON backtest_jobs (((cost_config->>'enabled')::boolean))
-WHERE (cost_config->>'enabled')::boolean;
+ON backtest_jobs ((COALESCE((cost_config->>'enabled')::boolean, TRUE)))
+WHERE cost_config IS NOT NULL AND COALESCE((cost_config->>'enabled')::boolean, TRUE);
 ```
 
 ### 3. Capacity Analysis

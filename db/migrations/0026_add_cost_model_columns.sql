@@ -31,9 +31,10 @@ ADD COLUMN IF NOT EXISTS cost_summary JSONB DEFAULT NULL;
 -- Partial index for cost-enabled backtests (optimizes queries filtering by cost enabled)
 -- Uses B-tree expression index on casted boolean value for efficient lookups
 -- COALESCE ensures missing 'enabled' field defaults to TRUE (matches application logic)
+-- cost_config IS NOT NULL prevents NULL rows from being included in the index
 CREATE INDEX IF NOT EXISTS idx_backtest_jobs_cost_enabled
 ON backtest_jobs ((COALESCE((cost_config->>'enabled')::boolean, TRUE)))
-WHERE COALESCE((cost_config->>'enabled')::boolean, TRUE);
+WHERE cost_config IS NOT NULL AND COALESCE((cost_config->>'enabled')::boolean, TRUE);
 
 -- Index on created_at DESC for time-based queries (if not already exists)
 -- This supports common "recent backtests with costs" queries
