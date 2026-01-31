@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.dependencies import get_context
-from apps.execution_gateway.schemas.tca import (
+from apps.execution_gateway.schemas import (
     TCAAnalysisSummary,
     TCABenchmarkPoint,
     TCABenchmarkResponse,
