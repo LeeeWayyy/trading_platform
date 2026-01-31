@@ -56,6 +56,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         ui.add_head_html('<script src="/static/js/sparkline.js"></script>')
         ui.add_head_html('<script src="/static/js/dom_ladder.js"></script>')
         ui.add_head_html('<script src="/static/js/hotkey_handler.js"></script>')
+        ui.add_head_html('<script src="/static/js/grid_export.js"></script>')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/density.css">')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
 

@@ -78,6 +78,7 @@ from apps.execution_gateway.recovery_manager import RecoveryManager
 
 # Route modules
 from apps.execution_gateway.routes import admin as admin_routes
+from apps.execution_gateway.routes import export as export_routes
 from apps.execution_gateway.routes import health as health_routes
 from apps.execution_gateway.routes import orders as orders_routes
 from apps.execution_gateway.routes import positions as positions_routes
@@ -379,6 +380,7 @@ app.include_router(webhooks_routes.router)  # Uses signature auth, not bearer to
 app.include_router(positions_routes.router)
 app.include_router(orders_routes.router)
 app.include_router(slicing_routes.router)
+app.include_router(export_routes.router)  # P6T8: Export audit endpoints
 
 logger.info("All routers mounted")
 
