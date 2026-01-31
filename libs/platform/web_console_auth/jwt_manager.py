@@ -265,7 +265,7 @@ class JWTManager:
         """
         try:
             # Decode and verify signature + iss/aud claims
-            payload = jwt.decode(
+            payload: dict[str, Any] = jwt.decode(
                 token,
                 self.public_key,
                 algorithms=[self.config.jwt_algorithm],
@@ -372,7 +372,7 @@ class JWTManager:
             },
         )
 
-        return payload  # type: ignore[no-any-return]
+        return payload
 
     def decode_token(self, token: str) -> dict[str, Any]:
         """Decode token WITHOUT validation (for debugging/inspection).
@@ -387,7 +387,8 @@ class JWTManager:
             This does NOT validate signature or expiration.
             Use validate_token() for security-critical operations.
         """
-        return jwt.decode(token, options={"verify_signature": False})  # type: ignore[no-any-return]
+        result: dict[str, Any] = jwt.decode(token, options={"verify_signature": False})
+        return result
 
     def revoke_token(self, jti: str, exp: int) -> None:
         """Revoke token by adding to Redis blacklist.

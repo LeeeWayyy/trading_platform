@@ -1,6 +1,6 @@
 # backtest
 
-<!-- Last reviewed: 2026-01-12 - Added security logging for invalid column detection -->
+<!-- Last reviewed: 2026-01-30 - TradeCost.symbol→identifier, compute_cost_summary/capacity_analysis use trades_df -->
 
 ## Identity
 - **Type:** Library
@@ -18,6 +18,11 @@
 | `WalkForwardOptimizer` | config | instance | Walk-forward optimization. |
 | `grid_search` | params | `SearchResult` | Parameter grid search. |
 | `random_search` | params | `SearchResult` | Random parameter search. |
+| `CostModelConfig` | fields | config | Transaction cost model configuration. |
+| `TradeCost` | fields | dataclass | Cost breakdown for a single trade (identifier, not symbol). |
+| `compute_backtest_costs` | weights, returns, adv | `BacktestCostResult` | Compute costs for a backtest. |
+| `compute_cost_summary` | returns, trades_df, value | `CostSummary` | Aggregate cost statistics from trades DataFrame. |
+| `compute_capacity_analysis` | weights, trades_df, summary | `CapacityAnalysis` | Analyze strategy capacity constraints. |
 
 ## Behavioral Contracts
 ### run_backtest(...)

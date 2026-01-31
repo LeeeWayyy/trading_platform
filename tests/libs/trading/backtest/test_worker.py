@@ -34,7 +34,12 @@ if _missing:
 
 import libs.trading.backtest.worker as worker_module
 from libs.trading.alpha.exceptions import JobCancelled
-from libs.trading.backtest.worker import BacktestWorker, record_retry
+from libs.trading.backtest.worker import (
+    MAX_COST_CONFIG_SIZE,
+    BacktestWorker,
+    _validate_config_size,
+    record_retry,
+)
 
 
 @pytest.fixture()
@@ -1172,3 +1177,756 @@ class TestProviderRouting:
                 },
                 created_by="test_user",
             )
+
+
+# =============================================================================
+# Cost Config Validation Tests (P6T9)
+# =============================================================================
+
+
+class TestValidateConfigSize:
+    """Tests for _validate_config_size server-side size validation."""
+
+    @pytest.mark.unit()
+    def test_valid_size_passes(self):
+        """Test that config within size limit passes."""
+        raw_params = {"enabled": True, "bps_per_trade": 5.0}
+        # Should not raise
+        _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_oversized_config_raises_error(self):
+        """Test that config exceeding size limit raises ValueError."""
+        large_value = "x" * (MAX_COST_CONFIG_SIZE + 1)
+        raw_params = {"enabled": True, "large_field": large_value}
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_config_at_size_limit_passes(self):
+        """Test that config at exactly the size limit passes."""
+        # Account for JSON overhead: {"enabled": true, "padding": "xxx..."}
+        base_json = '{"enabled": true, "padding": ""}'
+        base_size = len(base_json.encode("utf-8"))
+        padding_size = MAX_COST_CONFIG_SIZE - base_size
+        raw_params = {"enabled": True, "padding": "x" * padding_size}
+
+        # Verify it's at exactly the limit
+        config_json = json.dumps(raw_params, sort_keys=True)
+        assert len(config_json.encode("utf-8")) == MAX_COST_CONFIG_SIZE
+
+        # Should not raise
+        _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_config_just_under_limit_passes(self):
+        """Test that config just under size limit passes."""
+        base_json = '{"enabled": true, "padding": ""}'
+        base_size = len(base_json.encode("utf-8"))
+        padding_size = MAX_COST_CONFIG_SIZE - base_size - 100
+        raw_params = {"enabled": True, "padding": "y" * padding_size}
+
+        # Verify it's under the limit
+        config_json = json.dumps(raw_params, sort_keys=True)
+        assert len(config_json.encode("utf-8")) < MAX_COST_CONFIG_SIZE
+
+        # Should not raise
+        _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_config_one_byte_over_limit_raises(self):
+        """Test that config one byte over the limit raises."""
+        base_json = '{"enabled": true, "padding": ""}'
+        base_size = len(base_json.encode("utf-8"))
+        padding_size = MAX_COST_CONFIG_SIZE - base_size + 1
+        raw_params = {"enabled": True, "padding": "z" * padding_size}
+
+        # Verify it's over the limit by exactly 1 byte
+        config_json = json.dumps(raw_params, sort_keys=True)
+        assert len(config_json.encode("utf-8")) == MAX_COST_CONFIG_SIZE + 1
+
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_unicode_characters_sized_correctly(self):
+        """Test that Unicode characters are correctly sized (multi-byte UTF-8)."""
+        # € is 3 bytes in UTF-8
+        unicode_str = "€" * (MAX_COST_CONFIG_SIZE // 3)
+        raw_params = {"enabled": True, "unicode_field": unicode_str}
+
+        # Should raise because UTF-8 encoding exceeds limit
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_config_size(raw_params)
+
+    @pytest.mark.unit()
+    def test_json_escaping_accounted(self):
+        """Test that JSON escaping is accounted for in size calculation."""
+        # Newlines double in size when JSON-encoded ("\n" → "\\n")
+        raw_params = {"enabled": True, "field": "\n" * (MAX_COST_CONFIG_SIZE // 2)}
+
+        # Should raise because JSON escaping exceeds limit
+        with pytest.raises(ValueError, match="exceeds size limit"):
+            _validate_config_size(raw_params)
+
+
+class TestValidateCostParamsPreparse:
+    """Tests for _validate_cost_params_preparse pre-parse validation."""
+
+    @pytest.mark.unit()
+    def test_enabled_false_returns_false_and_warns(self):
+        """Test that enabled=False returns False and logs warning."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"enabled": False}
+        logger = MagicMock()
+        result = _validate_cost_params_preparse(cost_params, logger, "job123")
+        assert result is False
+        logger.warning.assert_called_once()
+        call_args = logger.warning.call_args
+        assert "cost_model_disabled_in_config" in call_args.args[0]
+        assert call_args.kwargs["job_id"] == "job123"
+
+    @pytest.mark.unit()
+    def test_enabled_true_returns_true(self):
+        """Test that enabled=True returns True (proceed with parsing)."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"enabled": True, "bps_per_trade": 5.0}
+        logger = MagicMock()
+        result = _validate_cost_params_preparse(cost_params, logger, "job123")
+        assert result is True
+        logger.warning.assert_not_called()
+
+    @pytest.mark.unit()
+    def test_enabled_none_returns_true(self):
+        """Test that missing enabled field (None) returns True (default is enabled)."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"bps_per_trade": 5.0}  # enabled not specified
+        logger = MagicMock()
+        result = _validate_cost_params_preparse(cost_params, logger, "job123")
+        assert result is True
+
+    @pytest.mark.unit()
+    def test_non_dict_raises_error(self):
+        """Test that non-dict cost_params raises ValueError."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        logger = MagicMock()
+        with pytest.raises(ValueError, match="cost_model must be a dict"):
+            _validate_cost_params_preparse("not a dict", logger, "job123")
+
+    @pytest.mark.unit()
+    def test_string_enabled_raises_error(self):
+        """Test that string enabled value raises ValueError."""
+        from libs.trading.backtest.worker import _validate_cost_params_preparse
+
+        cost_params = {"enabled": "true"}  # String, not boolean
+        logger = MagicMock()
+        with pytest.raises(ValueError, match="must be a boolean"):
+            _validate_cost_params_preparse(cost_params, logger, "job123")
+
+
+# =============================================================================
+# Cost Model Type Validation Tests (P6T9)
+# =============================================================================
+
+
+class TestCostModelTypeValidation:
+    """Tests for cost_model type and enabled field validation in run_backtest."""
+
+    @pytest.mark.unit()
+    def test_non_dict_cost_model_raises_error(self, monkeypatch):
+        """Test that non-dict cost_model raises ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        # Mock PITBacktester to return a valid result
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+
+        # Non-dict cost_model should raise ValueError
+        with pytest.raises(ValueError, match="cost_model must be a dict"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "extra_params": {
+                        "cost_model": "not_a_dict",  # Invalid: string instead of dict
+                    },
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_non_boolean_enabled_raises_error(self, monkeypatch):
+        """Test that non-boolean enabled field raises ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+
+        # String "false" for enabled should raise ValueError (would be truthy otherwise)
+        with pytest.raises(ValueError, match="enabled must be a boolean"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "extra_params": {
+                        "cost_model": {
+                            "enabled": "false",  # Invalid: string instead of boolean
+                        },
+                    },
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_list_cost_model_raises_error(self, monkeypatch):
+        """Test that list cost_model raises ValueError."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+
+        # List cost_model should raise ValueError
+        with pytest.raises(ValueError, match="cost_model must be a dict"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "extra_params": {
+                        "cost_model": [{"enabled": True}],  # Invalid: list instead of dict
+                    },
+                },
+                created_by="test_user",
+            )
+
+
+class TestCostModelWorkflowIntegration:
+    """Integration tests for cost model workflow in run_backtest."""
+
+    @pytest.mark.unit()
+    def test_cost_model_invoked_for_crsp_provider(self, monkeypatch, tmp_path):
+        """Test that cost model functions are called when enabled for CRSP provider."""
+        import polars as pl
+
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        # Track function calls
+        load_pit_adv_called = []
+        compute_costs_called = []
+        save_parquet_called = []
+
+        def mock_load_pit_adv_volatility(*args, **kwargs):
+            load_pit_adv_called.append(kwargs)
+            return pl.DataFrame(
+                {
+                    "permno": [10001, 10002],
+                    "date": [pl.date(2024, 1, 1), pl.date(2024, 1, 1)],
+                    "adv_usd": [1_000_000.0, 2_000_000.0],
+                    "volatility": [0.02, 0.03],
+                }
+            )
+
+        def mock_compute_backtest_costs(*args, **kwargs):
+            compute_costs_called.append(kwargs)
+            # Return a mock cost result
+            return types.SimpleNamespace(
+                cost_summary=types.SimpleNamespace(
+                    total_cost_usd=1000.0,
+                    net_sharpe=0.5,
+                    to_dict=lambda: {"total_cost_usd": 1000.0, "net_sharpe": 0.5},
+                ),
+                capacity_analysis=types.SimpleNamespace(
+                    to_dict=lambda: {"capacity_at_breakeven": 10_000_000},
+                ),
+                net_returns_df=pl.DataFrame(
+                    {"date": [pl.date(2024, 1, 1)], "net_return": [0.001]}
+                ),
+                adv_fallback_count=0,
+                volatility_fallback_count=0,
+                participation_violations=0,
+            )
+
+        def mock_save_parquet_artifacts(*args, **kwargs):
+            save_parquet_called.append({"args": args, "kwargs": kwargs})
+            return tmp_path
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                # Return a result with non-empty daily_weights
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"crsp_daily": "v1"},
+                    daily_signals=pl.DataFrame(
+                        {"date": [pl.date(2024, 1, 1)], "permno": [10001], "signal": [0.1]}
+                    ),
+                    daily_weights=pl.DataFrame(
+                        {"date": [pl.date(2024, 1, 1)], "permno": [10001], "weight": [0.5]}
+                    ),
+                    daily_ic=pl.DataFrame({"date": [pl.date(2024, 1, 1)], "ic": [0.1]}),
+                    daily_portfolio_returns=pl.DataFrame(
+                        {"date": [pl.date(2024, 1, 1)], "return": [0.001]}
+                    ),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+        monkeypatch.setattr(
+            worker_module, "load_pit_adv_volatility", mock_load_pit_adv_volatility
+        )
+        monkeypatch.setattr(worker_module, "compute_backtest_costs", mock_compute_backtest_costs)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", mock_save_parquet_artifacts)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        # Run backtest with cost model enabled
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "crsp",
+                "extra_params": {
+                    "cost_model": {
+                        "enabled": True,
+                        "bps_per_trade": 5.0,
+                        "impact_coefficient": 0.1,
+                        "participation_limit": 0.05,
+                        "portfolio_value_usd": 1_000_000,
+                    },
+                },
+            },
+            created_by="test_user",
+        )
+
+        # Verify cost model functions were called
+        assert len(load_pit_adv_called) == 1, "load_pit_adv_volatility should be called"
+        assert len(compute_costs_called) == 1, "compute_backtest_costs should be called"
+        assert len(save_parquet_called) == 1, "save_parquet_artifacts should be called"
+
+        # Verify cost config was passed to save_parquet_artifacts
+        save_args = save_parquet_called[0]["args"]
+        # Args: job_id, result, cost_config, cost_summary, capacity_analysis, net_returns_df
+        assert save_args[2] is not None, "cost_config should be passed to save_parquet"
+        assert save_args[3] is not None, "cost_summary should be passed to save_parquet"
+        assert save_args[5] is not None, "net_returns_df should be passed to save_parquet"
+
+    @pytest.mark.unit()
+    def test_cost_model_skipped_for_empty_weights(self, monkeypatch, tmp_path):
+        """Test that cost model is skipped when daily_weights is empty."""
+        import polars as pl
+
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        load_pit_adv_called = []
+
+        def mock_load_pit_adv_volatility(*args, **kwargs):
+            load_pit_adv_called.append(True)
+            return pl.DataFrame()
+
+        class MockPITBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                # Return a result with EMPTY daily_weights
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"crsp_daily": "v1"},
+                    daily_signals=pl.DataFrame(schema={"date": pl.Date, "permno": pl.Int64}),
+                    daily_weights=pl.DataFrame(schema={"date": pl.Date, "permno": pl.Int64}),
+                    daily_ic=pl.DataFrame(schema={"date": pl.Date, "ic": pl.Float64}),
+                    daily_portfolio_returns=pl.DataFrame(
+                        schema={"date": pl.Date, "return": pl.Float64}
+                    ),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
+        monkeypatch.setattr(
+            worker_module, "load_pit_adv_volatility", mock_load_pit_adv_volatility
+        )
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        # Run backtest with cost model enabled but empty weights
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "crsp",
+                "extra_params": {
+                    "cost_model": {"enabled": True},
+                },
+            },
+            created_by="test_user",
+        )
+
+        # Verify load_pit_adv_volatility was NOT called (skipped due to empty weights)
+        assert len(load_pit_adv_called) == 0, (
+            "load_pit_adv_volatility should NOT be called for empty weights"
+        )
+
+
+# =============================================================================
+# Additional Coverage Tests for Worker Edge Cases (P6T9)
+# =============================================================================
+
+
+class TestWorkerEdgeCases:
+    """Tests for edge cases to improve code coverage."""
+
+    @pytest.mark.unit()
+    def test_update_db_status_invalid_columns_raises_error(self):
+        """Test that invalid column names raise ValueError."""
+        redis = MagicMock()
+        redis.exists.return_value = 0
+        pool = MagicMock()
+        worker = BacktestWorker(redis, pool)
+
+        with pytest.raises(ValueError, match="Invalid column names"):
+            worker.update_db_status("job123", "running", invalid_column="value")
+
+    @pytest.mark.unit()
+    def test_update_db_status_nonexistent_job_returns_early(self):
+        """Test that update on non-existent job returns without error."""
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        cursor.__enter__ = MagicMock(return_value=cursor)
+        cursor.__exit__ = MagicMock(return_value=False)
+
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+
+        pool = MagicMock()
+        pool.connection.return_value = conn
+
+        redis = MagicMock()
+        redis.exists.return_value = 0
+
+        worker = BacktestWorker(redis, pool)
+        # Should not raise; just return early
+        worker.update_db_status("nonexistent_job", "running")
+        # Verify we only did the SELECT, not the UPDATE
+        assert cursor.execute.call_count == 1
+
+    @pytest.mark.unit()
+    def test_cost_model_with_yfinance_provider_skipped(self, monkeypatch, tmp_path):
+        """Test that cost model is skipped for Yahoo Finance provider."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "test")  # Required for Yahoo Finance
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                cursor = MagicMock()
+                cursor.__enter__.return_value = cursor
+                cursor.__exit__.return_value = False
+                conn.cursor.return_value = cursor
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+        monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        # Track if cost computation was called
+        compute_costs_called = []
+
+        def mock_compute_costs(*args, **kwargs):
+            compute_costs_called.append(True)
+            return MagicMock()
+
+        monkeypatch.setattr(worker_module, "compute_backtest_costs", mock_compute_costs)
+
+        # Mock SimpleBacktester for Yahoo Finance
+        class MockSimpleBacktester:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run_backtest(self, *args, **kwargs):
+                import polars as pl
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=pl.DataFrame({"date": [], "symbol": [], "signal": []}),
+                    daily_weights=pl.DataFrame({"date": [], "symbol": [], "weight": []}),
+                    daily_ic=pl.DataFrame({"date": [], "ic": []}),
+                    daily_portfolio_returns=pl.DataFrame({"date": [], "return": []}),
+                    turnover_result=types.SimpleNamespace(average_turnover=0.1),
+                )
+
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+
+        # Run backtest with Yahoo provider and cost model enabled
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "yfinance",  # Yahoo Finance
+                "extra_params": {
+                    "cost_model": {"enabled": True},
+                },
+            },
+            created_by="test_user",
+        )
+
+        # Verify compute_backtest_costs was NOT called (skipped for Yahoo)
+        assert len(compute_costs_called) == 0, (
+            "compute_backtest_costs should NOT be called for Yahoo Finance provider"
+        )

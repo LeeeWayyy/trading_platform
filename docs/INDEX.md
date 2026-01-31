@@ -281,6 +281,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0031](./ADRs/ADR-0031-nicegui-migration.md) | NiceGUI migration from Streamlit for web console | ✅ Accepted |
 | [ADR-0032](./ADRs/ADR-0032-notification-and-hotkey-system.md) | Notification routing and keyboard hotkey system for web console | ✅ Accepted |
 | [ADR-0033](./ADRs/ADR-0033-order-modification-schema.md) | Order modification database schema with idempotency and audit trail | 🚧 Proposed |
+| [ADR-0034](./ADRs/ADR-0034-cost-model-architecture.md) | Transaction cost model architecture (Almgren-Chriss, capacity analysis) | ✅ Accepted |
 | [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**

@@ -223,6 +223,13 @@ class BacktestResultStorage:
                     }
                 )
 
+            # Load net portfolio returns if cost model was applied (T9.4)
+            net_portfolio_returns_path = path / "net_portfolio_returns.parquet"
+            if net_portfolio_returns_path.exists():
+                net_portfolio_returns = pl.read_parquet(net_portfolio_returns_path)
+            else:
+                net_portfolio_returns = None
+
             summary_path = path / "summary.json"
             if not summary_path.exists():
                 raise ValueError(
@@ -310,6 +317,11 @@ class BacktestResultStorage:
                 f"start_date={start_date}, end_date={end_date}"
             )
 
+        # Load cost model data from summary.json (P6T9)
+        cost_config = summary.get("cost_config")
+        cost_summary = summary.get("cost_summary")
+        capacity_analysis = summary.get("capacity_analysis")
+
         return BacktestResult(
             alpha_name=alpha_name,
             backtest_id=str(backtest_id),
@@ -335,6 +347,10 @@ class BacktestResultStorage:
             decay_half_life=decay_half_life,
             n_days=n_days,
             n_symbols_avg=n_symbols_avg,
+            cost_config=cost_config,
+            cost_summary=cost_summary,
+            capacity_analysis=capacity_analysis,
+            net_portfolio_returns=net_portfolio_returns,
         )
 
     def _job_to_dict(self, job: Any) -> dict[str, Any]:

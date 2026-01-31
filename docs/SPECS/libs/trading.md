@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-18 - portfolio_optimizer.py empty universe handling -->
+<!-- Last reviewed: 2026-01-30 - P6T9 TradeCost.symbol→identifier, compute_cost_summary/capacity_analysis use trades_df -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)
@@ -41,13 +41,15 @@ See [libs/alpha.md](./alpha.md) for detailed specification.
 ### libs/trading/backtest
 See [libs/backtest.md](./backtest.md) for detailed specification.
 
-**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, and RQ queue/worker utilities.
+**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, transaction cost modeling, and RQ queue/worker utilities.
 
 **Key Features:**
 - Job queue management
 - Monte Carlo simulation
 - Walk-forward optimization
 - Parameter search
+- Transaction cost model (Almgren-Chriss)
+- Capacity analysis
 
 ### libs/trading/risk
 See [libs/risk.md](./risk.md) for detailed specification.

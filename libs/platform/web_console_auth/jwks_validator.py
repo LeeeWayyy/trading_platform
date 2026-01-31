@@ -199,7 +199,7 @@ class JWKSValidator:
 
         # Decode and validate JWT
         try:
-            claims = jwt.decode(
+            claims: dict[str, Any] = jwt.decode(
                 id_token,
                 key=signing_key,
                 algorithms=self.allowed_algorithms,
@@ -239,4 +239,4 @@ class JWKSValidator:
             },
         )
 
-        return claims  # type: ignore[no-any-return]
+        return claims

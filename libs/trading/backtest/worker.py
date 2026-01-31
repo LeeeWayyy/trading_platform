@@ -30,6 +30,12 @@ from libs.trading.alpha.exceptions import JobCancelled
 from libs.trading.alpha.metrics import AlphaMetricsAdapter
 from libs.trading.alpha.research_platform import BacktestResult, PITBacktester
 from libs.trading.alpha.simple_backtester import SimpleBacktester
+from libs.trading.backtest.cost_model import (
+    CostModelConfig,
+    CostSummary,
+    compute_backtest_costs,
+    load_pit_adv_volatility,
+)
 from libs.trading.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
 
 
@@ -280,6 +286,81 @@ def record_retry(job: Any, *exc_info: Any) -> bool:
     return False
 
 
+# Server-side validation constants (P6T9)
+MAX_COST_CONFIG_SIZE = 4096  # 4KB max for cost_model_config JSON (UTF-8 bytes)
+
+
+def _validate_config_size(raw_params: dict[str, Any]) -> None:
+    """Validate that JSON-serialized config doesn't exceed size limit.
+
+    Called BEFORE parsing to prevent resource exhaustion from untrusted data.
+
+    Args:
+        raw_params: Raw dict from extra_params
+
+    Raises:
+        ValueError: If config exceeds size limit
+    """
+    config_json = json.dumps(raw_params, sort_keys=True)
+    config_size = len(config_json.encode("utf-8"))
+    if config_size > MAX_COST_CONFIG_SIZE:
+        raise ValueError(
+            f"cost_model_config exceeds size limit: {config_size} bytes > {MAX_COST_CONFIG_SIZE} bytes"
+        )
+
+
+def _validate_cost_params_preparse(
+    cost_params: Any, logger: Any, job_id: str
+) -> bool:
+    """Pre-parse validation for cost model parameters.
+
+    Validates the raw cost_params dict BEFORE parsing with CostModelConfig.from_dict().
+    This provides fail-fast security checks and handles enabled=False short-circuit.
+
+    Args:
+        cost_params: Raw value from extra_params["cost_model"]
+        logger: Structured logger for warnings
+        job_id: Job ID for logging context
+
+    Returns:
+        True if cost_params should be parsed with from_dict()
+        False if cost model is explicitly disabled (enabled=False)
+
+    Raises:
+        ValueError: If cost_params is malformed (not a dict, exceeds size, bad enabled type)
+    """
+    # Validate cost_model is a dict (fail loudly on malformed input)
+    if not isinstance(cost_params, dict):
+        raise ValueError(
+            f"cost_model must be a dict, got {type(cost_params).__name__}. "
+            "To disable cost model, omit the config entirely."
+        )
+
+    # Validate size BEFORE parsing (security: prevent resource exhaustion)
+    _validate_config_size(cost_params)
+
+    # Validate enabled field is boolean (prevent string "false" being truthy)
+    enabled_value = cost_params.get("enabled")
+    if enabled_value is not None and not isinstance(enabled_value, bool):
+        raise ValueError(
+            f"cost_model.enabled must be a boolean, got {type(enabled_value).__name__} "
+            f"with value {enabled_value!r}. Use true/false (JSON boolean), not strings."
+        )
+
+    # Short-circuit on enabled=False BEFORE parsing (fail-safe design)
+    # This prevents validation errors from invalid fields when user wants to disable
+    if enabled_value is False:
+        logger.warning(
+            "cost_model_disabled_in_config",
+            job_id=job_id,
+            message="cost_model_config.enabled=False; skipping validation and computation. "
+            "To disable cost model, omit the config entirely.",
+        )
+        return False
+
+    return True
+
+
 def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
     """
     RQ job entrypoint for backtest execution.
@@ -465,11 +546,84 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 # This should never happen due to enum validation in from_dict
                 raise ValueError(f"Unknown provider: {job_config.provider}")
 
+            # Extract cost model configuration from extra_params (if provided)
+            cost_config: CostModelConfig | None = None
+            cost_summary: CostSummary | None = None
+            capacity_analysis: dict[str, Any] | None = None
+            net_returns_df: Any | None = None  # For T9.4 Parquet export
+            cost_params = job_config.extra_params.get("cost_model")
+            if cost_params is not None:
+                # Pre-parse validation (type, size, enabled checks)
+                # Handles enabled=False short-circuit, type validation, and size limits
+                if _validate_cost_params_preparse(cost_params, worker.logger, job_id):
+                    # Parse config; from_dict ensures enabled=True (default or explicit)
+                    cost_config = CostModelConfig.from_dict(cost_params)
+
+                # Compute costs if cost model is enabled and validation passed
+                if cost_config is not None and job_config.provider == DataProvider.CRSP:
+                    # Load PIT-compliant ADV/volatility from CRSP
+                    permnos = result.daily_weights.select("permno").unique().to_series().to_list()
+
+                    # Skip cost computation if no weights/permnos (edge case: empty backtest)
+                    if not permnos:
+                        worker.logger.warning(
+                            "cost_model_skipped_empty_weights",
+                            job_id=job_id,
+                            reason="No permnos in daily_weights; skipping cost computation",
+                        )
+                        cost_config = None  # Clear to prevent UI showing "Cost data unavailable"
+                    else:
+                        adv_volatility = load_pit_adv_volatility(
+                            crsp_provider=crsp_provider,
+                            permnos=permnos,
+                            start_date=job_config.start_date,
+                            end_date=job_config.end_date,
+                        )
+
+                        # Compute costs
+                        cost_result = compute_backtest_costs(
+                            daily_weights=result.daily_weights,
+                            gross_returns=result.daily_portfolio_returns,
+                            adv_volatility=adv_volatility,
+                            config=cost_config,
+                        )
+                        cost_summary = cost_result.cost_summary
+                        capacity_analysis = cost_result.capacity_analysis.to_dict()
+                        worker.logger.info(
+                            "cost_model_computed",
+                            job_id=job_id,
+                            total_cost_usd=cost_summary.total_cost_usd,
+                            net_sharpe=cost_summary.net_sharpe,
+                            adv_fallbacks=cost_result.adv_fallback_count,
+                            vol_fallbacks=cost_result.volatility_fallback_count,
+                            participation_violations=cost_result.participation_violations,
+                        )
+
+                        # Extract net returns for Parquet export (T9.4)
+                        net_returns_df = cost_result.net_returns_df
+
+                        # Extend dataset_version_ids with cost data source info
+                        # Cost data comes from same CRSP provider, so use crsp_daily version
+                        if result.dataset_version_ids is not None:
+                            crsp_version = result.dataset_version_ids.get("crsp_daily", "unknown")
+                            result.dataset_version_ids["cost_data_source"] = "crsp"
+                            result.dataset_version_ids["cost_data_version"] = crsp_version
+
+                elif cost_config is not None and job_config.provider == DataProvider.YFINANCE:
+                    # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
+                    worker.logger.info(
+                        "cost_model_skipped_yfinance",
+                        job_id=job_id,
+                        reason="Yahoo Finance does not provide PIT-compliant ADV/volatility",
+                    )
+
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
-            result_path = _save_parquet_artifacts(job_id, result)
+            result_path = _save_parquet_artifacts(
+                job_id, result, cost_config, cost_summary, capacity_analysis, net_returns_df
+            )
 
             worker.update_progress(job_id, 95, "saving_db", job_timeout=job_timeout)
-            _save_result_to_db(conn, job_id, result, result_path)
+            _save_result_to_db(conn, job_id, result, result_path, cost_config, cost_summary)
 
             worker.update_progress(job_id, 100, "completed", job_timeout=job_timeout)
             worker.update_db_status(job_id, "completed", completed_at=datetime.now(UTC))
@@ -536,9 +690,23 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             raise
 
 
-def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
+def _save_parquet_artifacts(
+    job_id: str,
+    result: BacktestResult,
+    cost_config: CostModelConfig | None = None,
+    cost_summary: CostSummary | None = None,
+    capacity_analysis: dict[str, Any] | None = None,
+    net_returns_df: Any | None = None,
+) -> Path:
     """
     Save bulk time-series data to Parquet files.
+
+    Args:
+        job_id: Job identifier
+        result: BacktestResult with data
+        cost_config: Optional cost model configuration
+        cost_summary: Optional cost summary
+        capacity_analysis: Optional capacity analysis dict
     """
     import polars as pl
 
@@ -615,25 +783,80 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
             compression="snappy",
         )
 
-    _write_summary_json(result_dir, result)
+    # Save net returns if cost model computed (T9.4)
+    if net_returns_df is not None and not net_returns_df.is_empty():
+        required_net_return_schema = {
+            "date": pl.Date,
+            "gross_return": pl.Float64,
+            "cost_drag": pl.Float64,
+            "net_return": pl.Float64,
+        }
+        _validate_schema(net_returns_df, required_net_return_schema)
+        net_returns_df.select(
+            ["date", "gross_return", "cost_drag", "net_return"]
+        ).cast(cast(Any, required_net_return_schema)).write_parquet(
+            result_dir / "net_portfolio_returns.parquet",
+            compression="snappy",
+        )
+
+    _write_summary_json(result_dir, result, cost_config, cost_summary, capacity_analysis)
 
     return result_dir
 
 
-def _write_summary_json(result_dir: Path, result: BacktestResult) -> None:
-    """Persist summary metrics and reproducibility metadata alongside Parquet artifacts."""
-    summary = {
+def _write_summary_json(
+    result_dir: Path,
+    result: BacktestResult,
+    cost_config: CostModelConfig | None = None,
+    cost_summary: CostSummary | None = None,
+    capacity_analysis: dict[str, Any] | None = None,
+) -> None:
+    """Persist summary metrics and reproducibility metadata alongside Parquet artifacts.
+
+    Args:
+        result_dir: Directory to write summary.json
+        result: BacktestResult with metrics
+        cost_config: Optional cost model configuration
+        cost_summary: Optional cost summary (computed if cost_config.enabled)
+        capacity_analysis: Optional capacity analysis dict
+    """
+    summary: dict[str, Any] = {
         "mean_ic": result.mean_ic,
         "icir": result.icir,
         "hit_rate": result.hit_rate,
         "snapshot_id": result.snapshot_id,
         "dataset_version_ids": result.dataset_version_ids,
     }
+
+    # Include cost model data if provided
+    if cost_config is not None:
+        summary["cost_config"] = cost_config.to_dict()
+    if cost_summary is not None:
+        summary["cost_summary"] = cost_summary.to_dict()
+    if capacity_analysis is not None:
+        summary["capacity_analysis"] = capacity_analysis
+
     (result_dir / "summary.json").write_text(json.dumps(summary, default=str, indent=2))
 
 
-def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_path: Path) -> None:
-    """Save summary metrics to Postgres (psycopg)."""
+def _save_result_to_db(
+    conn: Any,
+    job_id: str,
+    result: BacktestResult,
+    result_path: Path,
+    cost_config: CostModelConfig | None = None,
+    cost_summary: CostSummary | None = None,
+) -> None:
+    """Save summary metrics to Postgres (psycopg).
+
+    Args:
+        conn: Database connection
+        job_id: Job identifier
+        result: BacktestResult with metrics
+        result_path: Path to result directory
+        cost_config: Optional cost model configuration
+        cost_summary: Optional cost summary (computed if cost_config.enabled)
+    """
     if result.snapshot_id is None or result.dataset_version_ids is None:
         raise ValueError(
             "BacktestResult must include snapshot_id and dataset_version_ids for reproducibility"
@@ -643,6 +866,14 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
         dataset_version_payload: Any = result.dataset_version_ids
         if isinstance(dataset_version_payload, dict):
             dataset_version_payload = Json(dataset_version_payload)
+
+        # Serialize cost data if provided
+        cost_config_payload: Any = None
+        cost_summary_payload: Any = None
+        if cost_config is not None:
+            cost_config_payload = Json(cost_config.to_dict())
+        if cost_summary is not None:
+            cost_summary_payload = Json(cost_summary.to_dict())
 
         cur.execute(
             """
@@ -658,6 +889,8 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 decay_half_life=%s,
                 snapshot_id=%s,
                 dataset_version_ids=%s,
+                cost_config=%s,
+                cost_summary=%s,
                 completed_at=%s
             WHERE job_id=%s
             """,
@@ -672,6 +905,8 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 result.decay_half_life,
                 result.snapshot_id,
                 dataset_version_payload,
+                cost_config_payload,
+                cost_summary_payload,
                 datetime.now(UTC),
                 job_id,
             ),

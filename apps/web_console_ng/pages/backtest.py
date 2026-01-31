@@ -392,6 +392,83 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     value="normal",
                 ).classes("w-full")
 
+        # Cost Model Configuration (T9.2)
+        with ui.expansion("Cost Model Settings", icon="attach_money").classes("w-full"):
+            cost_enabled = ui.switch("Enable Cost Model", value=False)
+
+            with ui.column().classes("w-full gap-2").bind_visibility_from(cost_enabled, "value"):
+                portfolio_value_input = ui.number(
+                    "Portfolio Value (USD)",
+                    value=1_000_000,
+                    min=10_000,
+                    max=1_000_000_000,
+                    step=100_000,
+                ).props("prefix=$").classes("w-full")
+                ui.label(
+                    "Constant notional AUM for cost calculations"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+                bps_per_trade_input = ui.number(
+                    "Commission + Spread (bps)",
+                    value=5.0,
+                    min=0,
+                    max=50,
+                    step=0.5,
+                ).classes("w-full")
+                ui.label(
+                    "Fixed cost per trade (commission + half-spread)"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+                impact_coefficient_input = ui.number(
+                    "Impact Coefficient (eta)",
+                    value=0.1,
+                    min=0.01,
+                    max=1.0,
+                    step=0.01,
+                ).classes("w-full")
+                ui.label(
+                    "Almgren-Chriss market impact parameter"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+                participation_limit_input = ui.number(
+                    "ADV Participation Limit (%)",
+                    value=5.0,
+                    min=1,
+                    max=20,
+                    step=1,
+                ).classes("w-full")
+                ui.label(
+                    "Max fraction of daily volume per trade (for capacity analysis)"
+                ).classes("text-xs text-gray-500 -mt-2")
+
+        def build_cost_config(provider: DataProvider) -> dict[str, Any] | None:
+            """Build cost model config dict for extra_params.
+
+            Args:
+                provider: Selected data provider (determines adv_source)
+
+            Returns:
+                Cost model config dict or None if disabled
+            """
+            if not cost_enabled.value:
+                return None
+            # Set adv_source based on provider to accurately represent data provenance
+            # CRSP provider uses PIT-compliant CRSP ADV data; Yahoo uses yahoo data
+            adv_source = "crsp" if provider == DataProvider.CRSP else "yahoo"
+            # Let the backend handle None values and type coercion.
+            # The UI provides the participation limit in %, so we convert it to a fraction.
+            part_limit_val = participation_limit_input.value
+            part_limit_fraction = (part_limit_val / 100.0) if part_limit_val is not None else None
+
+            return {
+                "enabled": True,
+                "bps_per_trade": bps_per_trade_input.value,
+                "impact_coefficient": impact_coefficient_input.value,
+                "participation_limit": part_limit_fraction,
+                "adv_source": adv_source,
+                "portfolio_value_usd": portfolio_value_input.value,
+            }
+
         async def submit_job() -> None:
             ui.notify("Submitting backtest...", type="info")
             selected_provider = data_provider_select.value
@@ -470,6 +547,18 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             )
             if universe:
                 job_config.extra_params["universe"] = universe
+
+            # Add cost model configuration if enabled (T9.2)
+            cost_config = build_cost_config(data_provider)
+            if cost_config is not None:
+                if data_provider == DataProvider.YFINANCE:
+                    # Warn user that cost model will be skipped for Yahoo
+                    ui.notify(
+                        "Cost model enabled but Yahoo Finance lacks PIT ADV data. "
+                        "Cost calculations will be skipped. Use CRSP for cost analysis.",
+                        type="warning",
+                    )
+                job_config.extra_params["cost_model"] = cost_config
 
             try:
                 user_id = _get_user_id(user)
@@ -1252,6 +1341,164 @@ def _render_yahoo_backtest_details(result: Any, user: dict[str, Any]) -> None:
     _render_trade_pnl()
 
 
+def _render_export_buttons(
+    result: Any,
+    user: dict[str, Any],
+    cost_summary: dict[str, Any] | None,
+    cost_config: dict[str, Any] | None,
+    capacity_analysis: dict[str, Any] | None,
+) -> None:
+    """Render export buttons for backtest results.
+
+    Extracts export functionality into a focused helper for better modularity.
+
+    Args:
+        result: Backtest result object
+        user: Current user info
+        cost_summary: Cost summary dict if available
+        cost_config: Cost config dict if available
+        capacity_analysis: Capacity analysis dict if available
+    """
+    if not has_permission(user, Permission.EXPORT_DATA):
+        ui.label("Export requires EXPORT_DATA permission (Operator or Admin role)").classes(
+            "text-sm text-gray-500 mt-4"
+        )
+        return
+
+    ui.separator().classes("my-4")
+    ui.label("Export Data").classes("text-lg font-bold mb-2")
+
+    # Metrics JSON export
+    metrics_dict = {
+        "backtest_id": result.backtest_id,
+        "alpha_name": result.alpha_name,
+        "start_date": str(result.start_date),
+        "end_date": str(result.end_date),
+        "mean_ic": result.mean_ic,
+        "icir": result.icir,
+        "hit_rate": result.hit_rate,
+        "coverage": result.coverage,
+        "n_days": result.n_days,
+        "n_symbols_avg": result.n_symbols_avg,
+    }
+    if result.turnover_result:
+        metrics_dict["average_turnover"] = result.turnover_result.average_turnover
+
+    # Add cost data to metrics if available (T9.4)
+    if cost_summary:
+        metrics_dict["cost_summary"] = cost_summary
+    if cost_config:
+        metrics_dict["cost_config"] = cost_config
+    if capacity_analysis:
+        metrics_dict["capacity_analysis"] = capacity_analysis
+
+    metrics_json = json.dumps(metrics_dict, indent=2, default=str)
+
+    def download_metrics() -> None:
+        ui.download(
+            metrics_json.encode(),
+            filename=f"metrics_{result.backtest_id}.json",
+        )
+
+    # Daily returns CSV export (T9.4)
+    def download_returns_csv() -> None:
+        """Export daily portfolio returns as CSV."""
+        df_to_export = None
+        if hasattr(result, "net_portfolio_returns") and result.net_portfolio_returns is not None:
+            # Prefer net returns DataFrame as it contains gross, cost, and net.
+            df_to_export = result.net_portfolio_returns
+        elif hasattr(result, "daily_portfolio_returns") and result.daily_portfolio_returns is not None:
+            # Fallback to gross returns if net is not available.
+            df_to_export = result.daily_portfolio_returns
+
+        if df_to_export is None:
+            ui.notify("No daily returns data available", type="warning")
+            return
+
+        csv_content = df_to_export.write_csv()
+        ui.download(
+            csv_content.encode() if isinstance(csv_content, str) else csv_content,
+            filename=f"returns_{result.backtest_id}.csv",
+        )
+
+    # Full summary JSON export (T9.4)
+    def download_full_summary() -> None:
+        """Export complete backtest summary including cost analysis."""
+        summary_dict = {
+            "job_id": result.backtest_id,
+            "backtest_period": {
+                "start": str(result.start_date),
+                "end": str(result.end_date),
+            },
+            "alpha_name": result.alpha_name,
+            "weight_method": result.weight_method,
+            "results": {
+                "mean_ic": result.mean_ic,
+                "icir": result.icir,
+                "hit_rate": result.hit_rate,
+                "coverage": result.coverage,
+                "n_days": result.n_days,
+                "n_symbols_avg": result.n_symbols_avg,
+            },
+            "dataset_version_ids": result.dataset_version_ids,
+            "snapshot_id": result.snapshot_id,
+        }
+
+        if result.turnover_result:
+            summary_dict["results"]["average_turnover"] = result.turnover_result.average_turnover
+
+        # Add cost analysis data if available (T9.4)
+        if cost_config:
+            summary_dict["cost_model_config"] = cost_config
+            # portfolio_value_usd is guaranteed by backend's CostModelConfig.from_dict
+            summary_dict["portfolio_value_usd"] = cost_config.get("portfolio_value_usd")
+
+        if cost_summary:
+            summary_dict["results"]["gross_total_return"] = cost_summary.get("total_gross_return")
+            summary_dict["results"]["net_total_return"] = cost_summary.get("total_net_return")
+            summary_dict["results"]["total_cost_usd"] = cost_summary.get("total_cost_usd")
+            summary_dict["results"]["net_sharpe"] = cost_summary.get("net_sharpe")
+            summary_dict["results"]["net_max_drawdown"] = cost_summary.get("net_max_drawdown")
+
+        if capacity_analysis:
+            summary_dict["capacity_analysis"] = {
+                "implied_capacity": capacity_analysis.get("implied_max_capacity"),
+                "binding_constraint": capacity_analysis.get("limiting_factor"),
+                "avg_daily_turnover": capacity_analysis.get("avg_daily_turnover"),
+                "avg_holding_period_days": capacity_analysis.get("avg_holding_period_days"),
+            }
+
+        summary_json = json.dumps(summary_dict, indent=2, default=str)
+        ui.download(
+            summary_json.encode(),
+            filename=f"summary_{result.backtest_id}.json",
+        )
+
+    # Net returns Parquet export (T9.4)
+    def download_net_returns_parquet() -> None:
+        """Export net portfolio returns as Parquet file."""
+        if not hasattr(result, "net_portfolio_returns") or result.net_portfolio_returns is None:
+            ui.notify("No net returns data available (cost model not applied)", type="warning")
+            return
+
+        import io
+        buffer = io.BytesIO()
+        result.net_portfolio_returns.write_parquet(buffer)
+        buffer.seek(0)
+        ui.download(
+            buffer.getvalue(),
+            filename=f"net_returns_{result.backtest_id}.parquet",
+        )
+
+    with ui.row().classes("gap-2"):
+        ui.button("Download Metrics JSON", on_click=download_metrics)
+        ui.button("Download Returns CSV", on_click=download_returns_csv)
+        ui.button("Download Full Summary", on_click=download_full_summary)
+        # Only show Parquet button if net returns available
+        if hasattr(result, "net_portfolio_returns") and result.net_portfolio_returns is not None:
+            ui.button("Download Net Returns Parquet", on_click=download_net_returns_parquet)
+
+
 def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
     """Render complete backtest result with metrics and charts."""
 
@@ -1303,44 +1550,121 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
     if ic_note:
         ui.label(ic_note).classes("text-xs text-gray-500 mb-4")
 
+    # Cost Analysis Summary (T9.2) - displayed when cost model data is available
+    # Check for cost data in result attributes (added by P6T9)
+    cost_summary = getattr(result, "cost_summary", None)
+    cost_config = getattr(result, "cost_config", None)
+    capacity_analysis = getattr(result, "capacity_analysis", None)
+
+    if cost_config and cost_summary:
+        ui.separator().classes("my-4")
+        ui.label("Cost Analysis").classes("text-lg font-bold mb-2")
+
+        with ui.row().classes("w-full gap-4 mb-4"):
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Gross Return").classes("text-sm text-gray-500")
+                gross_ret = cost_summary.get("total_gross_return")
+                ui.label(_fmt_pct(gross_ret, "{:.2f}%")).classes("text-lg font-bold")
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Net Return").classes("text-sm text-gray-500")
+                net_ret = cost_summary.get("total_net_return")
+                ui.label(_fmt_pct(net_ret, "{:.2f}%")).classes("text-lg font-bold")
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Total Cost").classes("text-sm text-gray-500")
+                total_cost = cost_summary.get("total_cost_usd", 0)
+                ui.label(f"${total_cost:,.0f}").classes("text-lg font-bold")
+            with ui.card().classes("flex-1 p-3 text-center"):
+                ui.label("Avg Cost").classes("text-sm text-gray-500")
+                avg_cost_bps = cost_summary.get("avg_trade_cost_bps", 0)
+                ui.label(f"{avg_cost_bps:.1f} bps").classes("text-lg font-bold")
+
+        # Cost breakdown details
+        with ui.expansion("Cost Breakdown", icon="expand_more").classes("w-full mb-4"):
+            with ui.row().classes("gap-4"):
+                comm_cost = cost_summary.get("commission_spread_cost_usd", 0)
+                impact_cost = cost_summary.get("market_impact_cost_usd", 0)
+                ui.label(f"Commission + Spread: ${comm_cost:,.0f}").classes("text-sm")
+                ui.label(f"Market Impact: ${impact_cost:,.0f}").classes("text-sm")
+                num_trades = cost_summary.get("num_trades", 0)
+                ui.label(f"Number of Trades: {num_trades}").classes("text-sm")
+
+            # Net risk metrics
+            net_sharpe = cost_summary.get("net_sharpe")
+            net_max_dd = cost_summary.get("net_max_drawdown")
+            if net_sharpe is not None or net_max_dd is not None:
+                with ui.row().classes("gap-4 mt-2"):
+                    if net_sharpe is not None:
+                        ui.label(f"Net Sharpe: {net_sharpe:.2f}").classes("text-sm")
+                    if net_max_dd is not None:
+                        ui.label(f"Net Max Drawdown: {net_max_dd:.1%}").classes("text-sm")
+
+            # Data quality warnings (P6T9 - T9.2)
+            adv_fallbacks = cost_summary.get("adv_fallback_count", 0)
+            vol_fallbacks = cost_summary.get("volatility_fallback_count", 0)
+            violations = cost_summary.get("participation_violations", 0)
+
+            if adv_fallbacks > 0 or vol_fallbacks > 0 or violations > 0:
+                ui.separator().classes("my-2")
+                ui.label("Data Quality Warnings").classes("text-sm font-bold text-amber-600")
+                with ui.column().classes("gap-1 mt-1"):
+                    if adv_fallbacks > 0:
+                        ui.label(
+                            f"⚠️ {adv_fallbacks} trades used ADV fallback (missing volume data)"
+                        ).classes("text-xs text-amber-600")
+                    if vol_fallbacks > 0:
+                        ui.label(
+                            f"⚠️ {vol_fallbacks} trades used volatility fallback (missing return data)"
+                        ).classes("text-xs text-amber-600")
+                    if violations > 0:
+                        ui.label(
+                            f"⚠️ {violations} trades exceeded ADV participation limit"
+                        ).classes("text-xs text-amber-600")
+
+        # Capacity Analysis (T9.3 display)
+        if capacity_analysis:
+            with ui.expansion("Capacity Analysis", icon="analytics").classes("w-full mb-4"):
+                implied_cap = capacity_analysis.get("implied_max_capacity")
+                limiting = capacity_analysis.get("limiting_factor")
+
+                if implied_cap is not None:
+                    cap_formatted = f"${implied_cap:,.0f}" if implied_cap < 1e12 else "Unlimited"
+                    ui.label(f"Implied Capacity: {cap_formatted}").classes("text-lg font-bold")
+                    if limiting:
+                        ui.label(f"Binding Constraint: {limiting}").classes("text-sm text-gray-500")
+
+                with ui.row().classes("gap-4 mt-2"):
+                    turnover = capacity_analysis.get("avg_daily_turnover")
+                    if turnover is not None:
+                        ui.label(f"Avg Daily Turnover: {turnover:.1%}").classes("text-sm")
+                    holding = capacity_analysis.get("avg_holding_period_days")
+                    if holding is not None:
+                        ui.label(f"Avg Holding Period: {holding:.1f} days").classes("text-sm")
+
+                # Constraint details
+                impact_5 = capacity_analysis.get("impact_aum_5bps")
+                participation = capacity_analysis.get("participation_aum")
+                breakeven = capacity_analysis.get("breakeven_aum")
+
+                with ui.column().classes("mt-2 text-sm"):
+                    if impact_5 is not None:
+                        ui.label(f"At 5 bps impact: ${impact_5:,.0f}")
+                    if participation is not None:
+                        ui.label(f"At participation limit: ${participation:,.0f}")
+                    if breakeven is not None:
+                        ui.label(f"Breakeven AUM: ${breakeven:,.0f}")
+
+    elif cost_config:
+        # Cost model enabled but no summary (job incomplete or legacy)
+        ui.separator().classes("my-4")
+        with ui.card().classes("w-full p-4"):
+            ui.label("Cost Analysis").classes("text-lg font-bold")
+            ui.label("Cost data unavailable for this backtest.").classes("text-sm text-amber-500")
+
     # Render Yahoo Finance-specific details (universe, signals, charts, trades)
     _render_yahoo_backtest_details(result, user)
 
-    # Export buttons (if permitted)
-    if has_permission(user, Permission.EXPORT_DATA):
-        ui.separator().classes("my-4")
-        ui.label("Export Data").classes("text-lg font-bold mb-2")
-
-        with ui.row().classes("gap-2"):
-            # Metrics JSON export
-            metrics_dict = {
-                "backtest_id": result.backtest_id,
-                "alpha_name": result.alpha_name,
-                "start_date": str(result.start_date),
-                "end_date": str(result.end_date),
-                "mean_ic": result.mean_ic,
-                "icir": result.icir,
-                "hit_rate": result.hit_rate,
-                "coverage": result.coverage,
-                "n_days": result.n_days,
-                "n_symbols_avg": result.n_symbols_avg,
-            }
-            if result.turnover_result:
-                metrics_dict["average_turnover"] = result.turnover_result.average_turnover
-
-            metrics_json = json.dumps(metrics_dict, indent=2, default=str)
-
-            def download_metrics() -> None:
-                ui.download(
-                    metrics_json.encode(),
-                    filename=f"metrics_{result.backtest_id}.json",
-                )
-
-            ui.button("Download Metrics JSON", on_click=download_metrics)
-    else:
-        ui.label("Export requires EXPORT_DATA permission (Operator or Admin role)").classes(
-            "text-sm text-gray-500 mt-4"
-        )
+    # Export buttons (delegated to helper for modularity)
+    _render_export_buttons(result, user, cost_summary, cost_config, capacity_analysis)
 
 
 def _render_comparison_table(results: list[Any]) -> None:
