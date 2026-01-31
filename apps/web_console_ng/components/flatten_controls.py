@@ -81,6 +81,48 @@ class FlattenControls:
         self._validator = fat_finger_validator
         self._strategies = strategies
 
+    def _validate_price_timestamp(
+        self, raw_ts: object, strict_timestamp: bool
+    ) -> tuple[bool, str]:
+        """Validate price timestamp for staleness.
+
+        Args:
+            raw_ts: Raw timestamp value from API (str, datetime, or other)
+            strict_timestamp: If True, require valid timestamp (FAIL_CLOSED)
+
+        Returns:
+            Tuple of (is_valid, error_message) - is_valid=False means block
+        """
+        if raw_ts is None:
+            if strict_timestamp:
+                return False, "Price timestamp missing (FAIL-CLOSED)"
+            return True, ""  # FAIL_OPEN: proceed without timestamp
+
+        try:
+            ts: datetime | None = None
+            if isinstance(raw_ts, str):
+                ts = parse_iso_timestamp(raw_ts)
+            elif isinstance(raw_ts, datetime):
+                ts = raw_ts
+            else:
+                # Non-string, non-datetime (e.g., int/float timestamp)
+                if strict_timestamp:
+                    return False, f"Price timestamp unrecognized type: {type(raw_ts).__name__} (FAIL-CLOSED)"
+                return True, ""  # FAIL_OPEN: proceed with unrecognized format
+
+            if ts and isinstance(ts, datetime):
+                age = (datetime.now(UTC) - ts).total_seconds()
+                if age > PRICE_STALENESS_THRESHOLD_S:
+                    return False, f"Price data stale ({age:.0f}s old)"
+                return True, ""
+            elif strict_timestamp:
+                return False, "Price timestamp failed to parse (FAIL-CLOSED)"
+            return True, ""  # FAIL_OPEN: proceed despite parse issue
+        except Exception:
+            if strict_timestamp:
+                return False, "Price timestamp unparseable (FAIL-CLOSED)"
+            return True, ""  # FAIL_OPEN: proceed despite error
+
     async def _get_fresh_price_with_fallback(
         self, symbol: str, user_id: str, user_role: str, *, strict_timestamp: bool = False
     ) -> tuple[Decimal | None, str]:
@@ -117,33 +159,9 @@ class FlattenControls:
 
                 # Check timestamp - required for FAIL_CLOSED (strict_timestamp=True)
                 raw_ts = symbol_price.get("timestamp") or symbol_price.get("updated_at")
-                if raw_ts:
-                    try:
-                        if isinstance(raw_ts, str):
-                            ts = parse_iso_timestamp(raw_ts)
-                        elif isinstance(raw_ts, datetime):
-                            ts = raw_ts
-                        else:
-                            # Non-string, non-datetime (e.g., int/float timestamp)
-                            # FAIL_CLOSED: Block on unrecognized format
-                            if strict_timestamp:
-                                return None, f"Price timestamp unrecognized type: {type(raw_ts).__name__} (FAIL-CLOSED)"
-                            ts = None
-                        if ts and isinstance(ts, datetime):
-                            age = (datetime.now(UTC) - ts).total_seconds()
-                            if age > PRICE_STALENESS_THRESHOLD_S:
-                                return None, f"Price data stale ({age:.0f}s old)"
-                        elif strict_timestamp:
-                            # ts is None or not datetime after parsing - FAIL_CLOSED blocks
-                            return None, "Price timestamp failed to parse (FAIL-CLOSED)"
-                    except Exception:
-                        # FAIL_CLOSED: Block on unparseable timestamp
-                        if strict_timestamp:
-                            return None, "Price timestamp unparseable (FAIL-CLOSED)"
-                        # FAIL_OPEN: Proceed with price despite timestamp issue
-                elif strict_timestamp:
-                    # FAIL_CLOSED: Block on missing timestamp
-                    return None, "Price timestamp missing (FAIL-CLOSED)"
+                ts_valid, ts_error = self._validate_price_timestamp(raw_ts, strict_timestamp)
+                if not ts_valid:
+                    return None, ts_error
 
                 return price_val, ""
             return None, "No price data available for symbol"
@@ -214,6 +232,9 @@ class FlattenControls:
             had_fetch_error is True if we couldn't fetch orders (FAIL_CLOSED should block)
         """
         try:
+            # TODO: Add symbol parameter to fetch_open_orders API for server-side filtering
+            # Currently fetches all orders and filters client-side, which is inefficient
+            # for users with many open orders across symbols.
             response = await self._client.fetch_open_orders(
                 user_id, role=user_role, strategies=self._strategies
             )

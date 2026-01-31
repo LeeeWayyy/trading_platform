@@ -503,6 +503,9 @@ class OneClickHandler:
                 ui.notify("Invalid price", type="negative")
                 return
             # Fetch working orders for the symbol
+            # TODO: Add symbol parameter to fetch_open_orders API for server-side filtering
+            # Currently fetches all orders and filters in on_alt_click, which is inefficient
+            # for users with many open orders across symbols.
             try:
                 response = await self._client.fetch_open_orders(
                     self._user_id,
