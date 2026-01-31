@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS export_audit (
     estimated_row_count INTEGER,
     actual_row_count INTEGER,
     reported_by VARCHAR(10) CHECK (reported_by IN ('client', 'server')),
-    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed', 'expired')),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'downloading', 'completed', 'failed', 'expired')),
     error_message TEXT,
     ip_address TEXT,
     session_id TEXT,

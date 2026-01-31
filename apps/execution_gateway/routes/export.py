@@ -297,6 +297,65 @@ async def _mark_audit_as_expired(ctx: AppContext, audit_id: UUID) -> None:
             )
 
 
+async def _claim_export_audit(ctx: AppContext, audit_id: UUID) -> bool:
+    """Atomically claim an export audit for download (prevents race conditions).
+
+    Returns True if successfully claimed, False if already claimed by another request.
+    """
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE export_audit
+                SET status = 'downloading'
+                WHERE id = %s AND status = 'pending'
+                RETURNING id
+                """,
+                (audit_id,),
+            )
+            row = cur.fetchone()
+            return row is not None
+
+
+async def _fail_export_audit(
+    ctx: AppContext, audit_id: UUID, error_message: str
+) -> None:
+    """Mark export audit as failed with error message."""
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE export_audit
+                SET status = 'failed',
+                    error_message = %s,
+                    completed_at = NOW()
+                WHERE id = %s
+                """,
+                (error_message, audit_id),
+            )
+
+
+async def _complete_and_expire_export_audit(
+    ctx: AppContext,
+    audit_id: UUID,
+    actual_row_count: int,
+) -> None:
+    """Complete export and mark as expired in one operation (single-use link)."""
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE export_audit
+                SET actual_row_count = %s,
+                    reported_by = 'server',
+                    status = 'expired',
+                    completed_at = NOW()
+                WHERE id = %s
+                """,
+                (actual_row_count, audit_id),
+            )
+
+
 # =============================================================================
 # Routes
 # =============================================================================
@@ -547,11 +606,21 @@ async def download_excel_export(
             detail=f"Audit {audit_id} is not an Excel export",
         )
 
-    # Verify status - must be pending or completed (single-use check)
-    if audit_record["status"] not in ("pending", "completed"):
+    # Verify status - must be pending (single-use check via atomic claim)
+    # We use atomic UPDATE to claim the record and prevent race conditions
+    if audit_record["status"] != "pending":
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail="Export link has already been used or expired",
+        )
+
+    # Atomically claim the audit record to prevent concurrent downloads
+    # This prevents race conditions where two requests pass the status check
+    claim_result = await _claim_export_audit(ctx, audit_id)
+    if not claim_result:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Export link has already been used (concurrent request)",
         )
 
     # Generate Excel file based on grid_name
@@ -561,7 +630,7 @@ async def download_excel_export(
     visible_columns = audit_record["visible_columns"]
     sort_model = audit_record["sort_model"]
 
-    # Generate Excel content (placeholder - implement per grid type)
+    # Generate Excel content with error handling
     try:
         excel_content, row_count = await _generate_excel_content(
             ctx=ctx,
@@ -572,22 +641,31 @@ async def download_excel_export(
             sort_model=sort_model,
         )
     except NotImplementedError as e:
+        # Mark as failed before raising
+        await _fail_export_audit(ctx, audit_id, str(e))
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail=str(e),
         ) from e
+    except Exception as e:
+        # Catch any other error and mark audit as failed
+        error_msg = f"{type(e).__name__}: {e}"
+        await _fail_export_audit(ctx, audit_id, error_msg)
+        logger.exception(
+            "Excel export generation failed",
+            extra={"audit_id": str(audit_id), "error": error_msg},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Excel generation failed",
+        ) from e
 
-    # Complete the audit (server-reported for Excel)
-    await _complete_export_audit(
+    # Complete the audit (server-reported for Excel) and mark as expired
+    await _complete_and_expire_export_audit(
         ctx=ctx,
         audit_id=audit_id,
         actual_row_count=row_count,
-        status="completed",
-        reported_by="server",
     )
-
-    # Mark as expired (single-use)
-    await _mark_audit_as_expired(ctx, audit_id)
 
     # Generate filename
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M")
@@ -610,6 +688,47 @@ async def download_excel_export(
     )
 
 
+def _sanitize_excel_value(value: Any) -> Any:
+    """Sanitize a cell value for Excel export to prevent formula injection.
+
+    This MUST be applied to all cell values before writing to Excel.
+    Identical logic to client-side sanitizeForExport() in grid_export.js.
+
+    Args:
+        value: Cell value to sanitize
+
+    Returns:
+        Sanitized value (strings may be prefixed with ')
+    """
+    import re
+
+    # Only sanitize strings - numbers, booleans, None pass through unchanged
+    if not isinstance(value, str):
+        return value
+
+    # Strip leading whitespace and control characters to find first meaningful char
+    # This prevents bypass via " =FORMULA" or "\t=FORMULA"
+    trimmed = re.sub(r"^[\s\x00-\x1f]+", "", value)
+    if not trimmed:
+        return value  # All whitespace - safe
+
+    first_char = trimmed[0]
+    dangerous = {"=", "+", "@", "\t", "\r", "\n"}
+
+    # Check if first meaningful character is dangerous
+    if first_char in dangerous:
+        return "'" + value  # Prepend quote to ORIGINAL value
+
+    # For '-', only allow if STRICTLY numeric (e.g., "-123.45")
+    # Block "-1+1", "-A1", etc. which could be formulas
+    if first_char == "-":
+        strict_numeric_regex = re.compile(r"^-?\d+(\.\d+)?$")
+        if not strict_numeric_regex.match(trimmed):
+            return "'" + value  # Non-numeric negative - sanitize
+
+    return value  # Safe value
+
+
 async def _generate_excel_content(
     ctx: AppContext,
     grid_name: str,
@@ -622,6 +741,9 @@ async def _generate_excel_content(
 
     This is a placeholder that will be implemented for each grid type.
     Uses openpyxl for Excel generation with formula sanitization.
+
+    IMPORTANT: All cell values MUST be sanitized via _sanitize_excel_value()
+    to prevent formula injection attacks.
 
     Args:
         ctx: Application context with database access
@@ -646,7 +768,7 @@ async def _generate_excel_content(
         ) from e
 
     # Supported grids and their data fetchers
-    # TODO: Implement per-grid data fetchers
+    # TODO: Implement per-grid data fetchers with PII column filtering
     supported_grids = {
         "positions": "_fetch_positions_data",
         "orders": "_fetch_orders_data",
@@ -660,19 +782,23 @@ async def _generate_excel_content(
 
     # For now, return a placeholder Excel file
     # TODO: Implement actual data fetching and Excel generation
+    # NOTE: When implementing real data, MUST:
+    # 1. Sanitize ALL cell values via _sanitize_excel_value()
+    # 2. Enforce PII column filtering server-side based on user role
+    # 3. Validate visible_columns against allowed columns per grid
     wb = Workbook()
     ws = wb.active
     ws.title = grid_name.title()
 
-    # Add header row
+    # Add header row (sanitize headers too)
     headers = visible_columns or ["Column1", "Column2", "Column3"]
     for col_idx, header in enumerate(headers, 1):
-        ws.cell(row=1, column=col_idx, value=header)
+        ws.cell(row=1, column=col_idx, value=_sanitize_excel_value(header))
 
-    # Placeholder data (to be replaced with actual data fetching)
-    ws.cell(row=2, column=1, value="Excel export implementation pending")
-    ws.cell(row=2, column=2, value=f"Grid: {grid_name}")
-    ws.cell(row=2, column=3, value=f"Strategies: {len(strategy_ids)}")
+    # Placeholder data - sanitize all values
+    ws.cell(row=2, column=1, value=_sanitize_excel_value("Excel export implementation pending"))
+    ws.cell(row=2, column=2, value=_sanitize_excel_value(f"Grid: {grid_name}"))
+    ws.cell(row=2, column=3, value=_sanitize_excel_value(f"Strategies: {len(strategy_ids)}"))
 
     # Save to bytes
     output = io.BytesIO()
