@@ -209,7 +209,7 @@ class FlattenControls:
             qty_float = float(qty)
             if not math.isfinite(qty_float) or qty_float == 0:
                 return None, "Invalid position quantity"
-            if qty_float != int(qty_float):
+            if not qty_float.is_integer():
                 return None, "Position quantity must be an integer"
             return int(qty_float), ""
         except (ValueError, TypeError):
@@ -751,8 +751,10 @@ class FlattenControls:
                         type="negative",
                     )
                     return
-                # Store for later use in open leg validation (can't re-fetch after close)
+                # Store price and timestamp for later staleness revalidation
+                # (can't re-fetch after close - position-scoped API filters out qty=0)
                 pre_close_price = fresh_price_before_close
+                pre_close_price_ts = datetime.now(UTC)
 
                 # Step 1: Close position using authoritative qty
                 # Capture response to detect if backend clamped the qty
@@ -860,11 +862,18 @@ class FlattenControls:
                     )
                     return
 
-                # Step 3b: Reuse pre-close price for open leg
+                # Step 3b: Revalidate pre-close price staleness before open leg
                 # NOTE: Cannot re-fetch price here - position-scoped API filters out symbols
                 # with qty=0, so after close the symbol disappears from market_prices endpoint.
-                # We use pre_close_price from Step 0c (fetched just before close, with strict_timestamp).
-                fresh_price = pre_close_price  # Use price fetched right before close
+                # We use pre_close_price from Step 0c but must verify it hasn't become stale.
+                price_age = (datetime.now(UTC) - pre_close_price_ts).total_seconds()
+                if price_age > PRICE_STALENESS_THRESHOLD_S:
+                    ui.notify(
+                        f"Reverse aborted: price data stale ({price_age:.0f}s old) - position is now flat",
+                        type="negative",
+                    )
+                    return
+                fresh_price = pre_close_price  # Price still fresh, use for open leg
 
                 # Step 3c: Re-run fat-finger validation with pre-close price and actual closed qty
                 # Use actual_closed_qty (from Step 1 response), which accounts for backend clamping

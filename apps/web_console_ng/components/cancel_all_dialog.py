@@ -221,7 +221,7 @@ class CancelAllDialog:
                 count_label.text = f"Will cancel {len(valid)} order(s)"
                 if skipped:
                     skipped_label.text = (
-                        f"⚠️ {len(skipped)} order(s) cannot be cancelled (missing ID)"
+                        f"⚠️ {len(skipped)} order(s) cannot be cancelled (synthetic or missing ID)"
                     )
                 else:
                     skipped_label.text = ""
