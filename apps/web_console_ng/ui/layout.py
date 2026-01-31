@@ -160,6 +160,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
+                    ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
                     ("Alpha Explorer", "/alpha-explorer", "insights", None),  # P5T8
                     ("Compare", "/compare", "compare_arrows", None),  # P5T8
                     ("Journal", "/journal", "book", None),  # P5T8
