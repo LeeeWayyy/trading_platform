@@ -701,16 +701,21 @@ class FlattenControls:
                         None,
                     )
                     if current_pos:
-                        # Parse qty and handle fractional shares explicitly
+                        # Parse qty and detect fractional shares
                         qty_float = float(current_pos.get("qty", 0))
                         raw_qty = int(qty_float)
                         authoritative_qty = abs(raw_qty)
-                        # Warn if fractional shares will cause asymmetric reverse
-                        if abs(qty_float) != authoritative_qty and authoritative_qty > 0:
+                        # FAIL_CLOSED: Block reverse if fractional shares detected
+                        # Fractional positions can't be fully closed with integer qty,
+                        # causing flat confirmation to fail and leaving residual exposure
+                        has_fractional = abs(qty_float) - authoritative_qty > 1e-9
+                        if has_fractional:
                             ui.notify(
-                                f"Warning: Truncating fractional qty {abs(qty_float):.4f} → {authoritative_qty}",
-                                type="warning",
+                                f"Reverse blocked: fractional position {abs(qty_float):.4f} shares "
+                                "(reverse requires whole shares)",
+                                type="negative",
                             )
+                            return
                     if current_pos and authoritative_qty > 0:
                         # Derive side from position qty sign (positive = long, negative = short)
                         authoritative_side = "buy" if raw_qty > 0 else "sell"

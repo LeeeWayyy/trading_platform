@@ -144,7 +144,16 @@ class OneClickHandler:
         self._config.daily_notional_cap = cap
 
     def set_default_qty(self, qty: int) -> None:
-        """Set default quantity for one-click orders."""
+        """Set default quantity for one-click orders.
+
+        Args:
+            qty: Must be a positive integer (>= 1)
+
+        Raises:
+            ValueError: If qty is not a positive integer
+        """
+        if not isinstance(qty, int) or qty < 1:
+            raise ValueError(f"default_qty must be a positive integer, got {qty}")
         self._config.default_qty = qty
 
     async def _get_adv(self, symbol: str) -> int | None:
@@ -598,6 +607,14 @@ class OneClickHandler:
 
         # 4. Daily notional cap check (pre-check only, update after success)
         qty = self._config.default_qty
+        # Defense in depth: validate qty before submission (guards against mutated config)
+        if not isinstance(qty, int) or qty < 1:
+            logger.warning(
+                "one_click_invalid_qty",
+                extra={"qty": qty, "symbol": symbol, "side": side},
+            )
+            ui.notify("Invalid default quantity configured", type="negative")
+            return
         notional = Decimal(qty) * price
         current_notional = await self._get_daily_notional()
         if current_notional + notional > self._config.daily_notional_cap:
