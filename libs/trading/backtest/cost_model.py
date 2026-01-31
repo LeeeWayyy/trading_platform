@@ -434,12 +434,29 @@ def _compute_daily_costs_generic(
         dates = daily_weights.select("date").unique().sort("date")
         return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
 
+    # Extract all unique dates and identifiers to create a full grid
+    # This ensures exits (symbol disappearing) and re-entries are captured as trades
+    all_dates = daily_weights.select("date").unique().sort("date")
+    all_identifiers = daily_weights.select(identifier_col).unique()
+
+    # Create full date × identifier grid
+    full_grid = all_dates.join(all_identifiers, how="cross")
+
+    # Left join to get actual weights, filling absent entries with 0 weight
+    # This captures exits: if a symbol had weight on day D-1 but is absent on day D,
+    # the grid will have weight=0 on day D, generating an exit trade
+    daily_weights_filled = full_grid.join(
+        daily_weights.select(["date", identifier_col, "weight"]),
+        on=["date", identifier_col],
+        how="left",
+    ).with_columns(pl.col("weight").fill_null(0.0))
+
     # Sort by identifier and date for consistent processing
-    daily_weights = daily_weights.sort([identifier_col, "date"])
+    daily_weights_filled = daily_weights_filled.sort([identifier_col, "date"])
 
     # Compute weight changes (turnover), filling null from shift with 0.0 for the first day
     # This assumes starting from cash (zero weight), so first day's change equals the full weight
-    weight_changes = daily_weights.with_columns(
+    weight_changes = daily_weights_filled.with_columns(
         (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col).fill_null(0.0))
         .alias("weight_change")
     )
@@ -778,9 +795,24 @@ def compute_capacity_analysis(
     Returns:
         CapacityAnalysis with capacity estimates
     """
+    # Create full date × symbol grid to capture exits and re-entries
+    # When a symbol disappears from daily_weights (e.g., null signal), we need to
+    # record the exit trade (weight going to 0). Without the grid, sparse data would
+    # miss these trades and understate turnover.
+    all_dates = daily_weights.select("date").unique().sort("date")
+    all_symbols = daily_weights.select("symbol").unique()
+
+    # Create full grid and fill missing weights with 0
+    full_grid = all_dates.join(all_symbols, how="cross")
+    daily_weights_filled = full_grid.join(
+        daily_weights.select(["date", "symbol", "weight"]),
+        on=["date", "symbol"],
+        how="left",
+    ).with_columns(pl.col("weight").fill_null(0.0))
+
     # Compute daily turnover, filling null from shift with 0.0 for the first day
     # First day's turnover equals the absolute weight (starting from cash)
-    weight_changes = daily_weights.sort(["symbol", "date"]).with_columns(
+    weight_changes = daily_weights_filled.sort(["symbol", "date"]).with_columns(
         (pl.col("weight") - pl.col("weight").shift(1).over("symbol").fill_null(0.0))
         .abs()
         .alias("turnover")

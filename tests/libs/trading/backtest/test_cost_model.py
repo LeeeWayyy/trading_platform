@@ -816,6 +816,82 @@ class TestComputeDailyCostsEdgeCases:
         assert cost_drag_df.height == 3
         assert cost_drag_df["cost_drag"].sum() == 0.0
 
+    def test_sparse_weights_captures_exits_and_reentries(self):
+        """Test that sparse daily_weights properly capture exit and re-entry trades.
+
+        When a symbol disappears from daily_weights (e.g., due to null signal),
+        the cost model should capture the exit trade (weight going to 0) and
+        the re-entry trade when the symbol reappears.
+        """
+        config = CostModelConfig(
+            bps_per_trade=5.0,
+            impact_coefficient=0.0,  # Disable impact for simpler cost calculation
+            portfolio_value_usd=1_000_000,
+        )
+
+        # Sparse weights: AAPL present on day 1,2 and day 4, but absent on day 3
+        # This simulates a symbol dropping out due to null signal
+        daily_weights = pl.DataFrame(
+            {
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    # Missing day 3 for AAPL
+                    date(2024, 1, 4),
+                    # MSFT is present on all days for reference
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 3),
+                    date(2024, 1, 4),
+                ],
+                "symbol": ["AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "MSFT", "MSFT"],
+                "weight": [0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05],
+            }
+        )
+
+        adv_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, i) for i in range(1, 5)] * 2,
+                "symbol": ["AAPL"] * 4 + ["MSFT"] * 4,
+                "adv_usd": [1_000_000.0] * 8,
+            }
+        )
+        vol_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, i) for i in range(1, 5)] * 2,
+                "symbol": ["AAPL"] * 4 + ["MSFT"] * 4,
+                "volatility": [0.02] * 8,
+            }
+        )
+
+        cost_drag_df, trade_costs = compute_daily_costs(
+            daily_weights, adv_data, vol_data, config
+        )
+
+        # Filter trade costs for AAPL to verify exit/re-entry are captured
+        aapl_trades = [tc for tc in trade_costs if tc.symbol == "AAPL"]
+
+        # Expected AAPL trades:
+        # Day 1: Entry (0 -> 0.1) = $100,000 trade
+        # Day 3: Exit (0.1 -> 0, due to grid fill) = $100,000 trade
+        # Day 4: Re-entry (0 -> 0.1) = $100,000 trade
+        # Total: 3 trades
+        assert len(aapl_trades) == 3, f"Expected 3 AAPL trades, got {len(aapl_trades)}"
+
+        # Verify trade dates
+        aapl_trade_dates = {tc.trade_date for tc in aapl_trades}
+        assert date(2024, 1, 1) in aapl_trade_dates  # Entry
+        assert date(2024, 1, 3) in aapl_trade_dates  # Exit (sparse day filled with 0)
+        assert date(2024, 1, 4) in aapl_trade_dates  # Re-entry
+
+        # Verify trade values (all should be $100,000 = 0.1 * 1,000,000)
+        for tc in aapl_trades:
+            assert abs(tc.trade_value_usd - 100_000) < 0.01
+
+        # MSFT should have only 1 trade (initial entry on day 1)
+        msft_trades = [tc for tc in trade_costs if tc.symbol == "MSFT"]
+        assert len(msft_trades) == 1, f"Expected 1 MSFT trade, got {len(msft_trades)}"
+
 
 class TestCapacityHelperFunctions:
     """Tests for capacity helper functions via compute_capacity_analysis."""
