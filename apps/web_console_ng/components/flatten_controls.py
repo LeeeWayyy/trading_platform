@@ -403,7 +403,8 @@ class FlattenControls:
                     None,
                 )
                 if current_pos:
-                    authoritative_qty = abs(int(current_pos.get("qty", 0)))
+                    # Parse qty robustly (handles float strings like "100.0" from API)
+                    authoritative_qty = abs(int(float(current_pos.get("qty", 0))))
                     if authoritative_qty == 0:
                         ui.notify(f"{symbol} position already flat", type="info")
                         return

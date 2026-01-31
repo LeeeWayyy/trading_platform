@@ -982,7 +982,7 @@ async def dashboard(client: Client) -> None:
 
     async def handle_one_click(event: events.GenericEventArguments) -> None:
         """Handle one-click trading events from DOM ladder and price chart."""
-        detail = event.args.get("detail", {}) if hasattr(event, "args") else {}
+        detail = _extract_event_detail(event.args)
         await one_click_handler.handle_one_click(detail)
 
     ui.on("close_position", handle_close_position, args=["detail"])
