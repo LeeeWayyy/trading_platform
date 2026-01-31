@@ -237,22 +237,31 @@ class FlattenControls:
                 if is_cancellable_order_id(o.get("client_order_id"))
             ]
 
+            # Cancel orders concurrently with bounded concurrency (avoids overwhelming backend)
             cancelled = 0
             failed = 0
-            for order in cancellable:
-                try:
-                    await self._client.cancel_order(
-                        order["client_order_id"],
-                        user_id,
-                        role=user_role,
-                        strategies=self._strategies,
-                        reason=reason,
-                        requested_by=user_id,
-                        requested_at=datetime.now(UTC).isoformat(),
-                    )
-                    cancelled += 1
-                except Exception:
-                    failed += 1
+            if cancellable:
+                semaphore = asyncio.Semaphore(5)
+
+                async def _cancel_one(order_to_cancel: dict[str, object]) -> bool:
+                    async with semaphore:
+                        try:
+                            await self._client.cancel_order(
+                                str(order_to_cancel["client_order_id"]),
+                                user_id,
+                                role=user_role,
+                                strategies=self._strategies,
+                                reason=reason,
+                                requested_by=user_id,
+                                requested_at=datetime.now(UTC).isoformat(),
+                            )
+                            return True
+                        except Exception:
+                            return False
+
+                results = await asyncio.gather(*[_cancel_one(o) for o in cancellable])
+                cancelled = sum(1 for r in results if r)
+                failed = len(results) - cancelled
 
             return cancelled, failed, len(uncancellable), False
         except Exception as exc:
@@ -780,18 +789,13 @@ class FlattenControls:
                     )
                     return
 
-                # Step 3b: Re-validate price freshness (strict_timestamp for FAIL_CLOSED reverse)
-                fresh_price, price_error = await self._get_fresh_price_with_fallback(
-                    symbol, user_id, user_role, strict_timestamp=True
-                )
-                if fresh_price is None:
-                    ui.notify(
-                        f"Reverse aborted: {price_error} (position is now flat)",
-                        type="negative",
-                    )
-                    return
+                # Step 3b: Reuse pre-close price for open leg
+                # NOTE: Cannot re-fetch price here - position-scoped API filters out symbols
+                # with qty=0, so after close the symbol disappears from market_prices endpoint.
+                # The price was validated as fresh before execute_reverse() started.
+                fresh_price = price  # Use pre-close price (already validated)
 
-                # Step 3c: Re-run fat-finger validation with fresh price and actual closed qty
+                # Step 3c: Re-run fat-finger validation with pre-close price and actual closed qty
                 # Use actual_closed_qty (from Step 1 response), which accounts for backend clamping
                 # This ensures open leg matches what was actually closed, not what we requested.
                 fresh_adv = await self._get_adv(symbol, user_id, user_role)
