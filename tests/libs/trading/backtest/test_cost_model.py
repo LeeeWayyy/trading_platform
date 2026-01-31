@@ -13,7 +13,6 @@ from libs.trading.backtest.cost_model import (
     CapacityAnalysis,
     CostModelConfig,
     CostSummary,
-    TradeCost,
     apply_adv_fallback,
     apply_volatility_fallback,
     compute_backtest_costs,
@@ -293,7 +292,7 @@ class TestComputeTradeCost:
         """Test basic trade cost calculation."""
         config = CostModelConfig(bps_per_trade=5.0, impact_coefficient=0.1)
         cost = compute_trade_cost(
-            symbol="AAPL",
+            identifier="AAPL",
             trade_date=date(2024, 1, 15),
             trade_value_usd=100_000,
             adv_usd=10_000_000,
@@ -301,7 +300,7 @@ class TestComputeTradeCost:
             config=config,
         )
 
-        assert cost.symbol == "AAPL"
+        assert cost.identifier == "AAPL"
         assert cost.trade_date == date(2024, 1, 15)
         assert cost.trade_value_usd == 100_000
         assert cost.commission_spread_cost == pytest.approx(50.0, rel=1e-6)  # 5 bps
@@ -315,7 +314,7 @@ class TestComputeTradeCost:
         """Test trade cost when ADV is unavailable."""
         config = CostModelConfig(bps_per_trade=5.0, impact_coefficient=0.1)
         cost = compute_trade_cost(
-            symbol="AAPL",
+            identifier="AAPL",
             trade_date=date(2024, 1, 15),
             trade_value_usd=100_000,
             adv_usd=None,
@@ -592,23 +591,22 @@ class TestComputeCostSummary:
         """Test cost summary computation."""
         gross_returns = [0.01, -0.02, 0.015]
         net_returns = [0.009, -0.021, 0.014]
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 1),
-                trade_value_usd=100_000,
-                commission_spread_cost=50,
-                market_impact_cost=30,
-                total_cost_usd=80,
-                total_cost_bps=8.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.01,
-            ),
-        ]
+        # Create trades DataFrame as expected by compute_cost_summary
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["AAPL"],
+                "trade_value_usd": [100_000.0],
+                "commission_spread_usd": [50.0],
+                "market_impact_usd": [30.0],
+                "total_cost_usd": [80.0],
+                "adv_usd": [10_000_000.0],
+                "volatility": [0.02],
+            }
+        )
 
         summary = compute_cost_summary(
-            gross_returns, net_returns, trade_costs, portfolio_value_usd=1_000_000
+            gross_returns, net_returns, trades_df, portfolio_value_usd=1_000_000
         )
 
         assert summary.total_cost_usd == 80
@@ -637,32 +635,19 @@ class TestComputeCapacityAnalysis:
             }
         )
 
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 1),
-                trade_value_usd=100_000,
-                commission_spread_cost=50,
-                market_impact_cost=20,
-                total_cost_usd=70,
-                total_cost_bps=7.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.01,
-            ),
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 2),
-                trade_value_usd=50_000,
-                commission_spread_cost=25,
-                market_impact_cost=10,
-                total_cost_usd=35,
-                total_cost_bps=7.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.005,
-            ),
-        ]
+        # Create trades DataFrame as expected by compute_capacity_analysis
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "trade_value_usd": [100_000.0, 50_000.0],
+                "commission_spread_usd": [50.0, 25.0],
+                "market_impact_usd": [20.0, 10.0],
+                "total_cost_usd": [70.0, 35.0],
+                "adv_usd": [10_000_000.0, 10_000_000.0],
+                "volatility": [0.02, 0.02],
+            }
+        )
 
         cost_summary = CostSummary(
             total_gross_return=0.05,
@@ -679,7 +664,7 @@ class TestComputeCapacityAnalysis:
             avg_trade_cost_bps=7.0,
         )
 
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
 
         assert analysis.avg_daily_turnover is not None
         assert analysis.avg_daily_turnover > 0
@@ -707,7 +692,19 @@ class TestComputeCapacityAnalysis:
             avg_trade_cost_bps=0,
         )
 
-        analysis = compute_capacity_analysis(daily_weights, [], cost_summary, config)
+        # Empty trades DataFrame
+        empty_trades_df = pl.DataFrame(schema={
+            "date": pl.Date,
+            "symbol": pl.Utf8,
+            "trade_value_usd": pl.Float64,
+            "commission_spread_usd": pl.Float64,
+            "market_impact_usd": pl.Float64,
+            "total_cost_usd": pl.Float64,
+            "adv_usd": pl.Float64,
+            "volatility": pl.Float64,
+        })
+
+        analysis = compute_capacity_analysis(daily_weights, empty_trades_df, cost_summary, config)
 
         assert analysis.avg_daily_turnover is None
         assert analysis.implied_max_capacity is None
@@ -729,21 +726,19 @@ class TestComputeCapacityAnalysis:
             }
         )
 
-        # Trades without ADV/volatility
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 1),
-                trade_value_usd=100_000,
-                commission_spread_cost=50,
-                market_impact_cost=0,
-                total_cost_usd=50,
-                total_cost_bps=5.0,
-                adv_usd=None,  # No ADV
-                volatility=None,  # No volatility
-                participation_pct=None,
-            ),
-        ]
+        # Trades without ADV/volatility (None values)
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["AAPL"],
+                "trade_value_usd": [100_000.0],
+                "commission_spread_usd": [50.0],
+                "market_impact_usd": [0.0],
+                "total_cost_usd": [50.0],
+                "adv_usd": [None],
+                "volatility": [None],
+            }
+        ).cast({"adv_usd": pl.Float64, "volatility": pl.Float64})
 
         cost_summary = CostSummary(
             total_gross_return=0.05,
@@ -760,7 +755,7 @@ class TestComputeCapacityAnalysis:
             avg_trade_cost_bps=5.0,
         )
 
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
 
         # Should have turnover but no ADV/sigma due to missing data
         assert analysis.avg_daily_turnover is not None
@@ -869,7 +864,7 @@ class TestComputeDailyCostsEdgeCases:
         )
 
         # Filter trade costs for AAPL to verify exit/re-entry are captured
-        aapl_trades = [tc for tc in trade_costs if tc.symbol == "AAPL"]
+        aapl_trades = [tc for tc in trade_costs if tc.identifier == "AAPL"]
 
         # Expected AAPL trades:
         # Day 1: Entry (0 -> 0.1) = $100,000 trade
@@ -889,7 +884,7 @@ class TestComputeDailyCostsEdgeCases:
             assert abs(tc.trade_value_usd - 100_000) < 0.01
 
         # MSFT should have only 1 trade (initial entry on day 1)
-        msft_trades = [tc for tc in trade_costs if tc.symbol == "MSFT"]
+        msft_trades = [tc for tc in trade_costs if tc.identifier == "MSFT"]
         assert len(msft_trades) == 1, f"Expected 1 MSFT trade, got {len(msft_trades)}"
 
 
@@ -995,22 +990,19 @@ class TestCapacityHelperFunctions:
             }
         )
 
-        # Trades with full ADV/volatility for capacity calculations
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, i),
-                trade_value_usd=50_000,
-                commission_spread_cost=25,
-                market_impact_cost=10,
-                total_cost_usd=35,
-                total_cost_bps=7.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.005,
-            )
-            for i in range(1, 10)
-        ]
+        # Create trades DataFrame with full ADV/volatility for capacity calculations
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, i) for i in range(1, 10)],
+                "symbol": ["AAPL"] * 9,
+                "trade_value_usd": [50_000.0] * 9,
+                "commission_spread_usd": [25.0] * 9,
+                "market_impact_usd": [10.0] * 9,
+                "total_cost_usd": [35.0] * 9,
+                "adv_usd": [10_000_000.0] * 9,
+                "volatility": [0.02] * 9,
+            }
+        )
 
         # Use realistic returns that produce achievable breakeven:
         # 0.4% gross return over 10 days annualizes to ~10% alpha
@@ -1030,7 +1022,7 @@ class TestCapacityHelperFunctions:
             avg_trade_cost_bps=7.0,
         )
 
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
 
         # All fields should be populated with valid data
         assert analysis.avg_daily_turnover is not None
@@ -1064,20 +1056,18 @@ class TestCapacityHelperFunctions:
             }
         )
 
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 1),
-                trade_value_usd=100_000,
-                commission_spread_cost=50,
-                market_impact_cost=0,
-                total_cost_usd=50,
-                total_cost_bps=5.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.01,
-            ),
-        ]
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["AAPL"],
+                "trade_value_usd": [100_000.0],
+                "commission_spread_usd": [50.0],
+                "market_impact_usd": [0.0],
+                "total_cost_usd": [50.0],
+                "adv_usd": [10_000_000.0],
+                "volatility": [0.02],
+            }
+        )
 
         cost_summary = CostSummary(
             total_gross_return=0.05,
@@ -1094,7 +1084,7 @@ class TestCapacityHelperFunctions:
             avg_trade_cost_bps=5.0,
         )
 
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
 
         # Impact AUM should be None when impact_coefficient is 0
         assert analysis.impact_aum_5bps is None
@@ -1116,20 +1106,18 @@ class TestCapacityHelperFunctions:
             }
         )
 
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 1),
-                trade_value_usd=100_000,
-                commission_spread_cost=50,
-                market_impact_cost=20,
-                total_cost_usd=70,
-                total_cost_bps=7.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.01,
-            ),
-        ]
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["AAPL"],
+                "trade_value_usd": [100_000.0],
+                "commission_spread_usd": [50.0],
+                "market_impact_usd": [20.0],
+                "total_cost_usd": [70.0],
+                "adv_usd": [10_000_000.0],
+                "volatility": [0.02],
+            }
+        )
 
         cost_summary = CostSummary(
             total_gross_return=-0.05,  # Negative return
@@ -1146,7 +1134,7 @@ class TestCapacityHelperFunctions:
             avg_trade_cost_bps=7.0,
         )
 
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
 
         # Breakeven AUM should be None for negative gross return
         assert analysis.breakeven_aum is None
@@ -1293,11 +1281,12 @@ class TestComputeDailyCostsPermno:
             }
         )
 
-        cost_drag_df, trade_costs, adv_fb, vol_fb, violations = compute_daily_costs_permno(
-            daily_weights, adv_vol, config
+        cost_drag_df, trade_costs, trades_df, adv_fb, vol_fb, violations = (
+            compute_daily_costs_permno(daily_weights, adv_vol, config)
         )
 
         assert len(trade_costs) == 0
+        assert trades_df.height == 0
         assert adv_fb == 0
         assert vol_fb == 0
         assert violations == 0
@@ -1330,11 +1319,12 @@ class TestComputeDailyCostsPermno:
             }
         )
 
-        cost_drag_df, trade_costs, adv_fb, vol_fb, violations = compute_daily_costs_permno(
-            daily_weights, adv_vol, config
+        cost_drag_df, trade_costs, trades_df, adv_fb, vol_fb, violations = (
+            compute_daily_costs_permno(daily_weights, adv_vol, config)
         )
 
         assert len(trade_costs) == 2  # Day 1: 10% position, Day 2: 10% change
+        assert trades_df.height == 2
         assert adv_fb == 0
         assert vol_fb == 0
         assert cost_drag_df.height >= 2
@@ -1364,7 +1354,7 @@ class TestComputeDailyCostsPermno:
             }
         )
 
-        _, trade_costs, adv_fb, vol_fb, _ = compute_daily_costs_permno(
+        _, trade_costs, _, adv_fb, vol_fb, _ = compute_daily_costs_permno(
             daily_weights, adv_vol, config
         )
 
@@ -1397,7 +1387,7 @@ class TestComputeDailyCostsPermno:
         )
 
         # $500K / $1M = 50% participation > 1% limit
-        _, _, _, _, violations = compute_daily_costs_permno(daily_weights, adv_vol, config)
+        _, _, _, _, _, violations = compute_daily_costs_permno(daily_weights, adv_vol, config)
 
         assert violations == 1
 
@@ -1555,21 +1545,18 @@ class TestCapacityGrossReturnEdgeCases:
             }
         )
 
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, i),
-                trade_value_usd=50_000,
-                commission_spread_cost=25,
-                market_impact_cost=10,
-                total_cost_usd=35,
-                total_cost_bps=7.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.005,
-            )
-            for i in range(1, 5)
-        ]
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, i) for i in range(1, 5)],
+                "symbol": ["AAPL"] * 4,
+                "trade_value_usd": [50_000.0] * 4,
+                "commission_spread_usd": [25.0] * 4,
+                "market_impact_usd": [10.0] * 4,
+                "total_cost_usd": [35.0] * 4,
+                "adv_usd": [10_000_000.0] * 4,
+                "volatility": [0.02] * 4,
+            }
+        )
 
         # Extreme case: -100% gross return (total loss)
         cost_summary = CostSummary(
@@ -1588,7 +1575,7 @@ class TestCapacityGrossReturnEdgeCases:
         )
 
         # Should not raise - gross_alpha_annual should be None
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
 
         # gross_alpha_annualized should be None (guarded against -100% return)
         assert analysis.gross_alpha_annualized is None
@@ -1603,20 +1590,18 @@ class TestCapacityGrossReturnEdgeCases:
             {"date": [date(2024, 1, 1)], "symbol": ["AAPL"], "weight": [0.1]}
         )
 
-        trade_costs = [
-            TradeCost(
-                symbol="AAPL",
-                trade_date=date(2024, 1, 1),
-                trade_value_usd=50_000,
-                commission_spread_cost=25,
-                market_impact_cost=10,
-                total_cost_usd=35,
-                total_cost_bps=7.0,
-                adv_usd=10_000_000,
-                volatility=0.02,
-                participation_pct=0.005,
-            )
-        ]
+        trades_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "symbol": ["AAPL"],
+                "trade_value_usd": [50_000.0],
+                "commission_spread_usd": [25.0],
+                "market_impact_usd": [10.0],
+                "total_cost_usd": [35.0],
+                "adv_usd": [10_000_000.0],
+                "volatility": [0.02],
+            }
+        )
 
         # Extreme case: -150% gross return (leveraged loss)
         cost_summary = CostSummary(
@@ -1635,7 +1620,7 @@ class TestCapacityGrossReturnEdgeCases:
         )
 
         # Should not raise
-        analysis = compute_capacity_analysis(daily_weights, trade_costs, cost_summary, config)
+        analysis = compute_capacity_analysis(daily_weights, trades_df, cost_summary, config)
         assert analysis.gross_alpha_annualized is None
 
 

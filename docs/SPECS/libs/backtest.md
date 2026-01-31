@@ -1,6 +1,6 @@
 # backtest
 
-<!-- Last reviewed: 2026-01-30 - Added cost_model.py for transaction cost and capacity analysis -->
+<!-- Last reviewed: 2026-01-30 - TradeCost.symbol→identifier, compute_cost_summary/capacity_analysis use trades_df -->
 
 ## Identity
 - **Type:** Library
@@ -19,8 +19,10 @@
 | `grid_search` | params | `SearchResult` | Parameter grid search. |
 | `random_search` | params | `SearchResult` | Random parameter search. |
 | `CostModelConfig` | fields | config | Transaction cost model configuration. |
+| `TradeCost` | fields | dataclass | Cost breakdown for a single trade (identifier, not symbol). |
 | `compute_backtest_costs` | weights, returns, adv | `BacktestCostResult` | Compute costs for a backtest. |
-| `compute_capacity_analysis` | weights, costs, summary | `CapacityAnalysis` | Analyze strategy capacity constraints. |
+| `compute_cost_summary` | returns, trades_df, value | `CostSummary` | Aggregate cost statistics from trades DataFrame. |
+| `compute_capacity_analysis` | weights, trades_df, summary | `CapacityAnalysis` | Analyze strategy capacity constraints. |
 
 ## Behavioral Contracts
 ### run_backtest(...)

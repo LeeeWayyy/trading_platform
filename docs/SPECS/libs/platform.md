@@ -1,6 +1,6 @@
 # libs/platform
 
-<!-- Last reviewed: 2026-01-18 - microstructure.py VPIN zero-volume and depth edge cases -->
+<!-- Last reviewed: 2026-01-30 - jwt_manager.py/jwks_validator.py type annotations for mypy compatibility -->
 
 ## Identity
 - **Type:** Library Group (Platform Services)

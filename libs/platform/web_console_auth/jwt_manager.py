@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -265,7 +265,7 @@ class JWTManager:
         """
         try:
             # Decode and verify signature + iss/aud claims
-            payload = jwt.decode(
+            payload: dict[str, Any] = jwt.decode(
                 token,
                 self.public_key,
                 algorithms=[self.config.jwt_algorithm],
@@ -372,7 +372,7 @@ class JWTManager:
             },
         )
 
-        return cast(dict[str, Any], payload)
+        return payload
 
     def decode_token(self, token: str) -> dict[str, Any]:
         """Decode token WITHOUT validation (for debugging/inspection).
@@ -387,7 +387,8 @@ class JWTManager:
             This does NOT validate signature or expiration.
             Use validate_token() for security-critical operations.
         """
-        return cast(dict[str, Any], jwt.decode(token, options={"verify_signature": False}))
+        result: dict[str, Any] = jwt.decode(token, options={"verify_signature": False})
+        return result
 
     def revoke_token(self, jti: str, exp: int) -> None:
         """Revoke token by adding to Redis blacklist.

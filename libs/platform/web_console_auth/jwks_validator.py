@@ -18,7 +18,7 @@ References:
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import jwt
@@ -199,7 +199,7 @@ class JWKSValidator:
 
         # Decode and validate JWT
         try:
-            claims = jwt.decode(
+            claims: dict[str, Any] = jwt.decode(
                 id_token,
                 key=signing_key,
                 algorithms=self.allowed_algorithms,
@@ -239,4 +239,4 @@ class JWKSValidator:
             },
         )
 
-        return cast(dict[str, Any], claims)
+        return claims

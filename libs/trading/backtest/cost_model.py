@@ -14,10 +14,10 @@ Reference: ADR-0034-cost-model-architecture.md
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import Enum
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -165,9 +165,13 @@ class CostModelConfig:
 
 @dataclass
 class TradeCost:
-    """Cost breakdown for a single trade."""
+    """Cost breakdown for a single trade.
 
-    symbol: str
+    Note: The `identifier` field contains either a symbol (for Yahoo data)
+    or a permno (for CRSP data), depending on the data provider used.
+    """
+
+    identifier: str
     trade_date: date
     trade_value_usd: float
     commission_spread_cost: float
@@ -357,7 +361,7 @@ def compute_market_impact(
 
 
 def compute_trade_cost(
-    symbol: str,
+    identifier: str,
     trade_date: date,
     trade_value_usd: float,
     adv_usd: float | None,
@@ -367,7 +371,7 @@ def compute_trade_cost(
     """Compute total cost for a single trade.
 
     Args:
-        symbol: Security symbol
+        identifier: Security identifier (symbol or permno depending on data source)
         trade_date: Date of the trade
         trade_value_usd: Absolute trade value in USD
         adv_usd: 20-day average daily volume in USD (PIT-compliant, D-1 lag)
@@ -395,7 +399,7 @@ def compute_trade_cost(
         participation_pct = trade_value_usd / adv_usd
 
     return TradeCost(
-        symbol=symbol,
+        identifier=identifier,
         trade_date=trade_date,
         trade_value_usd=trade_value_usd,
         commission_spread_cost=commission_spread_cost,
@@ -414,7 +418,7 @@ def _compute_daily_costs_generic(
     config: CostModelConfig,
     identifier_col: str = "symbol",
     use_fallbacks: bool = False,
-) -> tuple[pl.DataFrame, list[TradeCost], int, int, int]:
+) -> tuple[pl.DataFrame, list[TradeCost], pl.DataFrame, int, int, int]:
     """Generic function to compute daily transaction costs from weight changes.
 
     This function supports both symbol-keyed (Yahoo Finance) and permno-keyed (CRSP)
@@ -431,13 +435,24 @@ def _compute_daily_costs_generic(
         Tuple of:
         - DataFrame with columns [date, cost_drag] (daily cost as fraction of AUM)
         - List of TradeCost objects for each trade
+        - DataFrame of trades with cost columns (for vectorized aggregations)
         - ADV fallback count (0 if use_fallbacks=False)
         - Volatility fallback count (0 if use_fallbacks=False)
         - Participation violation count (0 if use_fallbacks=False)
     """
+    empty_trades_df = pl.DataFrame(schema={
+        "date": pl.Date,
+        identifier_col: pl.Utf8,
+        "trade_value_usd": pl.Float64,
+        "commission_spread_usd": pl.Float64,
+        "market_impact_usd": pl.Float64,
+        "total_cost_usd": pl.Float64,
+        "adv_usd": pl.Float64,
+        "volatility": pl.Float64,
+    })
     if not config.enabled:
         dates = daily_weights.select("date").unique().sort("date")
-        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
+        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], empty_trades_df, 0, 0, 0
 
     # Extract all unique dates and identifiers to create a full grid
     # This ensures exits (symbol disappearing) and re-entries are captured as trades
@@ -492,7 +507,7 @@ def _compute_daily_costs_generic(
     # Early exit if no trades
     if trades.height == 0:
         dates = daily_weights.select("date").unique().sort("date")
-        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
+        return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], empty_trades_df, 0, 0, 0
 
     # Vectorized fallback and cost computation
     # Step 1: Identify rows needing ADV/volatility fallbacks
@@ -576,7 +591,7 @@ def _compute_daily_costs_generic(
     # Using to_dicts() is faster than iter_rows() as it's implemented in Rust
     trade_costs: list[TradeCost] = [
         TradeCost(
-            symbol=str(row[identifier_col]),
+            identifier=str(row[identifier_col]),
             trade_date=row["date"],
             trade_value_usd=row["trade_value_usd"],
             commission_spread_cost=row["commission_spread_usd"],
@@ -606,7 +621,7 @@ def _compute_daily_costs_generic(
         pl.col("cost_drag").fill_null(0.0)
     )
 
-    return cost_drag_df, trade_costs, adv_fallback_count, vol_fallback_count, participation_violations
+    return cost_drag_df, trade_costs, trades, adv_fallback_count, vol_fallback_count, participation_violations
 
 
 def compute_daily_costs(
@@ -635,7 +650,7 @@ def compute_daily_costs(
     # Combine ADV and volatility data for the generic function
     adv_volatility = adv_data.join(volatility_data, on=["date", "symbol"], how="full")
 
-    cost_drag_df, trade_costs, _, _, _ = _compute_daily_costs_generic(
+    cost_drag_df, trade_costs, _, _, _, _ = _compute_daily_costs_generic(
         daily_weights=daily_weights,
         adv_volatility=adv_volatility,
         config=config,
@@ -742,9 +757,9 @@ def compute_max_drawdown(returns: Sequence[float | None]) -> float | None:
 
 
 def compute_cost_summary(
-    gross_returns: list[float],
-    net_returns: list[float],
-    trade_costs: list[TradeCost],
+    gross_returns: Sequence[float | None],
+    net_returns: Sequence[float | None],
+    trades_df: pl.DataFrame,
     portfolio_value_usd: float,
     adv_fallback_count: int = 0,
     volatility_fallback_count: int = 0,
@@ -753,9 +768,10 @@ def compute_cost_summary(
     """Compute summary statistics for transaction costs.
 
     Args:
-        gross_returns: List of daily gross returns
-        net_returns: List of daily net returns
-        trade_costs: List of TradeCost objects
+        gross_returns: Sequence of daily gross returns (may contain None)
+        net_returns: Sequence of daily net returns (may contain None)
+        trades_df: DataFrame with trade cost columns (commission_spread_usd,
+            market_impact_usd, trade_value_usd) for vectorized aggregations
         portfolio_value_usd: Portfolio value (for cost drag calculation)
         adv_fallback_count: Number of trades using ADV fallback
         volatility_fallback_count: Number of trades using volatility fallback
@@ -764,11 +780,24 @@ def compute_cost_summary(
     Returns:
         CostSummary with aggregated statistics
     """
-    total_commission = sum(tc.commission_spread_cost for tc in trade_costs)
-    total_impact = sum(tc.market_impact_cost for tc in trade_costs)
-    total_cost = total_commission + total_impact
+    # Use Polars vectorized aggregations instead of Python iteration
+    if trades_df.height == 0:
+        total_commission = 0.0
+        total_impact = 0.0
+        total_trade_value = 0.0
+        num_trades = 0
+    else:
+        agg_result = trades_df.select(
+            pl.sum("commission_spread_usd").alias("total_commission"),
+            pl.sum("market_impact_usd").alias("total_impact"),
+            pl.sum("trade_value_usd").alias("total_trade_value"),
+        ).row(0, named=True)
+        total_commission = agg_result["total_commission"] or 0.0
+        total_impact = agg_result["total_impact"] or 0.0
+        total_trade_value = agg_result["total_trade_value"] or 0.0
+        num_trades = trades_df.height
 
-    total_trade_value = sum(tc.trade_value_usd for tc in trade_costs)
+    total_cost = total_commission + total_impact
     avg_cost_bps = (total_cost / total_trade_value * 10000) if total_trade_value > 0 else 0.0
 
     return CostSummary(
@@ -782,7 +811,7 @@ def compute_cost_summary(
         net_sharpe=compute_sharpe_ratio(net_returns),
         gross_max_drawdown=compute_max_drawdown(gross_returns),
         net_max_drawdown=compute_max_drawdown(net_returns),
-        num_trades=len(trade_costs),
+        num_trades=num_trades,
         avg_trade_cost_bps=avg_cost_bps,
         adv_fallback_count=adv_fallback_count,
         volatility_fallback_count=volatility_fallback_count,
@@ -792,7 +821,7 @@ def compute_cost_summary(
 
 def compute_capacity_analysis(
     daily_weights: pl.DataFrame,
-    trade_costs: list[TradeCost],
+    trades_df: pl.DataFrame,
     cost_summary: CostSummary,
     config: CostModelConfig,
     identifier_col: str = "symbol",
@@ -806,7 +835,8 @@ def compute_capacity_analysis(
 
     Args:
         daily_weights: DataFrame with columns [date, <identifier_col>, weight]
-        trade_costs: List of TradeCost objects
+        trades_df: DataFrame of trades with columns [trade_value_usd, adv_usd, volatility]
+            for vectorized weighted average calculations
         cost_summary: Pre-computed cost summary
         config: Cost model configuration
         identifier_col: Column name for security identifier ("symbol" or "permno")
@@ -868,24 +898,37 @@ def compute_capacity_analysis(
     avg_turnover = daily_turnover.select(pl.col("turnover").mean()).item()
     avg_holding_period = 1.0 / avg_turnover if avg_turnover and avg_turnover > 0 else None
 
-    # Trade-weighted portfolio ADV and volatility
-    total_trade_value = sum(tc.trade_value_usd for tc in trade_costs)
-    if total_trade_value <= 0:
+    # Trade-weighted portfolio ADV and volatility using Polars vectorized operations
+    if trades_df.height == 0:
         portfolio_adv = None
         portfolio_sigma = None
     else:
-        weighted_adv = sum(
-            tc.trade_value_usd * (tc.adv_usd or 0)
-            for tc in trade_costs
-            if tc.adv_usd is not None and math.isfinite(tc.adv_usd)
-        )
-        weighted_sigma = sum(
-            tc.trade_value_usd * (tc.volatility or 0)
-            for tc in trade_costs
-            if tc.volatility is not None and math.isfinite(tc.volatility)
-        )
-        portfolio_adv = weighted_adv / total_trade_value if weighted_adv > 0 else None
-        portfolio_sigma = weighted_sigma / total_trade_value if weighted_sigma > 0 else None
+        # Filter to trades with valid ADV/volatility and compute weighted sums
+        weighted_agg = trades_df.select(
+            pl.sum("trade_value_usd").alias("total_trade_value"),
+            # Weighted ADV: sum(trade_value * adv) for valid adv
+            (
+                pl.when(pl.col("adv_usd").is_not_null() & pl.col("adv_usd").is_finite())
+                .then(pl.col("trade_value_usd") * pl.col("adv_usd"))
+                .otherwise(0.0)
+            ).sum().alias("weighted_adv"),
+            # Weighted volatility: sum(trade_value * volatility) for valid volatility
+            (
+                pl.when(pl.col("volatility").is_not_null() & pl.col("volatility").is_finite())
+                .then(pl.col("trade_value_usd") * pl.col("volatility"))
+                .otherwise(0.0)
+            ).sum().alias("weighted_sigma"),
+        ).row(0, named=True)
+
+        total_trade_value = weighted_agg["total_trade_value"] or 0.0
+        if total_trade_value <= 0:
+            portfolio_adv = None
+            portfolio_sigma = None
+        else:
+            weighted_adv = weighted_agg["weighted_adv"] or 0.0
+            weighted_sigma = weighted_agg["weighted_sigma"] or 0.0
+            portfolio_adv = weighted_adv / total_trade_value if weighted_adv > 0 else None
+            portfolio_sigma = weighted_sigma / total_trade_value if weighted_sigma > 0 else None
 
     # Gross alpha annualized
     # Guard: gross_alpha must be > -1 to avoid complex/undefined exponentiation
@@ -1210,7 +1253,7 @@ def compute_daily_costs_permno(
     daily_weights: pl.DataFrame,
     adv_volatility: pl.DataFrame,
     config: CostModelConfig,
-) -> tuple[pl.DataFrame, list[TradeCost], int, int, int]:
+) -> tuple[pl.DataFrame, list[TradeCost], pl.DataFrame, int, int, int]:
     """Compute daily transaction costs from weight changes (permno-keyed).
 
     This is a convenience wrapper around _compute_daily_costs_generic for
@@ -1226,6 +1269,7 @@ def compute_daily_costs_permno(
         Tuple of:
         - DataFrame with columns [date, cost_drag] (daily cost as fraction of AUM)
         - List of TradeCost objects for each trade
+        - DataFrame of trades with cost columns (for vectorized aggregations)
         - ADV fallback count
         - Volatility fallback count
         - Participation violation count
@@ -1282,8 +1326,8 @@ def compute_backtest_costs(
         BacktestCostResult with full cost analysis.
     """
     # Compute daily costs
-    cost_drag_df, trade_costs, adv_fallback, vol_fallback, violations = compute_daily_costs_permno(
-        daily_weights, adv_volatility, config
+    cost_drag_df, trade_costs, trades_df, adv_fallback, vol_fallback, violations = (
+        compute_daily_costs_permno(daily_weights, adv_volatility, config)
     )
 
     # Compute net returns
@@ -1297,7 +1341,7 @@ def compute_backtest_costs(
     cost_summary = compute_cost_summary(
         gross_returns=gross_return_list,
         net_returns=net_return_list,
-        trade_costs=trade_costs,
+        trades_df=trades_df,
         portfolio_value_usd=config.portfolio_value_usd,
         adv_fallback_count=adv_fallback,
         volatility_fallback_count=vol_fallback,
@@ -1307,7 +1351,7 @@ def compute_backtest_costs(
     # Compute capacity analysis
     capacity_analysis = compute_capacity_analysis(
         daily_weights=daily_weights,
-        trade_costs=trade_costs,
+        trades_df=trades_df,
         cost_summary=cost_summary,
         config=config,
         identifier_col="permno",

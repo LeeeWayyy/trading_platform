@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-30 - P6T9 simplify weight_change/turnover calculations -->
+<!-- Last reviewed: 2026-01-30 - P6T9 TradeCost.symbol→identifier, compute_cost_summary/capacity_analysis use trades_df -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)
