@@ -28,6 +28,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -387,33 +388,42 @@ class OneClickHandler:
             ui.notify(f"No orders at ${price}", type="info")
             return
 
-        # Cancel all matched orders (skip invalid IDs)
+        # Separate cancellable from uncancellable orders
+        cancellable_orders = [
+            o for o in orders_at_level if is_cancellable_order_id(o.get("client_order_id"))
+        ]
+        skipped = len(orders_at_level) - len(cancellable_orders)
+
+        # Cancel orders concurrently with bounded concurrency
         cancelled = 0
-        skipped = 0
         failed = 0
-        for order in orders_at_level:
-            order_id = order.get("client_order_id")
-            # Skip uncancellable orders using shared utility
-            if not is_cancellable_order_id(order_id):
-                skipped += 1
-                continue
-            try:
-                await self._client.cancel_order(
-                    order_id,
-                    self._user_id,
-                    role=self._user_role,
-                    strategies=self._strategies,
-                    reason="Alt-click cancel at price level",
-                    requested_by=self._user_id,
-                    requested_at=datetime.now(UTC).isoformat(),
-                )
-                cancelled += 1
-            except Exception as exc:
-                failed += 1
-                logger.warning(
-                    "alt_click_cancel_failed",
-                    extra={"order_id": order_id, "error": str(exc)},
-                )
+        if cancellable_orders:
+            semaphore = asyncio.Semaphore(5)
+
+            async def _cancel_one(order: dict[str, Any]) -> bool:
+                order_id = order.get("client_order_id")
+                async with semaphore:
+                    try:
+                        await self._client.cancel_order(
+                            order_id,
+                            self._user_id,
+                            role=self._user_role,
+                            strategies=self._strategies,
+                            reason="Alt-click cancel at price level",
+                            requested_by=self._user_id,
+                            requested_at=datetime.now(UTC).isoformat(),
+                        )
+                        return True
+                    except Exception as exc:
+                        logger.warning(
+                            "alt_click_cancel_failed",
+                            extra={"order_id": order_id, "error": str(exc)},
+                        )
+                        return False
+
+            results = await asyncio.gather(*[_cancel_one(o) for o in cancellable_orders])
+            cancelled = sum(1 for r in results if r)
+            failed = len(results) - cancelled
 
         # Report results with accurate status
         if failed > 0:
