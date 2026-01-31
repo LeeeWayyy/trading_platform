@@ -461,61 +461,118 @@ def _compute_daily_costs_generic(
     # Join with ADV and volatility data
     trades = trades.join(adv_volatility, on=["date", identifier_col], how="left")
 
-    # Compute costs for each trade
-    trade_costs: list[TradeCost] = []
-    daily_costs: dict[date, float] = {}
-    adv_fallback_count = 0
-    vol_fallback_count = 0
-    participation_violations = 0
-
-    for row in trades.iter_rows(named=True):
-        trade_date = row["date"]
-        identifier = row[identifier_col]
-        trade_value = row["trade_value_usd"]
-
-        # Get ADV and volatility, applying fallbacks if enabled
-        adv_usd = row.get("adv_usd")
-        volatility = row.get("volatility")
-
-        if use_fallbacks:
-            adv_usd, used_adv_fallback = apply_adv_fallback(adv_usd, identifier)
-            volatility, used_vol_fallback = apply_volatility_fallback(volatility, identifier)
-            if used_adv_fallback:
-                adv_fallback_count += 1
-            if used_vol_fallback:
-                vol_fallback_count += 1
-
-            # Check participation violation
-            participation_pct = trade_value / adv_usd if adv_usd > 0 else 0.0
-            if participation_pct > config.participation_limit:
-                participation_violations += 1
-
-        cost = compute_trade_cost(
-            symbol=str(identifier),
-            trade_date=trade_date,
-            trade_value_usd=trade_value,
-            adv_usd=adv_usd,
-            volatility=volatility,
-            config=config,
-        )
-        trade_costs.append(cost)
-
-        # Accumulate daily cost
-        if trade_date not in daily_costs:
-            daily_costs[trade_date] = 0.0
-        daily_costs[trade_date] += cost.total_cost_usd
-
-    # Convert to cost drag (fraction of AUM)
-    cost_drag_data = [
-        {"date": d, "cost_drag": cost / config.portfolio_value_usd}
-        for d, cost in daily_costs.items()
-    ]
-
-    if not cost_drag_data:
+    # Early exit if no trades
+    if trades.height == 0:
         dates = daily_weights.select("date").unique().sort("date")
         return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], 0, 0, 0
 
-    cost_drag_df = pl.DataFrame(cost_drag_data).sort("date")
+    # Vectorized fallback and cost computation
+    # Step 1: Identify rows needing ADV/volatility fallbacks
+    trades = trades.with_columns(
+        used_adv_fallback=pl.when(
+            pl.col("adv_usd").is_null() | ~pl.col("adv_usd").is_finite() | (pl.col("adv_usd") <= 0)
+        ).then(True).otherwise(False),
+        used_vol_fallback=pl.when(
+            pl.col("volatility").is_null() | ~pl.col("volatility").is_finite() | (pl.col("volatility") <= 0)
+        ).then(True).otherwise(False),
+    )
+
+    # Step 2: Apply fallbacks using vectorized expressions
+    if use_fallbacks:
+        trades = trades.with_columns(
+            adv_usd=pl.when(pl.col("used_adv_fallback"))
+            .then(ADV_FLOOR_USD)
+            .otherwise(pl.col("adv_usd")),
+            volatility=pl.when(pl.col("used_vol_fallback"))
+            .then(VOL_FLOOR)
+            .otherwise(pl.col("volatility")),
+        )
+        # Count fallbacks (vectorized sum)
+        adv_fallback_count = trades.select(pl.col("used_adv_fallback").sum()).item()
+        vol_fallback_count = trades.select(pl.col("used_vol_fallback").sum()).item()
+
+        # Compute participation and count violations (vectorized)
+        trades = trades.with_columns(
+            participation_pct=pl.when(pl.col("adv_usd") > 0)
+            .then(pl.col("trade_value_usd") / pl.col("adv_usd"))
+            .otherwise(0.0)
+        )
+        participation_violations = trades.filter(
+            pl.col("participation_pct") > config.participation_limit
+        ).height
+    else:
+        adv_fallback_count = 0
+        vol_fallback_count = 0
+        participation_violations = 0
+        # Compute participation for cost calculation
+        # When not using fallbacks, participation is None if ADV is invalid
+        # (null, <= 0, NaN, or infinite) - matches compute_trade_cost() behavior
+        trades = trades.with_columns(
+            participation_pct=pl.when(
+                pl.col("adv_usd").is_not_null()
+                & pl.col("adv_usd").is_finite()
+                & (pl.col("adv_usd") > 0)
+            )
+            .then(pl.col("trade_value_usd") / pl.col("adv_usd"))
+            .otherwise(None)
+        )
+
+    # Step 3: Vectorized cost computation (Almgren-Chriss model)
+    # IMPORTANT: This logic mirrors compute_trade_cost() and compute_market_impact().
+    # Any changes to those functions must be reflected here to maintain consistency.
+    # Commission/spread cost: bps_per_trade * trade_value / 10000
+    # Market impact: impact_coefficient * volatility * sqrt(participation) * trade_value
+    # Note: impact_bps requires both volatility > 0 and valid participation (not None/0)
+    # to match compute_market_impact behavior (returns 0 if ADV or volatility invalid)
+    trades = trades.with_columns(
+        commission_spread_usd=(config.bps_per_trade * pl.col("trade_value_usd") / 10000),
+        impact_bps=pl.when(
+            pl.col("volatility").is_not_null()
+            & pl.col("volatility").is_finite()
+            & (pl.col("volatility") > 0)
+            & pl.col("participation_pct").is_not_null()
+            & (pl.col("participation_pct") > 0)
+        )
+        .then(config.impact_coefficient * pl.col("volatility") * 10000 * pl.col("participation_pct").sqrt())
+        .otherwise(0.0),
+    )
+    trades = trades.with_columns(
+        market_impact_usd=(pl.col("impact_bps") * pl.col("trade_value_usd") / 10000),
+    )
+    trades = trades.with_columns(
+        total_cost_bps=(config.bps_per_trade + pl.col("impact_bps")),
+        total_cost_usd=(pl.col("commission_spread_usd") + pl.col("market_impact_usd")),
+    )
+
+    # Step 4: Build TradeCost objects from vectorized results
+    # Note: This loop is still needed to build the TradeCost dataclass objects,
+    # but the heavy computation (costs, fallbacks, violations) is vectorized above.
+    trade_costs: list[TradeCost] = []
+    for row in trades.iter_rows(named=True):
+        trade_costs.append(
+            TradeCost(
+                symbol=str(row[identifier_col]),
+                trade_date=row["date"],
+                trade_value_usd=row["trade_value_usd"],
+                commission_spread_cost=row["commission_spread_usd"],
+                market_impact_cost=row["market_impact_usd"],
+                total_cost_bps=row["total_cost_bps"],
+                total_cost_usd=row["total_cost_usd"],
+                adv_usd=row.get("adv_usd"),
+                volatility=row.get("volatility"),
+                participation_pct=row.get("participation_pct"),
+            )
+        )
+
+    # Step 5: Aggregate daily costs using vectorized groupby
+    daily_costs_df = trades.group_by("date").agg(
+        pl.col("total_cost_usd").sum().alias("daily_cost_usd")
+    )
+
+    # Convert to cost drag (fraction of AUM) using vectorized operations
+    cost_drag_df = daily_costs_df.with_columns(
+        (pl.col("daily_cost_usd") / config.portfolio_value_usd).alias("cost_drag")
+    ).select(["date", "cost_drag"]).sort("date")
 
     # Ensure all dates from daily_weights are included
     all_dates = daily_weights.select("date").unique().sort("date")
@@ -550,7 +607,7 @@ def compute_daily_costs(
         - List of TradeCost objects for each trade
     """
     # Combine ADV and volatility data for the generic function
-    adv_volatility = adv_data.join(volatility_data, on=["date", "symbol"], how="outer")
+    adv_volatility = adv_data.join(volatility_data, on=["date", "symbol"], how="full")
 
     cost_drag_df, trade_costs, _, _, _ = _compute_daily_costs_generic(
         daily_weights=daily_weights,
@@ -575,13 +632,16 @@ def compute_net_returns(
     Returns:
         DataFrame with columns [date, gross_return, cost_drag, net_return]
     """
-    result = gross_returns.join(cost_drag, on="date", how="left")
+    # Use maintain_order="left" to preserve chronological order from gross_returns
+    # This is critical for correct max drawdown calculation downstream
+    result = gross_returns.join(cost_drag, on="date", how="left", maintain_order="left")
     result = result.with_columns(pl.col("cost_drag").fill_null(0.0))
     result = result.with_columns(
         (pl.col("return") - pl.col("cost_drag")).alias("net_return")
     )
     result = result.rename({"return": "gross_return"})
-    return result.select(["date", "gross_return", "cost_drag", "net_return"])
+    # Sort by date for safety (ensures chronological order even if input wasn't sorted)
+    return result.select(["date", "gross_return", "cost_drag", "net_return"]).sort("date")
 
 
 def compute_compounded_return(returns: list[float]) -> float | None:

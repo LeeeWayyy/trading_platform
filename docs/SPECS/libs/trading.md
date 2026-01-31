@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-30 - P6T9 generic cost function refactoring -->
+<!-- Last reviewed: 2026-01-30 - P6T9 vectorized cost computation, remove redundant validation -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

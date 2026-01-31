@@ -34,12 +34,10 @@ if _missing:
 
 import libs.trading.backtest.worker as worker_module
 from libs.trading.alpha.exceptions import JobCancelled
-from libs.trading.backtest.cost_model import CostModelConfig
 from libs.trading.backtest.worker import (
     MAX_COST_CONFIG_SIZE,
     BacktestWorker,
     _validate_config_size,
-    _validate_cost_config,
     record_retry,
 )
 
@@ -1270,34 +1268,6 @@ class TestValidateConfigSize:
         # Should raise because JSON escaping exceeds limit
         with pytest.raises(ValueError, match="exceeds size limit"):
             _validate_config_size(raw_params)
-
-
-class TestValidateCostConfig:
-    """Tests for _validate_cost_config post-parse validation.
-
-    Note: enabled=False is handled pre-parse in _validate_cost_params_preparse.
-    _validate_cost_config only sees configs where enabled != False.
-    """
-
-    @pytest.mark.unit()
-    def test_enabled_config_returns_true(self):
-        """Test that enabled=True config returns True (apply costs)."""
-        config = CostModelConfig(enabled=True, bps_per_trade=5.0)
-        logger = MagicMock()
-        result = _validate_cost_config(config, logger, "job123")
-        assert result is True
-        logger.warning.assert_not_called()
-
-    @pytest.mark.unit()
-    def test_post_parse_always_returns_true(self):
-        """Test that _validate_cost_config always returns True (enabled=False handled pre-parse)."""
-        # Note: enabled=False configs never reach _validate_cost_config;
-        # they are short-circuited in _validate_cost_params_preparse.
-        # This test verifies the function returns True for any config that reaches it.
-        config = CostModelConfig(enabled=True, bps_per_trade=10.0, impact_coefficient=0.2)
-        logger = MagicMock()
-        result = _validate_cost_config(config, logger, "job456")
-        assert result is True
 
 
 class TestValidateCostParamsPreparse:

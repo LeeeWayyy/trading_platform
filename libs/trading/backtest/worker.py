@@ -361,26 +361,6 @@ def _validate_cost_params_preparse(
     return True
 
 
-def _validate_cost_config(config: CostModelConfig, logger: Any, job_id: str) -> bool:
-    """Validate cost model configuration on server side.
-
-    Note: enabled=False is handled BEFORE parsing in the caller (fail-safe design).
-    This function validates the parsed config after from_dict() succeeds.
-
-    Args:
-        config: Parsed CostModelConfig object (enabled=True at this point)
-        logger: Structured logger for warnings
-        job_id: Job ID for logging context
-
-    Returns:
-        True if cost model should be applied, False if it should be skipped
-    """
-    # Note: enabled=False is short-circuited before parsing in run_backtest_job().
-    # If we reach here, config.enabled is True (from_dict default or explicit True).
-    # No additional enabled check needed - validation happens pre-parse.
-    return True
-
-
 def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
     """
     RQ job entrypoint for backtest execution.
@@ -574,14 +554,10 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             cost_params = job_config.extra_params.get("cost_model")
             if cost_params is not None:
                 # Pre-parse validation (type, size, enabled checks)
+                # Handles enabled=False short-circuit, type validation, and size limits
                 if _validate_cost_params_preparse(cost_params, worker.logger, job_id):
-                    # Parse and validate config (enabled != False)
+                    # Parse config; from_dict ensures enabled=True (default or explicit)
                     cost_config = CostModelConfig.from_dict(cost_params)
-
-                    # Post-parse validation (reserved for future checks)
-                    if not _validate_cost_config(cost_config, worker.logger, job_id):
-                        # Validation failed (e.g., enabled field missing/invalid)
-                        cost_config = None  # Ensure cost_config is None if validation fails
 
                 # Compute costs if cost model is enabled and validation passed
                 if cost_config is not None and job_config.provider == DataProvider.CRSP:

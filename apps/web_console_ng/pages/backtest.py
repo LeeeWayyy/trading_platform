@@ -1528,10 +1528,8 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                 metrics_dict["average_turnover"] = result.turnover_result.average_turnover
 
             # Add cost data to metrics if available (T9.4)
-            cost_summary = getattr(result, "cost_summary", None)
-            cost_config = getattr(result, "cost_config", None)
-            capacity_analysis = getattr(result, "capacity_analysis", None)
-
+            # Note: cost_summary, cost_config, capacity_analysis are already defined
+            # in the outer scope (lines 1397-1399). Use those directly.
             if cost_summary:
                 metrics_dict["cost_summary"] = cost_summary
             if cost_config:

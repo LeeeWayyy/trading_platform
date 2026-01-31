@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-01-30 - P6T9 remove hardcoded portfolio_value_usd default -->
+<!-- Last reviewed: 2026-01-30 - P6T9 remove redundant variable redefinition -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
