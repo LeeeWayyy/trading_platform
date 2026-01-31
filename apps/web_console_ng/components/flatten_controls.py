@@ -702,8 +702,12 @@ class FlattenControls:
                     )
                     if current_pos:
                         # Parse qty and detect fractional shares
-                        qty_float = float(current_pos.get("qty", 0))
-                        raw_qty = int(qty_float)
+                        try:
+                            qty_raw = current_pos.get("qty", 0)
+                            qty_float = float(qty_raw)
+                            raw_qty = int(qty_float)
+                        except (ValueError, TypeError) as e:
+                            raise ValueError(f"Unparseable position qty from API: {qty_raw!r}") from e
                         authoritative_qty = abs(raw_qty)
                         # FAIL_CLOSED: Block reverse if fractional shares detected
                         # Fractional positions can't be fully closed with integer qty,
