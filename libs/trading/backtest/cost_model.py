@@ -556,24 +556,22 @@ def _compute_daily_costs_generic(
     )
 
     # Step 4: Build TradeCost objects from vectorized results
-    # Note: This loop is still needed to build the TradeCost dataclass objects,
-    # but the heavy computation (costs, fallbacks, violations) is vectorized above.
-    trade_costs: list[TradeCost] = []
-    for row in trades.iter_rows(named=True):
-        trade_costs.append(
-            TradeCost(
-                symbol=str(row[identifier_col]),
-                trade_date=row["date"],
-                trade_value_usd=row["trade_value_usd"],
-                commission_spread_cost=row["commission_spread_usd"],
-                market_impact_cost=row["market_impact_usd"],
-                total_cost_bps=row["total_cost_bps"],
-                total_cost_usd=row["total_cost_usd"],
-                adv_usd=row.get("adv_usd"),
-                volatility=row.get("volatility"),
-                participation_pct=row.get("participation_pct"),
-            )
+    # Using to_dicts() is faster than iter_rows() as it's implemented in Rust
+    trade_costs: list[TradeCost] = [
+        TradeCost(
+            symbol=str(row[identifier_col]),
+            trade_date=row["date"],
+            trade_value_usd=row["trade_value_usd"],
+            commission_spread_cost=row["commission_spread_usd"],
+            market_impact_cost=row["market_impact_usd"],
+            total_cost_bps=row["total_cost_bps"],
+            total_cost_usd=row["total_cost_usd"],
+            adv_usd=row.get("adv_usd"),
+            volatility=row.get("volatility"),
+            participation_pct=row.get("participation_pct"),
         )
+        for row in trades.to_dicts()
+    ]
 
     # Step 5: Aggregate daily costs using vectorized groupby
     daily_costs_df = trades.group_by("date").agg(
@@ -778,6 +776,7 @@ def compute_capacity_analysis(
     trade_costs: list[TradeCost],
     cost_summary: CostSummary,
     config: CostModelConfig,
+    identifier_col: str = "symbol",
 ) -> CapacityAnalysis:
     """Compute capacity analysis for strategy sizing.
 
@@ -787,33 +786,34 @@ def compute_capacity_analysis(
     3. Breakeven constraint: At what AUM does net alpha reach zero?
 
     Args:
-        daily_weights: DataFrame with columns [date, symbol, weight]
+        daily_weights: DataFrame with columns [date, <identifier_col>, weight]
         trade_costs: List of TradeCost objects
         cost_summary: Pre-computed cost summary
         config: Cost model configuration
+        identifier_col: Column name for security identifier ("symbol" or "permno")
 
     Returns:
         CapacityAnalysis with capacity estimates
     """
-    # Create full date × symbol grid to capture exits and re-entries
+    # Create full date × identifier grid to capture exits and re-entries
     # When a symbol disappears from daily_weights (e.g., null signal), we need to
     # record the exit trade (weight going to 0). Without the grid, sparse data would
     # miss these trades and understate turnover.
     all_dates = daily_weights.select("date").unique().sort("date")
-    all_symbols = daily_weights.select("symbol").unique()
+    all_identifiers = daily_weights.select(identifier_col).unique()
 
     # Create full grid and fill missing weights with 0
-    full_grid = all_dates.join(all_symbols, how="cross")
+    full_grid = all_dates.join(all_identifiers, how="cross")
     daily_weights_filled = full_grid.join(
-        daily_weights.select(["date", "symbol", "weight"]),
-        on=["date", "symbol"],
+        daily_weights.select(["date", identifier_col, "weight"]),
+        on=["date", identifier_col],
         how="left",
     ).with_columns(pl.col("weight").fill_null(0.0))
 
     # Compute daily turnover, filling null from shift with 0.0 for the first day
     # First day's turnover equals the absolute weight (starting from cash)
-    weight_changes = daily_weights_filled.sort(["symbol", "date"]).with_columns(
-        (pl.col("weight") - pl.col("weight").shift(1).over("symbol").fill_null(0.0))
+    weight_changes = daily_weights_filled.sort([identifier_col, "date"]).with_columns(
+        (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col).fill_null(0.0))
         .abs()
         .alias("turnover")
     )
@@ -1276,10 +1276,11 @@ def compute_backtest_costs(
 
     # Compute capacity analysis
     capacity_analysis = compute_capacity_analysis(
-        daily_weights=daily_weights.rename({"permno": "symbol"}),
+        daily_weights=daily_weights,
         trade_costs=trade_costs,
         cost_summary=cost_summary,
         config=config,
+        identifier_col="permno",
     )
 
     return BacktestCostResult(

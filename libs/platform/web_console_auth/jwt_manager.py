@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -372,7 +372,7 @@ class JWTManager:
             },
         )
 
-        return payload  # type: ignore[no-any-return]
+        return cast(dict[str, Any], payload)
 
     def decode_token(self, token: str) -> dict[str, Any]:
         """Decode token WITHOUT validation (for debugging/inspection).
@@ -387,7 +387,7 @@ class JWTManager:
             This does NOT validate signature or expiration.
             Use validate_token() for security-critical operations.
         """
-        return jwt.decode(token, options={"verify_signature": False})  # type: ignore[no-any-return]
+        return cast(dict[str, Any], jwt.decode(token, options={"verify_signature": False}))
 
     def revoke_token(self, jti: str, exp: int) -> None:
         """Revoke token by adding to Redis blacklist.

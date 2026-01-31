@@ -18,7 +18,7 @@ References:
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import jwt
@@ -239,4 +239,4 @@ class JWKSValidator:
             },
         )
 
-        return claims  # type: ignore[no-any-return]
+        return cast(dict[str, Any], claims)
