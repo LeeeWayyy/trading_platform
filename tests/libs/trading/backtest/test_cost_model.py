@@ -893,6 +893,89 @@ class TestComputeDailyCostsEdgeCases:
         assert len(msft_trades) == 1, f"Expected 1 MSFT trade, got {len(msft_trades)}"
 
 
+class TestNullReturnHandling:
+    """Tests for null/None handling in cost summary functions."""
+
+    def test_compute_compounded_return_with_nulls(self):
+        """Test compute_compounded_return handles None values without crashing."""
+        # List with None values mixed in
+        returns_with_nulls: list[float | None] = [0.01, None, 0.02, None, -0.01]
+        result = compute_compounded_return(returns_with_nulls)
+
+        # Should compute using only valid returns: (1.01)(1.02)(0.99) - 1
+        expected = (1.01 * 1.02 * 0.99) - 1
+        assert result is not None
+        assert abs(result - expected) < 1e-10
+
+    def test_compute_compounded_return_all_nulls(self):
+        """Test compute_compounded_return returns None when all values are None."""
+        returns_all_nulls: list[float | None] = [None, None, None]
+        result = compute_compounded_return(returns_all_nulls)
+        assert result is None
+
+    def test_compute_sharpe_ratio_with_nulls(self):
+        """Test compute_sharpe_ratio handles None values without crashing."""
+        # List with None values mixed in (need at least 2 valid for Sharpe)
+        returns_with_nulls: list[float | None] = [0.01, None, 0.02, None, -0.01, 0.015]
+        result = compute_sharpe_ratio(returns_with_nulls)
+
+        # Should compute using only valid returns
+        assert result is not None
+        assert isinstance(result, float)
+
+    def test_compute_sharpe_ratio_insufficient_data_with_nulls(self):
+        """Test compute_sharpe_ratio returns None with insufficient valid data."""
+        # Only 1 valid return after filtering nulls
+        returns_with_nulls: list[float | None] = [0.01, None, None, None]
+        result = compute_sharpe_ratio(returns_with_nulls)
+        assert result is None
+
+    def test_compute_max_drawdown_with_nulls(self):
+        """Test compute_max_drawdown handles None values without crashing."""
+        # List with None values mixed in
+        returns_with_nulls: list[float | None] = [0.10, None, -0.15, None, 0.05]
+        result = compute_max_drawdown(returns_with_nulls)
+
+        # Should compute using only valid returns
+        assert result is not None
+        assert result >= 0  # Drawdown is always positive
+        assert result <= 1  # Can't lose more than 100%
+
+    def test_compute_max_drawdown_all_nulls(self):
+        """Test compute_max_drawdown returns None when all values are None."""
+        returns_all_nulls: list[float | None] = [None, None, None]
+        result = compute_max_drawdown(returns_all_nulls)
+        assert result is None
+
+    def test_compute_functions_with_nan_and_inf(self):
+        """Test cost summary functions handle NaN and Inf values."""
+        import math
+
+        # List with NaN and Inf mixed in
+        returns_with_special: list[float | None] = [
+            0.01,
+            float("nan"),
+            0.02,
+            float("inf"),
+            -0.01,
+            float("-inf"),
+        ]
+
+        # All functions should skip NaN/Inf and compute using valid values
+        compounded = compute_compounded_return(returns_with_special)
+        assert compounded is not None
+        assert math.isfinite(compounded)
+
+        sharpe = compute_sharpe_ratio(returns_with_special)
+        # May be None if std is too small, but shouldn't crash
+        if sharpe is not None:
+            assert math.isfinite(sharpe)
+
+        max_dd = compute_max_drawdown(returns_with_special)
+        assert max_dd is not None
+        assert math.isfinite(max_dd)
+
+
 class TestCapacityHelperFunctions:
     """Tests for capacity helper functions via compute_capacity_analysis."""
 

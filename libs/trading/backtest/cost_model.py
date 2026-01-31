@@ -17,6 +17,7 @@ import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import Enum
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -47,6 +48,10 @@ class ADVSource(str, Enum):
 
 # Minimum standard deviation for Sharpe ratio calculation (avoid division by near-zero)
 MIN_STD_FOR_SHARPE = 1e-8
+
+# Maximum grid size for date×symbol cross join (to prevent memory issues)
+# 10 years × 5000 symbols = 12.6M rows; warn above 5M to allow headroom
+MAX_GRID_SIZE_WARNING = 5_000_000
 
 
 @dataclass
@@ -439,6 +444,18 @@ def _compute_daily_costs_generic(
     all_dates = daily_weights.select("date").unique().sort("date")
     all_identifiers = daily_weights.select(identifier_col).unique()
 
+    # Warn if the grid would be very large (potential memory/CPU impact)
+    grid_size = all_dates.height * all_identifiers.height
+    if grid_size > MAX_GRID_SIZE_WARNING:
+        logger.warning(
+            "large_date_identifier_grid",
+            num_dates=all_dates.height,
+            num_identifiers=all_identifiers.height,
+            grid_size=grid_size,
+            message="Large date×identifier grid may impact performance. "
+            "Consider using a shorter date range or fewer symbols.",
+        )
+
     # Create full date × identifier grid
     full_grid = all_dates.join(all_identifiers, how="cross")
 
@@ -653,16 +670,16 @@ def compute_net_returns(
     return result.select(["date", "gross_return", "cost_drag", "net_return"]).sort("date")
 
 
-def compute_compounded_return(returns: list[float]) -> float | None:
+def compute_compounded_return(returns: Sequence[float | None]) -> float | None:
     """Compute compounded return from daily returns.
 
     Args:
-        returns: List of daily returns (decimals, not percentages)
+        returns: List of daily returns (decimals, not percentages), may contain None
 
     Returns:
         Compounded return, or None if no valid returns.
     """
-    valid_returns = [r for r in returns if math.isfinite(r)]
+    valid_returns = [r for r in returns if r is not None and math.isfinite(r)]
     if len(valid_returns) == 0:
         return None
 
@@ -672,17 +689,19 @@ def compute_compounded_return(returns: list[float]) -> float | None:
     return compounded - 1
 
 
-def compute_sharpe_ratio(returns: list[float], annualization_factor: float = 252) -> float | None:
+def compute_sharpe_ratio(
+    returns: Sequence[float | None], annualization_factor: float = 252
+) -> float | None:
     """Compute annualized Sharpe ratio.
 
     Args:
-        returns: List of daily returns
+        returns: List of daily returns, may contain None
         annualization_factor: Trading days per year (default 252)
 
     Returns:
         Annualized Sharpe ratio, or None if insufficient data.
     """
-    valid_returns = [r for r in returns if math.isfinite(r)]
+    valid_returns = [r for r in returns if r is not None and math.isfinite(r)]
     if len(valid_returns) < 2:
         return None
 
@@ -696,16 +715,16 @@ def compute_sharpe_ratio(returns: list[float], annualization_factor: float = 252
     return mean_return / std_dev * math.sqrt(annualization_factor)
 
 
-def compute_max_drawdown(returns: list[float]) -> float | None:
+def compute_max_drawdown(returns: Sequence[float | None]) -> float | None:
     """Compute maximum drawdown from daily returns.
 
     Args:
-        returns: List of daily returns
+        returns: List of daily returns, may contain None
 
     Returns:
         Maximum drawdown as positive fraction, or None if no valid returns.
     """
-    valid_returns = [r for r in returns if math.isfinite(r)]
+    valid_returns = [r for r in returns if r is not None and math.isfinite(r)]
     if len(valid_returns) == 0:
         return None
 
@@ -801,6 +820,17 @@ def compute_capacity_analysis(
     # miss these trades and understate turnover.
     all_dates = daily_weights.select("date").unique().sort("date")
     all_identifiers = daily_weights.select(identifier_col).unique()
+
+    # Warn if the grid would be very large (potential memory/CPU impact)
+    grid_size = all_dates.height * all_identifiers.height
+    if grid_size > MAX_GRID_SIZE_WARNING:
+        logger.warning(
+            "large_date_identifier_grid_capacity",
+            num_dates=all_dates.height,
+            num_identifiers=all_identifiers.height,
+            grid_size=grid_size,
+            message="Large date×identifier grid in capacity analysis may impact performance.",
+        )
 
     # Create full grid and fill missing weights with 0
     full_grid = all_dates.join(all_identifiers, how="cross")
