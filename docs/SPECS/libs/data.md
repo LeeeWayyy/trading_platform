@@ -1,6 +1,6 @@
 # libs/data
 
-<!-- Last reviewed: 2026-02-01 - P6T10: vectorized forward returns, normalized signal_date, ForwardReturnsProvider -->
+<!-- Last reviewed: 2026-02-01 - P6T10: ForwardReturnsProvider vectorized, normalized signal_date output -->
 
 ## Identity
 - **Type:** Library Group (Data Pipeline and Providers)

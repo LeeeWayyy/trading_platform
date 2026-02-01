@@ -272,70 +272,113 @@ def compute_drawdown_periods(
         ]
     )
 
-    # Step 6: Find peak date (the date just before drawdown started, or first date if starts at beginning)
-    # Join back with analysis_df to find the peak
-    dates_list = analysis_df["date"].to_list()
-    wealth_list = analysis_df["wealth"].to_list()
-    running_peak_list = analysis_df["running_peak"].to_list()
-    # O(1) date lookup dict instead of O(N) list.index()
-    date_to_idx = {d: i for i, d in enumerate(dates_list)}
+    # Step 6: Find peak and recovery dates using vectorized Polars operations
+    # Add row index for positional lookups
+    analysis_with_idx = analysis_df.with_row_index("row_idx")
 
-    periods: list[DrawdownPeriod] = []
+    # Get the first date (for periods starting at the beginning)
+    first_date = analysis_df["date"].head(1).item()
+    last_date = analysis_df["date"].tail(1).item()
 
-    for row in period_stats.iter_rows(named=True):
-        max_dd = row["max_drawdown"]
-        trough_date = row["trough_date"]
-        first_dd_date = row["first_drawdown_date"]
-        last_dd_date = row["last_drawdown_date"]
+    # Find peak dates: for each period, peak is the row just before first_drawdown_date
+    # where wealth equals running_peak (not in drawdown)
+    # Join period_stats with analysis_df to find the row index of first_drawdown_date
+    period_with_idx = period_stats.join(
+        analysis_with_idx.select(["date", "row_idx"]),
+        left_on="first_drawdown_date",
+        right_on="date",
+        how="left",
+    ).rename({"row_idx": "first_dd_idx"})
 
-        # Skip if drawdown doesn't meet minimum depth threshold
-        if abs(max_dd) < min_depth:
-            continue
+    # Also get last_drawdown_date index
+    period_with_idx = period_with_idx.join(
+        analysis_with_idx.select(["date", "row_idx"]),
+        left_on="last_drawdown_date",
+        right_on="date",
+        how="left",
+    ).rename({"row_idx": "last_dd_idx"})
 
-        # Find peak date: the last date before first_drawdown_date where wealth == running_peak
-        # Or use first date if drawdown starts immediately
-        first_dd_idx = date_to_idx.get(first_dd_date, 0)
-        peak_date_val = dates_list[0]  # Default to first date (W₀=1.0 peak)
-        peak_wealth_val = 1.0
+    # Find peak dates by looking at the row before first_dd_idx
+    # Peak is where running_peak was set (last row before drawdown where wealth=running_peak)
+    non_drawdown_rows = analysis_with_idx.filter(~pl.col("in_drawdown")).select([
+        "row_idx", "date", "wealth"
+    ])
 
-        if first_dd_idx > 0:
-            # Look back to find the peak
-            for j in range(first_dd_idx - 1, -1, -1):
-                if wealth_list[j] >= running_peak_list[first_dd_idx - 1]:
-                    peak_date_val = dates_list[j]
-                    peak_wealth_val = wealth_list[j]
-                    break
+    # For each period, find the latest non-drawdown row before first_dd_idx
+    # Cross join and filter - using a more efficient approach
+    peak_candidates = period_with_idx.select(["period_id", "first_dd_idx"]).join(
+        non_drawdown_rows,
+        how="cross",
+    ).filter(
+        pl.col("row_idx") < pl.col("first_dd_idx")
+    ).group_by("period_id").agg([
+        pl.col("date").sort_by("row_idx").last().alias("peak_date"),
+        pl.col("wealth").sort_by("row_idx").last().alias("peak_wealth"),
+    ])
 
-        # Find recovery date: first date after last_drawdown_date where in_drawdown=False
-        # Check if there's a recovery
-        last_dd_idx = date_to_idx.get(last_dd_date, len(dates_list) - 1)
-        recovery_date_val: date | None = None
+    # Handle periods that start at the beginning (no row before first_dd_idx)
+    # These have no peak_date from the join, default to first_date with wealth=1.0
+    period_with_peak = period_with_idx.join(
+        peak_candidates,
+        on="period_id",
+        how="left",
+    ).with_columns([
+        pl.col("peak_date").fill_null(pl.lit(first_date)),
+        pl.col("peak_wealth").fill_null(1.0),
+    ])
 
-        if last_dd_idx < len(dates_list) - 1:
-            # Check if next point is a recovery
-            next_wealth = wealth_list[last_dd_idx + 1]
-            if next_wealth >= peak_wealth_val:
-                recovery_date_val = dates_list[last_dd_idx + 1]
+    # Find recovery dates: first non-drawdown row after last_dd_idx
+    recovery_candidates = period_with_peak.select([
+        "period_id", "last_dd_idx", "peak_wealth"
+    ]).join(
+        non_drawdown_rows,
+        how="cross",
+    ).filter(
+        (pl.col("row_idx") > pl.col("last_dd_idx"))
+        & (pl.col("wealth") >= pl.col("peak_wealth"))
+    ).group_by("period_id").agg([
+        pl.col("date").sort_by("row_idx").first().alias("recovery_date"),
+    ])
 
-        # Compute duration
-        duration = (
-            (recovery_date_val - peak_date_val).days
-            if recovery_date_val
-            else (dates_list[-1] - peak_date_val).days
+    # Join recovery dates
+    period_final = period_with_peak.join(
+        recovery_candidates,
+        on="period_id",
+        how="left",
+    )
+
+    # Filter by minimum depth threshold
+    period_final = period_final.filter(pl.col("max_drawdown").abs() >= min_depth)
+
+    if period_final.height == 0:
+        return []
+
+    # Compute duration and build result list
+    period_final = period_final.with_columns([
+        pl.when(pl.col("recovery_date").is_not_null())
+        .then((pl.col("recovery_date") - pl.col("peak_date")).dt.total_days())
+        .otherwise((pl.lit(last_date) - pl.col("peak_date")).dt.total_days())
+        .alias("duration_days"),
+    ])
+
+    # Sort by severity (worst first) and convert to list of DrawdownPeriod
+    period_final = period_final.sort("max_drawdown")
+
+    # Convert to DrawdownPeriod objects using to_dicts() for efficient batch conversion
+    periods = [
+        DrawdownPeriod(
+            peak_date=row["peak_date"],
+            trough_date=row["trough_date"],
+            recovery_date=row["recovery_date"],
+            max_drawdown=row["max_drawdown"],
+            duration_days=int(row["duration_days"]) if row["duration_days"] is not None else 0,
         )
+        for row in period_final.select([
+            "peak_date", "trough_date", "recovery_date", "max_drawdown", "duration_days"
+        ]).to_dicts()
+    ]
 
-        periods.append(
-            DrawdownPeriod(
-                peak_date=peak_date_val,
-                trough_date=trough_date,
-                recovery_date=recovery_date_val,
-                max_drawdown=max_dd,
-                duration_days=duration,
-            )
-        )
-
-    # Sort by severity (worst first)
-    return sorted(periods, key=lambda p: p.max_drawdown)
+    return periods
 
 
 def render_drawdown_underwater(

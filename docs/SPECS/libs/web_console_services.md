@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-02-01 - P6T10: attribution_service, backtest_analytics_service updates -->
+<!-- Last reviewed: 2026-02-01 - P6T10: attribution_service and backtest_analytics_service refactored -->
 
 ## Identity
 - **Type:** Library

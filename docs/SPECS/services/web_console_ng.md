@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-01 - P6T10 PR review: O(1) date lookups in drawdown_chart, underwater W₀=1.0 init -->
+<!-- Last reviewed: 2026-02-01 - P6T10: fully vectorized compute_drawdown_periods, eliminated Python loops -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
