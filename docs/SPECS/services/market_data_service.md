@@ -1,5 +1,7 @@
 # Market Data Service
 
+<!-- Last reviewed: 2026-02-01 - P6T10 PR: market_data routes and schemas updates -->
+
 ## Identity
 - **Type:** Service
 - **Port:** 8004

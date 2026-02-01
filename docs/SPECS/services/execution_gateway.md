@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-02-01 - Added TCA routes and export routes for P6T8 Execution Analytics, improved order_submitted_at parsing -->
+<!-- Last reviewed: 2026-02-01 - P6T10 PR review: execution_gateway routes, schemas updates -->
 
 ## Identity
 - **Type:** Service

@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-01 - P6T10 PR review: vectorized drawdown periods, NaN check simplification -->
+<!-- Last reviewed: 2026-02-01 - P6T10 PR review: O(1) date lookups in drawdown_chart, underwater W₀=1.0 init -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

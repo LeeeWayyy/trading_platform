@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-02-01 - P6T10 PR review feedback: removed duplicate normalization logic -->
+<!-- Last reviewed: 2026-02-01 - P6T10: attribution_service, backtest_analytics_service updates -->
 
 ## Identity
 - **Type:** Library

@@ -31,6 +31,55 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def normalize_signal_dates(
+    signals: pl.DataFrame,
+    calendar: xcals.ExchangeCalendar,
+) -> pl.DataFrame:
+    """Normalize signal dates to previous trading session.
+
+    Non-trading days (weekends, holidays) are mapped to the previous trading day
+    to ensure join consistency with forward returns and avoid look-ahead bias.
+
+    Args:
+        signals: DataFrame with 'signal_date' column.
+        calendar: Exchange calendar for session lookups.
+
+    Returns:
+        DataFrame with normalized signal_date values.
+    """
+    if "signal_date" not in signals.columns:
+        return signals
+
+    unique_dates = signals["signal_date"].unique().to_list()
+    date_map = {}
+    n_normalized = 0
+
+    for d in unique_dates:
+        if d is None:
+            continue
+        try:
+            if calendar.is_session(d):
+                date_map[d] = d
+            else:
+                # Normalize to previous trading session (avoid look-ahead)
+                date_map[d] = calendar.date_to_session(d, direction="previous").date()
+                n_normalized += 1
+        except Exception:
+            date_map[d] = d  # Keep original if normalization fails
+
+    if date_map:
+        if n_normalized > 0:
+            logger.debug(
+                "signal_dates_normalized",
+                extra={"n_normalized": n_normalized},
+            )
+        signals = signals.with_columns(
+            pl.col("signal_date").replace(date_map).alias("signal_date")
+        )
+
+    return signals
+
+
 @dataclass(frozen=True)
 class QuantileAnalysisConfig:
     """Configuration for quantile tear sheet analysis.
@@ -56,9 +105,7 @@ class QuantileAnalysisConfig:
                 f"skip_days must be >= 1 to avoid look-ahead bias, got {self.skip_days}"
             )
         if self.holding_period_days <= 0:
-            raise ValueError(
-                f"holding_period_days must be > 0, got {self.holding_period_days}"
-            )
+            raise ValueError(f"holding_period_days must be > 0, got {self.holding_period_days}")
         if self.n_quantiles < 2:
             raise ValueError(
                 f"n_quantiles must be >= 2 for meaningful long/short analysis, got {self.n_quantiles}"
@@ -182,6 +229,7 @@ class QuantileAnalyzer:
         config: QuantileAnalysisConfig | None = None,
         signal_name: str = "",
         universe_name: str = "",
+        skip_normalization: bool = False,
     ) -> QuantileResult:
         """Run analysis with Rank IC as primary metric.
 
@@ -191,6 +239,7 @@ class QuantileAnalyzer:
             config: Analysis configuration (default if None).
             signal_name: Name of signal for metadata.
             universe_name: Universe name for metadata.
+            skip_normalization: Skip signal date normalization if already done.
 
         Returns:
             QuantileResult with Rank IC and quantile metrics.
@@ -237,38 +286,14 @@ class QuantileAnalyzer:
             raise InsufficientDataError("No valid signals after null filtering")
 
         # Normalize non-trading signal_dates to previous session for join consistency
-        # This ensures signals join correctly with forward_returns which also normalizes
-        unique_dates = signals["signal_date"].unique().to_list()
-        date_map = {}
-        for d in unique_dates:
-            if d is None:
-                continue
-            try:
-                if self._calendar.is_session(d):
-                    date_map[d] = d
-                else:
-                    # Normalize to previous trading session (avoid look-ahead)
-                    date_map[d] = self._calendar.date_to_session(d, direction="previous").date()
-            except Exception:
-                date_map[d] = d  # Keep original if normalization fails
-
-        if date_map:
-            n_normalized = sum(1 for orig, norm in date_map.items() if orig != norm)
-            if n_normalized > 0:
-                logger.debug(
-                    "signal_dates_normalized",
-                    extra={"n_normalized": n_normalized},
-                )
-            signals = signals.with_columns(
-                pl.col("signal_date").replace(date_map).alias("signal_date")
-            )
+        # Skip if caller already normalized (e.g., run_quantile_analysis)
+        if not skip_normalization:
+            signals = normalize_signal_dates(signals, self._calendar)
 
         # De-duplicate signals: if multiple signals exist for same (signal_date, permno),
         # average them to prevent double-counting in IC and quantile calculations
         n_before_dedup = signals.height
-        signals = signals.group_by(["signal_date", "permno"]).agg(
-            pl.col("signal_value").mean()
-        )
+        signals = signals.group_by(["signal_date", "permno"]).agg(pl.col("signal_value").mean())
         n_after_dedup = signals.height
         if n_before_dedup > n_after_dedup:
             logger.info(
@@ -300,8 +325,7 @@ class QuantileAnalyzer:
 
         # Filter out non-finite values
         joined = joined.filter(
-            pl.col("signal_value").is_finite()
-            & pl.col("forward_return").is_finite()
+            pl.col("signal_value").is_finite() & pl.col("forward_return").is_finite()
         )
 
         # Per-date analysis
@@ -310,9 +334,7 @@ class QuantileAnalyzer:
             q: [] for q in range(1, cfg.n_quantiles + 1)
         }
         n_dates_skipped = 0
-        total_obs_per_quantile: dict[int, int] = {
-            q: 0 for q in range(1, cfg.n_quantiles + 1)
-        }
+        total_obs_per_quantile: dict[int, int] = {q: 0 for q in range(1, cfg.n_quantiles + 1)}
 
         valid_dates = []
 
@@ -375,8 +397,7 @@ class QuantileAnalyzer:
         # Check minimum dates
         if len(per_date_ics) < cfg.min_total_dates:
             raise InsufficientDataError(
-                f"Only {len(per_date_ics)} valid dates, "
-                f"need {cfg.min_total_dates}"
+                f"Only {len(per_date_ics)} valid dates, " f"need {cfg.min_total_dates}"
             )
 
         # Aggregate Rank IC
@@ -496,10 +517,12 @@ def run_quantile_analysis(
     if "date" in signals.columns and "signal_date" not in signals.columns:
         signals = signals.rename({"date": "signal_date"})
 
-    # Note: Date normalization is handled internally by QuantileAnalyzer.analyze
-    # to avoid duplication and ensure consistent behavior
+    # Normalize signal dates ONCE before passing to both components
+    # This avoids redundant normalization in both ForwardReturnsProvider and QuantileAnalyzer
+    signals = normalize_signal_dates(signals, calendar)
 
     # Compute forward returns (dedup signal keys to avoid duplicate forward_return rows)
+    # ForwardReturnsProvider handles any remaining non-trading dates internally
     forward_returns = forward_returns_provider.get_forward_returns(
         signals_df=signals.select(["signal_date", "permno"]).unique(),
         skip_days=cfg.skip_days,
@@ -507,7 +530,7 @@ def run_quantile_analysis(
         calendar=calendar,
     )
 
-    # Run analysis
+    # Run analysis (skip normalization since already done above)
     analyzer = QuantileAnalyzer(calendar)
     return analyzer.analyze(
         signals=signals,
@@ -515,6 +538,7 @@ def run_quantile_analysis(
         config=cfg,
         signal_name=signal_name,
         universe_name=universe_name,
+        skip_normalization=True,
     )
 
 
@@ -523,5 +547,6 @@ __all__ = [
     "QuantileResult",
     "QuantileAnalyzer",
     "InsufficientDataError",
+    "normalize_signal_dates",
     "run_quantile_analysis",
 ]

@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-01 - P6T10 PR review feedback: removed redundant date normalization -->
+<!-- Last reviewed: 2026-02-01 - P6T10 PR review: extracted normalize_signal_dates helper, added skip_normalization flag -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

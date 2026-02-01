@@ -202,33 +202,50 @@ def compute_drawdown_periods(
 
     # Step 1: Compute wealth index and running maximum (peak tracker)
     # Initialize at W₀=1.0 to capture first-day drops
-    analysis_df = sorted_df.with_columns([
-        (1 + pl.col("return")).cum_prod().alias("wealth"),
-    ]).with_columns([
-        # Running max starting from 1.0 (W₀)
-        pl.concat([pl.lit(1.0), pl.col("wealth")]).slice(0, pl.len()).cum_max().alias("running_peak"),
-    ])
+    analysis_df = sorted_df.with_columns(
+        [
+            (1 + pl.col("return")).cum_prod().alias("wealth"),
+        ]
+    ).with_columns(
+        [
+            # Running max starting from 1.0 (W₀)
+            pl.concat([pl.lit(1.0), pl.col("wealth")])
+            .slice(0, pl.len())
+            .cum_max()
+            .alias("running_peak"),
+        ]
+    )
 
     # Step 2: Compute drawdown at each point
-    analysis_df = analysis_df.with_columns([
-        (pl.col("wealth") / pl.col("running_peak") - 1).alias("drawdown"),
-        # Flag: are we in a drawdown (wealth < running_peak)?
-        (pl.col("wealth") < pl.col("running_peak")).alias("in_drawdown"),
-    ])
+    analysis_df = analysis_df.with_columns(
+        [
+            (pl.col("wealth") / pl.col("running_peak") - 1).alias("drawdown"),
+            # Flag: are we in a drawdown (wealth < running_peak)?
+            (pl.col("wealth") < pl.col("running_peak")).alias("in_drawdown"),
+        ]
+    )
 
     # Step 3: Identify drawdown period boundaries using run-length encoding
     # A new period starts when in_drawdown changes from False to True
-    analysis_df = analysis_df.with_columns([
-        # Detect transitions: False->True = start of drawdown
-        (pl.col("in_drawdown") & ~pl.col("in_drawdown").shift(1).fill_null(False)).alias("period_start"),
-        # Detect transitions: True->False = recovery (end of drawdown)
-        (~pl.col("in_drawdown") & pl.col("in_drawdown").shift(1).fill_null(False)).alias("period_end"),
-    ])
+    analysis_df = analysis_df.with_columns(
+        [
+            # Detect transitions: False->True = start of drawdown
+            (pl.col("in_drawdown") & ~pl.col("in_drawdown").shift(1).fill_null(False)).alias(
+                "period_start"
+            ),
+            # Detect transitions: True->False = recovery (end of drawdown)
+            (~pl.col("in_drawdown") & pl.col("in_drawdown").shift(1).fill_null(False)).alias(
+                "period_end"
+            ),
+        ]
+    )
 
     # Step 4: Assign period IDs using cumsum of period starts
-    analysis_df = analysis_df.with_columns([
-        pl.col("period_start").cum_sum().alias("period_id"),
-    ])
+    analysis_df = analysis_df.with_columns(
+        [
+            pl.col("period_start").cum_sum().alias("period_id"),
+        ]
+    )
 
     # Step 5: For each period, compute statistics using window functions
     # Only consider rows where in_drawdown=True (actual drawdown periods)
@@ -238,20 +255,21 @@ def compute_drawdown_periods(
         return []
 
     # Compute per-period statistics
-    period_stats = (
-        drawdown_rows
-        .group_by("period_id")
-        .agg([
+    period_stats = drawdown_rows.group_by("period_id").agg(
+        [
             # Trough: minimum wealth in the period
             pl.col("wealth").min().alias("trough_wealth"),
             pl.col("drawdown").min().alias("max_drawdown"),
             # Trough date: date of minimum wealth
-            pl.col("date").filter(pl.col("wealth") == pl.col("wealth").min()).first().alias("trough_date"),
+            pl.col("date")
+            .filter(pl.col("wealth") == pl.col("wealth").min())
+            .first()
+            .alias("trough_date"),
             # First date in drawdown (for finding peak before it)
             pl.col("date").first().alias("first_drawdown_date"),
             # Last date in drawdown
             pl.col("date").last().alias("last_drawdown_date"),
-        ])
+        ]
     )
 
     # Step 6: Find peak date (the date just before drawdown started, or first date if starts at beginning)
@@ -357,9 +375,22 @@ def render_drawdown_underwater(
 
         # Compute wealth index and drawdown
         # Initialize running_max from W₀=1.0 to capture first-day drops
-        wealth = (1 + sorted_df["return"]).cum_prod()
-        running_max = pl.concat([pl.lit(1.0), wealth]).slice(0, sorted_df.height).cum_max()
-        drawdown = pl.when(running_max == 0).then(-1.0).otherwise(wealth / running_max - 1)
+        # Use with_columns context to avoid mypy issues with standalone concat
+        temp_df = sorted_df.with_columns([
+            (1 + pl.col("return")).cum_prod().alias("wealth"),
+        ]).with_columns([
+            pl.concat([pl.lit(1.0), pl.col("wealth")])
+            .slice(0, pl.len())
+            .cum_max()
+            .alias("running_max"),
+        ]).with_columns([
+            pl.when(pl.col("running_max") == 0)
+            .then(-1.0)
+            .otherwise(pl.col("wealth") / pl.col("running_max") - 1)
+            .alias("drawdown"),
+        ])
+        wealth = temp_df["wealth"]
+        drawdown = temp_df["drawdown"]
 
         chart_df = sorted_df.with_columns(
             wealth.alias("wealth"),
@@ -441,9 +472,7 @@ def render_drawdown_periods_table(
         top_n: Maximum number of periods to show.
     """
     if not periods:
-        ui.label("No significant drawdown periods found").classes(
-            "text-gray-500 text-center p-4"
-        )
+        ui.label("No significant drawdown periods found").classes("text-gray-500 text-center p-4")
         return
 
     # Take top N by severity (already sorted)
@@ -455,7 +484,12 @@ def render_drawdown_periods_table(
         {"name": "trough", "label": "Trough", "field": "trough", "align": "left"},
         {"name": "recovery", "label": "Recovery", "field": "recovery", "align": "left"},
         {"name": "depth", "label": "Depth", "field": "depth", "align": "right"},
-        {"name": "duration", "label": "Duration (cal. days)", "field": "duration", "align": "right"},
+        {
+            "name": "duration",
+            "label": "Duration (cal. days)",
+            "field": "duration",
+            "align": "right",
+        },
     ]
 
     rows = []
