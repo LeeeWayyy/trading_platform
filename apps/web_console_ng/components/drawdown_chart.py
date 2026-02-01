@@ -259,12 +259,12 @@ def compute_drawdown_periods(
     dates_list = analysis_df["date"].to_list()
     wealth_list = analysis_df["wealth"].to_list()
     running_peak_list = analysis_df["running_peak"].to_list()
+    # O(1) date lookup dict instead of O(N) list.index()
+    date_to_idx = {d: i for i, d in enumerate(dates_list)}
 
     periods: list[DrawdownPeriod] = []
 
     for row in period_stats.iter_rows(named=True):
-        _period_id = row["period_id"]  # Keep for debugging
-        _trough_wealth = row["trough_wealth"]  # Keep for debugging
         max_dd = row["max_drawdown"]
         trough_date = row["trough_date"]
         first_dd_date = row["first_drawdown_date"]
@@ -276,7 +276,7 @@ def compute_drawdown_periods(
 
         # Find peak date: the last date before first_drawdown_date where wealth == running_peak
         # Or use first date if drawdown starts immediately
-        first_dd_idx = dates_list.index(first_dd_date) if first_dd_date in dates_list else 0
+        first_dd_idx = date_to_idx.get(first_dd_date, 0)
         peak_date_val = dates_list[0]  # Default to first date (W₀=1.0 peak)
         peak_wealth_val = 1.0
 
@@ -290,7 +290,7 @@ def compute_drawdown_periods(
 
         # Find recovery date: first date after last_drawdown_date where in_drawdown=False
         # Check if there's a recovery
-        last_dd_idx = dates_list.index(last_dd_date) if last_dd_date in dates_list else len(dates_list) - 1
+        last_dd_idx = date_to_idx.get(last_dd_date, len(dates_list) - 1)
         recovery_date_val: date | None = None
 
         if last_dd_idx < len(dates_list) - 1:
@@ -356,8 +356,9 @@ def render_drawdown_underwater(
             return
 
         # Compute wealth index and drawdown
+        # Initialize running_max from W₀=1.0 to capture first-day drops
         wealth = (1 + sorted_df["return"]).cum_prod()
-        running_max = wealth.cum_max()
+        running_max = pl.concat([pl.lit(1.0), wealth]).slice(0, sorted_df.height).cum_max()
         drawdown = pl.when(running_max == 0).then(-1.0).otherwise(wealth / running_max - 1)
 
         chart_df = sorted_df.with_columns(
