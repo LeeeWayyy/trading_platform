@@ -227,6 +227,25 @@ async def _complete_export_audit(
             return {"id": row[0]} if row else None
 
 
+def _parse_jsonb(value: Any) -> Any:
+    """Parse JSONB column value from database.
+
+    JSONB columns may be returned as raw strings depending on the database
+    driver configuration. This helper ensures they are properly deserialized
+    to Python dicts/lists for Pydantic model validation.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict | list):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return None
+
+
 async def _get_export_audit(ctx: AppContext, audit_id: UUID) -> dict[str, Any] | None:
     """Get export audit record by ID."""
     with ctx.db.transaction() as conn:
@@ -246,15 +265,16 @@ async def _get_export_audit(ctx: AppContext, audit_id: UUID) -> dict[str, Any] |
             row = cur.fetchone()
             if not row:
                 return None
+            # Parse JSONB columns to ensure proper Python types for Pydantic
             return {
                 "audit_id": row[0],
                 "user_id": row[1],
                 "export_type": row[2],
                 "grid_name": row[3],
-                "filter_params": row[4],
-                "visible_columns": row[5],
-                "sort_model": row[6],
-                "strategy_ids": row[7],
+                "filter_params": _parse_jsonb(row[4]),
+                "visible_columns": _parse_jsonb(row[5]),
+                "sort_model": _parse_jsonb(row[6]),
+                "strategy_ids": _parse_jsonb(row[7]),
                 "export_scope": row[8],
                 "estimated_row_count": row[9],
                 "actual_row_count": row[10],

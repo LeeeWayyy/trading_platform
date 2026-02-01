@@ -50,6 +50,7 @@
 | `/api/v1/tca/analysis/{client_order_id}` | GET | Path `client_order_id` | `TCAOrderDetail` |
 | `/api/v1/tca/benchmarks` | GET | Query `client_order_id`, `benchmark` | `TCABenchmarkResponse` |
 | `/api/v1/export/audit` | POST | `ExportAuditRequest` | `ExportAuditResponse` |
+| `/api/v1/export/audit/{audit_id}` | GET | Path `audit_id` | `ExportAuditResponse` |
 | `/api/v1/export/audit/{audit_id}` | PATCH | Path `audit_id`, `ExportAuditUpdateRequest` | Status JSON |
 | `/api/v1/export/excel/{audit_id}` | GET | Path `audit_id` | Excel file download |
 | `/metrics` | GET | None | Prometheus metrics |
