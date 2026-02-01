@@ -1,5 +1,7 @@
 # libs/data
 
+<!-- Last reviewed: 2026-02-01 - P6T10 PR review: vectorized forward returns, normalized signal_date output -->
+
 ## Identity
 - **Type:** Library Group (Data Pipeline and Providers)
 - **Location:** `libs/data/`
@@ -67,6 +69,6 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - [../services/market_data_service.md](../services/market_data_service.md) - Market data service
 
 ## Metadata
-- **Last Updated:** 2026-01-29 (Fixed unused import in market_data/provider.py)
-- **Source Files:** `libs/data/` (group index)
+- **Last Updated:** 2026-02-01 (P6T10 - Added universe.py with ForwardReturnsProvider)
+- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`
 - **ADRs:** N/A

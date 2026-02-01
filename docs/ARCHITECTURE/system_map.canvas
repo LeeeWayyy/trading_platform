@@ -131,32 +131,32 @@
       "fromNode": "lib_web_console_services",
       "fromSide": "top",
       "id": "edge_15",
-      "toNode": "lib_models",
+      "toNode": "lib_data",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_web_console_services",
       "fromSide": "top",
       "id": "edge_16",
+      "toNode": "lib_models",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_web_console_services",
+      "fromSide": "top",
+      "id": "edge_17",
       "toNode": "lib_web_console_data",
       "toSide": "bottom"
     },
     {
       "fromNode": "svc_alert_worker",
       "fromSide": "bottom",
-      "id": "edge_17",
-      "toNode": "lib_core",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_auth_service",
-      "fromSide": "bottom",
       "id": "edge_18",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_execution_gateway",
+      "fromNode": "svc_auth_service",
       "fromSide": "bottom",
       "id": "edge_19",
       "toNode": "lib_core",
@@ -229,20 +229,27 @@
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_29",
-      "toNode": "lib_models",
+      "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_30",
-      "toNode": "lib_web_console_data",
+      "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_31",
+      "toNode": "lib_web_console_data",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_32",
       "toNode": "lib_web_console_services",
       "toSide": "top"
     }

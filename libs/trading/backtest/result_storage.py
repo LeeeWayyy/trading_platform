@@ -101,6 +101,78 @@ class BacktestResultStorage:
 
         return [self._job_to_dict(row) for row in rows]
 
+    def load_universe_signals_lazy(
+        self,
+        job_id: str,
+        signal_name: str | None = None,
+        date_range: tuple[date, date] | None = None,
+        limit: int | None = None,
+    ) -> pl.LazyFrame | None:
+        """Load universe signals with lazy evaluation for predicate pushdown.
+
+        Uses Polars lazy scan with predicate pushdown to avoid loading
+        full file into memory.
+
+        Args:
+            job_id: The backtest job identifier.
+            signal_name: Optional filter by signal name column.
+            date_range: Optional (start, end) date filter (inclusive).
+            limit: Maximum rows to return (None for unlimited).
+
+        Returns:
+            LazyFrame with filtered signals, or None if job/file not found.
+
+        Raises:
+            JobNotFound: If job_id doesn't exist in database.
+            ResultPathMissing: If result_path is invalid or missing.
+        """
+        # Get the job to find result_path
+        sql = "SELECT result_path FROM backtest_jobs WHERE job_id = %s"
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (job_id,))
+            row = cur.fetchone()
+
+        if row is None:
+            raise JobNotFound(f"job_id {job_id} not found")
+
+        result_path = row.get("result_path")
+        if not result_path:
+            return None  # No result_path means no artifacts
+
+        # Security: Validate result_path is within allowed directory
+        try:
+            safe_base = self.base_dir.resolve()
+            target_path = Path(result_path).resolve(strict=False)
+            if not target_path.is_relative_to(safe_base):
+                raise ResultPathMissing(
+                    f"job_id {job_id} result_path outside allowed directory"
+                )
+        except (OSError, ValueError) as e:
+            raise ResultPathMissing(f"job_id {job_id} invalid result_path: {e}") from e
+
+        # Check for signals file
+        signals_path = target_path / "daily_signals.parquet"
+        if not signals_path.exists():
+            return None  # No signals file
+
+        # Create lazy scan with predicate pushdown
+        lf = pl.scan_parquet(signals_path)
+
+        # Apply filters as predicates (pushed down to parquet reader)
+        if signal_name is not None and "signal_name" in lf.collect_schema().names():
+            lf = lf.filter(pl.col("signal_name") == signal_name)
+
+        if date_range is not None:
+            start_date, end_date = date_range
+            lf = lf.filter(
+                (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
+            )
+
+        if limit is not None:
+            lf = lf.limit(limit)
+
+        return lf
+
     def cleanup_old_results(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> int:
         """
         Delete Parquet artifacts and DB rows older than retention window.

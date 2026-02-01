@@ -3,6 +3,7 @@
 Provides backend services for the Web Console including:
 - Alert management
 - Alpha exploration
+- Backtest analytics (P6T10)
 - Circuit breaker control
 - Data quality and sync
 - Health monitoring
@@ -14,6 +15,8 @@ Provides backend services for the Web Console including:
 
 from libs.web_console_services.alert_service import AlertConfigService
 from libs.web_console_services.alpha_explorer_service import AlphaExplorerService
+from libs.web_console_services.attribution_service import AttributionService
+from libs.web_console_services.backtest_analytics_service import BacktestAnalyticsService
 from libs.web_console_services.cb_service import CircuitBreakerService
 from libs.web_console_services.comparison_service import ComparisonService
 from libs.web_console_services.config import (
@@ -34,6 +37,8 @@ from libs.web_console_services.sql_validator import SQLValidator
 __all__ = [
     "AlertConfigService",
     "AlphaExplorerService",
+    "AttributionService",
+    "BacktestAnalyticsService",
     "CircuitBreakerService",
     "ComparisonService",
     "DataExplorerService",

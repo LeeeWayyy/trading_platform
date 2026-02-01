@@ -485,6 +485,28 @@ class StrategyScopedDataAccess:
                 async for row in cursor:
                     yield dict(row)
 
+    # P6T10: Attribution and Quantile Analysis stubs
+    async def get_portfolio_returns(
+        self,
+        strategy_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict[str, Any]]:
+        """Get portfolio returns for attribution analysis.
+
+        Returns list of {date, daily_return} dicts.
+        TODO: Implement actual query against portfolio_returns table.
+        """
+        raise NotImplementedError("get_portfolio_returns not yet implemented")
+
+    async def verify_job_ownership(self, job_id: str) -> None:
+        """Verify the current user owns the specified backtest job.
+
+        Raises PermissionError if user does not own the job.
+        TODO: Implement actual ownership check against backtest_jobs table.
+        """
+        raise NotImplementedError("verify_job_ownership not yet implemented")
+
 
 def get_scoped_data_access(
     db_pool: Any, redis_client: Any, user: dict[str, Any]
