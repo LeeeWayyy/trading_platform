@@ -75,7 +75,8 @@ async def test_acknowledge_alert_denied_without_dataset_access(
     service: DataQualityService, operator_user: DummyUser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Dataset access is enforced for the resolved alert dataset."""
-    monkeypatch.setattr(service, "_resolve_alert_dataset", lambda _alert_id: "taq")
+    # Use a dataset not in ROLE_DATASET_PERMISSIONS (default-deny)
+    monkeypatch.setattr(service, "_resolve_alert_dataset", lambda _alert_id: "proprietary_internal")
 
     with pytest.raises(PermissionError):
         await service.acknowledge_alert(operator_user, alert_id="alert-9", reason="triage")

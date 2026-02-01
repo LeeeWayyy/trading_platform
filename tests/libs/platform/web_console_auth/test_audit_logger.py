@@ -283,6 +283,8 @@ class TestAuditLoggerPublicMethods:
             resource_id="strat456",
             outcome="success",
             details={"ip": "192.168.1.1"},
+            ip_address=None,
+            session_id=None,
         )
 
     @pytest.mark.asyncio()
@@ -311,6 +313,8 @@ class TestAuditLoggerPublicMethods:
             outcome="success",
             details={"reason": "user requested"},
             amr_method="mfa",
+            ip_address=None,
+            session_id=None,
         )
 
     @pytest.mark.asyncio()

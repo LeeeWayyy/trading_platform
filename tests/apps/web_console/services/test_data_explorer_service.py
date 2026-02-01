@@ -49,7 +49,8 @@ async def test_list_datasets_filters_by_permissions(
     datasets = await service.list_datasets(operator_user)
 
     names = {item.name for item in datasets}
-    assert names == {"crsp", "compustat", "fama_french"}
+    # Operators have access to crsp, compustat, fama_french, and taq (P6T8: TCA)
+    assert names == {"crsp", "compustat", "fama_french", "taq"}
 
 
 @pytest.mark.asyncio()
@@ -65,12 +66,12 @@ async def test_execute_query_permission_denied(
 async def test_export_data_dataset_access_denied(
     service: DataExplorerService, operator_user: DummyUser
 ) -> None:
-    """Operator lacks TAQ dataset access."""
+    """Operator lacks access to unlicensed datasets (default-deny)."""
     with pytest.raises(PermissionError):
         await service.export_data(
             operator_user,
-            dataset="taq",
-            query="select * from taq_trades",
+            dataset="proprietary_internal",  # Not in ROLE_DATASET_PERMISSIONS
+            query="select * from trades",
             format="csv",
         )
 

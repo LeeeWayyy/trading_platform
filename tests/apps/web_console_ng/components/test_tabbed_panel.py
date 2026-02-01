@@ -62,6 +62,10 @@ class DummyContainer:
     def classes(self, *_args, **_kwargs):
         return self
 
+    def set_visibility(self, _visible: bool) -> None:
+        """Mock visibility toggle for P6T8 export toolbar support."""
+        pass
+
     def __enter__(self):
         return self
 

@@ -60,7 +60,8 @@ async def test_get_sync_status_filters_datasets(
     statuses = await service.get_sync_status(operator_user)
 
     datasets = {status.dataset for status in statuses}
-    assert datasets == {"crsp", "compustat", "fama_french"}
+    # Operators have access to crsp, compustat, fama_french, and taq (P6T8: TCA)
+    assert datasets == {"crsp", "compustat", "fama_french", "taq"}
 
 
 @pytest.mark.asyncio()
@@ -92,8 +93,9 @@ async def test_update_sync_schedule_denied_without_permission(
 async def test_update_sync_schedule_denied_without_dataset_access(
     service: DataSyncService, operator_user: DummyUser
 ) -> None:
-    """Operator lacks TAQ dataset access."""
+    """Operator lacks access to unlicensed datasets (default-deny)."""
     update = SyncScheduleUpdateDTO(enabled=True, cron_expression="0 1 * * *")
 
     with pytest.raises(PermissionError):
-        await service.update_sync_schedule(operator_user, dataset="taq", schedule=update)
+        # Use a dataset not in ROLE_DATASET_PERMISSIONS
+        await service.update_sync_schedule(operator_user, dataset="proprietary_internal", schedule=update)
