@@ -16,7 +16,7 @@ import os
 import threading
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, TypeVar
 
@@ -1536,6 +1536,109 @@ class DatabaseClient:
                     }
         except (OperationalError, DatabaseError) as e:
             logger.error(f"Database error fetching orders by broker id: {e}")
+            raise
+
+    def get_trades_for_tca(
+        self,
+        start_date: date,
+        end_date: date,
+        strategy_ids: list[str],
+        *,
+        symbol: str | None = None,
+        side: str | None = None,
+        client_order_id: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Fetch trades for TCA analysis with order context.
+
+        Returns trades joined with order metadata for FillBatch construction.
+
+        Args:
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+            strategy_ids: List of authorized strategy IDs (fail-closed when empty)
+            symbol: Optional symbol filter
+            side: Optional side filter ("buy" or "sell")
+            client_order_id: Optional specific order filter
+            limit: Maximum trades to return (default 500)
+
+        Returns:
+            List of trade dicts with order context:
+            - trade_id, client_order_id, broker_order_id, strategy_id
+            - symbol, side, qty, price, executed_at, fee (from metadata)
+            - order_submitted_at, order_qty (from orders table)
+        """
+        if not strategy_ids:
+            return []
+
+        filters = [
+            "t.strategy_id = ANY(%s)",
+            "t.executed_at >= %s",
+            "t.executed_at < %s",
+            "COALESCE(t.superseded, FALSE) = FALSE",
+        ]
+        # end_date + 1 day for inclusive end
+        end_date_exclusive = end_date + timedelta(days=1)
+        start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
+        end_dt = datetime(end_date_exclusive.year, end_date_exclusive.month, end_date_exclusive.day, tzinfo=UTC)
+        params: list[Any] = [strategy_ids, start_dt, end_dt]
+
+        if symbol:
+            filters.append("t.symbol = %s")
+            params.append(symbol.upper())
+
+        if side:
+            filters.append("t.side = %s")
+            params.append(side.lower())
+
+        if client_order_id:
+            filters.append("t.client_order_id = %s")
+            params.append(client_order_id)
+
+        where_clause = " AND ".join(filters)
+        params.append(min(limit, 1000))
+
+        try:
+            with self._connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        f"""
+                        SELECT
+                            t.trade_id,
+                            t.client_order_id,
+                            t.broker_order_id,
+                            t.strategy_id,
+                            t.symbol,
+                            t.side,
+                            t.qty,
+                            t.price,
+                            t.executed_at,
+                            t.source,
+                            o.submitted_at AS order_submitted_at,
+                            o.qty AS order_qty,
+                            o.filled_qty AS order_filled_qty,
+                            o.filled_avg_price,
+                            o.metadata AS order_metadata
+                        FROM trades t
+                        LEFT JOIN orders o ON t.client_order_id = o.client_order_id
+                        WHERE {where_clause}
+                        ORDER BY t.executed_at ASC
+                        LIMIT %s
+                        """,
+                        tuple(params),
+                    )
+                    rows = cur.fetchall()
+                    return [dict(row) for row in rows]
+        except (OperationalError, DatabaseError) as e:
+            logger.error(
+                "Database error fetching trades for TCA",
+                extra={
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "strategy_ids": strategy_ids,
+                    "error": str(e),
+                },
+            )
             raise
 
     def recalculate_trade_realized_pnl(

@@ -225,7 +225,7 @@ def create_shortfall_decomposition_chart(
         ],
     }
 
-    return ui.echart(options).classes(f"w-full h-[{height}px]")
+    return ui.echart(options).classes("w-full").style(f"height: {height}px")
 
 
 def create_benchmark_comparison_chart(
@@ -312,7 +312,7 @@ def create_benchmark_comparison_chart(
         ],
     }
 
-    return ui.echart(options).classes(f"w-full h-[{height}px]")
+    return ui.echart(options).classes("w-full").style(f"height: {height}px")
 
 
 def create_slippage_timeline_chart(
@@ -404,7 +404,7 @@ def create_slippage_timeline_chart(
         ],
     }
 
-    return ui.echart(options).classes(f"w-full h-[{height}px]")
+    return ui.echart(options).classes("w-full").style(f"height: {height}px")
 
 
 __all__ = [

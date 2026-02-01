@@ -11,7 +11,6 @@ import os
 os.environ["WEB_CONSOLE_NG_DEBUG"] = "true"
 os.environ.setdefault("NICEGUI_STORAGE_SECRET", "test-secret")
 
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,6 +66,9 @@ class TestSanitizeForExport:
         """Strictly numeric negative values pass through."""
         assert sanitize_for_export("-123") == "-123"
         assert sanitize_for_export("-123.45") == "-123.45"
+        # Scientific notation
+        assert sanitize_for_export("-1.2E-5") == "-1.2E-5"
+        assert sanitize_for_export("-1E+10") == "-1E+10"
 
     def test_sanitize_negative_non_numeric_blocked(self) -> None:
         """Non-numeric negative values are sanitized."""
@@ -90,7 +92,7 @@ class TestSanitizeForExport:
 class TestGridExportToolbar:
     """Tests for GridExportToolbar class."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def toolbar(self) -> GridExportToolbar:
         """Create toolbar instance for testing."""
         return GridExportToolbar(
@@ -198,8 +200,10 @@ class TestGridExportToolbar:
                 assert "user_id" not in exclude
                 assert "email" not in exclude
 
-    def test_get_exclude_columns_no_user(self, toolbar: GridExportToolbar) -> None:
-        """PII columns NOT added when no user available."""
+    def test_get_exclude_columns_no_user_defaults_to_pii_exclusion(
+        self, toolbar: GridExportToolbar
+    ) -> None:
+        """PII columns ADDED when no user available (default-deny for safety)."""
         toolbar.exclude_columns = ["col1"]
         toolbar.pii_columns = ["user_id", "email"]
 
@@ -208,15 +212,15 @@ class TestGridExportToolbar:
             mock_app.storage.user.get.return_value = None
             exclude = toolbar._get_exclude_columns()
             assert "col1" in exclude
-            # PII columns should NOT be in exclude when no user
-            assert "user_id" not in exclude
-            assert "email" not in exclude
+            # PII columns SHOULD be excluded when no user (default-deny)
+            assert "user_id" in exclude
+            assert "email" in exclude
 
 
 class TestGridExportToolbarWithUI:
     """Tests for GridExportToolbar UI creation (mocked)."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_ui(self) -> MagicMock:
         """Mock NiceGUI ui module."""
         with patch("apps.web_console_ng.components.grid_export_toolbar.ui") as mock:

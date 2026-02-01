@@ -9,6 +9,7 @@ Provides CSV, Excel, and Clipboard export functionality with:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -16,6 +17,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from nicegui import app, ui
+
+from libs.platform.web_console_auth.permissions import get_authorized_strategies
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,13 @@ EXPORT_STRICT_AUDIT_MODE = os.getenv("EXPORT_STRICT_AUDIT_MODE", "false").lower(
 
 def sanitize_for_export(value: Any) -> Any:
     """Sanitize a cell value for export to prevent formula injection.
+
+    NOTE: This function is the "golden standard" reference implementation.
+    The actual CSV/clipboard export uses the JavaScript version in
+    apps/web_console_ng/static/js/grid_export.js. This Python version
+    exists for:
+    1. Parity verification in tests (ensure JS matches Python behavior)
+    2. Server-side Excel export (openpyxl integration)
 
     MUST produce IDENTICAL output to JavaScript sanitizeForExport().
 
@@ -52,11 +62,12 @@ def sanitize_for_export(value: Any) -> Any:
     if first_char in dangerous:
         return "'" + value  # Prepend quote to ORIGINAL value
 
-    # For '-', only allow if STRICTLY numeric (e.g., "-123.45")
+    # For '-', only allow if STRICTLY numeric (e.g., "-123.45", "-1.2E-5")
     # Block "-1+1", "-A1", etc. which could be formulas
     if first_char == "-":
         import re
-        strict_numeric_regex = re.compile(r"^-?\d+(\.\d+)?$")
+        # Allow standard decimals and scientific notation (e.g. 1E+10, 1.2e-5)
+        strict_numeric_regex = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
         if not strict_numeric_regex.match(trimmed):
             return "'" + value  # Non-numeric negative - sanitize
 
@@ -114,23 +125,33 @@ class GridExportToolbar:
         """Get columns to exclude from export.
 
         Combines always-excluded columns with PII columns for non-admin users.
+        Default-deny: PII excluded when user context unavailable (safety first).
         """
         from libs.platform.web_console_auth.permissions import is_admin
 
         exclude = list(self.exclude_columns)
 
-        # Check if current user is admin
+        # Check if current user is admin - default to excluding PII if user unknown
         user = app.storage.user.get("user") if hasattr(app.storage, "user") else None
-        if user and not is_admin(user):
+        if not user or not is_admin(user):
+            # Default-deny: exclude PII when user is unknown or not admin
             exclude.extend(self.pii_columns)
 
         return exclude
 
     async def _get_grid_state(self) -> dict[str, Any]:
-        """Get current grid state (filter, sort, columns, row count)."""
+        """Get current grid state (filter, sort, columns, row count).
+
+        Respects PII exclusion rules so audit records accurately reflect exported scope.
+        """
+        # Use same exclude list as export to ensure audit accuracy
+        exclude_cols = self._get_exclude_columns()
+        exclude_js = json.dumps(exclude_cols)
+
         js_code = f"""
         (function() {{
-            const gridApi = window['{self.grid_id}']?.gridOptions?.api;
+            const obj = window['{self.grid_id}'];
+            const gridApi = obj?.gridOptions?.api || obj?.api || obj;
             if (!gridApi) {{
                 return {{ success: false }};
             }}
@@ -138,12 +159,32 @@ class GridExportToolbar:
                 success: true,
                 filterModel: window.GridExport.getFilterModel(gridApi),
                 sortModel: window.GridExport.getSortModel(gridApi),
-                columns: window.GridExport.getExportableColumns(gridApi, []),
+                columns: window.GridExport.getExportableColumns(gridApi, {exclude_js}),
                 rowCount: window.GridExport.getVisibleRowCount(gridApi)
             }};
         }})();
         """
         return await ui.run_javascript(js_code) or {"success": False}
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        """Get auth headers from NiceGUI session for API calls.
+
+        Uses get_authorized_strategies() to derive permissions-filtered strategies,
+        not raw session strategies, for consistent security posture.
+        """
+        headers: dict[str, str] = {}
+        try:
+            user = app.storage.user.get("user") if hasattr(app.storage, "user") else None
+            if user:
+                headers["X-User-ID"] = str(user.get("user_id") or user.get("username", "unknown"))
+                headers["X-User-Role"] = str(user.get("role", "viewer"))
+                # Use permission-filtered strategies, not raw session strategies
+                strategies = get_authorized_strategies(user)
+                if strategies:
+                    headers["X-User-Strategies"] = ",".join(strategies)
+        except Exception:
+            pass  # Return empty headers if storage unavailable
+        return headers
 
     async def _create_audit_record(
         self, export_type: str, grid_state: dict[str, Any]
@@ -155,9 +196,11 @@ class GridExportToolbar:
         try:
             import httpx
 
+            headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.api_base_url}/export/audit",
+                    headers=headers,
                     json={
                         "export_type": export_type,
                         "grid_name": self.grid_name,
@@ -188,9 +231,11 @@ class GridExportToolbar:
         try:
             import httpx
 
+            headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:
                 await client.patch(
                     f"{self.api_base_url}/export/audit/{audit_id}",
+                    headers=headers,
                     json={
                         "actual_row_count": row_count,
                         "status": status,
@@ -211,24 +256,36 @@ class GridExportToolbar:
         # Get grid state for audit
         grid_state = await self._get_grid_state()
 
-        # Create audit record (non-blocking, don't fail export if audit fails)
+        # Create audit record
         audit_id = await self._create_audit_record("csv", grid_state)
 
-        exclude_cols = self._get_exclude_columns()
-        exclude_js = str(exclude_cols).replace("'", '"')
-        filename = self._get_filename()
+        # In strict audit mode, block export if audit creation fails
+        if EXPORT_STRICT_AUDIT_MODE and audit_id is None:
+            ui.notify("Export blocked: audit record creation failed", type="negative")
+            logger.warning(
+                "CSV export blocked due to audit failure in strict mode",
+                extra={"grid_name": self.grid_name},
+            )
+            return
 
-        # Call JavaScript export function
+        exclude_cols = self._get_exclude_columns()
+        # Use json.dumps for safe JS array serialization (prevents injection)
+        exclude_js = json.dumps(exclude_cols)
+        filename = self._get_filename()
+        # Escape filename for JS string literal (prevents injection)
+        filename_js = json.dumps(filename)
+
         js_code = f"""
         (async function() {{
-            const gridApi = window['{self.grid_id}']?.gridOptions?.api;
+            const obj = window['{self.grid_id}'];
+            const gridApi = obj?.gridOptions?.api || obj?.api || obj;
             if (!gridApi) {{
                 console.error('Grid API not found for {self.grid_id}');
                 return {{ success: false, rowCount: 0 }};
             }}
 
             try {{
-                window.GridExport.exportToCsv(gridApi, '{filename}', {exclude_js});
+                window.GridExport.exportToCsv(gridApi, {filename_js}, {exclude_js});
                 const rowCount = window.GridExport.getVisibleRowCount(gridApi);
                 return {{ success: true, rowCount: rowCount }};
             }} catch (e) {{
@@ -259,16 +316,27 @@ class GridExportToolbar:
         # Get grid state for audit
         grid_state = await self._get_grid_state()
 
-        # Create audit record (non-blocking)
+        # Create audit record
         audit_id = await self._create_audit_record("clipboard", grid_state)
 
+        # In strict audit mode, block export if audit creation fails
+        if EXPORT_STRICT_AUDIT_MODE and audit_id is None:
+            ui.notify("Copy blocked: audit record creation failed", type="negative")
+            logger.warning(
+                "Clipboard copy blocked due to audit failure in strict mode",
+                extra={"grid_name": self.grid_name},
+            )
+            return
+
         exclude_cols = self._get_exclude_columns()
-        exclude_js = str(exclude_cols).replace("'", '"')
+        # Use json.dumps for safe JS array serialization (prevents injection)
+        exclude_js = json.dumps(exclude_cols)
 
         # Call JavaScript clipboard function
         js_code = f"""
         (async function() {{
-            const gridApi = window['{self.grid_id}']?.gridOptions?.api;
+            const obj = window['{self.grid_id}'];
+            const gridApi = obj?.gridOptions?.api || obj?.api || obj;
             if (!gridApi) {{
                 console.error('Grid API not found for {self.grid_id}');
                 return {{ success: false, rowCount: 0 }};

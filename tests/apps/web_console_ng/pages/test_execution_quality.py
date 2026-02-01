@@ -11,7 +11,7 @@ import os
 os.environ["WEB_CONSOLE_NG_DEBUG"] = "true"
 os.environ.setdefault("NICEGUI_STORAGE_SECRET", "test-secret")
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,7 +27,7 @@ from apps.web_console_ng.pages.execution_quality import (
 class TestFetchTCAData:
     """Tests for _fetch_tca_data function."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_response_data(self) -> dict[str, Any]:
         """Sample TCA API response."""
         return {
@@ -59,7 +59,7 @@ class TestFetchTCAData:
             ],
         }
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_success(self, mock_response_data: dict[str, Any]) -> None:
         """Successful fetch returns TCA data."""
         mock_response = MagicMock()
@@ -88,7 +88,7 @@ class TestFetchTCAData:
         assert "orders" in result
         assert result["summary"]["total_orders"] == 50
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_with_filters(self, mock_response_data: dict[str, Any]) -> None:
         """Fetch with symbol and side filters."""
         mock_response = MagicMock()
@@ -119,7 +119,7 @@ class TestFetchTCAData:
 
         assert result is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_api_error(self) -> None:
         """API error returns None."""
         mock_response = MagicMock()
@@ -144,7 +144,7 @@ class TestFetchTCAData:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_connection_error(self) -> None:
         """Connection error returns None."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -166,7 +166,7 @@ class TestFetchTCAData:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_sends_auth_headers(
         self, mock_response_data: dict[str, Any]
     ) -> None:
@@ -211,7 +211,7 @@ class TestDefaultDateRange:
 class TestExecutionQualityPageIntegration:
     """Integration tests for the execution quality page."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_page_handles_no_data(self) -> None:
         """Page handles case when no TCA data is available."""
         # This would be a full page render test with mocked dependencies
@@ -260,7 +260,7 @@ class TestExecutionQualityPageIntegration:
         assert result["summary"]["total_orders"] == 0
         assert len(result["orders"]) == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_page_handles_strategy_filter(self) -> None:
         """Page correctly passes strategy filter to API."""
         mock_response = MagicMock()

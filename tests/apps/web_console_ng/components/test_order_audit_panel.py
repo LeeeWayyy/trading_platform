@@ -12,7 +12,6 @@ os.environ["WEB_CONSOLE_NG_DEBUG"] = "true"
 os.environ.setdefault("NICEGUI_STORAGE_SECRET", "test-secret")
 
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -131,7 +130,7 @@ class TestGetOutcomeClass:
 class TestFetchAuditTrail:
     """Tests for fetch_audit_trail function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_success(self) -> None:
         """Successful fetch returns audit data."""
         mock_response = MagicMock()
@@ -167,7 +166,7 @@ class TestFetchAuditTrail:
         assert result["client_order_id"] == "order-123"
         assert len(result["entries"]) == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_not_found(self) -> None:
         """404 response returns None."""
         mock_response = MagicMock()
@@ -189,7 +188,7 @@ class TestFetchAuditTrail:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_connection_error(self) -> None:
         """Connection error returns None."""
         with patch("httpx.AsyncClient") as mock_client:
@@ -208,7 +207,7 @@ class TestFetchAuditTrail:
 
         assert result is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_sends_correct_headers(self) -> None:
         """Fetch sends correct authentication headers."""
         mock_response = MagicMock()
@@ -261,7 +260,7 @@ class TestOrderAuditPanel:
         )
         assert panel.strategies == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_show_creates_dialog(self) -> None:
         """Show method creates dialog if not exists."""
         panel = OrderAuditPanel(
@@ -284,7 +283,7 @@ class TestOrderAuditPanel:
 
                 mock_create.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_show_sets_order_id(self) -> None:
         """Show method sets current order ID."""
         panel = OrderAuditPanel(
@@ -306,7 +305,7 @@ class TestOrderAuditPanel:
 class TestShowOrderAuditDialog:
     """Tests for show_order_audit_dialog convenience function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_creates_panel_and_shows(self) -> None:
         """Convenience function creates panel and calls show."""
         with patch(
@@ -323,7 +322,9 @@ class TestShowOrderAuditDialog:
                 strategies=["alpha"],
             )
 
-            mock_panel_class.assert_called_once_with("test_user", "trader", ["alpha"])
+            mock_panel_class.assert_called_once_with(
+                "test_user", "trader", ["alpha"], user=None
+            )
             mock_panel.show.assert_called_once_with("order-789")
 
 
@@ -344,7 +345,7 @@ class TestRenderAuditTable:
             assert call_args.kwargs["rows"] == []
 
     def test_render_formats_entries(self) -> None:
-        """Rendering formats entry data correctly."""
+        """Rendering formats entry data correctly (with PII for admin)."""
         from apps.web_console_ng.components.order_audit_panel import _render_audit_table
 
         entries = [
@@ -361,7 +362,8 @@ class TestRenderAuditTable:
         with patch("apps.web_console_ng.components.order_audit_panel.ui") as mock_ui:
             mock_ui.table.return_value = MagicMock()
 
-            _render_audit_table(entries)
+            # Pass show_pii=True to include PII columns (admin view)
+            _render_audit_table(entries, show_pii=True)
 
             call_args = mock_ui.table.call_args
             rows = call_args.kwargs["rows"]
@@ -372,7 +374,7 @@ class TestRenderAuditTable:
             assert "symbol=AAPL" in rows[0]["details_str"]
 
     def test_render_handles_missing_fields(self) -> None:
-        """Rendering handles missing optional fields."""
+        """Rendering handles missing optional fields (with PII for admin)."""
         from apps.web_console_ng.components.order_audit_panel import _render_audit_table
 
         entries = [
@@ -387,7 +389,8 @@ class TestRenderAuditTable:
         with patch("apps.web_console_ng.components.order_audit_panel.ui") as mock_ui:
             mock_ui.table.return_value = MagicMock()
 
-            _render_audit_table(entries)
+            # Pass show_pii=True to include PII columns (admin view)
+            _render_audit_table(entries, show_pii=True)
 
             call_args = mock_ui.table.call_args
             rows = call_args.kwargs["rows"]

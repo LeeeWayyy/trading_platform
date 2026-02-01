@@ -13,6 +13,7 @@ NOTE: Uses demo mode with placeholder data when TCA API is unavailable.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -29,11 +30,21 @@ from apps.web_console_ng.components.tca_chart import (
 )
 from apps.web_console_ng.config import EXECUTION_GATEWAY_URL, FEATURE_TCA_DASHBOARD
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
 from libs.platform.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
     has_permission,
 )
+
+
+def _stable_hash(value: str) -> int:
+    """Generate a stable hash that doesn't change across process restarts.
+
+    Python's built-in hash() is randomized (PYTHONHASHSEED) and not stable.
+    Use SHA256 for deterministic demo data generation.
+    """
+    return int(hashlib.sha256(value.encode()).hexdigest(), 16)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +107,8 @@ def _generate_demo_data(
     """Generate demo TCA data for display when API unavailable."""
     import random
 
-    random.seed(hash((start_date, end_date)))
+    # Use stable hash for deterministic demo data across process restarts
+    random.seed(_stable_hash(f"{start_date}-{end_date}"))
 
     num_days = (end_date - start_date).days + 1
     num_orders = max(10, num_days * 3)
@@ -113,7 +125,7 @@ def _generate_demo_data(
             "client_order_id": f"demo-{i:04d}",
             "symbol": symbol,
             "side": side,
-            "execution_date": str(order_date),
+            "execution_date": order_date.isoformat(),
             "target_qty": random.randint(100, 2000),
             "filled_qty": random.randint(80, 2000),
             "fill_rate": random.uniform(0.85, 1.0),
@@ -141,30 +153,31 @@ def _generate_demo_data(
     timing_values = [o["timing_cost_bps"] for o in orders]
 
     n = len(orders)
-    avg_is: float = sum(is_values) / n  # type: ignore[arg-type]
-    avg_vwap: float = sum(vwap_values) / n  # type: ignore[arg-type]
-    avg_impact: float = sum(impact_values) / n  # type: ignore[arg-type]
-    avg_fill: float = sum(fill_values) / n  # type: ignore[arg-type]
+    # Guard against zero division
+    avg_is: float = sum(is_values) / n if n > 0 else 0.0  # type: ignore[arg-type]
+    avg_vwap: float = sum(vwap_values) / n if n > 0 else 0.0  # type: ignore[arg-type]
+    avg_impact: float = sum(impact_values) / n if n > 0 else 0.0  # type: ignore[arg-type]
+    avg_fill: float = sum(fill_values) / n if n > 0 else 0.0  # type: ignore[arg-type]
     total_notional: float = sum(notional_values)  # type: ignore[arg-type]
     total_shares: int = sum(filled_qty_values)  # type: ignore[arg-type]
 
     return {
         "summary": {
-            "start_date": str(start_date),
-            "end_date": str(end_date),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
             "computation_timestamp": datetime.now(UTC).isoformat(),
             "total_orders": n,
-            "total_fills": n * random.randint(2, 5),
+            "total_fills": n * random.randint(2, 5) if n > 0 else 0,
             "total_notional": total_notional,
             "total_shares": total_shares,
             "avg_fill_rate": avg_fill,
             "avg_implementation_shortfall_bps": avg_is,
-            "avg_price_shortfall_bps": sum(price_values) / n,  # type: ignore[arg-type]
+            "avg_price_shortfall_bps": sum(price_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_vwap_slippage_bps": avg_vwap,
-            "avg_fee_cost_bps": sum(fee_values) / n,  # type: ignore[arg-type]
-            "avg_opportunity_cost_bps": sum(opp_values) / n,  # type: ignore[arg-type]
+            "avg_fee_cost_bps": sum(fee_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
+            "avg_opportunity_cost_bps": sum(opp_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_market_impact_bps": avg_impact,
-            "avg_timing_cost_bps": sum(timing_values) / n,  # type: ignore[arg-type]
+            "avg_timing_cost_bps": sum(timing_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "warnings": ["Demo data - TCA API unavailable"],
         },
         "orders": sorted(orders, key=lambda x: str(x["execution_date"]), reverse=True),
@@ -179,7 +192,6 @@ async def execution_quality_page() -> None:
     user = get_current_user()
     user_id = str(user.get("user_id") or user.get("username", "unknown"))
     user_role = str(user.get("role", "viewer"))
-    user_strategies: list[str] = list(user.get("strategies", []))
 
     # Page title
     ui.label("Execution Quality Dashboard").classes("text-2xl font-bold mb-2")
@@ -214,11 +226,10 @@ async def execution_quality_page() -> None:
             )
         return
 
-    # Render the dashboard
+    # Render the dashboard - use authorized_strategies for API calls (not session strategies)
     await _render_tca_dashboard(
         user_id=user_id,
         role=user_role,
-        strategies=user_strategies,
         authorized_strategies=authorized_strategies,
     )
 
@@ -226,7 +237,6 @@ async def execution_quality_page() -> None:
 async def _render_tca_dashboard(
     user_id: str,
     role: str,
-    strategies: list[str],
     authorized_strategies: list[str],
 ) -> None:
     """Render the full TCA dashboard."""
@@ -327,6 +337,8 @@ async def _render_tca_dashboard(
         if (end_dt - start_dt).days > MAX_RANGE_DAYS:
             ui.notify(f"Date range capped to {MAX_RANGE_DAYS} days", type="warning")
             start_dt = end_dt - timedelta(days=MAX_RANGE_DAYS)
+            # Update UI to reflect capped date
+            start_input.value = str(start_dt)
 
         state["start_date"] = start_dt
         state["end_date"] = end_dt
@@ -337,14 +349,22 @@ async def _render_tca_dashboard(
         state["symbol"] = symbol
         state["strategy_id"] = strategy
 
-        # Fetch data
+        # Fetch data - use authorized_strategies for API auth (not raw session strategies)
         data = await _fetch_tca_data(
-            start_dt, end_dt, symbol, strategy, user_id, role, strategies
+            start_dt, end_dt, symbol, strategy, user_id, role, authorized_strategies
         )
 
+        # Check for demo mode: API failure OR API returned demo data
+        summary = data.get("summary", {}) if data else {}
+        warnings = summary.get("warnings", [])
+        is_demo = data is None or any("Demo data" in str(w) for w in warnings)
+
         if data is None:
-            # Fall back to demo mode
+            # API failure - generate local demo data
+            ui.notify("TCA API unavailable - showing demo data", type="warning")
             data = _generate_demo_data(start_dt, end_dt)
+
+        if is_demo:
             state["demo_mode"] = True
             demo_banner.classes(remove="hidden")
         else:
@@ -430,7 +450,8 @@ async def _render_tca_dashboard(
                     first_order = orders[0]
                     import random
 
-                    random.seed(hash(first_order.get("client_order_id", "")))
+                    # Use stable hash for deterministic demo data across restarts
+                    random.seed(_stable_hash(first_order.get("client_order_id", "")))
 
                     num_points = 10
                     base_price = 150.0
@@ -467,20 +488,21 @@ async def _render_tca_dashboard(
                     export_toolbar.create()
 
                 if orders:
-                    columns: list[dict[str, Any]] = [
-                        {"name": "date", "label": "Date", "field": "execution_date", "sortable": True},
-                        {"name": "symbol", "label": "Symbol", "field": "symbol", "sortable": True},
-                        {"name": "side", "label": "Side", "field": "side", "sortable": True},
-                        {"name": "qty", "label": "Filled", "field": "filled_qty", "sortable": True},
-                        {"name": "fill_rate", "label": "Fill %", "field": "fill_rate_pct"},
-                        {"name": "is", "label": "IS (bps)", "field": "is_bps", "sortable": True},
-                        {"name": "vwap", "label": "VWAP (bps)", "field": "vwap_bps", "sortable": True},
-                        {"name": "impact", "label": "Impact (bps)", "field": "impact_bps"},
-                        {"name": "notional", "label": "Notional", "field": "notional"},
+                    # Define AG Grid columns
+                    column_defs = [
+                        {"field": "execution_date", "headerName": "Date", "sortable": True},
+                        {"field": "symbol", "headerName": "Symbol", "sortable": True, "width": 100},
+                        {"field": "side", "headerName": "Side", "sortable": True, "width": 80},
+                        {"field": "filled_qty", "headerName": "Filled", "sortable": True, "width": 100},
+                        {"field": "fill_rate_pct", "headerName": "Fill %", "width": 100},
+                        {"field": "is_bps", "headerName": "IS (bps)", "sortable": True, "width": 100},
+                        {"field": "vwap_bps", "headerName": "VWAP (bps)", "sortable": True, "width": 100},
+                        {"field": "impact_bps", "headerName": "Impact (bps)", "width": 100},
+                        {"field": "notional", "headerName": "Notional", "width": 120},
                     ]
 
                     rows = []
-                    for order in orders[:50]:  # Limit to 50 rows
+                    for idx, order in enumerate(orders[:50]):  # Limit to 50 rows
                         notional = order.get("total_notional", 0)
                         if notional >= 1000:
                             notional_str = f"${notional / 1000:.1f}K"
@@ -488,6 +510,7 @@ async def _render_tca_dashboard(
                             notional_str = f"${notional:.0f}"
 
                         rows.append({
+                            "client_order_id": order.get("client_order_id", f"order-{idx}"),
                             "execution_date": order.get("execution_date", ""),
                             "symbol": order.get("symbol", ""),
                             "side": order.get("side", "").upper(),
@@ -499,11 +522,18 @@ async def _render_tca_dashboard(
                             "notional": notional_str,
                         })
 
-                    ui.table(
-                        columns=columns,
-                        rows=rows,
-                        row_key="execution_date",
-                    ).classes("w-full").props("id=tca-orders-grid dense")
+                    # Create AG Grid with compact styling and global window registration
+                    grid_options = apply_compact_grid_options({
+                        "columnDefs": column_defs,
+                        "rowData": rows,
+                        "domLayout": "autoHeight",
+                        "rowSelection": "single",
+                        ":getRowId": "params => params.data.client_order_id",
+                        # Register API on window for GridExportToolbar
+                        ":onGridReady": "params => { window['tca-orders-grid'] = params.api; params.api.sizeColumnsToFit(); }",
+                    })
+
+                    ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark")
                 else:
                     ui.label("No orders found for selected filters").classes(
                         "text-gray-500 p-4"

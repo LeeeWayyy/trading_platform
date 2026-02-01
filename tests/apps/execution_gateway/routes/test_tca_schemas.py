@@ -106,7 +106,7 @@ class TestTCAMetricValue:
 class TestTCAAnalysisSummary:
     """Tests for TCAAnalysisSummary model."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def valid_summary_data(self) -> dict:
         """Fixture with valid summary data."""
         return {
@@ -165,7 +165,7 @@ class TestTCAAnalysisSummary:
 class TestTCAOrderDetail:
     """Tests for TCAOrderDetail model."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def valid_order_data(self) -> dict:
         """Fixture with valid order detail data."""
         return {

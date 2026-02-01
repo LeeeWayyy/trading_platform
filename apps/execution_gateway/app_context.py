@@ -311,6 +311,20 @@ class DatabaseClientProtocol(Protocol):
         """Get all modification records for an order."""
         ...
 
+    def get_trades_for_tca(
+        self,
+        start_date: date,
+        end_date: date,
+        strategy_ids: list[str],
+        *,
+        symbol: str | None = None,
+        side: str | None = None,
+        client_order_id: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Fetch trades for TCA analysis with order context."""
+        ...
+
 
 class RedisClientProtocol(Protocol):
     """Protocol for Redis operations.

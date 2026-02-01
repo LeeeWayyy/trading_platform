@@ -13,8 +13,6 @@ os.environ.setdefault("NICEGUI_STORAGE_SECRET", "test-secret")
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from apps.web_console_ng.components.tca_chart import (
     TCA_COLORS,
     create_benchmark_comparison_chart,
@@ -378,10 +376,12 @@ class TestCreateBenchmarkComparisonChart:
             mock_ui.echart.assert_called_once()
 
     def test_create_chart_custom_height(self) -> None:
-        """Chart respects custom height."""
+        """Chart respects custom height via inline style."""
         with patch("apps.web_console_ng.components.tca_chart.ui") as mock_ui:
             mock_echart = MagicMock()
-            mock_echart.classes.return_value = mock_echart
+            mock_style = MagicMock()
+            mock_echart.classes.return_value = mock_style
+            mock_style.style.return_value = mock_style
             mock_ui.echart.return_value = mock_echart
 
             create_benchmark_comparison_chart(
@@ -391,7 +391,8 @@ class TestCreateBenchmarkComparisonChart:
                 height=500,
             )
 
-            # Should use custom height in classes
+            # Should use inline style for dynamic height (Tailwind JIT compatibility)
             mock_echart.classes.assert_called_once()
-            class_call = mock_echart.classes.call_args[0][0]
-            assert "500" in class_call
+            mock_style.style.assert_called_once()
+            style_call = mock_style.style.call_args[0][0]
+            assert "500" in style_call

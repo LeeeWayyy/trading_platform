@@ -17,8 +17,8 @@ from typing import Any
 import httpx
 from nicegui import ui
 
-from apps.web_console_ng.components.grid_export_toolbar import GridExportToolbar
 from apps.web_console_ng.config import EXECUTION_GATEWAY_URL
+from libs.platform.web_console_auth.permissions import is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +103,17 @@ def format_timestamp(ts: str | datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def format_action(action: str) -> str:
+def format_action(action: str | None) -> str:
     """Format action type for display."""
+    if not action:
+        return "Unknown"
     return ACTION_LABELS.get(action.lower(), action.replace("_", " ").title())
 
 
-def get_outcome_class(outcome: str) -> str:
+def get_outcome_class(outcome: str | None) -> str:
     """Get CSS class for outcome."""
+    if not outcome:
+        return "text-gray-400"
     return OUTCOME_COLORS.get(outcome.lower(), "text-gray-400")
 
 
@@ -124,6 +128,7 @@ class OrderAuditPanel:
         user_id: str,
         role: str,
         strategies: list[str],
+        user: dict[str, Any] | None = None,
     ) -> None:
         """Initialize audit panel.
 
@@ -131,10 +136,13 @@ class OrderAuditPanel:
             user_id: Current user ID for API auth
             role: User role for API auth
             strategies: Authorized strategies for API auth
+            user: User object for permission checks (PII visibility)
         """
         self.user_id = user_id
         self.role = role
         self.strategies = strategies
+        self.user = user
+        self._is_admin = is_admin(user) if user else False
         self._dialog: ui.dialog | None = None
         self._content_container: ui.column | None = None
         self._current_order_id: str | None = None
@@ -145,6 +153,14 @@ class OrderAuditPanel:
         Args:
             client_order_id: Order to show audit trail for
         """
+        logger.info(
+            "Opening order audit panel",
+            extra={
+                "client_order_id": client_order_id,
+                "user_id": self.user_id,
+                "role": self.role,
+            },
+        )
         self._current_order_id = client_order_id
 
         if self._dialog is None:
@@ -193,6 +209,14 @@ class OrderAuditPanel:
             client_order_id, self.user_id, self.role, self.strategies
         )
 
+        # Strip PII at data level for non-admins (not just display level)
+        # This prevents PII from residing in memory for non-privileged users
+        if data and not self._is_admin:
+            entries = data.get("entries", [])
+            for entry in entries:
+                entry.pop("ip_address", None)
+                entry.pop("user_id", None)
+
         self._content_container.clear()
 
         with self._content_container:
@@ -223,32 +247,38 @@ class OrderAuditPanel:
                 "text-xs text-gray-500 mb-3"
             )
 
-            # Export toolbar
-            with ui.row().classes("w-full justify-end mb-3"):
-                export_toolbar = GridExportToolbar(
-                    grid_id="audit-entries-grid",
-                    grid_name="audit",
-                    filename_prefix=f"order_audit_{client_order_id[:12]}",
-                )
-                export_toolbar.create()
+            # NOTE: Export toolbar removed - GridExportToolbar requires AG Grid,
+            # but this panel uses ui.table. Future: implement ui.table export path.
 
-            # Audit entries table
-            _render_audit_table(entries)
+            # Audit entries table - hide PII for non-admin users
+            _render_audit_table(entries, show_pii=self._is_admin)
 
 
-def _render_audit_table(entries: list[dict[str, Any]]) -> None:
-    """Render audit entries as a table."""
-    columns = [
+def _render_audit_table(entries: list[dict[str, Any]], show_pii: bool = False) -> None:
+    """Render audit entries as a table.
+
+    Args:
+        entries: List of audit entry dicts
+        show_pii: Whether to show PII columns (IP, user_id) - admin only
+    """
+    # Base columns - always visible
+    columns: list[dict[str, str]] = [
         {"name": "time", "label": "Time", "field": "timestamp"},
         {"name": "action", "label": "Action", "field": "action"},
         {"name": "outcome", "label": "Outcome", "field": "outcome"},
-        {"name": "user", "label": "User", "field": "user_id"},
-        {"name": "ip", "label": "IP", "field": "ip_address"},
-        {"name": "details", "label": "Details", "field": "details_str"},
     ]
 
+    # PII columns - only for admin users
+    if show_pii:
+        columns.extend([
+            {"name": "user", "label": "User", "field": "user_id"},
+            {"name": "ip", "label": "IP", "field": "ip_address"},
+        ])
+
+    columns.append({"name": "details", "label": "Details", "field": "details_str"})
+
     rows = []
-    for entry in entries:
+    for idx, entry in enumerate(entries):
         details = entry.get("details", {})
         details_str = ""
         if details:
@@ -263,21 +293,30 @@ def _render_audit_table(entries: list[dict[str, Any]]) -> None:
                 if len(parts) > 3:
                     details_str += "..."
 
-        rows.append(
-            {
-                "timestamp": format_timestamp(entry.get("timestamp", "")),
-                "action": format_action(entry.get("action", "")),
-                "outcome": entry.get("outcome", ""),
-                "user_id": entry.get("user_id") or "-",
-                "ip_address": entry.get("ip_address") or "-",
-                "details_str": details_str or "-",
-            }
-        )
+        # Create unique row key: combine index + timestamp + action to avoid collisions
+        timestamp_str = format_timestamp(entry.get("timestamp", ""))
+        action_str = format_action(entry.get("action", ""))
+        row_id = f"{idx}-{timestamp_str}-{action_str}"
+
+        row: dict[str, Any] = {
+            "row_id": row_id,
+            "timestamp": timestamp_str,
+            "action": action_str,
+            "outcome": entry.get("outcome", ""),
+            "details_str": details_str or "-",
+        }
+
+        # Only include PII fields for admins
+        if show_pii:
+            row["user_id"] = entry.get("user_id") or "-"
+            row["ip_address"] = entry.get("ip_address") or "-"
+
+        rows.append(row)
 
     ui.table(
         columns=columns,
         rows=rows,
-        row_key="timestamp",
+        row_key="row_id",  # Use unique composite key to avoid collisions
     ).classes("w-full").props("id=audit-entries-grid dense")
 
 
@@ -286,6 +325,7 @@ async def show_order_audit_dialog(
     user_id: str,
     role: str,
     strategies: list[str],
+    user: dict[str, Any] | None = None,
 ) -> None:
     """Convenience function to show audit trail dialog.
 
@@ -294,8 +334,9 @@ async def show_order_audit_dialog(
         user_id: Current user ID
         role: User role
         strategies: Authorized strategies
+        user: User object for permission checks (PII visibility)
     """
-    panel = OrderAuditPanel(user_id, role, strategies)
+    panel = OrderAuditPanel(user_id, role, strategies, user=user)
     await panel.show(client_order_id)
 
 
