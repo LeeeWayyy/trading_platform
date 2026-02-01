@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import math
 import time
@@ -47,6 +48,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import psycopg.errors
 import redis.exceptions
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from psycopg.errors import LockNotAvailable, UniqueViolation
@@ -2363,9 +2365,7 @@ async def get_order_audit_trail(
                 rows = cur.fetchall()
 
                 for row in rows:
-                    # Parse details JSON
-                    import json
-
+                    # Parse details JSON (json imported at module top)
                     details_raw = row[5]
                     if isinstance(details_raw, str):
                         details = json.loads(details_raw)
@@ -2386,7 +2386,9 @@ async def get_order_audit_trail(
                             session_id=row[7],
                         )
                     )
-    except Exception as e:
+    except (psycopg.errors.Error, json.JSONDecodeError) as e:
+        # Catch specific database and JSON parsing errors
+        # Audit is supplementary - return empty rather than fail
         logger.warning(
             "Failed to query audit log",
             extra={
@@ -2395,7 +2397,6 @@ async def get_order_audit_trail(
                 "error_type": type(e).__name__,
             },
         )
-        # Return empty list rather than failing - audit is supplementary
         entries = []
 
     return OrderAuditResponse(

@@ -18,6 +18,8 @@ from typing import Any
 
 from nicegui import app, ui
 
+from apps.web_console_ng.core.client import AsyncTradingClient
+from libs.platform.security import sanitize_for_export
 from libs.platform.web_console_auth.permissions import get_authorized_strategies
 
 logger = logging.getLogger(__name__)
@@ -26,52 +28,10 @@ logger = logging.getLogger(__name__)
 EXPORT_STRICT_AUDIT_MODE = os.getenv("EXPORT_STRICT_AUDIT_MODE", "false").lower() == "true"
 
 
-def sanitize_for_export(value: Any) -> Any:
-    """Sanitize a cell value for export to prevent formula injection.
-
-    NOTE: This function is the "golden standard" reference implementation.
-    The actual CSV/clipboard export uses the JavaScript version in
-    apps/web_console_ng/static/js/grid_export.js. This Python version
-    exists for:
-    1. Parity verification in tests (ensure JS matches Python behavior)
-    2. Server-side Excel export (openpyxl integration)
-
-    MUST produce IDENTICAL output to JavaScript sanitizeForExport().
-
-    Args:
-        value: Cell value to sanitize
-
-    Returns:
-        Sanitized value (strings may be prefixed with ')
-    """
-    # Only sanitize strings - numbers, booleans, None pass through unchanged
-    if not isinstance(value, str):
-        return value
-
-    # Strip leading whitespace and control characters to find first meaningful char
-    # This prevents bypass via " =FORMULA" or "\t=FORMULA"
-    # Using multi-char string is intentional to strip all control chars
-    trimmed = value.lstrip(" \t\r\n\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f")  # noqa: B005
-    if not trimmed:
-        return value  # All whitespace - safe
-
-    first_char = trimmed[0]
-    dangerous = {"=", "+", "@", "\t", "\r", "\n"}
-
-    # Check if first meaningful character is dangerous
-    if first_char in dangerous:
-        return "'" + value  # Prepend quote to ORIGINAL value
-
-    # For '-', only allow if STRICTLY numeric (e.g., "-123.45", "-1.2E-5")
-    # Block "-1+1", "-A1", etc. which could be formulas
-    if first_char == "-":
-        import re
-        # Allow standard decimals and scientific notation (e.g. 1E+10, 1.2e-5)
-        strict_numeric_regex = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
-        if not strict_numeric_regex.match(trimmed):
-            return "'" + value  # Non-numeric negative - sanitize
-
-    return value  # Safe value
+# sanitize_for_export is imported from libs.platform.security
+# This ensures a SINGLE SOURCE OF TRUTH for formula injection protection.
+# The JavaScript version in static/js/grid_export.js MUST be kept in sync.
+# See libs/platform/security/sanitization.py for the canonical implementation.
 
 
 class GridExportToolbar:
@@ -169,22 +129,27 @@ class GridExportToolbar:
     def _get_auth_headers(self) -> dict[str, str]:
         """Get auth headers from NiceGUI session for API calls.
 
+        Uses AsyncTradingClient._get_auth_headers() for proper authentication
+        including HMAC signatures when INTERNAL_TOKEN_SECRET is set.
+        This ensures export API calls work in production with api_auth enforce mode.
+
         Uses get_authorized_strategies() to derive permissions-filtered strategies,
         not raw session strategies, for consistent security posture.
         """
-        headers: dict[str, str] = {}
         try:
             user = app.storage.user.get("user") if hasattr(app.storage, "user") else None
             if user:
-                headers["X-User-ID"] = str(user.get("user_id") or user.get("username", "unknown"))
-                headers["X-User-Role"] = str(user.get("role", "viewer"))
+                user_id = str(user.get("user_id") or user.get("username", "unknown"))
+                role = str(user.get("role", "viewer"))
                 # Use permission-filtered strategies, not raw session strategies
                 strategies = get_authorized_strategies(user)
-                if strategies:
-                    headers["X-User-Strategies"] = ",".join(strategies)
+
+                # Use AsyncTradingClient for proper HMAC-signed headers
+                client = AsyncTradingClient.get()
+                return client._get_auth_headers(user_id, role, strategies)
         except Exception:
-            pass  # Return empty headers if storage unavailable
-        return headers
+            pass  # Return empty headers if unavailable
+        return {}
 
     async def _create_audit_record(
         self, export_type: str, grid_state: dict[str, Any]

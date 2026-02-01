@@ -20,6 +20,7 @@ Design Pattern:
 from __future__ import annotations
 
 import io
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -30,10 +31,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
+from apps.execution_gateway.api.utils import get_client_ip, get_user_agent
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
+from libs.platform.security import sanitize_for_export
 from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
 
 logger = logging.getLogger(__name__)
@@ -131,22 +134,8 @@ class ExportAuditResponse(BaseModel):
 # =============================================================================
 
 
-def _get_client_ip(request: Request) -> str | None:
-    """Extract client IP from request, respecting proxy headers."""
-    # Check X-Forwarded-For first (set by reverse proxy)
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Take the first IP in the chain (original client)
-        return forwarded_for.split(",")[0].strip()
-    # Fall back to direct client
-    if request.client:
-        return request.client.host
-    return None
-
-
-def _get_user_agent(request: Request) -> str | None:
-    """Extract User-Agent from request headers."""
-    return request.headers.get("User-Agent")
+# Helper functions moved to apps/execution_gateway/api/utils.py
+# Imported as: get_client_ip, get_user_agent
 
 
 async def _create_export_audit(
@@ -163,8 +152,6 @@ async def _create_export_audit(
     Returns:
         Tuple of (audit_id, created_at)
     """
-    import json
-
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -410,8 +397,8 @@ async def create_export_audit(
         )
 
     # Extract request metadata
-    ip_address = _get_client_ip(request)
-    user_agent = _get_user_agent(request)
+    ip_address = get_client_ip(request)
+    user_agent = get_user_agent(request)
 
     # Create audit record
     audit_id, created_at = await _create_export_audit(
@@ -688,45 +675,9 @@ async def download_excel_export(
     )
 
 
-def _sanitize_excel_value(value: Any) -> Any:
-    """Sanitize a cell value for Excel export to prevent formula injection.
-
-    This MUST be applied to all cell values before writing to Excel.
-    Identical logic to client-side sanitizeForExport() in grid_export.js.
-
-    Args:
-        value: Cell value to sanitize
-
-    Returns:
-        Sanitized value (strings may be prefixed with ')
-    """
-    import re
-
-    # Only sanitize strings - numbers, booleans, None pass through unchanged
-    if not isinstance(value, str):
-        return value
-
-    # Strip leading whitespace and control characters to find first meaningful char
-    # This prevents bypass via " =FORMULA" or "\t=FORMULA"
-    trimmed = re.sub(r"^[\s\x00-\x1f]+", "", value)
-    if not trimmed:
-        return value  # All whitespace - safe
-
-    first_char = trimmed[0]
-    dangerous = {"=", "+", "@", "\t", "\r", "\n"}
-
-    # Check if first meaningful character is dangerous
-    if first_char in dangerous:
-        return "'" + value  # Prepend quote to ORIGINAL value
-
-    # For '-', only allow if STRICTLY numeric (e.g., "-123.45")
-    # Block "-1+1", "-A1", etc. which could be formulas
-    if first_char == "-":
-        strict_numeric_regex = re.compile(r"^-?\d+(\.\d+)?$")
-        if not strict_numeric_regex.match(trimmed):
-            return "'" + value  # Non-numeric negative - sanitize
-
-    return value  # Safe value
+# Sanitization function moved to libs/platform/security/sanitization.py
+# Imported as: sanitize_for_export
+# This ensures a single source of truth for formula injection protection.
 
 
 async def _generate_excel_content(
@@ -742,7 +693,7 @@ async def _generate_excel_content(
     This is a placeholder that will be implemented for each grid type.
     Uses openpyxl for Excel generation with formula sanitization.
 
-    IMPORTANT: All cell values MUST be sanitized via _sanitize_excel_value()
+    IMPORTANT: All cell values MUST be sanitized via sanitize_for_export()
     to prevent formula injection attacks.
 
     Args:
@@ -783,7 +734,7 @@ async def _generate_excel_content(
     # For now, return a placeholder Excel file
     # TODO: Implement actual data fetching and Excel generation
     # NOTE: When implementing real data, MUST:
-    # 1. Sanitize ALL cell values via _sanitize_excel_value()
+    # 1. Sanitize ALL cell values via sanitize_for_export()
     # 2. Enforce PII column filtering server-side based on user role
     # 3. Validate visible_columns against allowed columns per grid
     wb = Workbook()
@@ -793,12 +744,12 @@ async def _generate_excel_content(
     # Add header row (sanitize headers too)
     headers = visible_columns or ["Column1", "Column2", "Column3"]
     for col_idx, header in enumerate(headers, 1):
-        ws.cell(row=1, column=col_idx, value=_sanitize_excel_value(header))
+        ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
 
     # Placeholder data - sanitize all values
-    ws.cell(row=2, column=1, value=_sanitize_excel_value("Excel export implementation pending"))
-    ws.cell(row=2, column=2, value=_sanitize_excel_value(f"Grid: {grid_name}"))
-    ws.cell(row=2, column=3, value=_sanitize_excel_value(f"Strategies: {len(strategy_ids)}"))
+    ws.cell(row=2, column=1, value=sanitize_for_export("Excel export implementation pending"))
+    ws.cell(row=2, column=2, value=sanitize_for_export(f"Grid: {grid_name}"))
+    ws.cell(row=2, column=3, value=sanitize_for_export(f"Strategies: {len(strategy_ids)}"))
 
     # Save to bytes
     output = io.BytesIO()

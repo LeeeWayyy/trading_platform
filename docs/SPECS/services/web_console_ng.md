@@ -722,7 +722,7 @@ Alpaca Pro WebSocket -> Level2WebSocketService -> Redis Pub/Sub -> DOMLadderComp
 
 **Components:**
 - `pages/execution_quality.py` - TCA dashboard page with metrics, charts, and order table.
-- `components/grid_export_toolbar.py` - Reusable export toolbar with CSV/Excel/clipboard buttons.
+- `components/grid_export_toolbar.py` - Reusable export toolbar with CSV/Excel/clipboard buttons. Uses `libs/platform/security/sanitization.py` for formula injection protection and `AsyncTradingClient` for properly signed API calls.
 - `components/order_audit_panel.py` - Order audit trail display with timeline view.
 - `components/tca_chart.py` - TCA visualization charts (shortfall decomposition, benchmark comparison).
 - `static/js/grid_export.js` - Client-side export utilities with formula sanitization.

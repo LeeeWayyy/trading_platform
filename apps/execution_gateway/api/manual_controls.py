@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any, Literal, TypeVar
 
 import redis.asyncio as redis_async
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import DatabaseError, IntegrityError, OperationalError
 from pydantic import ValidationError
 from redis.exceptions import RedisError
@@ -125,24 +125,8 @@ def _sanitize_reason(reason: str) -> str:
     return cleaned
 
 
-def _get_client_ip(request: Request) -> str | None:
-    """Extract client IP from request, respecting proxy headers (P6T8).
-
-    Checks X-Forwarded-For first (set by reverse proxy), then falls back
-    to direct client connection.
-    """
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Take the first IP in the chain (original client)
-        return forwarded_for.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
-
-
-def _get_user_agent(request: Request) -> str | None:
-    """Extract User-Agent from request headers (P6T8)."""
-    return request.headers.get("User-Agent")
+# Helper functions moved to apps/execution_gateway/api/utils.py
+# Import if needed: from apps.execution_gateway.api.utils import get_client_ip, get_user_agent
 
 
 async def _check_circuit_breaker(

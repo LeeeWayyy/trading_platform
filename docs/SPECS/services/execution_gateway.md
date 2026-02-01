@@ -302,5 +302,9 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
   - `apps/execution_gateway/schemas.py`
   - `apps/execution_gateway/schemas/tca.py`
   - `apps/execution_gateway/schemas_manual_controls.py`
+  - `apps/execution_gateway/api/` (package - API dependencies and utilities)
+    - `dependencies.py` (shared dependencies for route handlers)
+    - `manual_controls.py` (manual trading control endpoints)
+    - `utils.py` (shared utilities: IP extraction, user-agent parsing)
   - `config/settings.py`
 - **ADRs:** `docs/ADRs/0014-execution-gateway-architecture.md`

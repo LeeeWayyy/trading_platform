@@ -388,6 +388,16 @@ libs/
 - `aws_backend.py` - AWS Secrets Manager integration
 - `env_backend.py` - Environment variable backend
 
+#### libs/platform/security/
+**Purpose:** Security utilities for formula injection protection and export sanitization.
+**Key Features:**
+- Single source of truth for formula injection protection
+- Sanitizes cell values for CSV/Excel/Clipboard export
+- Prevents spreadsheet formula injection attacks
+
+**Key Modules:**
+- `sanitization.py` - Export value sanitization to block dangerous formulas
+
 #### libs/platform/tax/
 **Purpose:** Tax lot tracking, wash sale detection, and Form 8949 export utilities.
 
