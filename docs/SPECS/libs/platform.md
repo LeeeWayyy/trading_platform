@@ -66,6 +66,19 @@ See [libs/secrets.md](./secrets.md) for detailed specification.
 - 90-day secret rotation
 - Caching with TTL
 
+### libs/platform/security
+
+**Purpose:** Security utilities for formula injection protection and export sanitization.
+
+**Key Features:**
+- Single source of truth for formula injection protection
+- Sanitizes cell values for CSV/Excel/Clipboard export
+- Prevents spreadsheet formula injection attacks
+- Used by both client-side (JavaScript) and server-side (Python) export
+
+**Key Modules:**
+- `sanitization.py` - Export value sanitization to block dangerous formulas
+
 ### libs/platform/tax
 See [libs/tax.md](./tax.md) for detailed specification.
 

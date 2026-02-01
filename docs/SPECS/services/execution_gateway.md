@@ -44,6 +44,7 @@
 | `/api/v1/manual/orders` | POST | `ManualOrderRequest` | `OrderResponse` |
 | `/api/v1/orders/twap-preview` | POST | `TWAPPreviewRequest` | `TWAPPreviewResponse` |
 | `/api/v1/orders/{client_order_id}` | PATCH | `OrderModifyRequest` | `OrderModifyResponse` |
+| `/api/v1/orders/{client_order_id}/audit` | GET | Path `client_order_id`, Query `limit` | `OrderAuditResponse` |
 | `/api/v1/reconciliation/fills-backfill` | POST | `ReconciliationFillsBackfillRequest` | Status JSON |
 | `/api/v1/tca/analysis` | GET | Query `start_date`, `end_date`, `symbol`, `side`, `strategy_id` | `TCAAnalysisResponse` |
 | `/api/v1/tca/analysis/{client_order_id}` | GET | Path `client_order_id` | `TCAOrderDetail` |

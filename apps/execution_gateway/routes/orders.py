@@ -95,7 +95,11 @@ from libs.core.common.api_auth_dependency import (
 )
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisKeys
-from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    is_admin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2253,30 +2257,6 @@ async def get_order(
 # =============================================================================
 
 
-class OrderAuditEntry:
-    """Pydantic-compatible audit entry for API response."""
-
-    def __init__(
-        self,
-        id: int,
-        timestamp: datetime,
-        user_id: str | None,
-        action: str,
-        outcome: str,
-        details: dict[str, Any] | None,
-        ip_address: str | None,
-        session_id: str | None,
-    ) -> None:
-        self.id = id
-        self.timestamp = timestamp
-        self.user_id = user_id
-        self.action = action
-        self.outcome = outcome
-        self.details = details or {}
-        self.ip_address = ip_address
-        self.session_id = session_id
-
-
 class AuditEntryResponse(BaseModel):
     """Response model for a single audit entry."""
 
@@ -2337,13 +2317,22 @@ async def get_order_audit_trail(
             detail=f"Order not found: {client_order_id}",
         )
 
-    # Verify strategy authorization
+    # Verify strategy authorization (fail-closed: empty list = deny)
     authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if authorized_strategies and order.strategy_id not in authorized_strategies:
+    if not authorized_strategies:
+        # No strategies assigned - deny access (fail-closed security)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access - cannot view audit trail",
+        )
+    if order.strategy_id not in authorized_strategies:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view this order's audit trail",
         )
+
+    # Check if user is admin (for PII visibility)
+    user_is_admin = is_admin(_auth_context.user)
 
     # Query audit_log for this order
     # Uses idx_audit_log_resource index created in migration 0027
@@ -2374,16 +2363,17 @@ async def get_order_audit_trail(
                     else:
                         details = {}
 
+                    # Redact PII (IP, session_id, user_id) for non-admin users
                     entries.append(
                         AuditEntryResponse(
                             id=row[0],
                             timestamp=row[1],
-                            user_id=row[2],
+                            user_id=row[2] if user_is_admin else None,
                             action=row[3],
                             outcome=row[4],
                             details=details,
-                            ip_address=row[6],
-                            session_id=row[7],
+                            ip_address=row[6] if user_is_admin else None,
+                            session_id=row[7] if user_is_admin else None,
                         )
                     )
     except (psycopg.errors.Error, json.JSONDecodeError) as e:

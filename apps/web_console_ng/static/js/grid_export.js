@@ -32,11 +32,12 @@ window.GridExport = (function () {
       return "'" + value; // Prepend quote to ORIGINAL value
     }
 
-    // For '-', only allow if STRICTLY numeric (e.g., "-123.45")
+    // For '-', only allow if STRICTLY numeric (e.g., "-123.45", "-1.2E-5")
     // Block "-1+1", "-A1", etc. which could be formulas
     if (firstChar === '-') {
-      // Strict numeric pattern: optional minus, digits, optional decimal + digits
-      const strictNumericRegex = /^-?\d+(\.\d+)?$/;
+      // Strict numeric pattern: optional minus, digits, optional decimal, optional scientific notation
+      // Must match Python version in libs/platform/security/sanitization.py
+      const strictNumericRegex = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
       if (!strictNumericRegex.test(trimmed)) {
         return "'" + value; // Non-numeric negative - sanitize
       }
