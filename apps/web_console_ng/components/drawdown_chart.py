@@ -70,6 +70,36 @@ def _detect_period_boundaries(analysis_df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _compute_wealth_and_drawdown(sorted_df: pl.DataFrame) -> pl.DataFrame:
+    """Compute wealth index and drawdown from sorted daily returns.
+
+    Shared helper to avoid code duplication between compute_drawdown_periods
+    and render_drawdown_underwater.
+
+    Args:
+        sorted_df: DataFrame with 'return' column, already sorted by date
+                   and filtered for finite values.
+
+    Returns:
+        DataFrame with added columns:
+        - wealth: Cumulative wealth index (1 + r).cum_prod()
+        - running_peak: M_t = max(1.0, max(W_1, ..., W_t))
+        - drawdown: (W_t / M_t) - 1, always <= 0
+    """
+    return sorted_df.with_columns(
+        (1 + pl.col("return")).cum_prod().alias("wealth"),
+    ).with_columns(
+        # Running max starting from W₀=1.0: M_t = max(1.0, max(W_1, ..., W_t))
+        pl.max_horizontal(1.0, pl.col("wealth").cum_max()).alias("running_peak"),
+    ).with_columns(
+        # Drawdown = W_t / M_t - 1 (handle div by zero for complete loss)
+        pl.when(pl.col("running_peak") == 0)
+        .then(-1.0)
+        .otherwise(pl.col("wealth") / pl.col("running_peak") - 1)
+        .alias("drawdown"),
+    )
+
+
 def render_drawdown_chart(
     daily_returns: pl.DataFrame | None,
     title: str = "Drawdown",
@@ -232,27 +262,12 @@ def compute_drawdown_periods(
     # Uses Polars window functions instead of Python loop for ~10-100x speedup
     # ============================================================
 
-    # Step 1: Compute wealth index and running maximum (peak tracker)
-    # Initialize at W₀=1.0 to capture first-day drops
-    analysis_df = sorted_df.with_columns(
-        [
-            (1 + pl.col("return")).cum_prod().alias("wealth"),
-        ]
-    ).with_columns(
-        [
-            # Running max starting from 1.0 (W₀): M_t = max(1.0, max(W_1, ..., W_t))
-            # Fix: Use max_horizontal to get M_t at position t (not M_{t-1})
-            pl.max_horizontal(1.0, pl.col("wealth").cum_max()).alias("running_peak"),
-        ]
-    )
+    # Step 1-2: Compute wealth, running_peak, and drawdown using shared helper
+    analysis_df = _compute_wealth_and_drawdown(sorted_df)
 
-    # Step 2: Compute drawdown at each point
+    # Add in_drawdown flag for period detection
     analysis_df = analysis_df.with_columns(
-        [
-            (pl.col("wealth") / pl.col("running_peak") - 1).alias("drawdown"),
-            # Flag: are we in a drawdown (wealth < running_peak)?
-            (pl.col("wealth") < pl.col("running_peak")).alias("in_drawdown"),
-        ]
+        (pl.col("wealth") < pl.col("running_peak")).alias("in_drawdown"),
     )
 
     # Step 3-4: Identify drawdown period boundaries using helper
@@ -434,27 +449,8 @@ def render_drawdown_underwater(
             )
             return
 
-        # Compute wealth index and drawdown
-        # Initialize running_max from W₀=1.0 to capture first-day drops
-        # Fix: Use max_horizontal to get M_t at position t (not M_{t-1})
-        temp_df = sorted_df.with_columns([
-            (1 + pl.col("return")).cum_prod().alias("wealth"),
-        ]).with_columns([
-            # M_t = max(1.0, max(W_1, ..., W_t))
-            pl.max_horizontal(1.0, pl.col("wealth").cum_max()).alias("running_max"),
-        ]).with_columns([
-            pl.when(pl.col("running_max") == 0)
-            .then(-1.0)
-            .otherwise(pl.col("wealth") / pl.col("running_max") - 1)
-            .alias("drawdown"),
-        ])
-        wealth = temp_df["wealth"]
-        drawdown = temp_df["drawdown"]
-
-        chart_df = sorted_df.with_columns(
-            wealth.alias("wealth"),
-            drawdown.alias("drawdown"),
-        )
+        # Compute wealth index and drawdown using shared helper
+        chart_df = _compute_wealth_and_drawdown(sorted_df)
         chart_pd = chart_df.select(["date", "drawdown"]).to_pandas()
 
         # Get drawdown periods for annotations
