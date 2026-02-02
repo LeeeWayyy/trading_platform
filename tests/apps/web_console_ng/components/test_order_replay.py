@@ -416,9 +416,7 @@ class TestOnReplay:
 
             # Check notification about truncation
             calls = mock_ui.notify.call_args_list
-            truncation_notification = any(
-                "adjusted" in str(call).lower() for call in calls
-            )
+            truncation_notification = any("adjusted" in str(call).lower() for call in calls)
             assert truncation_notification
 
     @pytest.mark.asyncio()
@@ -453,9 +451,7 @@ class TestOnReplay:
 
         with (
             patch("apps.web_console_ng.components.order_replay.ui"),
-            patch(
-                "apps.web_console_ng.components.order_replay.logger"
-            ) as mock_logger,
+            patch("apps.web_console_ng.components.order_replay.logger") as mock_logger,
         ):
             await handler.on_replay(
                 order=order,

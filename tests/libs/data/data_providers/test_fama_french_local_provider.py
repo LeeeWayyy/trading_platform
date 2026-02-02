@@ -868,9 +868,7 @@ class TestSyncDataAllDatasets:
                 "HML": [-0.34, 0.67, -0.12],
                 "RF": [0.02, 0.02, 0.02],
             },
-            index=pd.DatetimeIndex(
-                [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
-            ),
+            index=pd.DatetimeIndex([date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]),
         )
 
         with patch("pandas_datareader.data.DataReader") as mock_reader:
@@ -989,9 +987,7 @@ class TestSchemaValidation:
         with pytest.raises(ValueError, match="schema mismatch"):
             provider._validate_schema(df, "factors_5_daily")
 
-    def test_validate_schema_industry_missing_date(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_validate_schema_industry_missing_date(self, provider: FamaFrenchLocalProvider) -> None:
         """Test industry schema validation fails when date column missing."""
         # Industry dataset without date column
         df = pl.DataFrame(
@@ -1020,9 +1016,7 @@ class TestSchemaValidation:
         result = provider._validate_schema(df, "ind10_daily")
         assert result is True
 
-    def test_validate_schema_momentum_missing_umd(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_validate_schema_momentum_missing_umd(self, provider: FamaFrenchLocalProvider) -> None:
         """Test momentum schema validation fails when UMD missing."""
         df = pl.DataFrame(
             {
@@ -1034,9 +1028,7 @@ class TestSchemaValidation:
         with pytest.raises(ValueError, match="schema mismatch"):
             provider._validate_schema(df, "momentum_daily")
 
-    def test_validate_schema_factors_3_valid(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_validate_schema_factors_3_valid(self, provider: FamaFrenchLocalProvider) -> None:
         """Test schema validation succeeds for valid 3-factor data."""
         df = pl.DataFrame(
             {
@@ -1060,9 +1052,7 @@ class TestSchemaValidation:
 class TestDownloadWithRetry:
     """Tests for _download_with_retry method (covers lines 596-657)."""
 
-    def test_download_with_datetime_index(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_download_with_datetime_index(self, provider: FamaFrenchLocalProvider) -> None:
         """Test download handles DatetimeIndex correctly."""
         import pandas as pd
 
@@ -1079,15 +1069,15 @@ class TestDownloadWithRetry:
         mock_web = MagicMock()
         mock_web.DataReader.return_value = {0: mock_pdf}
 
-        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+        result = provider._download_with_retry(
+            mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+        )
 
         assert result is not None
         assert "date" in result.columns
         assert result.height == 2
 
-    def test_download_with_period_index(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_download_with_period_index(self, provider: FamaFrenchLocalProvider) -> None:
         """Test download handles PeriodIndex correctly (monthly data)."""
         import pandas as pd
 
@@ -1104,7 +1094,9 @@ class TestDownloadWithRetry:
         mock_web = MagicMock()
         mock_web.DataReader.return_value = {0: mock_pdf}
 
-        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors", "factors_3_monthly")
+        result = provider._download_with_retry(
+            mock_web, "F-F_Research_Data_Factors", "factors_3_monthly"
+        )
 
         assert result is not None
         assert "date" in result.columns
@@ -1128,12 +1120,12 @@ class TestDownloadWithRetry:
         mock_web.DataReader.return_value = {0: mock_pdf}
 
         # Should return None after retries due to FamaFrenchSyncError
-        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+        result = provider._download_with_retry(
+            mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+        )
         assert result is None
 
-    def test_download_returns_dataframe_directly(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_download_returns_dataframe_directly(self, provider: FamaFrenchLocalProvider) -> None:
         """Test download handles non-dict return value."""
         import pandas as pd
 
@@ -1151,14 +1143,14 @@ class TestDownloadWithRetry:
         # Return DataFrame directly instead of dict
         mock_web.DataReader.return_value = mock_pdf
 
-        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+        result = provider._download_with_retry(
+            mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+        )
 
         assert result is not None
         assert "date" in result.columns
 
-    def test_download_with_dict_no_zero_key(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_download_with_dict_no_zero_key(self, provider: FamaFrenchLocalProvider) -> None:
         """Test download handles dict without key 0."""
         import pandas as pd
 
@@ -1176,14 +1168,14 @@ class TestDownloadWithRetry:
         # Return dict with different key
         mock_web.DataReader.return_value = {"main": mock_pdf}
 
-        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+        result = provider._download_with_retry(
+            mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+        )
 
         assert result is not None
         assert "date" in result.columns
 
-    def test_download_retries_on_failure(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_download_retries_on_failure(self, provider: FamaFrenchLocalProvider) -> None:
         """Test download retries on failure with exponential backoff."""
         import pandas as pd
 
@@ -1206,7 +1198,9 @@ class TestDownloadWithRetry:
         ]
 
         with patch("time.sleep"):  # Skip actual sleep
-            result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+            result = provider._download_with_retry(
+                mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+            )
 
         assert result is not None
         assert mock_web.DataReader.call_count == 3
@@ -1219,14 +1213,14 @@ class TestDownloadWithRetry:
         mock_web.DataReader.side_effect = Exception("Persistent failure")
 
         with patch("time.sleep"):  # Skip actual sleep
-            result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+            result = provider._download_with_retry(
+                mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+            )
 
         assert result is None
         assert mock_web.DataReader.call_count == provider.MAX_RETRIES
 
-    def test_download_normalizes_column_names(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_download_normalizes_column_names(self, provider: FamaFrenchLocalProvider) -> None:
         """Test download normalizes column names to lowercase with underscores."""
         import pandas as pd
 
@@ -1243,7 +1237,9 @@ class TestDownloadWithRetry:
         mock_web = MagicMock()
         mock_web.DataReader.return_value = {0: mock_pdf}
 
-        result = provider._download_with_retry(mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily")
+        result = provider._download_with_retry(
+            mock_web, "F-F_Research_Data_Factors_daily", "factors_3_daily"
+        )
 
         assert result is not None
         assert "mkt_rf" in result.columns  # Normalized from Mkt-RF
@@ -1258,7 +1254,10 @@ class TestCreateFF6:
     """Tests for _create_ff6 method (covers lines 720-732)."""
 
     def test_create_ff6_joins_correctly(
-        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+        self,
+        provider: FamaFrenchLocalProvider,
+        mock_ff5_data: pl.DataFrame,
+        mock_momentum_data: pl.DataFrame,
     ) -> None:
         """Test FF6 is created by joining FF5 and momentum data."""
         # Write source files
@@ -1282,9 +1281,7 @@ class TestCreateFF6:
         assert cols[-1] == "rf"
         assert cols[0] == "date"
 
-    def test_create_ff6_inner_join(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_create_ff6_inner_join(self, provider: FamaFrenchLocalProvider) -> None:
         """Test FF6 uses inner join (only dates in both datasets)."""
         # Create FF5 with 3 dates
         ff5_data = pl.DataFrame(
@@ -1318,9 +1315,7 @@ class TestCreateFF6:
         # Should only have 2 rows (inner join)
         assert ff6_df.height == 2
 
-    def test_create_ff6_handles_missing_rf(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_create_ff6_handles_missing_rf(self, provider: FamaFrenchLocalProvider) -> None:
         """Test FF6 creation handles case where RF column might be absent."""
         ff5_data = pl.DataFrame(
             {
@@ -1383,9 +1378,7 @@ class TestGetTargetPath:
 class TestFsyncDirectory:
     """Tests for _fsync_directory error handling (covers lines 869-870)."""
 
-    def test_fsync_handles_oserror(
-        self, provider: FamaFrenchLocalProvider, caplog: Any
-    ) -> None:
+    def test_fsync_handles_oserror(self, provider: FamaFrenchLocalProvider, caplog: Any) -> None:
         """Test fsync handles OSError gracefully."""
         import logging
 
@@ -1405,9 +1398,7 @@ class TestFsyncDirectory:
 class TestAtomicWriteManifestErrors:
     """Tests for _atomic_write_manifest error handling (covers lines 890-916)."""
 
-    def test_manifest_write_oserror(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_manifest_write_oserror(self, provider: FamaFrenchLocalProvider) -> None:
         """Test manifest write handles OSError."""
         manifest_data = {"dataset": "test", "files": {}}
 
@@ -1415,9 +1406,7 @@ class TestAtomicWriteManifestErrors:
             with pytest.raises(OSError, match="Disk full"):
                 provider._atomic_write_manifest(manifest_data)
 
-    def test_manifest_write_serialization_error(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_manifest_write_serialization_error(self, provider: FamaFrenchLocalProvider) -> None:
         """Test manifest write handles serialization errors (ValueError branch)."""
         # The _atomic_write_manifest uses default=str, so it handles most types.
         # ValueError is raised for circular references which can't be serialized.
@@ -1444,9 +1433,7 @@ class TestVerifyDataEdgeCases:
         result = provider.verify_data()
         assert result == {}
 
-    def test_verify_returns_false_when_no_checksum(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_verify_returns_false_when_no_checksum(self, provider: FamaFrenchLocalProvider) -> None:
         """Test verify_data returns False when checksum missing from manifest."""
         # Write manifest with missing checksum
         manifest_data = {
@@ -1583,7 +1570,10 @@ class TestFF6CreationDuringSync:
         assert "factors_6_daily" in result["failed_datasets"]
 
     def test_ff6_exists_but_prerequisites_missing_preserves_manifest(
-        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+        self,
+        provider: FamaFrenchLocalProvider,
+        mock_ff5_data: pl.DataFrame,
+        mock_momentum_data: pl.DataFrame,
     ) -> None:
         """Test existing FF6 preserved when prerequisites missing during sync."""
         # Create FF6 file manually (simulating previous sync)
@@ -1618,7 +1608,10 @@ class TestFF6CreationDuringSync:
         assert "factors_6_daily.parquet" in result["files"]
 
     def test_ff6_creation_with_force_flag(
-        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+        self,
+        provider: FamaFrenchLocalProvider,
+        mock_ff5_data: pl.DataFrame,
+        mock_momentum_data: pl.DataFrame,
     ) -> None:
         """Test FF6 is recreated with force flag even if exists."""
         # Write prerequisite files
@@ -1659,7 +1652,10 @@ class TestFF6CreationDuringSync:
         assert new_checksum != initial_checksum
 
     def test_ff6_exists_not_forced_manifest_regenerated(
-        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+        self,
+        provider: FamaFrenchLocalProvider,
+        mock_ff5_data: pl.DataFrame,
+        mock_momentum_data: pl.DataFrame,
     ) -> None:
         """Test existing FF6 gets manifest entry regenerated when not forcing."""
         # Write all prerequisite files
@@ -1695,7 +1691,10 @@ class TestFF6CreationDuringSync:
         assert "row_count" in result["files"]["factors_6_daily.parquet"]
 
     def test_ff6_creation_failure_adds_to_failed_datasets(
-        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame
+        self,
+        provider: FamaFrenchLocalProvider,
+        mock_ff5_data: pl.DataFrame,
+        mock_momentum_data: pl.DataFrame,
     ) -> None:
         """Test FF6 creation failure adds to failed datasets list."""
         # Write prerequisite files
@@ -1724,7 +1723,11 @@ class TestFF6CreationDuringSync:
         assert "factors_6_daily" in result["failed_datasets"]
 
     def test_ff6_manifest_regeneration_failure_logs_warning(
-        self, provider: FamaFrenchLocalProvider, mock_ff5_data: pl.DataFrame, mock_momentum_data: pl.DataFrame, caplog: Any
+        self,
+        provider: FamaFrenchLocalProvider,
+        mock_ff5_data: pl.DataFrame,
+        mock_momentum_data: pl.DataFrame,
+        caplog: Any,
     ) -> None:
         """Test FF6 manifest regeneration failure logs warning but continues."""
         import logging
@@ -1779,9 +1782,7 @@ class TestFF6CreationDuringSync:
 class TestAtomicWriteTempFileCleanup:
     """Tests for atomic write temp file cleanup (covers lines 806, 816)."""
 
-    def test_temp_file_cleaned_on_checksum_error(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_temp_file_cleaned_on_checksum_error(self, provider: FamaFrenchLocalProvider) -> None:
         """Test temp file cleaned up on checksum validation error."""
         df = pl.DataFrame(
             {

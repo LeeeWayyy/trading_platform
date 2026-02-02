@@ -150,11 +150,13 @@ def basic_forward_returns(basic_signals: pl.DataFrame) -> pl.DataFrame:
         # Forward return correlated with signal (positive IC)
         signal = row["signal_value"]
         fwd_return = signal * 0.01 + np.random.normal(0, 0.005)
-        rows.append({
-            "signal_date": row["signal_date"],
-            "permno": row["permno"],
-            "forward_return": fwd_return,
-        })
+        rows.append(
+            {
+                "signal_date": row["signal_date"],
+                "permno": row["permno"],
+                "forward_return": fwd_return,
+            }
+        )
     return pl.DataFrame(rows)
 
 
@@ -288,11 +290,13 @@ class TestQuantileAnalyzer:
     def test_analyze_empty_signals_raises(self, trading_calendar: MockCalendar):
         """Empty signals should raise InsufficientDataError."""
         analyzer = QuantileAnalyzer(trading_calendar)
-        empty_signals = pl.DataFrame({
-            "signal_date": pl.Series([], dtype=pl.Date),
-            "permno": pl.Series([], dtype=pl.Int64),
-            "signal_value": pl.Series([], dtype=pl.Float64),
-        })
+        empty_signals = pl.DataFrame(
+            {
+                "signal_date": pl.Series([], dtype=pl.Date),
+                "permno": pl.Series([], dtype=pl.Int64),
+                "signal_value": pl.Series([], dtype=pl.Float64),
+            }
+        )
 
         with pytest.raises(InsufficientDataError, match="No signals provided"):
             analyzer.analyze(
@@ -305,11 +309,13 @@ class TestQuantileAnalyzer:
     ):
         """Empty forward returns should raise InsufficientDataError."""
         analyzer = QuantileAnalyzer(trading_calendar)
-        empty_returns = pl.DataFrame({
-            "signal_date": pl.Series([], dtype=pl.Date),
-            "permno": pl.Series([], dtype=pl.Int64),
-            "forward_return": pl.Series([], dtype=pl.Float64),
-        })
+        empty_returns = pl.DataFrame(
+            {
+                "signal_date": pl.Series([], dtype=pl.Date),
+                "permno": pl.Series([], dtype=pl.Int64),
+                "forward_return": pl.Series([], dtype=pl.Float64),
+            }
+        )
 
         with pytest.raises(InsufficientDataError, match="No forward returns provided"):
             analyzer.analyze(
@@ -321,18 +327,22 @@ class TestQuantileAnalyzer:
         """No overlapping signal/return data should raise."""
         analyzer = QuantileAnalyzer(trading_calendar)
 
-        signals = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)] * 100,
-            "permno": list(range(1, 101)),
-            "signal_value": [float(i) for i in range(100)],
-        })
+        signals = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 2)] * 100,
+                "permno": list(range(1, 101)),
+                "signal_value": [float(i) for i in range(100)],
+            }
+        )
 
         # Returns have different permnos - no overlap
-        returns = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)] * 100,
-            "permno": list(range(1001, 1101)),
-            "forward_return": [0.01] * 100,
-        })
+        returns = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 2)] * 100,
+                "permno": list(range(1001, 1101)),
+                "forward_return": [0.01] * 100,
+            }
+        )
 
         with pytest.raises(InsufficientDataError, match="No overlapping signal/return data"):
             analyzer.analyze(signals=signals, forward_returns=returns)
@@ -343,17 +353,21 @@ class TestQuantileAnalyzer:
 
         # Only 5 dates of data
         dates = _create_trading_dates(date(2024, 1, 2), 5)
-        signals = pl.DataFrame({
-            "signal_date": dates * 100,
-            "permno": list(range(100)) * 5,
-            "signal_value": [float(i) for i in range(500)],
-        })
+        signals = pl.DataFrame(
+            {
+                "signal_date": dates * 100,
+                "permno": list(range(100)) * 5,
+                "signal_value": [float(i) for i in range(500)],
+            }
+        )
 
-        returns = pl.DataFrame({
-            "signal_date": dates * 100,
-            "permno": list(range(100)) * 5,
-            "forward_return": [0.01] * 500,
-        })
+        returns = pl.DataFrame(
+            {
+                "signal_date": dates * 100,
+                "permno": list(range(100)) * 5,
+                "forward_return": [0.01] * 500,
+            }
+        )
 
         with pytest.raises(InsufficientDataError, match="Only.*valid dates"):
             analyzer.analyze(
@@ -373,21 +387,25 @@ class TestQuantileAnalyzer:
         rows = []
         for d in dates:
             for permno in range(1, 101):
-                rows.append({
-                    "date": d,  # Using 'date' instead of 'signal_date'
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                rows.append(
+                    {
+                        "date": d,  # Using 'date' instead of 'signal_date'
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
         signals = pl.DataFrame(rows)
 
         # Create matching forward returns
         fwd_rows = []
         for row in signals.iter_rows(named=True):
-            fwd_rows.append({
-                "signal_date": row["date"],
-                "permno": row["permno"],
-                "forward_return": row["signal_value"] * 0.01,
-            })
+            fwd_rows.append(
+                {
+                    "signal_date": row["date"],
+                    "permno": row["permno"],
+                    "forward_return": row["signal_value"] * 0.01,
+                }
+            )
         forward_returns = pl.DataFrame(fwd_rows)
 
         # Should work without error
@@ -409,26 +427,28 @@ class TestQuantileAnalyzer:
         rows = []
         for d in dates:
             for permno in range(1, 101):
-                rows.append({
-                    "signal_date": dt(d.year, d.month, d.day),  # datetime object
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                rows.append(
+                    {
+                        "signal_date": dt(d.year, d.month, d.day),  # datetime object
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
         signals = pl.DataFrame(rows)
         # Cast to ensure Datetime dtype
-        signals = signals.with_columns(
-            pl.col("signal_date").cast(pl.Datetime("us"))
-        )
+        signals = signals.with_columns(pl.col("signal_date").cast(pl.Datetime("us")))
 
         # Forward returns with Date type
         fwd_rows = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_rows.append({
-                    "signal_date": d,  # date object
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_rows.append(
+                    {
+                        "signal_date": d,  # date object
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_rows)
 
         result = analyzer.analyze(
@@ -447,11 +467,13 @@ class TestQuantileAnalyzer:
         signals_data = []
         for d in dates:
             for permno in range(1, 101):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
         # Add null entries (should be filtered)
         signals_data.append({"signal_date": None, "permno": 1, "signal_value": 0.0})
         signals_data.append({"signal_date": dates[0], "permno": None, "signal_value": 0.0})
@@ -462,11 +484,13 @@ class TestQuantileAnalyzer:
         fwd_data = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         result = analyzer.analyze(
@@ -487,16 +511,20 @@ class TestQuantileAnalyzer:
                 # Add duplicate with different signal values (will be averaged)
                 # Use permno-based values to ensure variance after averaging
                 base_signal = float(permno) / 100
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": base_signal - 0.1,  # e.g., 0.0 for permno=1
-                })
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": base_signal + 0.1,  # e.g., 0.2 for permno=1
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": base_signal - 0.1,  # e.g., 0.0 for permno=1
+                    }
+                )
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": base_signal + 0.1,  # e.g., 0.2 for permno=1
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)  # 12000 rows (6000 unique)
 
@@ -504,11 +532,13 @@ class TestQuantileAnalyzer:
         fwd_data = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,  # Correlated with signal
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,  # Correlated with signal
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         result = analyzer.analyze(
@@ -528,16 +558,18 @@ class TestQuantileAnalyzer:
             # First 50 dates have 100 obs, last 10 have only 10
             n_obs = 100 if i < 50 else 10
             for permno in range(1, n_obs + 1):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno),
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno),
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
-        returns = signals.with_columns(
-            pl.col("signal_value").alias("forward_return") * 0.01
-        ).drop("signal_value")
+        returns = signals.with_columns(pl.col("signal_value").alias("forward_return") * 0.01).drop(
+            "signal_value"
+        )
 
         result = analyzer.analyze(
             signals=signals,
@@ -561,11 +593,13 @@ class TestQuantileAnalyzer:
             for permno in range(1, 101):
                 # Add some NaN values (permno=1 gets NaN, others get valid)
                 val = float("nan") if permno == 1 else float(permno) / 100
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": val,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": val,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
@@ -573,11 +607,13 @@ class TestQuantileAnalyzer:
         fwd_data = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         result = analyzer.analyze(
@@ -705,22 +741,26 @@ class TestRunQuantileAnalysis:
         rows = []
         for d in dates:
             for permno in range(1, 101):
-                rows.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                rows.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
         signals = pl.DataFrame(rows)
 
         # Mock ForwardReturnsProvider
         fwd_rows = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_rows.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_rows.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
 
         mock_provider = MagicMock()
         mock_provider.get_forward_returns.return_value = pl.DataFrame(fwd_rows)
@@ -741,21 +781,25 @@ class TestRunQuantileAnalysis:
         rows = []
         for d in dates:
             for permno in range(1, 101):
-                rows.append({
-                    "date": d,  # Using 'date' not 'signal_date'
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                rows.append(
+                    {
+                        "date": d,  # Using 'date' not 'signal_date'
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
         signals = pl.DataFrame(rows)
 
         fwd_rows = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_rows.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_rows.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
 
         mock_provider = MagicMock()
         mock_provider.get_forward_returns.return_value = pl.DataFrame(fwd_rows)
@@ -775,21 +819,25 @@ class TestRunQuantileAnalysis:
         # It should normalize to Jan 5 (Friday)
         rows = []
         for permno in range(1, 101):
-            rows.append({
-                "signal_date": date(2024, 1, 6),  # Saturday - should normalize to Friday
-                "permno": permno,
-                "signal_value": float(permno) / 100,
-            })
+            rows.append(
+                {
+                    "signal_date": date(2024, 1, 6),  # Saturday - should normalize to Friday
+                    "permno": permno,
+                    "signal_value": float(permno) / 100,
+                }
+            )
         signals = pl.DataFrame(rows)
 
         # Returns use normalized date (Jan 5, Friday)
         fwd_rows = []
         for permno in range(1, 101):
-            fwd_rows.append({
-                "signal_date": date(2024, 1, 5),
-                "permno": permno,
-                "forward_return": float(permno) / 10000,
-            })
+            fwd_rows.append(
+                {
+                    "signal_date": date(2024, 1, 5),
+                    "permno": permno,
+                    "forward_return": float(permno) / 10000,
+                }
+            )
 
         mock_provider = MagicMock()
         mock_provider.get_forward_returns.return_value = pl.DataFrame(fwd_rows)
@@ -812,16 +860,20 @@ class TestRunQuantileAnalysis:
         for d in dates:
             for permno in range(1, 101):
                 base_signal = float(permno) / 100
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": base_signal - 0.05,
-                })
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": base_signal + 0.05,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": base_signal - 0.05,
+                    }
+                )
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": base_signal + 0.05,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
@@ -829,11 +881,13 @@ class TestRunQuantileAnalysis:
         fwd_rows = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_rows.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,  # Correlated
-                })
+                fwd_rows.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,  # Correlated
+                    }
+                )
 
         mock_provider = MagicMock()
         mock_provider.get_forward_returns.return_value = pl.DataFrame(fwd_rows)
@@ -847,7 +901,9 @@ class TestRunQuantileAnalysis:
 
         # Provider should receive deduplicated signal keys
         call_args = mock_provider.get_forward_returns.call_args
-        signals_df_arg = call_args[1]["signals_df"] if "signals_df" in call_args[1] else call_args[0][0]
+        signals_df_arg = (
+            call_args[1]["signals_df"] if "signals_df" in call_args[1] else call_args[0][0]
+        )
         # Should have 6000 unique keys, not 12000
         assert signals_df_arg.height == 6000
 
@@ -882,6 +938,7 @@ class MockCalendarWithNormalization:
             current = d
             for _ in range(10):  # Max 10 days back
                 from datetime import timedelta
+
                 current = current - timedelta(days=1)
                 if current in self._trading:
                     result = MagicMock()
@@ -918,18 +975,22 @@ class TestAnalyzerEdgeCases:
         calendar = MockCalendarWithNormalization(trading_days)
 
         # Create analyzer with weekend dates that need normalization
-        signals = pl.DataFrame({
-            "signal_date": [date(2024, 1, 8), date(2024, 1, 9), date(2024, 1, 10)],
-            "permno": [10001, 10002, 10003],
-            "signal_value": [0.1, 0.2, 0.3],
-        })
+        signals = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 8), date(2024, 1, 9), date(2024, 1, 10)],
+                "permno": [10001, 10002, 10003],
+                "signal_value": [0.1, 0.2, 0.3],
+            }
+        )
 
         # Pass Saturday (1/13) as part of signal range - should normalize
-        fwd_returns = pl.DataFrame({
-            "signal_date": [date(2024, 1, 8), date(2024, 1, 9), date(2024, 1, 10)],
-            "permno": [10001, 10002, 10003],
-            "forward_return": [0.01, 0.02, 0.03],
-        })
+        fwd_returns = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 8), date(2024, 1, 9), date(2024, 1, 10)],
+                "permno": [10001, 10002, 10003],
+                "forward_return": [0.01, 0.02, 0.03],
+            }
+        )
 
         analyzer = QuantileAnalyzer(calendar)
         # Should complete without error (weekend normalization worked)
@@ -944,17 +1005,21 @@ class TestAnalyzerEdgeCases:
         calendar = MockCalendarWithNormalization(trading_days)
 
         # Signal on the only trading day
-        signals = pl.DataFrame({
-            "signal_date": [date(2024, 1, 10)],
-            "permno": [10001],
-            "signal_value": [0.5],
-        })
+        signals = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 10)],
+                "permno": [10001],
+                "signal_value": [0.5],
+            }
+        )
 
-        fwd_returns = pl.DataFrame({
-            "signal_date": [date(2024, 1, 10)],
-            "permno": [10001],
-            "forward_return": [0.02],
-        })
+        fwd_returns = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 10)],
+                "permno": [10001],
+                "forward_return": [0.02],
+            }
+        )
 
         analyzer = QuantileAnalyzer(calendar)
         # Should handle gracefully (too few dates)
@@ -965,6 +1030,7 @@ class TestAnalyzerEdgeCases:
         """Signal dates that aren't in forward_returns are naturally filtered."""
         # Create calendar with only Mon-Fri
         from datetime import timedelta
+
         trading_dates = []
         current = date(2024, 1, 2)  # Tuesday
         for _ in range(60):
@@ -979,11 +1045,13 @@ class TestAnalyzerEdgeCases:
         # Add signals for first 55 trading days
         for d in trading_dates[:55]:
             for permno in range(1, 101):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
@@ -991,11 +1059,13 @@ class TestAnalyzerEdgeCases:
         fwd_data = []
         for d in trading_dates[:55]:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         analyzer = QuantileAnalyzer(cal)
@@ -1018,11 +1088,13 @@ class TestAnalyzerEdgeCases:
         signals_data = []
         for d in dates:
             for permno in range(1, 101):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
@@ -1030,11 +1102,13 @@ class TestAnalyzerEdgeCases:
         fwd_data = []
         for d in dates[:50]:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         analyzer = QuantileAnalyzer(trading_calendar)
@@ -1051,17 +1125,21 @@ class TestAnalyzerEdgeCases:
     def test_all_signals_null_after_filtering_raises(self, trading_calendar: MockCalendar):
         """Should raise InsufficientDataError when all signals are null."""
         # Create signals with all null signal_dates
-        signals = pl.DataFrame({
-            "signal_date": [None, None, None],
-            "permno": [10001, 10002, 10003],
-            "signal_value": [0.1, 0.2, 0.3],
-        }).cast({"signal_date": pl.Date})
+        signals = pl.DataFrame(
+            {
+                "signal_date": [None, None, None],
+                "permno": [10001, 10002, 10003],
+                "signal_value": [0.1, 0.2, 0.3],
+            }
+        ).cast({"signal_date": pl.Date})
 
-        returns = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "forward_return": [0.01],
-        })
+        returns = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "forward_return": [0.01],
+            }
+        )
 
         analyzer = QuantileAnalyzer(trading_calendar)
         with pytest.raises(InsufficientDataError, match="No valid signals"):
@@ -1106,22 +1184,26 @@ class TestAnalyzerEdgeCases:
         signals_data = []
         for d in trading_dates[:55]:
             for permno in range(1, 101):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
         fwd_data = []
         for d in trading_dates[:55]:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         analyzer = QuantileAnalyzer(cal)
@@ -1136,17 +1218,21 @@ class TestAnalyzerEdgeCases:
     def test_date_cast_failure_raises(self, trading_calendar: MockCalendar):
         """Should raise InsufficientDataError when date cast fails."""
         # Create signals with non-date string that can't be cast
-        signals = pl.DataFrame({
-            "signal_date": ["not-a-date", "also-not-a-date"],
-            "permno": [10001, 10002],
-            "signal_value": [0.1, 0.2],
-        })
+        signals = pl.DataFrame(
+            {
+                "signal_date": ["not-a-date", "also-not-a-date"],
+                "permno": [10001, 10002],
+                "signal_value": [0.1, 0.2],
+            }
+        )
 
-        returns = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "forward_return": [0.01],
-        })
+        returns = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "forward_return": [0.01],
+            }
+        )
 
         analyzer = QuantileAnalyzer(trading_calendar)
         with pytest.raises(InsufficientDataError, match="Failed to convert signal_date"):
@@ -1197,22 +1283,26 @@ class TestAnalyzerEdgeCases:
         signals_data = []
         for d in trading_dates[5:65]:  # 60 trading days
             for permno in range(1, 101):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
         fwd_data = []
         for d in trading_dates[5:65]:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         analyzer = QuantileAnalyzer(cal)
@@ -1233,31 +1323,37 @@ class TestAnalyzerEdgeCases:
         signals_data = []
         for d in dates:
             for permno in range(1, 101):
-                signals_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "signal_value": float(permno) / 100,
-                })
+                signals_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "signal_value": float(permno) / 100,
+                    }
+                )
 
         signals = pl.DataFrame(signals_data)
 
         # Now add a few rows and set their dates to None
         # This requires using vstack with None values
-        extra_signals = pl.DataFrame({
-            "signal_date": pl.Series([None, None], dtype=pl.Date),
-            "permno": [10001, 10002],
-            "signal_value": [0.5, 0.6],
-        })
+        extra_signals = pl.DataFrame(
+            {
+                "signal_date": pl.Series([None, None], dtype=pl.Date),
+                "permno": [10001, 10002],
+                "signal_value": [0.5, 0.6],
+            }
+        )
         signals = pl.concat([signals, extra_signals])
 
         fwd_data = []
         for d in dates:
             for permno in range(1, 101):
-                fwd_data.append({
-                    "signal_date": d,
-                    "permno": permno,
-                    "forward_return": float(permno) / 10000,
-                })
+                fwd_data.append(
+                    {
+                        "signal_date": d,
+                        "permno": permno,
+                        "forward_return": float(permno) / 10000,
+                    }
+                )
         returns = pl.DataFrame(fwd_data)
 
         analyzer = QuantileAnalyzer(trading_calendar)

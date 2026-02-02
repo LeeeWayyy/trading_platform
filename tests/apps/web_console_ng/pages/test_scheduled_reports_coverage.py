@@ -513,9 +513,7 @@ async def test_run_now_db_connection_error(
 
 
 @pytest.mark.asyncio()
-async def test_delete_schedule_success(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_delete_schedule_success(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test schedule deletion succeeds."""
     schedule = SimpleNamespace(
         id="sched-1",
@@ -661,9 +659,7 @@ async def test_run_history_displays_runs(
 
 
 @pytest.mark.asyncio()
-async def test_run_history_no_runs(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_run_history_no_runs(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test run history displays message when no runs recorded."""
     service = SimpleNamespace(get_run_history=AsyncMock(return_value=[]))
 
@@ -690,9 +686,7 @@ async def test_run_history_db_connection_error(
 
 
 @pytest.mark.asyncio()
-async def test_run_history_data_error(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_run_history_data_error(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test run history handles data processing errors."""
     service = SimpleNamespace(get_run_history=AsyncMock(side_effect=KeyError("Missing field")))
 
@@ -880,20 +874,25 @@ async def test_demo_mode_renders_placeholder_data(
     user = {"user_id": "u1", "permissions": ["VIEW_REPORTS"]}
 
     monkeypatch.setattr(
-        reports_module, "has_permission", lambda user, perm: perm.name in user.get("permissions", [])
+        reports_module,
+        "has_permission",
+        lambda user, perm: perm.name in user.get("permissions", []),
     )
 
     reports_module._render_demo_mode(user)
 
     # Should show demo mode banner (checking by label text not requiring exact match)
-    assert any("Demo Mode" in label or "demo" in label.lower() for label in dummy_ui.labels), \
-        f"Expected demo mode text in labels: {dummy_ui.labels}"
-    assert any("unavailable" in label.lower() or "database" in label.lower() for label in dummy_ui.labels), \
-        f"Expected database unavailable text in labels: {dummy_ui.labels}"
+    assert any(
+        "Demo Mode" in label or "demo" in label.lower() for label in dummy_ui.labels
+    ), f"Expected demo mode text in labels: {dummy_ui.labels}"
+    assert any(
+        "unavailable" in label.lower() or "database" in label.lower() for label in dummy_ui.labels
+    ), f"Expected database unavailable text in labels: {dummy_ui.labels}"
 
     # Should show demo schedules - these are hardcoded in the function
-    assert any("Daily Performance" in label for label in dummy_ui.labels), \
-        f"Expected 'Daily Performance' in labels: {dummy_ui.labels}"
+    assert any(
+        "Daily Performance" in label for label in dummy_ui.labels
+    ), f"Expected 'Daily Performance' in labels: {dummy_ui.labels}"
 
 
 @pytest.mark.asyncio()
@@ -904,7 +903,9 @@ async def test_demo_mode_with_manage_permission(
     user = {"user_id": "u1", "permissions": ["VIEW_REPORTS", "MANAGE_REPORTS"]}
 
     monkeypatch.setattr(
-        reports_module, "has_permission", lambda user, perm: perm.name in user.get("permissions", [])
+        reports_module,
+        "has_permission",
+        lambda user, perm: perm.name in user.get("permissions", []),
     )
 
     reports_module._render_demo_mode(user)

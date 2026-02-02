@@ -38,6 +38,38 @@ class DrawdownPeriod:
     duration_days: int  # Calendar days (labeled as such in UI)
 
 
+def _detect_period_boundaries(analysis_df: pl.DataFrame) -> pl.DataFrame:
+    """Detect drawdown period boundaries using run-length encoding.
+
+    Identifies transitions in the in_drawdown flag:
+    - period_start: True when transitioning from non-drawdown to drawdown
+    - period_end: True when transitioning from drawdown to non-drawdown
+    - period_id: Cumulative sum of period starts (unique ID per period)
+
+    Args:
+        analysis_df: DataFrame with 'in_drawdown' boolean column.
+
+    Returns:
+        DataFrame with added columns: period_start, period_end, period_id.
+    """
+    return analysis_df.with_columns(
+        [
+            # Detect transitions: False->True = start of drawdown
+            (pl.col("in_drawdown") & ~pl.col("in_drawdown").shift(1).fill_null(False)).alias(
+                "period_start"
+            ),
+            # Detect transitions: True->False = recovery (end of drawdown)
+            (~pl.col("in_drawdown") & pl.col("in_drawdown").shift(1).fill_null(False)).alias(
+                "period_end"
+            ),
+        ]
+    ).with_columns(
+        [
+            pl.col("period_start").cum_sum().alias("period_id"),
+        ]
+    )
+
+
 def render_drawdown_chart(
     daily_returns: pl.DataFrame | None,
     title: str = "Drawdown",
@@ -208,11 +240,9 @@ def compute_drawdown_periods(
         ]
     ).with_columns(
         [
-            # Running max starting from 1.0 (W₀)
-            pl.concat([pl.lit(1.0), pl.col("wealth")])
-            .slice(0, pl.len())
-            .cum_max()
-            .alias("running_peak"),
+            # Running max starting from 1.0 (W₀): M_t = max(1.0, max(W_1, ..., W_t))
+            # Fix: Use max_horizontal to get M_t at position t (not M_{t-1})
+            pl.max_horizontal(1.0, pl.col("wealth").cum_max()).alias("running_peak"),
         ]
     )
 
@@ -225,27 +255,8 @@ def compute_drawdown_periods(
         ]
     )
 
-    # Step 3: Identify drawdown period boundaries using run-length encoding
-    # A new period starts when in_drawdown changes from False to True
-    analysis_df = analysis_df.with_columns(
-        [
-            # Detect transitions: False->True = start of drawdown
-            (pl.col("in_drawdown") & ~pl.col("in_drawdown").shift(1).fill_null(False)).alias(
-                "period_start"
-            ),
-            # Detect transitions: True->False = recovery (end of drawdown)
-            (~pl.col("in_drawdown") & pl.col("in_drawdown").shift(1).fill_null(False)).alias(
-                "period_end"
-            ),
-        ]
-    )
-
-    # Step 4: Assign period IDs using cumsum of period starts
-    analysis_df = analysis_df.with_columns(
-        [
-            pl.col("period_start").cum_sum().alias("period_id"),
-        ]
-    )
+    # Step 3-4: Identify drawdown period boundaries using helper
+    analysis_df = _detect_period_boundaries(analysis_df)
 
     # Step 5: For each period, compute statistics using window functions
     # Only consider rows where in_drawdown=True (actual drawdown periods)
@@ -305,15 +316,22 @@ def compute_drawdown_periods(
     ])
 
     # For each period, find the latest non-drawdown row before first_dd_idx
-    # Cross join and filter - using a more efficient approach
-    peak_candidates = period_with_idx.select(["period_id", "first_dd_idx"]).join(
-        non_drawdown_rows,
-        how="cross",
+    # Use join_asof with backward strategy instead of O(M*N) cross join
+    non_drawdown_sorted = non_drawdown_rows.sort("row_idx")
+    period_for_asof = period_with_idx.select(["period_id", "first_dd_idx"]).sort("first_dd_idx")
+
+    peak_candidates = period_for_asof.join_asof(
+        non_drawdown_sorted,
+        left_on="first_dd_idx",
+        right_on="row_idx",
+        strategy="backward",
     ).filter(
-        pl.col("row_idx") < pl.col("first_dd_idx")
-    ).group_by("period_id").agg([
-        pl.col("date").sort_by("row_idx").last().alias("peak_date"),
-        pl.col("wealth").sort_by("row_idx").last().alias("peak_wealth"),
+        # Ensure we found a valid peak (row_idx < first_dd_idx)
+        pl.col("row_idx").is_not_null() & (pl.col("row_idx") < pl.col("first_dd_idx"))
+    ).select([
+        "period_id",
+        pl.col("date").alias("peak_date"),
+        pl.col("wealth").alias("peak_wealth"),
     ])
 
     # Handle periods that start at the beginning (no row before first_dd_idx)
@@ -418,14 +436,12 @@ def render_drawdown_underwater(
 
         # Compute wealth index and drawdown
         # Initialize running_max from W₀=1.0 to capture first-day drops
-        # Use with_columns context to avoid mypy issues with standalone concat
+        # Fix: Use max_horizontal to get M_t at position t (not M_{t-1})
         temp_df = sorted_df.with_columns([
             (1 + pl.col("return")).cum_prod().alias("wealth"),
         ]).with_columns([
-            pl.concat([pl.lit(1.0), pl.col("wealth")])
-            .slice(0, pl.len())
-            .cum_max()
-            .alias("running_max"),
+            # M_t = max(1.0, max(W_1, ..., W_t))
+            pl.max_horizontal(1.0, pl.col("wealth").cum_max()).alias("running_max"),
         ]).with_columns([
             pl.when(pl.col("running_max") == 0)
             .then(-1.0)

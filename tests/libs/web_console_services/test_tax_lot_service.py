@@ -621,9 +621,7 @@ class TestUpdateLotAdditional:
                 return_value=_mock_acquire_connection(mock_conn),
             ),
         ):
-            lot = await service.update_lot(
-                "lot-1", updates={"symbol": "MSFT"}, all_users=True
-            )
+            lot = await service.update_lot("lot-1", updates={"symbol": "MSFT"}, all_users=True)
 
         assert lot.symbol == "MSFT"
 
@@ -795,9 +793,7 @@ class TestUpdateLotAdditional:
                 return_value=_mock_acquire_connection(mock_conn),
             ),
         ):
-            lot = await service.update_lot(
-                "lot-1", updates={"cost_basis": Decimal("200")}
-            )
+            lot = await service.update_lot("lot-1", updates={"cost_basis": Decimal("200")})
 
         assert lot.cost_basis == Decimal("200")
 
@@ -841,9 +837,7 @@ class TestUpdateLotAdditional:
                 return_value=_mock_acquire_connection(mock_conn),
             ),
         ):
-            lot = await service.update_lot(
-                "lot-1", updates={"acquisition_date": new_date}
-            )
+            lot = await service.update_lot("lot-1", updates={"acquisition_date": new_date})
 
         assert lot.acquisition_date == new_date
 
@@ -878,9 +872,7 @@ class TestUpdateLotAdditional:
             ),
         ):
             with pytest.raises(ValueError, match="acquisition_date must be datetime"):
-                await service.update_lot(
-                    "lot-1", updates={"acquisition_date": "2024-01-01"}
-                )
+                await service.update_lot("lot-1", updates={"acquisition_date": "2024-01-01"})
 
     @pytest.mark.asyncio()
     async def test_update_lot_runtime_error_on_no_return(
@@ -956,9 +948,7 @@ class TestUpdateLotAdditional:
             ),
         ):
             # Pass status as None explicitly - should not trigger status update
-            lot = await service.update_lot(
-                "lot-1", updates={"symbol": "MSFT", "status": None}
-            )
+            lot = await service.update_lot("lot-1", updates={"symbol": "MSFT", "status": None})
 
         assert lot.symbol == "MSFT"
         assert lot.status == "open"
@@ -1222,9 +1212,7 @@ class TestDeriveStatus:
         status = TaxLotService._derive_status(row)
         assert status == "closed"
 
-    def test_derive_status_closed_by_negative_remaining(
-        self, mock_db_pool: Mock
-    ) -> None:
+    def test_derive_status_closed_by_negative_remaining(self, mock_db_pool: Mock) -> None:
         """Test _derive_status returns closed when remaining_quantity is negative."""
         row = {
             "closed_at": None,

@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-02-01 - P6T10: execution_gateway routes, schemas, manual_controls updates -->
+<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - routes and schemas updates -->
 
 ## Identity
 - **Type:** Service

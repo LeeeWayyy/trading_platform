@@ -698,7 +698,9 @@ class TestFullSyncExceptionHandling:
                 raise DiskSpaceError("Disk full during partition write")
             return original_check(*args, **kwargs)
 
-        with patch.object(sync_manager, "_check_disk_space_and_alert", side_effect=failing_disk_check):
+        with patch.object(
+            sync_manager, "_check_disk_space_and_alert", side_effect=failing_disk_check
+        ):
             with patch.object(sync_manager, "_sync_year_partition") as mock_sync:
                 mock_sync.side_effect = DiskSpaceError("Disk full")
                 with pytest.raises(DiskSpaceError):
@@ -797,9 +799,9 @@ class TestFullSyncResume:
         storage_dir = test_dirs["storage"] / "crsp_daily"
         storage_dir.mkdir(parents=True, exist_ok=True)
         existing_file = storage_dir / "2023.parquet"
-        pl.DataFrame(
-            {"date": ["2023-01-01"], "permno": [10001], "ret": [0.01]}
-        ).write_parquet(existing_file)
+        pl.DataFrame({"date": ["2023-01-01"], "permno": [10001], "ret": [0.01]}).write_parquet(
+            existing_file
+        )
 
         # Save progress showing partial completion
         started_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
@@ -839,9 +841,9 @@ class TestFullSyncResume:
         storage_dir = test_dirs["storage"] / "crsp_daily"
         storage_dir.mkdir(parents=True, exist_ok=True)
         existing_file = storage_dir / "2023.parquet"
-        pl.DataFrame(
-            {"date": ["2023-01-01"], "permno": [10001], "ret": [0.01]}
-        ).write_parquet(existing_file)
+        pl.DataFrame({"date": ["2023-01-01"], "permno": [10001], "ret": [0.01]}).write_parquet(
+            existing_file
+        )
 
         # Save progress with "running" status (simulates crash)
         started_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
@@ -889,10 +891,14 @@ class TestFullSyncSLO:
                 datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.UTC),  # year partition
                 datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.UTC),  # progress update
                 datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.UTC),  # lock check
-                datetime.datetime(2024, 1, 1, 5, 0, 0, tzinfo=datetime.UTC),  # SLO check (5 hours later)
+                datetime.datetime(
+                    2024, 1, 1, 5, 0, 0, tzinfo=datetime.UTC
+                ),  # SLO check (5 hours later)
                 datetime.datetime(2024, 1, 1, 5, 0, 0, tzinfo=datetime.UTC),  # manifest timestamp
             ]
-            mock_datetime.datetime.side_effect = lambda *args, **kwargs: datetime.datetime(*args, **kwargs)
+            mock_datetime.datetime.side_effect = lambda *args, **kwargs: datetime.datetime(
+                *args, **kwargs
+            )
             mock_datetime.date = datetime.date
             mock_datetime.timedelta = datetime.timedelta
             mock_datetime.UTC = datetime.UTC
@@ -923,7 +929,9 @@ class TestIncrementalSyncEdgeCases:
         storage_dir = test_dirs["storage"] / "crsp_daily"
         storage_dir.mkdir(parents=True, exist_ok=True)
         test_file = storage_dir / f"{today.year}.parquet"
-        pl.DataFrame({"date": [today.isoformat()], "permno": [10001], "ret": [0.01]}).write_parquet(test_file)
+        pl.DataFrame({"date": [today.isoformat()], "permno": [10001], "ret": [0.01]}).write_parquet(
+            test_file
+        )
 
         checksum = sync_manager._compute_combined_checksum([str(test_file)])
         manifest = SyncManifest(
@@ -1031,9 +1039,7 @@ class TestVerifyIntegrityEdgeCases:
 class TestBuildQuery:
     """Tests for query building."""
 
-    def test_build_query_unsupported_dataset_raises_error(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_build_query_unsupported_dataset_raises_error(self, sync_manager: SyncManager) -> None:
         """Test: Unsupported dataset raises ValueError."""
         with pytest.raises(ValueError, match="not supported"):
             sync_manager._build_query("unsupported_dataset", 2024, False, None)
@@ -1076,9 +1082,9 @@ class TestDiskSpaceEdgeCases:
     def test_disk_space_warning_level(self, sync_manager: SyncManager) -> None:
         """Test: Disk space at 85% triggers warning level."""
         with patch("shutil.disk_usage") as mock_usage:
-            mock_usage.return_value = type("DiskUsage", (), {
-                "total": 100, "free": 15, "used": 85
-            })()
+            mock_usage.return_value = type(
+                "DiskUsage", (), {"total": 100, "free": 15, "used": 85}
+            )()
 
             status = sync_manager._check_disk_space_and_alert(required_bytes=0)
             assert status.level == "warning"
@@ -1086,9 +1092,7 @@ class TestDiskSpaceEdgeCases:
     def test_disk_space_critical_level(self, sync_manager: SyncManager) -> None:
         """Test: Disk space at 92% triggers critical level."""
         with patch("shutil.disk_usage") as mock_usage:
-            mock_usage.return_value = type("DiskUsage", (), {
-                "total": 100, "free": 8, "used": 92
-            })()
+            mock_usage.return_value = type("DiskUsage", (), {"total": 100, "free": 8, "used": 92})()
 
             status = sync_manager._check_disk_space_and_alert(required_bytes=0)
             assert status.level == "critical"
@@ -1096,9 +1100,9 @@ class TestDiskSpaceEdgeCases:
     def test_disk_space_ok_level(self, sync_manager: SyncManager) -> None:
         """Test: Disk space at 50% is ok."""
         with patch("shutil.disk_usage") as mock_usage:
-            mock_usage.return_value = type("DiskUsage", (), {
-                "total": 100, "free": 50, "used": 50
-            })()
+            mock_usage.return_value = type(
+                "DiskUsage", (), {"total": 100, "free": 50, "used": 50}
+            )()
 
             status = sync_manager._check_disk_space_and_alert(required_bytes=0)
             assert status.level == "ok"
@@ -1107,11 +1111,15 @@ class TestDiskSpaceEdgeCases:
         """Test: Disk space check fails when insufficient for required bytes."""
         with patch("shutil.disk_usage") as mock_usage:
             # 10GB free but need 20GB
-            mock_usage.return_value = type("DiskUsage", (), {
-                "total": 100_000_000_000,
-                "free": 10_000_000_000,  # 10GB
-                "used": 90_000_000_000,
-            })()
+            mock_usage.return_value = type(
+                "DiskUsage",
+                (),
+                {
+                    "total": 100_000_000_000,
+                    "free": 10_000_000_000,  # 10GB
+                    "used": 90_000_000_000,
+                },
+            )()
 
             with pytest.raises(DiskSpaceError, match="Insufficient disk space"):
                 sync_manager._check_disk_space_and_alert(required_bytes=20_000_000_000)
@@ -1120,11 +1128,15 @@ class TestDiskSpaceEdgeCases:
         """Test: Disk space check with estimated rows."""
         with patch("shutil.disk_usage") as mock_usage:
             # Plenty of space
-            mock_usage.return_value = type("DiskUsage", (), {
-                "total": 1_000_000_000_000,  # 1TB
-                "free": 500_000_000_000,  # 500GB
-                "used": 500_000_000_000,
-            })()
+            mock_usage.return_value = type(
+                "DiskUsage",
+                (),
+                {
+                    "total": 1_000_000_000_000,  # 1TB
+                    "free": 500_000_000_000,  # 500GB
+                    "used": 500_000_000_000,
+                },
+            )()
 
             status = sync_manager._check_disk_space_and_alert(estimated_rows=1_000_000)
             assert status.level == "ok"
@@ -1188,6 +1200,7 @@ class TestSyncYearPartitionEdgeCases:
 
         # Should complete but log warning
         from libs.data.data_providers.locking import AtomicFileLock
+
         lock = AtomicFileLock(test_dirs["locks"], "crsp_daily")
         token = lock.acquire()
         try:
@@ -1214,6 +1227,7 @@ class TestSyncYearPartitionEdgeCases:
         )
 
         from libs.data.data_providers.locking import AtomicFileLock
+
         lock = AtomicFileLock(test_dirs["locks"], "crsp_daily")
         token = lock.acquire()
         try:
@@ -1236,9 +1250,9 @@ class TestSyncYearPartitionEdgeCases:
         storage_dir = test_dirs["storage"] / "crsp_daily"
         storage_dir.mkdir(parents=True, exist_ok=True)
         existing_file = storage_dir / "2024.parquet"
-        pl.DataFrame(
-            {"date": ["2024-01-01"], "permno": [10001], "ret": [0.01]}
-        ).write_parquet(existing_file)
+        pl.DataFrame({"date": ["2024-01-01"], "permno": [10001], "ret": [0.01]}).write_parquet(
+            existing_file
+        )
 
         # Return empty DataFrame for new data
         mock_wrds_client.execute_query.return_value = pl.DataFrame(
@@ -1246,6 +1260,7 @@ class TestSyncYearPartitionEdgeCases:
         ).cast({"date": pl.String, "permno": pl.Int64, "ret": pl.Float64})
 
         from libs.data.data_providers.locking import AtomicFileLock
+
         lock = AtomicFileLock(test_dirs["locks"], "crsp_daily")
         token = lock.acquire()
         try:
@@ -1269,38 +1284,54 @@ class TestSyncYearPartitionEdgeCases:
             # Register schema for fama_french
             sync_manager.schema_registry.register_schema(
                 "fama_french",
-                {"date": "String", "mktrf": "Float64", "smb": "Float64", "hml": "Float64", "rf": "Float64", "umd": "Float64"},
+                {
+                    "date": "String",
+                    "mktrf": "Float64",
+                    "smb": "Float64",
+                    "hml": "Float64",
+                    "rf": "Float64",
+                    "umd": "Float64",
+                },
             )
 
             # Create existing file
             storage_dir = test_dirs["storage"] / "fama_french"
             storage_dir.mkdir(parents=True, exist_ok=True)
             existing_file = storage_dir / "2024.parquet"
-            pl.DataFrame({
-                "date": ["2024-01-01"],
-                "mktrf": [0.01],
-                "smb": [0.02],
-                "hml": [0.03],
-                "rf": [0.001],
-                "umd": [0.04],
-            }).write_parquet(existing_file)
+            pl.DataFrame(
+                {
+                    "date": ["2024-01-01"],
+                    "mktrf": [0.01],
+                    "smb": [0.02],
+                    "hml": [0.03],
+                    "rf": [0.001],
+                    "umd": [0.04],
+                }
+            ).write_parquet(existing_file)
 
             # Return new data
-            mock_wrds_client.execute_query.return_value = pl.DataFrame({
-                "date": ["2024-01-02"],
-                "mktrf": [0.015],
-                "smb": [0.025],
-                "hml": [0.035],
-                "rf": [0.0015],
-                "umd": [0.045],
-            })
+            mock_wrds_client.execute_query.return_value = pl.DataFrame(
+                {
+                    "date": ["2024-01-02"],
+                    "mktrf": [0.015],
+                    "smb": [0.025],
+                    "hml": [0.035],
+                    "rf": [0.0015],
+                    "umd": [0.045],
+                }
+            )
 
             from libs.data.data_providers.locking import AtomicFileLock
+
             lock = AtomicFileLock(test_dirs["locks"], "fama_french")
             token = lock.acquire()
             try:
                 path, rows = sync_manager._sync_year_partition(
-                    "fama_french", 2024, token, incremental=True, last_date=datetime.date(2024, 1, 1)
+                    "fama_french",
+                    2024,
+                    token,
+                    incremental=True,
+                    last_date=datetime.date(2024, 1, 1),
                 )
                 # Should have 2 rows (1 old + 1 new concatenated)
                 assert rows == 2
@@ -1311,38 +1342,32 @@ class TestSyncYearPartitionEdgeCases:
 class TestValidatePartition:
     """Tests for _validate_partition."""
 
-    def test_validate_partition_empty_df_passes(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_validate_partition_empty_df_passes(self, sync_manager: SyncManager) -> None:
         """Test: Empty DataFrame passes validation."""
         df = pl.DataFrame({"date": [], "permno": []}).cast({"date": pl.String, "permno": pl.Int64})
         # Should not raise
         sync_manager._validate_partition(df, "crsp_daily", 2024)
 
-    def test_validate_partition_no_primary_keys_passes(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_validate_partition_no_primary_keys_passes(self, sync_manager: SyncManager) -> None:
         """Test: Dataset with no primary keys skips validation."""
         df = pl.DataFrame({"col": [1, 2, 3]})
         # Should not raise - unknown_dataset has no primary keys
         sync_manager._validate_partition(df, "unknown_dataset", 2024)
 
-    def test_validate_partition_null_primary_key_raises(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_validate_partition_null_primary_key_raises(self, sync_manager: SyncManager) -> None:
         """Test: Null in primary key column raises ValueError."""
         df = pl.DataFrame({"date": ["2024-01-01", None], "permno": [10001, 10002]})
         with pytest.raises(ValueError, match="Validation failed"):
             sync_manager._validate_partition(df, "crsp_daily", 2024)
 
-    def test_validate_partition_duplicate_keys_raises(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_validate_partition_duplicate_keys_raises(self, sync_manager: SyncManager) -> None:
         """Test: Duplicate primary keys raise ValueError."""
-        df = pl.DataFrame({
-            "date": ["2024-01-01", "2024-01-01"],
-            "permno": [10001, 10001],  # Duplicate
-        })
+        df = pl.DataFrame(
+            {
+                "date": ["2024-01-01", "2024-01-01"],
+                "permno": [10001, 10001],  # Duplicate
+            }
+        )
         with pytest.raises(ValueError, match="duplicate primary keys"):
             sync_manager._validate_partition(df, "crsp_daily", 2024)
 

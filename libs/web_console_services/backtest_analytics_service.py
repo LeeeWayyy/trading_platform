@@ -16,6 +16,14 @@ from typing import TYPE_CHECKING
 import polars as pl
 from starlette.concurrency import run_in_threadpool
 
+from libs.trading.backtest.quantile_analysis import (
+    InsufficientDataError,
+    QuantileAnalysisConfig,
+)
+from libs.trading.backtest.quantile_analysis import (
+    run_quantile_analysis as quantile_helper,
+)
+
 if TYPE_CHECKING:
     import exchange_calendars as xcals  # type: ignore[import-not-found]
 
@@ -163,9 +171,7 @@ class BacktestAnalyticsService:
         await self.verify_job_ownership(job_id)
 
         # Wrap sync storage call in threadpool
-        result: BacktestResult = await run_in_threadpool(
-            self._storage.get_result, job_id
-        )
+        result: BacktestResult = await run_in_threadpool(self._storage.get_result, job_id)
         return result
 
     async def run_quantile_analysis(
@@ -195,11 +201,6 @@ class BacktestAnalyticsService:
             InsufficientDataError: If not enough data for analysis.
             CRSPUnavailableError: If CRSP data is not available.
         """
-        from libs.trading.backtest.quantile_analysis import (
-            QuantileAnalysisConfig,
-            QuantileAnalyzer,
-        )
-
         # Verify ownership first
         await self.verify_job_ownership(job_id)
 
@@ -218,8 +219,6 @@ class BacktestAnalyticsService:
             )
             signals = await run_in_threadpool(lazy_result.collect) if lazy_result else None
         except (JobNotFound, ResultPathMissing) as e:
-            from libs.trading.backtest.quantile_analysis import InsufficientDataError
-
             logger.warning(
                 "run_quantile_analysis_storage_error",
                 extra={"job_id": job_id, "error": str(e)},
@@ -229,11 +228,7 @@ class BacktestAnalyticsService:
             ) from e
 
         if signals is None or signals.height == 0:
-            from libs.trading.backtest.quantile_analysis import InsufficientDataError
             raise InsufficientDataError("No universe signals found for this backtest")
-
-        # Ensure required columns exist
-        from libs.trading.backtest.quantile_analysis import InsufficientDataError
 
         # Handle column name variations: storage uses 'signal', analytics expects 'signal_value'
         if "signal" in signals.columns and "signal_value" not in signals.columns:
@@ -243,54 +238,33 @@ class BacktestAnalyticsService:
         # Check for date column (can be 'date' or 'signal_date')
         has_date = "date" in signals.columns or "signal_date" in signals.columns
         if not has_date:
-            raise InsufficientDataError(
-                "Signal data missing date column ('date' or 'signal_date')"
-            )
+            raise InsufficientDataError("Signal data missing date column ('date' or 'signal_date')")
 
         missing_cols = required_cols - set(signals.columns)
         if missing_cols:
-            raise InsufficientDataError(
-                f"Signal data missing required columns: {missing_cols}"
-            )
+            raise InsufficientDataError(f"Signal data missing required columns: {missing_cols}")
 
-        # Rename date column if needed (with guard for existing signal_date)
-        if "date" in signals.columns and "signal_date" not in signals.columns:
-            signals = signals.rename({"date": "signal_date"})
-
-        # Coerce signal_date to pl.Date to prevent join/calendar mismatches
-        if signals["signal_date"].dtype != pl.Date:
+        # Coerce date column to pl.Date to prevent join/calendar mismatches
+        date_col = "signal_date" if "signal_date" in signals.columns else "date"
+        if signals[date_col].dtype != pl.Date:
             try:
-                signals = signals.with_columns(pl.col("signal_date").cast(pl.Date))
+                signals = signals.with_columns(pl.col(date_col).cast(pl.Date))
             except Exception as e:
                 raise InsufficientDataError(
-                    f"Failed to convert signal_date to Date type: {e}"
+                    f"Failed to convert {date_col} to Date type: {e}"
                 ) from e
 
-        # Note: Date normalization (non-trading days → previous session) is handled
-        # internally by QuantileAnalyzer.analyze to avoid code duplication
-
-        # Compute forward returns (CPU-heavy, run in threadpool)
-        # Dedup signal keys to avoid duplicate forward_return rows
-        forward_returns = await run_in_threadpool(
-            forward_returns_provider.get_forward_returns,
-            signals.select(["signal_date", "permno"]).unique(),
-            config.skip_days if config else 1,
-            config.holding_period_days if config else 20,
-            calendar,
-        )
-
-        if forward_returns.height == 0:
-            from libs.trading.backtest.quantile_analysis import InsufficientDataError
-            raise InsufficientDataError("No forward returns computed (missing CRSP data)")
-
-        # Run analysis (CPU-heavy)
+        # Use the run_quantile_analysis helper which handles:
+        # 1. Date column renaming (date -> signal_date)
+        # 2. Signal date normalization (once, avoids redundancy)
+        # 3. Forward returns computation with deduplication
+        # 4. Analysis with skip_normalization=True
         cfg = config or QuantileAnalysisConfig()
-        analyzer = QuantileAnalyzer(calendar)
-
         result: QuantileResult = await run_in_threadpool(
-            analyzer.analyze,
+            quantile_helper,
             signals,
-            forward_returns,
+            forward_returns_provider,
+            calendar,
             cfg,
             signal_name or "",
             universe_name,

@@ -397,16 +397,20 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             cost_enabled = ui.switch("Enable Cost Model", value=False)
 
             with ui.column().classes("w-full gap-2").bind_visibility_from(cost_enabled, "value"):
-                portfolio_value_input = ui.number(
-                    "Portfolio Value (USD)",
-                    value=1_000_000,
-                    min=10_000,
-                    max=1_000_000_000,
-                    step=100_000,
-                ).props("prefix=$").classes("w-full")
-                ui.label(
-                    "Constant notional AUM for cost calculations"
-                ).classes("text-xs text-gray-500 -mt-2")
+                portfolio_value_input = (
+                    ui.number(
+                        "Portfolio Value (USD)",
+                        value=1_000_000,
+                        min=10_000,
+                        max=1_000_000_000,
+                        step=100_000,
+                    )
+                    .props("prefix=$")
+                    .classes("w-full")
+                )
+                ui.label("Constant notional AUM for cost calculations").classes(
+                    "text-xs text-gray-500 -mt-2"
+                )
 
                 bps_per_trade_input = ui.number(
                     "Commission + Spread (bps)",
@@ -415,9 +419,9 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     max=50,
                     step=0.5,
                 ).classes("w-full")
-                ui.label(
-                    "Fixed cost per trade (commission + half-spread)"
-                ).classes("text-xs text-gray-500 -mt-2")
+                ui.label("Fixed cost per trade (commission + half-spread)").classes(
+                    "text-xs text-gray-500 -mt-2"
+                )
 
                 impact_coefficient_input = ui.number(
                     "Impact Coefficient (eta)",
@@ -426,9 +430,9 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     max=1.0,
                     step=0.01,
                 ).classes("w-full")
-                ui.label(
-                    "Almgren-Chriss market impact parameter"
-                ).classes("text-xs text-gray-500 -mt-2")
+                ui.label("Almgren-Chriss market impact parameter").classes(
+                    "text-xs text-gray-500 -mt-2"
+                )
 
                 participation_limit_input = ui.number(
                     "ADV Participation Limit (%)",
@@ -437,9 +441,9 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     max=20,
                     step=1,
                 ).classes("w-full")
-                ui.label(
-                    "Max fraction of daily volume per trade (for capacity analysis)"
-                ).classes("text-xs text-gray-500 -mt-2")
+                ui.label("Max fraction of daily volume per trade (for capacity analysis)").classes(
+                    "text-xs text-gray-500 -mt-2"
+                )
 
         def build_cost_config(provider: DataProvider) -> dict[str, Any] | None:
             """Build cost model config dict for extra_params.
@@ -1407,7 +1411,10 @@ def _render_export_buttons(
         if hasattr(result, "net_portfolio_returns") and result.net_portfolio_returns is not None:
             # Prefer net returns DataFrame as it contains gross, cost, and net.
             df_to_export = result.net_portfolio_returns
-        elif hasattr(result, "daily_portfolio_returns") and result.daily_portfolio_returns is not None:
+        elif (
+            hasattr(result, "daily_portfolio_returns")
+            and result.daily_portfolio_returns is not None
+        ):
             # Fallback to gross returns if net is not available.
             df_to_export = result.daily_portfolio_returns
 
@@ -1482,6 +1489,7 @@ def _render_export_buttons(
             return
 
         import io
+
         buffer = io.BytesIO()
         result.net_portfolio_returns.write_parquet(buffer)
         buffer.seek(0)
@@ -1616,9 +1624,9 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
                             f"⚠️ {vol_fallbacks} trades used volatility fallback (missing return data)"
                         ).classes("text-xs text-amber-600")
                     if violations > 0:
-                        ui.label(
-                            f"⚠️ {violations} trades exceeded ADV participation limit"
-                        ).classes("text-xs text-amber-600")
+                        ui.label(f"⚠️ {violations} trades exceeded ADV participation limit").classes(
+                            "text-xs text-amber-600"
+                        )
 
         # Capacity Analysis (T9.3 display)
         if capacity_analysis:

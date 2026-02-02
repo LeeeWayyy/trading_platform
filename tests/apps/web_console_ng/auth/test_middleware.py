@@ -52,7 +52,9 @@ def mock_app(mock_storage_user: dict[str, Any]) -> SimpleNamespace:
     """Fixture providing a mock app with storage."""
     storage_user_obj = MagicMock()
     storage_user_obj.__getitem__ = lambda self, key: mock_storage_user[key]
-    storage_user_obj.__setitem__ = lambda self, key, value: mock_storage_user.__setitem__(key, value)
+    storage_user_obj.__setitem__ = lambda self, key, value: mock_storage_user.__setitem__(
+        key, value
+    )
     storage_user_obj.get = lambda key, default=None: mock_storage_user.get(key, default)
     storage_user_obj.clear = lambda: mock_storage_user.clear()
     return SimpleNamespace(storage=SimpleNamespace(user=storage_user_obj))
@@ -270,12 +272,8 @@ async def test_validate_session_and_get_user_no_cookie(
     mock_cookie_cfg.get_cookie_name.return_value = "session_cookie"
     mock_cookie_config_cls = MagicMock(from_env=MagicMock(return_value=mock_cookie_cfg))
 
-    with patch(
-        "apps.web_console_ng.auth.cookie_config.CookieConfig", mock_cookie_config_cls
-    ):
-        user_data, cookie_value = await middleware_module._validate_session_and_get_user(
-            request
-        )
+    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig", mock_cookie_config_cls):
+        user_data, cookie_value = await middleware_module._validate_session_and_get_user(request)
 
     assert user_data is None
     assert cookie_value is None
@@ -301,9 +299,7 @@ async def test_validate_session_and_get_user_valid_session(
     monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
     monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
 
-    with patch(
-        "apps.web_console_ng.auth.cookie_config.CookieConfig"
-    ) as mock_cc:
+    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
         mock_cc.from_env.return_value = mock_cookie_cfg
         with patch(
             "apps.web_console_ng.auth.middleware.get_session_store",
@@ -333,9 +329,7 @@ async def test_validate_session_and_get_user_invalid_session(
     monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
     monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
 
-    with patch(
-        "apps.web_console_ng.auth.cookie_config.CookieConfig"
-    ) as mock_cc:
+    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
         mock_cc.from_env.return_value = mock_cookie_cfg
         with patch(
             "apps.web_console_ng.auth.middleware.get_session_store",
@@ -355,9 +349,7 @@ async def test_validate_session_and_get_user_mtls_validation_failure(
 ) -> None:
     """Test _validate_session_and_get_user returns None when mTLS validation fails."""
     headers = [(b"x-ssl-client-verify", b"SUCCESS"), (b"x-ssl-client-dn", b"CN=other")]
-    request = make_request(
-        cookies={"trading_session": "valid_cookie_value"}, headers=headers
-    )
+    request = make_request(cookies={"trading_session": "valid_cookie_value"}, headers=headers)
 
     mock_cookie_cfg = MagicMock()
     mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
@@ -371,9 +363,7 @@ async def test_validate_session_and_get_user_mtls_validation_failure(
     monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
     monkeypatch.setattr(middleware_module, "is_trusted_ip", lambda _ip: True)
 
-    with patch(
-        "apps.web_console_ng.auth.cookie_config.CookieConfig"
-    ) as mock_cc:
+    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
         mock_cc.from_env.return_value = mock_cookie_cfg
         with patch(
             "apps.web_console_ng.auth.middleware.get_session_store",
@@ -856,8 +846,8 @@ class TestValidateAndGetUserForDecorator:
 
         with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
-            user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                request
+            user_data, cookie_value, should_return = (
+                await middleware_module._validate_and_get_user_for_decorator(request)
             )
 
         assert user_data == cached_user
@@ -910,12 +900,16 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         # Cache was cleared and session revalidated
-        assert len(mock_storage_user) == 0 or mock_storage_user.get("user") is None or user_data != mock_storage_user.get("user")
+        assert (
+            len(mock_storage_user) == 0
+            or mock_storage_user.get("user") is None
+            or user_data != mock_storage_user.get("user")
+        )
         assert user_data == {"username": "revalidated_user", "role": "admin"}
 
     @pytest.mark.asyncio()
@@ -963,8 +957,8 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         assert user_data == {"username": "revalidated_user", "role": "admin"}
@@ -1008,8 +1002,8 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         assert user_data is None
@@ -1044,8 +1038,8 @@ class TestValidateAndGetUserForDecorator:
 
         with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
-            user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                request
+            user_data, cookie_value, should_return = (
+                await middleware_module._validate_and_get_user_for_decorator(request)
             )
 
         assert user_data is None
@@ -1088,8 +1082,8 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         assert user_data is None
@@ -1132,8 +1126,8 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         assert should_return is True
@@ -1174,8 +1168,8 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         # Should NOT redirect since already on MFA verify page
@@ -1201,8 +1195,8 @@ class TestValidateAndGetUserForDecorator:
 
         with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
-            user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                request
+            user_data, cookie_value, should_return = (
+                await middleware_module._validate_and_get_user_for_decorator(request)
             )
 
         assert user_data == {"username": "state_user", "role": "admin"}
@@ -1246,8 +1240,8 @@ class TestValidateAndGetUserForDecorator:
                 "apps.web_console_ng.auth.middleware.get_session_store",
                 return_value=mock_session_store,
             ):
-                user_data, cookie_value, should_return = await middleware_module._validate_and_get_user_for_decorator(
-                    request
+                user_data, cookie_value, should_return = (
+                    await middleware_module._validate_and_get_user_for_decorator(request)
                 )
 
         # Cache should be treated as stale and revalidated
@@ -1281,9 +1275,7 @@ class TestRequiresAuth:
 
         # Mock _get_request_from_storage
         request = make_request(path="/dashboard", cookies={"trading_session": "valid_cookie"})
-        monkeypatch.setattr(
-            middleware_module, "_get_request_from_storage", lambda: request
-        )
+        monkeypatch.setattr(middleware_module, "_get_request_from_storage", lambda: request)
 
         @middleware_module.requires_auth
         async def protected_page() -> str:
@@ -1327,9 +1319,7 @@ class TestRequiresAuth:
 
         # Mock _get_request_from_storage - no cookie
         request = make_request(path="/dashboard")
-        monkeypatch.setattr(
-            middleware_module, "_get_request_from_storage", lambda: request
-        )
+        monkeypatch.setattr(middleware_module, "_get_request_from_storage", lambda: request)
 
         @middleware_module.requires_auth
         async def protected_page() -> str:
@@ -1370,9 +1360,7 @@ class TestRequiresRole:
         }
 
         request = make_request(path="/admin", cookies={"trading_session": "valid_cookie"})
-        monkeypatch.setattr(
-            middleware_module, "_get_request_from_storage", lambda: request
-        )
+        monkeypatch.setattr(middleware_module, "_get_request_from_storage", lambda: request)
 
         @middleware_module.requires_role("admin")
         async def admin_page() -> str:
@@ -1417,9 +1405,7 @@ class TestRequiresRole:
         monkeypatch.setattr(middleware_module, "ui", mock_ui)
 
         request = make_request(path="/admin", cookies={"trading_session": "valid_cookie"})
-        monkeypatch.setattr(
-            middleware_module, "_get_request_from_storage", lambda: request
-        )
+        monkeypatch.setattr(middleware_module, "_get_request_from_storage", lambda: request)
 
         @middleware_module.requires_role("admin")
         async def admin_page() -> str:
@@ -1460,9 +1446,7 @@ class TestRequiresRole:
         monkeypatch.setattr(middleware_module, "ui", mock_ui)
 
         request = make_request(path="/admin")  # No cookie
-        monkeypatch.setattr(
-            middleware_module, "_get_request_from_storage", lambda: request
-        )
+        monkeypatch.setattr(middleware_module, "_get_request_from_storage", lambda: request)
 
         @middleware_module.requires_role("admin")
         async def admin_page() -> str:

@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-01 - P6T10: normalize_signal_dates helper, cost_model, result_storage, worker updates -->
+<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - backtest module updates -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

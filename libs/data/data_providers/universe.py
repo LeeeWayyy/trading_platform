@@ -69,9 +69,7 @@ class UniverseProvider:
         self._data_dir = Path(resolved_dir)
 
         if not self._data_dir.exists():
-            raise CRSPUnavailableError(
-                f"CRSP data directory not found: {self._data_dir}"
-            )
+            raise CRSPUnavailableError(f"CRSP data directory not found: {self._data_dir}")
 
         self._constituents_path = self._data_dir / "index_constituents.parquet"
         if not self._constituents_path.exists():
@@ -103,10 +101,7 @@ class UniverseProvider:
             # Filter to universe and date
             # Schema: [date, universe_id, permno]
             result = (
-                lf.filter(
-                    (pl.col("universe_id") == universe_id)
-                    & (pl.col("date") == as_of_date)
-                )
+                lf.filter((pl.col("universe_id") == universe_id) & (pl.col("date") == as_of_date))
                 .select("permno")
                 .collect()
             )
@@ -214,15 +209,11 @@ class ForwardReturnsProvider:
         self._data_dir = Path(resolved_dir)
 
         if not self._data_dir.exists():
-            raise CRSPUnavailableError(
-                f"CRSP data directory not found: {self._data_dir}"
-            )
+            raise CRSPUnavailableError(f"CRSP data directory not found: {self._data_dir}")
 
         self._returns_path = self._data_dir / "daily_returns.parquet"
         if not self._returns_path.exists():
-            raise CRSPUnavailableError(
-                f"CRSP daily returns file not found: {self._returns_path}"
-            )
+            raise CRSPUnavailableError(f"CRSP daily returns file not found: {self._returns_path}")
 
     def get_daily_returns(
         self,
@@ -255,11 +246,13 @@ class ForwardReturnsProvider:
                     & (pl.col("date") >= start_date)
                     & (pl.col("date") <= end_date)
                 )
-                .select([
-                    pl.col("date"),
-                    pl.col("permno"),
-                    pl.col("ret").alias("daily_return"),
-                ])
+                .select(
+                    [
+                        pl.col("date"),
+                        pl.col("permno"),
+                        pl.col("ret").alias("daily_return"),
+                    ]
+                )
                 .collect()
             )
 
@@ -311,13 +304,9 @@ class ForwardReturnsProvider:
         """
         # Validate parameters to prevent look-ahead bias
         if skip_days < 1:
-            raise ValueError(
-                f"skip_days must be >= 1 to avoid look-ahead bias, got {skip_days}"
-            )
+            raise ValueError(f"skip_days must be >= 1 to avoid look-ahead bias, got {skip_days}")
         if holding_period <= 0:
-            raise ValueError(
-                f"holding_period must be > 0, got {holding_period}"
-            )
+            raise ValueError(f"holding_period must be > 0, got {holding_period}")
 
         # Schema validation: require signal_date and permno columns
         required_cols = {"signal_date", "permno"}
@@ -336,11 +325,13 @@ class ForwardReturnsProvider:
             )
 
         if signals_df.height == 0:
-            return pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-                "forward_return": pl.Series([], dtype=pl.Float64),
-            })
+            return pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                    "forward_return": pl.Series([], dtype=pl.Float64),
+                }
+            )
 
         # Filter out null signal_date/permno to prevent min()/max() failures
         signals_df = signals_df.filter(
@@ -348,11 +339,13 @@ class ForwardReturnsProvider:
         )
         if signals_df.height == 0:
             logger.warning("forward_returns_all_null_filtered")
-            return pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-                "forward_return": pl.Series([], dtype=pl.Float64),
-            })
+            return pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                    "forward_return": pl.Series([], dtype=pl.Float64),
+                }
+            )
 
         # Get unique signal dates and permnos
         signal_dates = signals_df["signal_date"].unique().sort().to_list()
@@ -390,11 +383,14 @@ class ForwardReturnsProvider:
         CALENDAR_BUFFER_DAYS = 5
         try:
             # Get sessions starting from max_signal and extend forward
-            extended_end = calendar.session_offset(max_signal, total_forward_days + CALENDAR_BUFFER_DAYS)
+            extended_end = calendar.session_offset(
+                max_signal, total_forward_days + CALENDAR_BUFFER_DAYS
+            )
             extended_end_date = extended_end.date()
         except Exception as e:
             # Fallback: estimate calendar days (trading days * 1.5 for weekends)
             from datetime import timedelta
+
             extended_end_date = max_signal + timedelta(days=int(total_forward_days * 1.5) + 10)
             logger.warning(
                 "calendar_session_offset_failed_using_fallback",
@@ -411,11 +407,13 @@ class ForwardReturnsProvider:
         sessions_list = [s.date() for s in sessions]
 
         if not sessions_list:
-            return pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-                "forward_return": pl.Series([], dtype=pl.Float64),
-            })
+            return pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                    "forward_return": pl.Series([], dtype=pl.Float64),
+                }
+            )
 
         # Build date-to-index lookup for O(1) access
         date_to_idx = {d: i for i, d in enumerate(sessions_list)}
@@ -428,11 +426,13 @@ class ForwardReturnsProvider:
         )
 
         if all_returns.height == 0:
-            return pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-                "forward_return": pl.Series([], dtype=pl.Float64),
-            })
+            return pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                    "forward_return": pl.Series([], dtype=pl.Float64),
+                }
+            )
 
         # VECTORIZED: Group returns by permno for faster lookup
         # Use partition_by with as_dict=True for O(1) permno lookup
@@ -441,9 +441,7 @@ class ForwardReturnsProvider:
         # De-duplicate (permno, date) pairs by averaging returns to handle revised CRSP rows
         # This prevents silent overwrites when dict(zip(...)) encounters duplicates
         n_before_dedup = all_returns.height
-        all_returns = all_returns.group_by(["permno", "date"]).agg(
-            pl.col("daily_return").mean()
-        )
+        all_returns = all_returns.group_by(["permno", "date"]).agg(pl.col("daily_return").mean())
         n_after_dedup = all_returns.height
         if n_before_dedup > n_after_dedup:
             logger.info(
@@ -461,10 +459,12 @@ class ForwardReturnsProvider:
         # ============================================================
 
         # Step 1: Create date-to-index mapping DataFrame for joins
-        date_idx_df = pl.DataFrame({
-            "date": sessions_list,
-            "date_idx": list(range(len(sessions_list))),
-        })
+        date_idx_df = pl.DataFrame(
+            {
+                "date": sessions_list,
+                "date_idx": list(range(len(sessions_list))),
+            }
+        )
 
         # Step 2: Add date index to returns for window filtering
         all_returns_with_idx = all_returns.join(date_idx_df, on="date", how="inner")
@@ -478,30 +478,36 @@ class ForwardReturnsProvider:
             if d is None:
                 continue
             if d in date_to_idx:
-                signal_date_records.append({
-                    "orig_signal_date": d,
-                    "normalized_signal_date": d,
-                    "signal_idx": date_to_idx[d],
-                })
+                signal_date_records.append(
+                    {
+                        "orig_signal_date": d,
+                        "normalized_signal_date": d,
+                        "signal_idx": date_to_idx[d],
+                    }
+                )
             else:
                 # Normalize to previous trading session (avoid look-ahead bias)
                 try:
                     normalized = calendar.date_to_session(d, direction="previous").date()
                     if normalized in date_to_idx:
-                        signal_date_records.append({
-                            "orig_signal_date": d,
-                            "normalized_signal_date": normalized,
-                            "signal_idx": date_to_idx[normalized],
-                        })
+                        signal_date_records.append(
+                            {
+                                "orig_signal_date": d,
+                                "normalized_signal_date": normalized,
+                                "signal_idx": date_to_idx[normalized],
+                            }
+                        )
                 except Exception:
                     pass  # Skip dates that can't be normalized
 
         if not signal_date_records:
-            return pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-                "forward_return": pl.Series([], dtype=pl.Float64),
-            })
+            return pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                    "forward_return": pl.Series([], dtype=pl.Float64),
+                }
+            )
 
         signal_date_mapping = pl.DataFrame(signal_date_records)
 
@@ -517,9 +523,7 @@ class ForwardReturnsProvider:
 
         # Step 5: Filter out signals whose forward window extends beyond data
         max_valid_signal_idx = len(sessions_list) - skip_days - holding_period
-        signals_valid = signals_normalized.filter(
-            pl.col("signal_idx") <= max_valid_signal_idx
-        )
+        signals_valid = signals_normalized.filter(pl.col("signal_idx") <= max_valid_signal_idx)
 
         n_skipped_window_overflow = signals_normalized.height - signals_valid.height
 
@@ -536,17 +540,38 @@ class ForwardReturnsProvider:
                     "survivorship_bias_warning": True,
                 },
             )
-            return pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-                "forward_return": pl.Series([], dtype=pl.Float64),
-            })
+            return pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                    "forward_return": pl.Series([], dtype=pl.Float64),
+                }
+            )
 
         # Step 6: Compute window boundaries
-        signals_with_bounds = signals_valid.with_columns([
-            (pl.col("signal_idx") + skip_days).alias("window_start_idx"),
-            (pl.col("signal_idx") + skip_days + holding_period).alias("window_end_idx"),
-        ])
+        signals_with_bounds = signals_valid.with_columns(
+            [
+                (pl.col("signal_idx") + skip_days).alias("window_start_idx"),
+                (pl.col("signal_idx") + skip_days + holding_period).alias("window_end_idx"),
+            ]
+        )
+
+        # Step 6b: Deduplicate signal keys before join to avoid n_days multiplication
+        # If input signals has duplicate (signal_date, permno), deduplicate on normalized key
+        n_before_signal_dedup = signals_with_bounds.height
+        signals_with_bounds = signals_with_bounds.unique(
+            subset=["normalized_signal_date", "permno"]
+        )
+        n_after_signal_dedup = signals_with_bounds.height
+        if n_before_signal_dedup > n_after_signal_dedup:
+            logger.debug(
+                "signals_deduplicated_before_join",
+                extra={
+                    "before": n_before_signal_dedup,
+                    "after": n_after_signal_dedup,
+                    "duplicates_removed": n_before_signal_dedup - n_after_signal_dedup,
+                },
+            )
 
         # Step 7: Join signals with returns on permno (creates larger intermediate DataFrame)
         # This is more memory-intensive but much faster than row iteration
@@ -570,13 +595,14 @@ class ForwardReturnsProvider:
         # (QuantileAnalyzer normalizes signals to trading sessions before joining)
         # Only keep groups with complete windows (exactly holding_period days)
         result = (
-            joined_filtered
-            .group_by(["normalized_signal_date", "permno"])
-            .agg([
-                pl.len().alias("n_days"),
-                # Compound return: prod(1 + r_i) - 1
-                ((1 + pl.col("daily_return")).product() - 1).alias("forward_return"),
-            ])
+            joined_filtered.group_by(["normalized_signal_date", "permno"])
+            .agg(
+                [
+                    pl.len().alias("n_days"),
+                    # Compound return: prod(1 + r_i) - 1
+                    ((1 + pl.col("daily_return")).product() - 1).alias("forward_return"),
+                ]
+            )
             .filter(pl.col("n_days") == holding_period)
             # Rename to signal_date for API compatibility
             .rename({"normalized_signal_date": "signal_date"})

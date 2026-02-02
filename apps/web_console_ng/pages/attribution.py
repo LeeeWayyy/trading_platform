@@ -90,9 +90,9 @@ async def attribution_page(client: Client) -> None:
     if not settings.ff_data_dir:
         with ui.card().classes("w-full max-w-2xl mx-auto p-6"):
             ui.label("Fama-French Data Not Configured").classes("text-xl font-bold text-yellow-600")
-            ui.label(
-                "Factor data directory not configured. Set FF_DATA_DIR in settings."
-            ).classes("text-gray-600")
+            ui.label("Factor data directory not configured. Set FF_DATA_DIR in settings.").classes(
+                "text-gray-600"
+            )
         return
 
     ff_data_path = Path(settings.ff_data_dir)
@@ -180,7 +180,9 @@ async def attribution_page(client: Client) -> None:
                 "attribution_insufficient_data",
                 extra={"user_id": user_id, "strategy": selected_strategy, "error": str(e)},
             )
-            error_state = f"Insufficient data: {e}. Requires at least {MIN_OBSERVATIONS} observations."
+            error_state = (
+                f"Insufficient data: {e}. Requires at least {MIN_OBSERVATIONS} observations."
+            )
         except DataMismatchError as e:
             logger.warning(
                 "attribution_date_mismatch",
@@ -252,12 +254,10 @@ async def attribution_page(client: Client) -> None:
 
                 def on_model_change(value: Any) -> None:
                     nonlocal selected_model
-                    if isinstance(value, dict):
-                        new_model = str(value.get("value", "ff3"))
-                    else:
-                        new_model = str(value) if value else "ff3"
+                    # Extract model value (NiceGUI may return dict or raw value)
+                    new_model = value.get("value") if isinstance(value, dict) else value
                     if new_model in ("ff3", "ff5", "ff6"):
-                        selected_model = new_model  # type: ignore[assignment]
+                        selected_model = new_model
 
                 model_select.on("update:model-value", on_model_change)
 

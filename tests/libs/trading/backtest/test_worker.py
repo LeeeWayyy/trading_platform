@@ -1600,9 +1600,7 @@ class TestCostModelWorkflowIntegration:
                 capacity_analysis=types.SimpleNamespace(
                     to_dict=lambda: {"capacity_at_breakeven": 10_000_000},
                 ),
-                net_returns_df=pl.DataFrame(
-                    {"date": [pl.date(2024, 1, 1)], "net_return": [0.001]}
-                ),
+                net_returns_df=pl.DataFrame({"date": [pl.date(2024, 1, 1)], "net_return": [0.001]}),
                 adv_fallback_count=0,
                 volatility_fallback_count=0,
                 participation_violations=0,
@@ -1658,9 +1656,7 @@ class TestCostModelWorkflowIntegration:
         monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
         monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
         monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
-        monkeypatch.setattr(
-            worker_module, "load_pit_adv_volatility", mock_load_pit_adv_volatility
-        )
+        monkeypatch.setattr(worker_module, "load_pit_adv_volatility", mock_load_pit_adv_volatility)
         monkeypatch.setattr(worker_module, "compute_backtest_costs", mock_compute_backtest_costs)
         monkeypatch.setattr(worker_module, "_save_parquet_artifacts", mock_save_parquet_artifacts)
         monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
@@ -1765,9 +1761,7 @@ class TestCostModelWorkflowIntegration:
         monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
         monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
         monkeypatch.setattr(worker_module, "PITBacktester", MockPITBacktester)
-        monkeypatch.setattr(
-            worker_module, "load_pit_adv_volatility", mock_load_pit_adv_volatility
-        )
+        monkeypatch.setattr(worker_module, "load_pit_adv_volatility", mock_load_pit_adv_volatility)
         monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
         monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
         monkeypatch.setattr(
@@ -1790,9 +1784,9 @@ class TestCostModelWorkflowIntegration:
         )
 
         # Verify load_pit_adv_volatility was NOT called (skipped due to empty weights)
-        assert len(load_pit_adv_called) == 0, (
-            "load_pit_adv_volatility should NOT be called for empty weights"
-        )
+        assert (
+            len(load_pit_adv_called) == 0
+        ), "load_pit_adv_volatility should NOT be called for empty weights"
 
 
 # =============================================================================
@@ -1893,6 +1887,7 @@ class TestWorkerEdgeCases:
 
             def run_backtest(self, *args, **kwargs):
                 import polars as pl
+
                 return types.SimpleNamespace(
                     mean_ic=0.1,
                     icir=0.2,
@@ -1927,6 +1922,6 @@ class TestWorkerEdgeCases:
         )
 
         # Verify compute_backtest_costs was NOT called (skipped for Yahoo)
-        assert len(compute_costs_called) == 0, (
-            "compute_backtest_costs should NOT be called for Yahoo Finance provider"
-        )
+        assert (
+            len(compute_costs_called) == 0
+        ), "compute_backtest_costs should NOT be called for Yahoo Finance provider"

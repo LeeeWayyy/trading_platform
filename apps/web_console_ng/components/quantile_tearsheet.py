@@ -215,7 +215,12 @@ def render_quantile_observations_table(result: QuantileResult | None) -> None:
 
     columns = [
         {"name": "quantile", "label": "Quantile", "field": "quantile", "align": "center"},
-        {"name": "observations", "label": "Observations", "field": "observations", "align": "right"},
+        {
+            "name": "observations",
+            "label": "Observations",
+            "field": "observations",
+            "align": "right",
+        },
         {"name": "mean_return", "label": "Mean Return", "field": "mean_return", "align": "right"},
     ]
 
@@ -236,11 +241,13 @@ def render_quantile_observations_table(result: QuantileResult | None) -> None:
         ret = result.quantile_returns.get(q, 0)
         ret_str = f"{ret * 100:+.2f}%"
 
-        rows.append({
-            "quantile": label,
-            "observations": f"{result.n_observations_per_quantile[q]:,}",
-            "mean_return": ret_str,
-        })
+        rows.append(
+            {
+                "quantile": label,
+                "observations": f"{result.n_observations_per_quantile[q]:,}",
+                "mean_return": ret_str,
+            }
+        )
 
     ui.table(columns=columns, rows=rows, row_key="quantile").classes("w-full")
 
@@ -256,9 +263,9 @@ def render_quantile_tearsheet(
     if result is None:
         with ui.card().classes("w-full p-6"):
             ui.label("Quantile Analysis Not Available").classes("text-xl font-bold text-gray-600")
-            ui.label(
-                "Run the backtest with universe signals to enable quantile analysis."
-            ).classes("text-gray-500")
+            ui.label("Run the backtest with universe signals to enable quantile analysis.").classes(
+                "text-gray-500"
+            )
         return
 
     # Rank IC Summary (primary metric)

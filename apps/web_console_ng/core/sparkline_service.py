@@ -133,9 +133,7 @@ class SparklineDataService:
             return []
         return self._parse_members(members)
 
-    async def get_sparkline_map(
-        self, user_id: str, symbols: list[str]
-    ) -> dict[str, list[float]]:
+    async def get_sparkline_map(self, user_id: str, symbols: list[str]) -> dict[str, list[float]]:
         """Fetch sparkline data for multiple symbols in parallel."""
         valid_symbols = [s for s in symbols if s]
         if not valid_symbols:

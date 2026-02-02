@@ -100,9 +100,7 @@ class DummyElement:
             self._on_event = (event, fn)
         return self
 
-    def bind_visibility_from(
-        self, target: Any, property_name: str = "value"
-    ) -> DummyElement:
+    def bind_visibility_from(self, target: Any, property_name: str = "value") -> DummyElement:
         """Mock bind_visibility_from for NiceGUI elements."""
         return self
 

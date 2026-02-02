@@ -198,9 +198,7 @@ class TestAlphaAnalytics:
             {
                 "permno": list(range(n_stocks)),
                 "date": [date(2024, 1, 1)] * n_stocks,
-                "gics_sector": (
-                    ["Tech"] * 50 + ["Finance"] * 50 + ["Healthcare"] * 50
-                ),
+                "gics_sector": (["Tech"] * 50 + ["Finance"] * 50 + ["Healthcare"] * 50),
             }
         )
 

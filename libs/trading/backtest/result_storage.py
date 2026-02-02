@@ -144,9 +144,7 @@ class BacktestResultStorage:
             safe_base = self.base_dir.resolve()
             target_path = Path(result_path).resolve(strict=False)
             if not target_path.is_relative_to(safe_base):
-                raise ResultPathMissing(
-                    f"job_id {job_id} result_path outside allowed directory"
-                )
+                raise ResultPathMissing(f"job_id {job_id} result_path outside allowed directory")
         except (OSError, ValueError) as e:
             raise ResultPathMissing(f"job_id {job_id} invalid result_path: {e}") from e
 
@@ -164,9 +162,7 @@ class BacktestResultStorage:
 
         if date_range is not None:
             start_date, end_date = date_range
-            lf = lf.filter(
-                (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-            )
+            lf = lf.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
 
         if limit is not None:
             lf = lf.limit(limit)

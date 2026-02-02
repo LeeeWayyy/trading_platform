@@ -398,9 +398,7 @@ async def test_alerts_page_database_not_configured(
 
 
 @pytest.mark.asyncio()
-async def test_alerts_page_full_flow(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_alerts_page_full_flow(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test alerts page full rendering with tabs."""
     monkeypatch.setattr(alerts_module.config, "FEATURE_ALERTS", True)
     monkeypatch.setattr(alerts_module, "get_current_user", lambda: {"user_id": "u1"})
@@ -522,7 +520,9 @@ async def test_render_alert_rules_shows_existing_rules(
         comparison=">=",
         channels=[
             ChannelConfig(type=ChannelType.EMAIL, recipient="alerts@example.com", enabled=True),
-            ChannelConfig(type=ChannelType.SLACK, recipient="https://hooks.slack.com/xxx", enabled=False),
+            ChannelConfig(
+                type=ChannelType.SLACK, recipient="https://hooks.slack.com/xxx", enabled=False
+            ),
         ],
         enabled=True,
         created_by="u1",
@@ -554,9 +554,7 @@ async def test_render_alert_rules_delete_permission_error(
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[
-            ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)
-        ],
+        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -594,9 +592,7 @@ async def test_render_alert_rules_delete_db_error(
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[
-            ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)
-        ],
+        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -632,9 +628,7 @@ async def test_render_alert_rules_delete_validation_error(
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[
-            ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)
-        ],
+        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -668,9 +662,7 @@ async def test_render_alert_rules_delete_success(
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[
-            ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)
-        ],
+        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -705,9 +697,7 @@ async def test_render_alert_rules_update_permission_shows_message(
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[
-            ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)
-        ],
+        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=True)],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -1037,7 +1027,9 @@ async def test_render_alert_history_acknowledge_permission_error(
         triggered_at=datetime(2026, 1, 1, tzinfo=UTC),
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    service = FakeAlertServiceWithErrors(events=[event], ack_error=PermissionError("Not authorized"))
+    service = FakeAlertServiceWithErrors(
+        events=[event], ack_error=PermissionError("Not authorized")
+    )
 
     await alerts_module._render_alert_history({"user_id": "u1"}, service)
 
@@ -1121,9 +1113,7 @@ async def test_render_alert_history_acknowledge_validation_error(
 
 
 @pytest.mark.asyncio()
-async def test_render_channels_db_error(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_render_channels_db_error(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test _render_channels handles psycopg.OperationalError."""
     import psycopg
 
@@ -1189,9 +1179,7 @@ async def test_render_channels_disabled_channel(dummy_ui: DummyUI) -> None:
         condition_type="drawdown",
         threshold_value=0.05,
         comparison=">=",
-        channels=[
-            ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=False)
-        ],
+        channels=[ChannelConfig(type=ChannelType.EMAIL, recipient="test@test.com", enabled=False)],
         enabled=True,
         created_by="u1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -1216,7 +1204,9 @@ async def test_render_channels_multiple_channels(dummy_ui: DummyUI) -> None:
         comparison=">=",
         channels=[
             ChannelConfig(type=ChannelType.EMAIL, recipient="alert@test.com", enabled=True),
-            ChannelConfig(type=ChannelType.SLACK, recipient="https://hooks.slack.com/xxx", enabled=True),
+            ChannelConfig(
+                type=ChannelType.SLACK, recipient="https://hooks.slack.com/xxx", enabled=True
+            ),
         ],
         enabled=True,
         created_by="u1",

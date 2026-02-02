@@ -238,9 +238,7 @@ def test_market_clock_closed_state_without_next_transition(
     assert label.tooltip_text == "Next: --"
 
 
-def test_market_clock_exception_handling(
-    monkeypatch: pytest.MonkeyPatch, dummy_ui: None
-) -> None:
+def test_market_clock_exception_handling(monkeypatch: pytest.MonkeyPatch, dummy_ui: None) -> None:
     """Test exception handling in update method."""
 
     def raise_error(exchange: str, now: Any = None) -> None:
@@ -378,9 +376,7 @@ def test_format_time_label_windows_compatibility() -> None:
     assert "PM" in result
 
 
-def test_market_clock_multiple_exchanges(
-    monkeypatch: pytest.MonkeyPatch, dummy_ui: None
-) -> None:
+def test_market_clock_multiple_exchanges(monkeypatch: pytest.MonkeyPatch, dummy_ui: None) -> None:
     """Test MarketClock with multiple exchanges."""
     monkeypatch.setattr(
         market_clock_module.MarketHours,
@@ -407,9 +403,7 @@ def test_market_clock_multiple_exchanges(
     assert "OPEN" in clock._labels["NASDAQ"].text
 
 
-def test_market_clock_default_exchange(
-    monkeypatch: pytest.MonkeyPatch, dummy_ui: None
-) -> None:
+def test_market_clock_default_exchange(monkeypatch: pytest.MonkeyPatch, dummy_ui: None) -> None:
     """Test MarketClock uses NYSE by default."""
     monkeypatch.setattr(
         market_clock_module.MarketHours,
@@ -431,9 +425,7 @@ def test_market_clock_default_exchange(
     assert "NYSE" in clock._labels
 
 
-def test_market_clock_open_state_no_delta(
-    monkeypatch: pytest.MonkeyPatch, dummy_ui: None
-) -> None:
+def test_market_clock_open_state_no_delta(monkeypatch: pytest.MonkeyPatch, dummy_ui: None) -> None:
     """Test OPEN state with no delta (None)."""
     next_transition = datetime(2026, 1, 16, 16, 0, tzinfo=ZoneInfo("America/New_York"))
 

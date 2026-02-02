@@ -94,9 +94,7 @@ class OrderReplayHandler:
             original_order_id = order.get("client_order_id")
 
             if not symbol or not isinstance(symbol, str):
-                logger.warning(
-                    "replay_extract_missing_symbol", extra={"order": str(order)[:200]}
-                )
+                logger.warning("replay_extract_missing_symbol", extra={"order": str(order)[:200]})
                 return None
             if not side or side not in ("buy", "sell"):
                 logger.warning(
@@ -105,9 +103,7 @@ class OrderReplayHandler:
                 )
                 return None
             if not original_order_id or not isinstance(original_order_id, str):
-                logger.warning(
-                    "replay_extract_missing_order_id", extra={"order": str(order)[:200]}
-                )
+                logger.warning("replay_extract_missing_order_id", extra={"order": str(order)[:200]})
                 return None
 
             # Quantity - use qty or fall back to filled_qty

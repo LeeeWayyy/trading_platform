@@ -151,14 +151,16 @@ class TestMarketContextPriceData:
         component._current_symbol = "AAPL"
         component._last_ui_update = 0  # Allow immediate update
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "bid": "100.00",
-            "ask": "100.10",
-            "price": "100.05",
-            "bid_size": 100,
-            "ask_size": 200,
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "100.00",
+                "ask": "100.10",
+                "price": "100.05",
+                "bid_size": 100,
+                "ask_size": 200,
+            }
+        )
 
         assert component._data is not None
         assert component._data.symbol == "AAPL"
@@ -168,24 +170,22 @@ class TestMarketContextPriceData:
         assert component._data.bid_size == 100
         assert component._data.ask_size == 200
 
-    def test_set_price_data_ignores_wrong_symbol(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_set_price_data_ignores_wrong_symbol(self, component: MarketContextComponent) -> None:
         """set_price_data ignores data for different symbol."""
         component._current_symbol = "AAPL"
         component._data = None
 
-        component.set_price_data({
-            "symbol": "GOOGL",  # Different symbol
-            "price": "100.00",
-        })
+        component.set_price_data(
+            {
+                "symbol": "GOOGL",  # Different symbol
+                "price": "100.00",
+            }
+        )
 
         # Data should not be updated
         assert component._data is None
 
-    def test_set_price_data_rejects_non_dict(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_set_price_data_rejects_non_dict(self, component: MarketContextComponent) -> None:
         """set_price_data rejects non-dict input."""
         component._current_symbol = "AAPL"
         component._data = None
@@ -201,12 +201,14 @@ class TestMarketContextPriceData:
         component._current_symbol = "AAPL"
         component._last_ui_update = 0
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "bid": "not-a-number",
-            "ask": "100.10",
-            "price": "100.05",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "not-a-number",
+                "ask": "100.10",
+                "price": "100.05",
+            }
+        )
 
         assert component._data is not None
         assert component._data.bid_price is None  # Invalid value becomes None
@@ -217,11 +219,13 @@ class TestMarketContextPriceData:
         component._current_symbol = "AAPL"
         component._last_ui_update = 0
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "bid": "NaN",
-            "price": "100.05",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "NaN",
+                "price": "100.05",
+            }
+        )
 
         assert component._data is not None
         assert component._data.bid_price is None
@@ -235,10 +239,12 @@ class TestMarketContextPriceData:
         component._last_ui_update = initial_update_time  # Just updated
 
         # This update should have UI throttled but data still updated
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": "100.00",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": "100.00",
+            }
+        )
 
         # Data IS updated (fix for dropped last update in burst)
         assert component._data is not None
@@ -257,25 +263,19 @@ class TestMarketContextStaleness:
         client = MagicMock()
         return MarketContextComponent(trading_client=client)
 
-    def test_is_data_stale_true_when_no_data(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_is_data_stale_true_when_no_data(self, component: MarketContextComponent) -> None:
         """Data is stale when no data exists."""
         component._data = None
 
         assert component.is_data_stale() is True
 
-    def test_is_data_stale_true_when_no_timestamp(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_is_data_stale_true_when_no_timestamp(self, component: MarketContextComponent) -> None:
         """Data is stale when timestamp is missing."""
         component._data = MarketDataSnapshot(symbol="AAPL", timestamp=None)
 
         assert component.is_data_stale() is True
 
-    def test_is_data_stale_false_when_fresh(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_is_data_stale_false_when_fresh(self, component: MarketContextComponent) -> None:
         """Data is fresh when timestamp is recent."""
         component._data = MarketDataSnapshot(
             symbol="AAPL",
@@ -284,9 +284,7 @@ class TestMarketContextStaleness:
 
         assert component.is_data_stale() is False
 
-    def test_is_data_stale_true_when_old(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_is_data_stale_true_when_old(self, component: MarketContextComponent) -> None:
         """Data is stale when timestamp is old."""
         old_time = datetime.now(UTC) - timedelta(seconds=STALE_THRESHOLD_S + 10)
         component._data = MarketDataSnapshot(
@@ -306,9 +304,7 @@ class TestMarketContextGetters:
         client = MagicMock()
         return MarketContextComponent(trading_client=client)
 
-    def test_get_current_price_returns_last_price(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_get_current_price_returns_last_price(self, component: MarketContextComponent) -> None:
         """get_current_price returns the last price."""
         component._data = MarketDataSnapshot(
             symbol="AAPL",
@@ -325,9 +321,7 @@ class TestMarketContextGetters:
 
         assert component.get_current_price() is None
 
-    def test_get_price_timestamp_returns_timestamp(
-        self, component: MarketContextComponent
-    ) -> None:
+    def test_get_price_timestamp_returns_timestamp(self, component: MarketContextComponent) -> None:
         """get_price_timestamp returns the timestamp."""
         now = datetime.now(UTC)
         component._data = MarketDataSnapshot(
@@ -356,9 +350,7 @@ class TestMarketContextSymbolChange:
         return MarketContextComponent(trading_client=client)
 
     @pytest.mark.asyncio()
-    async def test_symbol_change_clears_data(
-        self, component: MarketContextComponent
-    ) -> None:
+    async def test_symbol_change_clears_data(self, component: MarketContextComponent) -> None:
         """Changing to None symbol clears data."""
         component._data = MarketDataSnapshot(
             symbol="AAPL",
@@ -390,18 +382,14 @@ class TestMarketContextDispose:
         return MarketContextComponent(trading_client=client)
 
     @pytest.mark.asyncio()
-    async def test_dispose_sets_disposed_flag(
-        self, component: MarketContextComponent
-    ) -> None:
+    async def test_dispose_sets_disposed_flag(self, component: MarketContextComponent) -> None:
         """dispose() sets disposed flag."""
         await component.dispose()
 
         assert component._disposed is True
 
     @pytest.mark.asyncio()
-    async def test_dispose_cancels_timer(
-        self, component: MarketContextComponent
-    ) -> None:
+    async def test_dispose_cancels_timer(self, component: MarketContextComponent) -> None:
         """dispose() cancels staleness timer."""
         mock_timer = MagicMock()
         component._staleness_timer = mock_timer

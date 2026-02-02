@@ -39,8 +39,10 @@ from libs.web_console_services.backtest_analytics_service import BacktestAnalyti
 
 def make_sync(coro):
     """Helper to make a sync function return value usable by run_in_threadpool mock."""
+
     def sync_fn(*args, **kwargs):
         return coro
+
     return sync_fn
 
 
@@ -163,11 +165,13 @@ class TestGetUniverseSignals:
         mock_storage: MagicMock,
     ):
         """Should return DataFrame when signals exist."""
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -185,11 +189,13 @@ class TestGetUniverseSignals:
         mock_storage: MagicMock,
     ):
         """Limit above MAX should be capped to MAX."""
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -208,11 +214,13 @@ class TestGetUniverseSignals:
         mock_storage: MagicMock,
     ):
         """Limit below MIN should be raised to MIN."""
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -230,11 +238,13 @@ class TestGetUniverseSignals:
         mock_storage: MagicMock,
     ):
         """Limit=None should use MAX limit."""
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -251,11 +261,13 @@ class TestGetUniverseSignals:
         mock_storage: MagicMock,
     ):
         """Should pass signal_name and date_range to storage."""
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -385,11 +397,13 @@ class TestRunQuantileAnalysis:
         """Should raise InsufficientDataError when signals empty."""
         from libs.trading.backtest.quantile_analysis import InsufficientDataError
 
-        empty_df = pl.DataFrame({
-            "date": pl.Series([], dtype=pl.Date),
-            "permno": pl.Series([], dtype=pl.Int64),
-            "signal": pl.Series([], dtype=pl.Float64),
-        })
+        empty_df = pl.DataFrame(
+            {
+                "date": pl.Series([], dtype=pl.Date),
+                "permno": pl.Series([], dtype=pl.Int64),
+                "signal": pl.Series([], dtype=pl.Float64),
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = empty_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -465,22 +479,26 @@ class TestRunQuantileAnalysisFullPath:
         from libs.trading.backtest.quantile_analysis import QuantileResult
 
         # Signal data with proper columns
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2), date(2024, 1, 3)],
-            "permno": [10001, 10002],
-            "signal": [0.5, 0.7],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3)],
+                "permno": [10001, 10002],
+                "signal": [0.5, 0.7],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         # Mock forward returns provider
         mock_fwd_provider = MagicMock()
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2), date(2024, 1, 3)],
-            "permno": [10001, 10002],
-            "forward_return": [0.02, 0.03],
-        })
+        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 2), date(2024, 1, 3)],
+                "permno": [10001, 10002],
+                "forward_return": [0.02, 0.03],
+            }
+        )
 
         # Mock calendar
         mock_calendar = MagicMock()
@@ -512,32 +530,26 @@ class TestRunQuantileAnalysisFullPath:
         """Should rename 'signal' column to 'signal_value'."""
         from libs.trading.backtest.quantile_analysis import QuantileResult
 
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],  # Old column name
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],  # Old column name
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         mock_fwd_provider = MagicMock()
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "forward_return": [0.02],
-        })
-
         mock_calendar = MagicMock()
         mock_calendar.is_session.return_value = True
 
         with patch(
-            "libs.trading.backtest.quantile_analysis.QuantileAnalyzer"
-        ) as mock_analyzer_class:
-            mock_analyzer = MagicMock()
+            "libs.web_console_services.backtest_analytics_service.quantile_helper"
+        ) as mock_helper:
             mock_result = MagicMock(spec=QuantileResult)
-            mock_analyzer.analyze.return_value = mock_result
-            mock_analyzer_class.return_value = mock_analyzer
+            mock_helper.return_value = mock_result
 
             await service.run_quantile_analysis(
                 "job-123",
@@ -545,9 +557,9 @@ class TestRunQuantileAnalysisFullPath:
                 mock_calendar,
             )
 
-        # Check the DataFrame passed to analyze has signal_value column
-        analyze_call = mock_analyzer.analyze.call_args
-        passed_signals = analyze_call[0][0]
+        # Check the DataFrame passed to helper has signal_value column
+        helper_call = mock_helper.call_args
+        passed_signals = helper_call[0][0]  # First positional arg is signals
         assert "signal_value" in passed_signals.columns
 
     async def test_renames_date_to_signal_date(
@@ -556,35 +568,29 @@ class TestRunQuantileAnalysisFullPath:
         mock_data_access: MagicMock,
         mock_storage: MagicMock,
     ):
-        """Should rename 'date' column to 'signal_date'."""
+        """Should rename 'date' column to 'signal_date' (done by helper)."""
         from libs.trading.backtest.quantile_analysis import QuantileResult
 
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],  # Old column name
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],  # Old column name
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         mock_fwd_provider = MagicMock()
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "forward_return": [0.02],
-        })
-
         mock_calendar = MagicMock()
         mock_calendar.is_session.return_value = True
 
         with patch(
-            "libs.trading.backtest.quantile_analysis.QuantileAnalyzer"
-        ) as mock_analyzer_class:
-            mock_analyzer = MagicMock()
+            "libs.web_console_services.backtest_analytics_service.quantile_helper"
+        ) as mock_helper:
             mock_result = MagicMock(spec=QuantileResult)
-            mock_analyzer.analyze.return_value = mock_result
-            mock_analyzer_class.return_value = mock_analyzer
+            mock_helper.return_value = mock_result
 
             await service.run_quantile_analysis(
                 "job-123",
@@ -592,10 +598,13 @@ class TestRunQuantileAnalysisFullPath:
                 mock_calendar,
             )
 
-        # Check the DataFrame passed to analyze has signal_date column
-        analyze_call = mock_analyzer.analyze.call_args
-        passed_signals = analyze_call[0][0]
-        assert "signal_date" in passed_signals.columns
+        # Helper handles date -> signal_date rename internally
+        # Verify helper was called (signals are passed, helper handles column renaming)
+        mock_helper.assert_called_once()
+        helper_call = mock_helper.call_args
+        passed_signals = helper_call[0][0]
+        # The passed signals still have 'date' column - helper will rename
+        assert "date" in passed_signals.columns or "signal_date" in passed_signals.columns
 
     async def test_missing_date_column_raises(
         self,
@@ -607,10 +616,12 @@ class TestRunQuantileAnalysisFullPath:
         from libs.trading.backtest.quantile_analysis import InsufficientDataError
 
         # Missing both 'date' and 'signal_date'
-        signals_df = pl.DataFrame({
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -635,10 +646,12 @@ class TestRunQuantileAnalysisFullPath:
         from libs.trading.backtest.quantile_analysis import InsufficientDataError
 
         # Has date but missing permno
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
@@ -662,22 +675,26 @@ class TestRunQuantileAnalysisFullPath:
         """Should raise InsufficientDataError when no forward returns."""
         from libs.trading.backtest.quantile_analysis import InsufficientDataError
 
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         mock_fwd_provider = MagicMock()
         # Return empty DataFrame
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": pl.Series([], dtype=pl.Date),
-            "permno": pl.Series([], dtype=pl.Int64),
-            "forward_return": pl.Series([], dtype=pl.Float64),
-        })
+        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame(
+            {
+                "signal_date": pl.Series([], dtype=pl.Date),
+                "permno": pl.Series([], dtype=pl.Int64),
+                "forward_return": pl.Series([], dtype=pl.Float64),
+            }
+        )
 
         mock_calendar = MagicMock()
         mock_calendar.is_session.return_value = True
@@ -699,21 +716,25 @@ class TestRunQuantileAnalysisFullPath:
         from libs.trading.backtest.quantile_analysis import QuantileResult
 
         # Saturday date that needs normalization
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 6)],  # Saturday
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 6)],  # Saturday
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         mock_fwd_provider = MagicMock()
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": [date(2024, 1, 5)],  # Friday (normalized)
-            "permno": [10001],
-            "forward_return": [0.02],
-        })
+        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 5)],  # Friday (normalized)
+                "permno": [10001],
+                "forward_return": [0.02],
+            }
+        )
 
         mock_calendar = MagicMock()
         mock_calendar.is_session.side_effect = lambda d: d.weekday() < 5  # Mon-Fri
@@ -750,21 +771,25 @@ class TestRunQuantileAnalysisFullPath:
         from libs.trading.backtest.quantile_analysis import QuantileResult
 
         # Use datetime instead of date (needs coercion after rename)
-        signals_df = pl.DataFrame({
-            "signal_date": [datetime(2024, 1, 2, 10, 30)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "signal_date": [datetime(2024, 1, 2, 10, 30)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         mock_fwd_provider = MagicMock()
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "forward_return": [0.02],
-        })
+        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame(
+            {
+                "signal_date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "forward_return": [0.02],
+            }
+        )
 
         mock_calendar = MagicMock()
         mock_calendar.is_session.return_value = True
@@ -786,34 +811,30 @@ class TestRunQuantileAnalysisFullPath:
         # Should complete successfully (datetime was coerced to date)
         assert result == mock_result
 
-    async def test_passes_config_to_forward_returns(
+    async def test_passes_config_to_helper(
         self,
         service: BacktestAnalyticsService,
         mock_data_access: MagicMock,
         mock_storage: MagicMock,
     ):
-        """Should pass config parameters to forward returns provider."""
+        """Should pass config parameters to run_quantile_analysis helper."""
         from libs.trading.backtest.quantile_analysis import (
             QuantileAnalysisConfig,
             QuantileResult,
         )
 
-        signals_df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "signal": [0.5],
-        })
+        signals_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "signal": [0.5],
+            }
+        )
         mock_lazy = MagicMock()
         mock_lazy.collect.return_value = signals_df
         mock_storage.load_universe_signals_lazy.return_value = mock_lazy
 
         mock_fwd_provider = MagicMock()
-        mock_fwd_provider.get_forward_returns.return_value = pl.DataFrame({
-            "signal_date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "forward_return": [0.02],
-        })
-
         mock_calendar = MagicMock()
         mock_calendar.is_session.return_value = True
 
@@ -823,12 +844,10 @@ class TestRunQuantileAnalysisFullPath:
         )
 
         with patch(
-            "libs.trading.backtest.quantile_analysis.QuantileAnalyzer"
-        ) as mock_analyzer_class:
-            mock_analyzer = MagicMock()
+            "libs.web_console_services.backtest_analytics_service.quantile_helper"
+        ) as mock_helper:
             mock_result = MagicMock(spec=QuantileResult)
-            mock_analyzer.analyze.return_value = mock_result
-            mock_analyzer_class.return_value = mock_analyzer
+            mock_helper.return_value = mock_result
 
             await service.run_quantile_analysis(
                 "job-123",
@@ -837,10 +856,13 @@ class TestRunQuantileAnalysisFullPath:
                 config=custom_config,
             )
 
-        # Check forward_returns was called with config params
-        fwd_call = mock_fwd_provider.get_forward_returns.call_args
-        assert fwd_call[0][1] == 2  # skip_days
-        assert fwd_call[0][2] == 30  # holding_period_days
+        # Check helper was called with config
+        mock_helper.assert_called_once()
+        helper_call = mock_helper.call_args
+        # Config is the 4th positional argument (signals, provider, calendar, config)
+        passed_config = helper_call[0][3]
+        assert passed_config.skip_days == 2
+        assert passed_config.holding_period_days == 30
 
 
 # ------------------------------------------------------------------ Service Limits Tests

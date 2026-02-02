@@ -673,9 +673,7 @@ async def test_readiness_check_global_timeout(monkeypatch: pytest.MonkeyPatch) -
         mock_redis.ping = very_slow_redis_ping
         mock_get_redis.return_value = mock_redis
 
-        with patch(
-            "apps.web_console_ng.core.health.AsyncTradingClient.get"
-        ) as mock_get_client:
+        with patch("apps.web_console_ng.core.health.AsyncTradingClient.get") as mock_get_client:
             mock_client = MagicMock()
 
             async def very_slow_backend_check(user_id, role, strategies):
@@ -685,9 +683,7 @@ async def test_readiness_check_global_timeout(monkeypatch: pytest.MonkeyPatch) -
             mock_client.fetch_kill_switch_status = very_slow_backend_check
             mock_get_client.return_value = mock_client
 
-            with patch(
-                "apps.web_console_ng.core.health.is_internal_request"
-            ) as mock_is_internal:
+            with patch("apps.web_console_ng.core.health.is_internal_request") as mock_is_internal:
                 mock_is_internal.return_value = True
 
                 request = _make_request()
@@ -721,9 +717,7 @@ async def test_readiness_check_outer_timeout_edge_case(monkeypatch: pytest.Monke
             mock_redis.ping = AsyncMock(return_value=True)
             mock_get_redis.return_value = mock_redis
 
-            with patch(
-                "apps.web_console_ng.core.health.is_internal_request"
-            ) as mock_is_internal:
+            with patch("apps.web_console_ng.core.health.is_internal_request") as mock_is_internal:
                 mock_is_internal.return_value = True
 
                 request = _make_request()

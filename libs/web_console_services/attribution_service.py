@@ -113,14 +113,10 @@ class AttributionService:
         """
         # Validate date range (defense-in-depth for non-UI callers)
         if start_date > end_date:
-            raise ValueError(
-                f"start_date ({start_date}) must be <= end_date ({end_date})"
-            )
+            raise ValueError(f"start_date ({start_date}) must be <= end_date ({end_date})")
 
         # Get portfolio returns (ownership checked inside)
-        returns_list = await self._data.get_portfolio_returns(
-            strategy_id, start_date, end_date
-        )
+        returns_list = await self._data.get_portfolio_returns(strategy_id, start_date, end_date)
 
         if not returns_list:
             from libs.platform.analytics.attribution import InsufficientObservationsError

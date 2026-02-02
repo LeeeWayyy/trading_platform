@@ -82,9 +82,7 @@ def filter_working_orders(
 ) -> list[dict[str, Any]]:
     """Filter orders to only working statuses (and optional symbol)."""
     working = [
-        order
-        for order in orders
-        if str(order.get("status", "")).lower() in WORKING_ORDER_STATUSES
+        order for order in orders if str(order.get("status", "")).lower() in WORKING_ORDER_STATUSES
     ]
     return filter_items_by_symbol(working, symbol)
 

@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-02-01 - P6T10: attribution_service and backtest_analytics_service refactored -->
+<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - use run_quantile_analysis helper -->
 
 ## Identity
 - **Type:** Library

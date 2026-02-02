@@ -2643,9 +2643,7 @@ class TestEdgeCases:
 class TestSpreadStatsErrorHandling:
     """Tests for exception handling when fetching spread stats."""
 
-    def test_spread_stats_key_error_handled(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_spread_stats_key_error_handled(self, mock_taq_provider: MagicMock) -> None:
         """Test: KeyError in spread stats adds warning but doesn't fail."""
         mock_micro = MagicMock()
         mock_micro.compute_spread_depth_stats.side_effect = KeyError("missing column")
@@ -2699,9 +2697,7 @@ class TestSpreadStatsErrorHandling:
         assert any("Spread data unavailable" in w for w in result.warnings)
         assert result.mid_price_at_arrival is not None
 
-    def test_spread_stats_value_error_handled(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_spread_stats_value_error_handled(self, mock_taq_provider: MagicMock) -> None:
         """Test: ValueError in spread stats adds warning but doesn't fail."""
         mock_micro = MagicMock()
         mock_micro.compute_spread_depth_stats.side_effect = ValueError("invalid data")
@@ -2753,9 +2749,7 @@ class TestSpreadStatsErrorHandling:
 
         assert any("Spread data unavailable" in w for w in result.warnings)
 
-    def test_spread_stats_zero_division_error_handled(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_spread_stats_zero_division_error_handled(self, mock_taq_provider: MagicMock) -> None:
         """Test: ZeroDivisionError in spread stats adds warning but doesn't fail."""
         mock_micro = MagicMock()
         mock_micro.compute_spread_depth_stats.side_effect = ZeroDivisionError()
@@ -2807,9 +2801,7 @@ class TestSpreadStatsErrorHandling:
 
         assert any("Spread data unavailable" in w for w in result.warnings)
 
-    def test_spread_stats_unexpected_error_handled(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_spread_stats_unexpected_error_handled(self, mock_taq_provider: MagicMock) -> None:
         """Test: Unexpected exception in spread stats adds warning but doesn't fail."""
         mock_micro = MagicMock()
         mock_micro.compute_spread_depth_stats.side_effect = RuntimeError("unexpected error")
@@ -2971,7 +2963,8 @@ class TestEstimateMarketImpactPublic:
         assert math.isnan(impact)
 
     def test_estimate_market_impact_with_arrival_price(
-        self, analyzer: ExecutionQualityAnalyzer,
+        self,
+        analyzer: ExecutionQualityAnalyzer,
         mock_taq_provider: MagicMock,
         decision_time: datetime,
         submission_time: datetime,
@@ -3004,7 +2997,8 @@ class TestEstimateMarketImpactPublic:
         assert impact == pytest.approx(100.0)
 
     def test_estimate_market_impact_derives_arrival_from_taq(
-        self, analyzer: ExecutionQualityAnalyzer,
+        self,
+        analyzer: ExecutionQualityAnalyzer,
         mock_taq_provider: MagicMock,
         decision_time: datetime,
         submission_time: datetime,
@@ -3053,7 +3047,8 @@ class TestEstimateMarketImpactPublic:
         assert impact == pytest.approx(100.0)
 
     def test_estimate_market_impact_no_taq_returns_nan(
-        self, analyzer: ExecutionQualityAnalyzer,
+        self,
+        analyzer: ExecutionQualityAnalyzer,
         mock_taq_provider: MagicMock,
         decision_time: datetime,
         submission_time: datetime,
@@ -3088,7 +3083,8 @@ class TestEstimateMarketImpactPublic:
         assert math.isnan(impact)
 
     def test_estimate_market_impact_with_spread_stats(
-        self, analyzer: ExecutionQualityAnalyzer,
+        self,
+        analyzer: ExecutionQualityAnalyzer,
         mock_taq_provider: MagicMock,
         decision_time: datetime,
         submission_time: datetime,
@@ -3228,8 +3224,9 @@ class TestExecutionWindowRecommendation:
         # Hour 11: medium volume (500)
         for hour in [9, 10, 11]:
             for minute in range(60):
-                ts = datetime(target_date.year, target_date.month, target_date.day,
-                             hour, minute, tzinfo=UTC)
+                ts = datetime(
+                    target_date.year, target_date.month, target_date.day, hour, minute, tzinfo=UTC
+                )
                 timestamps.append(ts)
                 if hour == 10:
                     volumes.append(1000)  # Highest volume hour
@@ -3263,9 +3260,7 @@ class TestExecutionWindowRecommendation:
         assert result.recommended_start_time.hour == 10
         assert result.recommended_end_time.hour == 11
 
-    def test_recommend_window_with_spread_data(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_recommend_window_with_spread_data(self, mock_taq_provider: MagicMock) -> None:
         """Test: Integrates spread data for avg_spread_bps."""
         mock_micro = MagicMock()
         spread_stats = SpreadDepthResult(
@@ -3308,9 +3303,7 @@ class TestExecutionWindowRecommendation:
         assert not math.isnan(result.avg_spread_bps)
         assert result.avg_spread_bps == pytest.approx(10.0, rel=0.1)
 
-    def test_recommend_window_spread_data_error(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_recommend_window_spread_data_error(self, mock_taq_provider: MagicMock) -> None:
         """Test: Spread data error is handled gracefully."""
         mock_micro = MagicMock()
         mock_micro.compute_spread_depth_stats.side_effect = KeyError("missing data")
@@ -3329,9 +3322,7 @@ class TestExecutionWindowRecommendation:
         # Should still return result with NaN spread
         assert math.isnan(result.avg_spread_bps)
 
-    def test_recommend_window_spread_unexpected_error(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_recommend_window_spread_unexpected_error(self, mock_taq_provider: MagicMock) -> None:
         """Test: Unexpected spread data error is handled gracefully."""
         mock_micro = MagicMock()
         mock_micro.compute_spread_depth_stats.side_effect = RuntimeError("unexpected")

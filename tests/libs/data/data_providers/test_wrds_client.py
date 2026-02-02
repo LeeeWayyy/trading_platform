@@ -284,7 +284,9 @@ class TestWRDSClientExecuteQuery:
         success_df = pl.DataFrame({"col": [1, 2, 3]})
 
         with patch.object(
-            client, "_execute_query_internal", side_effect=[transient_error, transient_error, success_df]
+            client,
+            "_execute_query_internal",
+            side_effect=[transient_error, transient_error, success_df],
         ):
             result = client.execute_query("SELECT 1")
 
@@ -346,10 +348,12 @@ class TestWRDSClientGetTableInfo:
         client._engine = mock_engine
 
         # Mock column info result
-        cols_df = pl.DataFrame({
-            "column_name": ["id", "date", "value"],
-            "data_type": ["integer", "date", "numeric"],
-        })
+        cols_df = pl.DataFrame(
+            {
+                "column_name": ["id", "date", "value"],
+                "data_type": ["integer", "date", "numeric"],
+            }
+        )
 
         # Mock row count result
         count_df = pl.DataFrame({"estimate": [1000000]})
@@ -373,10 +377,12 @@ class TestWRDSClientGetTableInfo:
         client._engine = mock_engine
 
         # Mock column info result
-        cols_df = pl.DataFrame({
-            "column_name": ["id"],
-            "data_type": ["integer"],
-        })
+        cols_df = pl.DataFrame(
+            {
+                "column_name": ["id"],
+                "data_type": ["integer"],
+            }
+        )
 
         # Mock empty count result
         count_df = pl.DataFrame({"estimate": []}).cast({"estimate": pl.Int64})
@@ -458,7 +464,9 @@ class TestWRDSClientExecuteQueryInternal:
 
         client._engine = mock_engine
 
-        result = client._execute_query_internal("SELECT id, value, active FROM test WHERE 1=0", None)
+        result = client._execute_query_internal(
+            "SELECT id, value, active FROM test WHERE 1=0", None
+        )
 
         assert len(result) == 0
         assert result.columns == ["id", "value", "active"]

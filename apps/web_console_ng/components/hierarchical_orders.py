@@ -112,7 +112,9 @@ def is_terminal_status(status: str | None) -> bool:
     return str(status or "").lower() in TERMINAL_STATUSES
 
 
-def compute_parent_aggregates(parent: dict[str, Any], children: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_parent_aggregates(
+    parent: dict[str, Any], children: list[dict[str, Any]]
+) -> dict[str, Any]:
     """Compute aggregate filled/total quantities for a parent order."""
     parent_qty = _coerce_number(parent.get("qty"))
     total_qty = parent_qty
@@ -337,9 +339,7 @@ async def on_cancel_parent_order(
                     )
                 dialog.close()
 
-            confirm_button = ui.button("Confirm", on_click=confirm).classes(
-                "bg-red-600 text-white"
-            )
+            confirm_button = ui.button("Confirm", on_click=confirm).classes("bg-red-600 text-white")
             ui.button("Cancel", on_click=dialog.close)
 
     dialog.open()

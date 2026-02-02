@@ -20,9 +20,7 @@ class ExecutionStyleSelector:
         """Create the selector UI."""
         with ui.row().classes("w-full gap-2 items-center") as row:
             ui.label("Execution").classes("w-24")
-            self._toggle = ui.toggle(["instant", "twap"], value=self._value).classes(
-                "flex-1"
-            )
+            self._toggle = ui.toggle(["instant", "twap"], value=self._value).classes("flex-1")
             self._toggle.on_value_change(lambda e: self._handle_change(e.value))
             self._disabled_hint = ui.label("").classes("text-xs text-amber-600 hidden")
         return row

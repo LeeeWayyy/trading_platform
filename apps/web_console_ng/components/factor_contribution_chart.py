@@ -148,7 +148,7 @@ def render_factor_loadings_chart(
                 x=betas,
                 orientation="h",
                 marker_color=colors,
-                text=[f"{b:.2f} (t={t:.1f})" for b, t in zip(betas, t_stats, strict=False)],
+                text=[f"{b:.2f} (t={t:.1f})" for b, t in zip(betas, t_stats, strict=True)],
                 textposition="outside",
                 hovertemplate="%{y}: %{x:.3f}<extra></extra>",
             )
@@ -225,9 +225,7 @@ def render_factor_table(
     ui.table(columns=columns, rows=rows, row_key="factor").classes("w-full")
 
     # Legend for significance
-    ui.label("Significance: * p<0.05, ** p<0.01, *** p<0.001").classes(
-        "text-gray-500 text-xs mt-2"
-    )
+    ui.label("Significance: * p<0.05, ** p<0.01, *** p<0.001").classes("text-gray-500 text-xs mt-2")
 
 
 __all__ = [

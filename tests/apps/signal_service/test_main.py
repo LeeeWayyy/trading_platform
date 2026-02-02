@@ -176,6 +176,7 @@ class TestLifespanStartup:
             with patch("apps.signal_service.main.get_optional_secret", return_value=""):
                 with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
                     with patch("asyncio.create_task") as mock_create_task:
+
                         class _AwaitableTask:
                             def __init__(self) -> None:
                                 self.cancel = Mock()
@@ -1015,6 +1016,7 @@ class TestSettingsInitialization:
             with patch("apps.signal_service.main.get_optional_secret", return_value=""):
                 with patch("apps.signal_service.main.ModelRegistry", return_value=mock_registry):
                     with patch("asyncio.create_task") as mock_create_task:
+
                         class _AwaitableTask:
                             def __init__(self) -> None:
                                 self.cancel = Mock()

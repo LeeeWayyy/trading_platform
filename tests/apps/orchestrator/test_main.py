@@ -719,9 +719,7 @@ class TestOrchestrationKillSwitchBlocking:
         self, test_client, mock_kill_switch
     ):
         """Test orchestration blocked when kill-switch state missing (RuntimeError)."""
-        mock_kill_switch.is_engaged.side_effect = RuntimeError(
-            "Kill-switch state missing in Redis"
-        )
+        mock_kill_switch.is_engaged.side_effect = RuntimeError("Kill-switch state missing in Redis")
 
         with (
             patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
@@ -778,9 +776,7 @@ class TestOrchestrationErrorHandling:
         data = response.json()
         assert data["num_orders_rejected"] == 1
 
-    def test_run_orchestration_value_error(
-        self, test_client, mock_orchestrator, mock_kill_switch
-    ):
+    def test_run_orchestration_value_error(self, test_client, mock_orchestrator, mock_kill_switch):
         """Test orchestration run with ValueError returns 400."""
         mock_orchestrator.run.side_effect = ValueError("Invalid symbol format")
 

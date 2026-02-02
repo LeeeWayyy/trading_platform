@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-01 - P6T10: fully vectorized compute_drawdown_periods, eliminated Python loops -->
+<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - running_peak M_t fix, join_asof optimization, helper extraction -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

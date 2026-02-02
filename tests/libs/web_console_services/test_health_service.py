@@ -434,10 +434,14 @@ class TestGetConnectivityPostgresChecks:
         mock_cur = AsyncMock()
         mock_cur.execute = AsyncMock(side_effect=TimeoutError("Query timeout"))
         mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
-        mock_cur.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
+        mock_cur.__aexit__ = AsyncMock(
+            return_value=False
+        )  # Must return False to propagate exception
         mock_conn.cursor = Mock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
+        mock_conn.__aexit__ = AsyncMock(
+            return_value=False
+        )  # Must return False to propagate exception
         mock_db_pool.connection = Mock(return_value=mock_conn)
 
         service = HealthMonitorService(
@@ -485,10 +489,14 @@ class TestGetConnectivityPostgresChecks:
         mock_cur = AsyncMock()
         mock_cur.execute = AsyncMock(side_effect=ValueError("Unexpected DB error"))
         mock_cur.__aenter__ = AsyncMock(return_value=mock_cur)
-        mock_cur.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
+        mock_cur.__aexit__ = AsyncMock(
+            return_value=False
+        )  # Must return False to propagate exception
         mock_conn.cursor = Mock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=False)  # Must return False to propagate exception
+        mock_conn.__aexit__ = AsyncMock(
+            return_value=False
+        )  # Must return False to propagate exception
         mock_db_pool.connection = Mock(return_value=mock_conn)
 
         service = HealthMonitorService(

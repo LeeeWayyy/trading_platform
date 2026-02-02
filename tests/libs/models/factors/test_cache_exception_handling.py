@@ -608,9 +608,7 @@ class TestIndexRollbackExceptionHandling:
 class TestAtomicWriteTempFileCleanup:
     """Tests for temp file cleanup during atomic write failures."""
 
-    def test_atomic_write_cleanup_temp_file_on_oserror(
-        self, cache: DiskExpressionCache
-    ) -> None:
+    def test_atomic_write_cleanup_temp_file_on_oserror(self, cache: DiskExpressionCache) -> None:
         """Test that atomic write cleans up temp file on OSError."""
         df = pl.DataFrame({"a": [1, 2, 3]})
         path = cache.cache_dir / "test.parquet"
@@ -650,9 +648,7 @@ class TestAtomicWriteTempFileCleanup:
             with pytest.raises(pl.ComputeError, match="Write failed"):
                 cache._atomic_write_parquet(path, df)
 
-    def test_atomic_write_cleanup_temp_file_failure(
-        self, cache: DiskExpressionCache
-    ) -> None:
+    def test_atomic_write_cleanup_temp_file_failure(self, cache: DiskExpressionCache) -> None:
         """Test atomic write handles failure to clean up temp file gracefully."""
         df = pl.DataFrame({"a": [1, 2, 3]})
         path = cache.cache_dir / "test.parquet"

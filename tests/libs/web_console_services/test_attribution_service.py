@@ -92,7 +92,7 @@ class TestDateValidation:
             await service.run_attribution(
                 strategy_id="strat-1",
                 start_date=date(2024, 2, 1),  # After
-                end_date=date(2024, 1, 1),    # Before
+                end_date=date(2024, 1, 1),  # Before
             )
 
         # Should not call data_access
@@ -181,9 +181,7 @@ class TestSchemaValidation:
         from libs.platform.analytics.attribution import InsufficientObservationsError
 
         # Has return but no date column
-        mock_data_access.get_portfolio_returns.return_value = [
-            {"daily_return": 0.01}
-        ]
+        mock_data_access.get_portfolio_returns.return_value = [{"daily_return": 0.01}]
 
         with pytest.raises(InsufficientObservationsError, match="missing required columns"):
             await service.run_attribution(
@@ -332,9 +330,7 @@ class TestFactoryPattern:
         mock_ff_provider: MagicMock,
     ):
         """Should create FactorAttribution with ff3 config."""
-        with patch(
-            "libs.web_console_services.attribution_service.FactorAttribution"
-        ) as mock_class:
+        with patch("libs.web_console_services.attribution_service.FactorAttribution") as mock_class:
             service._create_attribution("ff3")
 
             mock_class.assert_called_once()
@@ -347,9 +343,7 @@ class TestFactoryPattern:
         mock_ff_provider: MagicMock,
     ):
         """Should create FactorAttribution with ff5 config."""
-        with patch(
-            "libs.web_console_services.attribution_service.FactorAttribution"
-        ) as mock_class:
+        with patch("libs.web_console_services.attribution_service.FactorAttribution") as mock_class:
             service._create_attribution("ff5")
 
             mock_class.assert_called_once()
@@ -362,9 +356,7 @@ class TestFactoryPattern:
         mock_ff_provider: MagicMock,
     ):
         """Should create FactorAttribution with ff6 config."""
-        with patch(
-            "libs.web_console_services.attribution_service.FactorAttribution"
-        ) as mock_class:
+        with patch("libs.web_console_services.attribution_service.FactorAttribution") as mock_class:
             service._create_attribution("ff6")
 
             mock_class.assert_called_once()
@@ -378,9 +370,7 @@ class TestFactoryPattern:
         mock_crsp_provider: MagicMock,
     ):
         """Should pass providers to FactorAttribution."""
-        with patch(
-            "libs.web_console_services.attribution_service.FactorAttribution"
-        ) as mock_class:
+        with patch("libs.web_console_services.attribution_service.FactorAttribution") as mock_class:
             service._create_attribution("ff5")
 
             call_kwargs = mock_class.call_args[1]
@@ -393,9 +383,7 @@ class TestFactoryPattern:
         mock_ff_provider: MagicMock,
     ):
         """Should pass None CRSP provider when not provided."""
-        with patch(
-            "libs.web_console_services.attribution_service.FactorAttribution"
-        ) as mock_class:
+        with patch("libs.web_console_services.attribution_service.FactorAttribution") as mock_class:
             service_without_crsp._create_attribution("ff5")
 
             call_kwargs = mock_class.call_args[1]

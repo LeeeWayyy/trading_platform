@@ -75,9 +75,7 @@ class DOMDataProcessor:
         avg_bid = self._average(self._bid_sizes)
         avg_ask = self._average(self._ask_sizes)
 
-        max_size = max(
-            [level["size"] for level in bids + asks] or [1.0]
-        )
+        max_size = max([level["size"] for level in bids + asks] or [1.0])
 
         bid_levels = [
             DepthLevel(
@@ -118,9 +116,7 @@ class DOMDataProcessor:
             avg_ask_size=avg_ask,
         )
 
-    def _normalize_levels(
-        self, raw: list[Any], *, descending: bool
-    ) -> list[dict[str, float]]:
+    def _normalize_levels(self, raw: list[Any], *, descending: bool) -> list[dict[str, float]]:
         levels: list[dict[str, float]] = []
         for entry in raw:
             if not isinstance(entry, dict):

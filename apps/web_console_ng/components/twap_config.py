@@ -105,9 +105,7 @@ class TWAPConfig:
                 "I understand this order may fail notional validation",
                 value=False,
             ).classes("text-xs hidden")
-            self._notional_ack.on_value_change(
-                lambda e: self._on_ack_change(bool(e.value))
-            )
+            self._notional_ack.on_value_change(lambda e: self._on_ack_change(bool(e.value)))
 
         self._container = container
         return container
@@ -146,9 +144,7 @@ class TWAPConfig:
         last_slice_at = preview.get("last_slice_at")
 
         with self._preview_details:
-            ui.label(f"Slices: {slice_count} slices of ~{base_slice_qty} shares").classes(
-                "text-xs"
-            )
+            ui.label(f"Slices: {slice_count} slices of ~{base_slice_qty} shares").classes("text-xs")
             ui.label(f"First: {first_slice_at}").classes("text-xs")
             ui.label(f"Last: {last_slice_at}").classes("text-xs")
 
@@ -191,7 +187,9 @@ class TWAPConfig:
         interval = int(self._interval_input.value) if self._interval_input else None
 
         start_time_enabled = bool(self._start_toggle.value) if self._start_toggle else False
-        start_time, start_error = self._parse_start_time(timezone_name) if start_time_enabled else (None, None)
+        start_time, start_error = (
+            self._parse_start_time(timezone_name) if start_time_enabled else (None, None)
+        )
 
         notional_ack = bool(self._notional_ack.value) if self._notional_ack else False
 

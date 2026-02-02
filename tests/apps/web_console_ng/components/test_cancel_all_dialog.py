@@ -485,9 +485,7 @@ class TestCancelAllDialogAuditLog:
             user_role="trader",
         )
 
-        with patch(
-            "apps.web_console_ng.components.cancel_all_dialog.logger"
-        ):
+        with patch("apps.web_console_ng.components.cancel_all_dialog.logger"):
             # Execute directly via _execute_cancel_all
             await dialog._execute_cancel_all(orders)
 

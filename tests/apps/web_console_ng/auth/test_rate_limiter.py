@@ -174,7 +174,9 @@ async def test_load_scripts_force_reload(limiter: AuthRateLimiter, mock_redis: A
 
 
 @pytest.mark.asyncio()
-async def test_check_and_increment_ip_allowed(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_check_and_increment_ip_allowed(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test check_and_increment_ip when IP is allowed."""
     mock_redis.eval.return_value = [0, 0, b"allowed"]
 
@@ -194,7 +196,9 @@ async def test_check_and_increment_ip_allowed(limiter: AuthRateLimiter, mock_red
 
 
 @pytest.mark.asyncio()
-async def test_check_and_increment_ip_blocked(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_check_and_increment_ip_blocked(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test check_and_increment_ip when IP rate limit is exceeded."""
     mock_redis.eval.return_value = [1, 45, b"ip_rate_limit"]
 
@@ -206,7 +210,9 @@ async def test_check_and_increment_ip_blocked(limiter: AuthRateLimiter, mock_red
 
 
 @pytest.mark.asyncio()
-async def test_check_and_increment_ip_string_reason(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_check_and_increment_ip_string_reason(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test check_and_increment_ip handles string reasons (not bytes)."""
     mock_redis.eval.return_value = [0, 0, "allowed"]  # String instead of bytes
 
@@ -298,7 +304,9 @@ async def test_check_only_string_reason(limiter: AuthRateLimiter, mock_redis: As
 
 
 @pytest.mark.asyncio()
-async def test_check_only_noscript_recovery(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_check_only_noscript_recovery(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test check_only recovers from NoScriptError by reloading scripts."""
     mock_redis.script_load.return_value = "new_sha"
     mock_redis.evalsha.side_effect = [
@@ -319,7 +327,9 @@ async def test_check_only_noscript_recovery(limiter: AuthRateLimiter, mock_redis
 
 
 @pytest.mark.asyncio()
-async def test_check_only_loads_scripts_if_not_loaded(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_check_only_loads_scripts_if_not_loaded(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test check_only loads scripts on first call."""
     assert limiter._check_script_sha is None
     mock_redis.script_load.return_value = "loaded_sha"
@@ -337,7 +347,9 @@ async def test_check_only_loads_scripts_if_not_loaded(limiter: AuthRateLimiter, 
 
 
 @pytest.mark.asyncio()
-async def test_record_failure_first_attempt(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_record_failure_first_attempt(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test record_failure on first failed attempt."""
     mock_redis.script_load.return_value = "record_sha"
     mock_redis.evalsha.return_value = [1, 0, b"failure_recorded", 1]
@@ -362,7 +374,9 @@ async def test_record_failure_first_attempt(limiter: AuthRateLimiter, mock_redis
 
 
 @pytest.mark.asyncio()
-async def test_record_failure_ip_rate_limit(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_record_failure_ip_rate_limit(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test record_failure when IP rate limit is exceeded."""
     mock_redis.script_load.return_value = "record_sha"
     mock_redis.evalsha.return_value = [0, 60, b"ip_rate_limit"]
@@ -375,7 +389,9 @@ async def test_record_failure_ip_rate_limit(limiter: AuthRateLimiter, mock_redis
 
 
 @pytest.mark.asyncio()
-async def test_record_failure_account_locked_now(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_record_failure_account_locked_now(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test record_failure when account gets locked after max failures."""
     mock_redis.script_load.return_value = "record_sha"
     mock_redis.evalsha.return_value = [0, 900, b"account_locked_now"]
@@ -388,7 +404,9 @@ async def test_record_failure_account_locked_now(limiter: AuthRateLimiter, mock_
 
 
 @pytest.mark.asyncio()
-async def test_record_failure_string_reason(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_record_failure_string_reason(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test record_failure handles string reasons (not bytes)."""
     mock_redis.script_load.return_value = "record_sha"
     mock_redis.evalsha.return_value = [1, 0, "failure_recorded"]
@@ -400,7 +418,9 @@ async def test_record_failure_string_reason(limiter: AuthRateLimiter, mock_redis
 
 
 @pytest.mark.asyncio()
-async def test_record_failure_noscript_recovery(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_record_failure_noscript_recovery(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test record_failure recovers from NoScriptError."""
     mock_redis.script_load.return_value = "new_sha"
     mock_redis.evalsha.side_effect = [
@@ -420,7 +440,9 @@ async def test_record_failure_noscript_recovery(limiter: AuthRateLimiter, mock_r
 
 
 @pytest.mark.asyncio()
-async def test_record_failure_loads_scripts_if_not_loaded(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_record_failure_loads_scripts_if_not_loaded(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test record_failure loads scripts on first call."""
     assert limiter._record_script_sha is None
     mock_redis.script_load.return_value = "loaded_sha"
@@ -446,7 +468,9 @@ async def test_clear_on_success(limiter: AuthRateLimiter, mock_redis: AsyncMock)
 
 
 @pytest.mark.asyncio()
-async def test_clear_on_success_multiple_users(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_clear_on_success_multiple_users(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test clear_on_success handles multiple users correctly."""
     await limiter.clear_on_success("user1")
     await limiter.clear_on_success("user2")
@@ -682,7 +706,9 @@ async def test_full_failure_cycle(limiter: AuthRateLimiter, mock_redis: AsyncMoc
 
 
 @pytest.mark.asyncio()
-async def test_concurrent_operations_different_users(limiter: AuthRateLimiter, mock_redis: AsyncMock) -> None:
+async def test_concurrent_operations_different_users(
+    limiter: AuthRateLimiter, mock_redis: AsyncMock
+) -> None:
     """Test that operations on different users are independent."""
     mock_redis.script_load.return_value = "sha"
     mock_redis.evalsha.return_value = [1, 0, b"failure_recorded"]

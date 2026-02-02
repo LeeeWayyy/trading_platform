@@ -110,8 +110,10 @@ def _create_trading_dates(start: date, n_days: int) -> list[date]:
     while len(dates) < n_days:
         if current.weekday() < 5:
             dates.append(current)
-        current = date(current.year, current.month, current.day + 1) if current.day < 28 else date(
-            current.year, current.month + 1, 1
+        current = (
+            date(current.year, current.month, current.day + 1)
+            if current.day < 28
+            else date(current.year, current.month + 1, 1)
         )
     return dates
 
@@ -171,11 +173,13 @@ class TestUniverseProviderInit:
         crsp_dir.mkdir()
 
         # Create minimal constituents file
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "universe_id": ["SP500"],
-            "permno": [10001],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "universe_id": ["SP500"],
+                "permno": [10001],
+            }
+        )
         df.write_parquet(crsp_dir / "index_constituents.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -194,11 +198,13 @@ class TestUniverseProviderGetConstituents:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 3)],
-            "universe_id": ["SP500", "SP500", "SP500"],
-            "permno": [10001, 10002, 10001],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 3)],
+                "universe_id": ["SP500", "SP500", "SP500"],
+                "permno": [10001, 10002, 10001],
+            }
+        )
         df.write_parquet(crsp_dir / "index_constituents.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -216,11 +222,13 @@ class TestUniverseProviderGetConstituents:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "universe_id": ["SP500"],
-            "permno": [10001],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "universe_id": ["SP500"],
+                "permno": [10001],
+            }
+        )
         df.write_parquet(crsp_dir / "index_constituents.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -241,11 +249,13 @@ class TestUniverseProviderGetConstituentsRange:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-            "universe_id": ["SP500", "SP500", "SP500"],
-            "permno": [10001, 10001, 10001],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "universe_id": ["SP500", "SP500", "SP500"],
+                "permno": [10001, 10001, 10001],
+            }
+        )
         df.write_parquet(crsp_dir / "index_constituents.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -310,11 +320,13 @@ class TestForwardReturnsProviderInit:
         crsp_dir.mkdir()
 
         # Create minimal returns file
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -333,11 +345,13 @@ class TestForwardReturnsProviderGetDailyReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 2)],
-            "permno": [10001, 10001, 10002],
-            "ret": [0.01, 0.02, -0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 2)],
+                "permno": [10001, 10001, 10002],
+                "ret": [0.01, 0.02, -0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -358,11 +372,13 @@ class TestForwardReturnsProviderGetDailyReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)] * 3,
-            "permno": [10001, 10002, 10003],
-            "ret": [0.01, 0.02, 0.03],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)] * 3,
+                "permno": [10001, 10002, 10003],
+                "ret": [0.01, 0.02, 0.03],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -388,21 +404,25 @@ class TestForwardReturnsProviderGetForwardReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [date(2024, 1, 2)],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [date(2024, 1, 2)],
+                    "permno": [10001],
+                }
+            )
 
             with pytest.raises(ValueError, match="skip_days must be >= 1"):
                 provider.get_forward_returns(
@@ -417,21 +437,25 @@ class TestForwardReturnsProviderGetForwardReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [date(2024, 1, 2)],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [date(2024, 1, 2)],
+                    "permno": [10001],
+                }
+            )
 
             with pytest.raises(ValueError, match="skip_days must be >= 1"):
                 provider.get_forward_returns(
@@ -446,21 +470,25 @@ class TestForwardReturnsProviderGetForwardReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [date(2024, 1, 2)],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [date(2024, 1, 2)],
+                    "permno": [10001],
+                }
+            )
 
             with pytest.raises(ValueError, match="holding_period must be > 0"):
                 provider.get_forward_returns(
@@ -475,11 +503,13 @@ class TestForwardReturnsProviderGetForwardReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -487,9 +517,11 @@ class TestForwardReturnsProviderGetForwardReturns:
 
             provider = ForwardReturnsProvider()
             # Missing signal_date column
-            signals = pl.DataFrame({
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "permno": [10001],
+                }
+            )
 
             with pytest.raises(ValueError, match="missing required columns"):
                 provider.get_forward_returns(
@@ -504,11 +536,13 @@ class TestForwardReturnsProviderGetForwardReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
@@ -516,10 +550,12 @@ class TestForwardReturnsProviderGetForwardReturns:
 
             provider = ForwardReturnsProvider()
             # String date type
-            signals = pl.DataFrame({
-                "signal_date": ["2024-01-02"],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": ["2024-01-02"],
+                    "permno": [10001],
+                }
+            )
 
             with pytest.raises(ValueError, match="must be Date or Datetime"):
                 provider.get_forward_returns(
@@ -534,21 +570,25 @@ class TestForwardReturnsProviderGetForwardReturns:
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
 
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "permno": [10001],
-            "ret": [0.01],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "permno": [10001],
+                "ret": [0.01],
+            }
+        )
         df.write_parquet(crsp_dir / "daily_returns.parquet")
 
         with patch("libs.data.data_providers.universe.get_settings") as mock_settings:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": pl.Series([], dtype=pl.Date),
-                "permno": pl.Series([], dtype=pl.Int64),
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": pl.Series([], dtype=pl.Date),
+                    "permno": pl.Series([], dtype=pl.Int64),
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -577,10 +617,12 @@ class TestForwardReturnsProviderGetForwardReturns:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [dates[0]],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[0]],
+                    "permno": [10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -591,7 +633,7 @@ class TestForwardReturnsProviderGetForwardReturns:
 
             assert result.height == 1
             # 5 days at 1% each = (1.01)^5 - 1 ≈ 5.1%
-            expected = (1.01 ** 5) - 1
+            expected = (1.01**5) - 1
             assert abs(result["forward_return"][0] - expected) < 1e-6
 
     def test_get_forward_returns_filters_null_dates(self, tmp_path, trading_calendar: MockCalendar):
@@ -611,10 +653,12 @@ class TestForwardReturnsProviderGetForwardReturns:
 
             provider = ForwardReturnsProvider()
             # Include null values
-            signals = pl.DataFrame({
-                "signal_date": [dates[0], None],
-                "permno": [10001, 10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[0], None],
+                    "permno": [10001, 10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -646,10 +690,12 @@ class TestForwardReturnsProviderGetForwardReturns:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [dates[0]],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[0]],
+                    "permno": [10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -660,7 +706,7 @@ class TestForwardReturnsProviderGetForwardReturns:
 
             assert result.height == 1
             # Average of 0.01 and 0.03 = 0.02 per day
-            expected = (1.02 ** 5) - 1
+            expected = (1.02**5) - 1
             assert abs(result["forward_return"][0] - expected) < 1e-6
 
     def test_get_forward_returns_skips_missing_window(
@@ -682,10 +728,12 @@ class TestForwardReturnsProviderGetForwardReturns:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [dates[0]],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[0]],
+                    "permno": [10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -717,10 +765,12 @@ class TestForwardReturnsProviderGetForwardReturns:
             provider = ForwardReturnsProvider()
             # Use a weekend date (Jan 6, 2024 is Saturday)
             # Should normalize to Jan 5 (Friday)
-            signals = pl.DataFrame({
-                "signal_date": [date(2024, 1, 6)],  # Saturday
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [date(2024, 1, 6)],  # Saturday
+                    "permno": [10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -753,10 +803,12 @@ class TestForwardReturnsProviderGetForwardReturns:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [dates[0]],
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[0]],
+                    "permno": [10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -874,10 +926,12 @@ class TestForwardReturnsProviderErrorHandling:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [date(2024, 1, 6)],  # Weekend date
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [date(2024, 1, 6)],  # Weekend date
+                    "permno": [10001],
+                }
+            )
 
             # Should complete without raising (graceful handling)
             result = provider.get_forward_returns(
@@ -910,10 +964,12 @@ class TestForwardReturnsProviderErrorHandling:
 
             provider = ForwardReturnsProvider()
             # Signal at the end of available data
-            signals = pl.DataFrame({
-                "signal_date": [dates[-1]],  # Last available date
-                "permno": [10001],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[-1]],  # Last available date
+                    "permno": [10001],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,
@@ -925,9 +981,7 @@ class TestForwardReturnsProviderErrorHandling:
             # Should be empty since window can't be computed
             assert result.height == 0
 
-    def test_get_forward_returns_multiple_permnos(
-        self, tmp_path, trading_calendar: MockCalendar
-    ):
+    def test_get_forward_returns_multiple_permnos(self, tmp_path, trading_calendar: MockCalendar):
         """Should compute forward returns for multiple permnos."""
         crsp_dir = tmp_path / "crsp"
         crsp_dir.mkdir()
@@ -944,10 +998,12 @@ class TestForwardReturnsProviderErrorHandling:
             mock_settings.return_value.crsp_data_dir = str(crsp_dir)
 
             provider = ForwardReturnsProvider()
-            signals = pl.DataFrame({
-                "signal_date": [dates[0], dates[0], dates[0]],
-                "permno": [10001, 10002, 10003],
-            })
+            signals = pl.DataFrame(
+                {
+                    "signal_date": [dates[0], dates[0], dates[0]],
+                    "permno": [10001, 10002, 10003],
+                }
+            )
 
             result = provider.get_forward_returns(
                 signals_df=signals,

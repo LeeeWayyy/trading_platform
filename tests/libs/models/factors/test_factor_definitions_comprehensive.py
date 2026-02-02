@@ -160,7 +160,12 @@ class TestFactorResultEdgeCases:
     def test_to_storage_format_empty_exposures(self):
         """to_storage_format() handles empty DataFrame."""
         df = pl.DataFrame(
-            schema={"permno": pl.Int64, "raw_value": pl.Float64, "zscore": pl.Float64, "percentile": pl.Float64}
+            schema={
+                "permno": pl.Int64,
+                "raw_value": pl.Float64,
+                "zscore": pl.Float64,
+                "percentile": pl.Float64,
+            }
         )
         result = FactorResult(
             exposures=df,
