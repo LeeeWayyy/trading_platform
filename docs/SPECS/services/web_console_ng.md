@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - running_peak M_t fix, join_asof optimization, helper extraction -->
+<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - replace cross join with iterative recovery date lookup -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

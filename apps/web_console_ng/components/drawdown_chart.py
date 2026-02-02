@@ -360,18 +360,31 @@ def compute_drawdown_periods(
         pl.col("peak_wealth").fill_null(1.0),
     ])
 
-    # Find recovery dates: first non-drawdown row after last_dd_idx
-    recovery_candidates = period_with_peak.select([
-        "period_id", "last_dd_idx", "peak_wealth"
-    ]).join(
-        non_drawdown_rows,
-        how="cross",
-    ).filter(
-        (pl.col("row_idx") > pl.col("last_dd_idx"))
-        & (pl.col("wealth") >= pl.col("peak_wealth"))
-    ).group_by("period_id").agg([
-        pl.col("date").sort_by("row_idx").first().alias("recovery_date"),
-    ])
+    # Find recovery dates: first non-drawdown row after last_dd_idx where wealth >= peak_wealth
+    # Use iterative approach over periods (small set) instead of O(M*N) cross join
+    # This is memory-efficient since periods are typically few (tens) vs many non-drawdown rows
+    recovery_dates: list[dict[str, object]] = []
+    for period_row in period_with_peak.iter_rows(named=True):
+        period_id = period_row["period_id"]
+        last_dd_idx = period_row["last_dd_idx"]
+        peak_wealth = period_row["peak_wealth"]
+
+        # Find first non-drawdown row after period where wealth recovered
+        recovery_df = non_drawdown_sorted.filter(
+            (pl.col("row_idx") > last_dd_idx)
+            & (pl.col("wealth") >= peak_wealth)
+        ).head(1)
+
+        if recovery_df.height > 0:
+            recovery_dates.append({
+                "period_id": period_id,
+                "recovery_date": recovery_df["date"].item(),
+            })
+
+    recovery_candidates = pl.DataFrame(recovery_dates) if recovery_dates else pl.DataFrame({
+        "period_id": pl.Series([], dtype=pl.Int64),
+        "recovery_date": pl.Series([], dtype=pl.Date),
+    })
 
     # Join recovery dates
     period_final = period_with_peak.join(

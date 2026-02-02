@@ -318,10 +318,17 @@ class ForwardReturnsProvider:
             )
 
         # Validate column types for proper join/calendar operations
-        if signals_df["signal_date"].dtype not in (pl.Date, pl.Datetime):
+        # Accept pl.Date or any pl.Datetime variant (including timezone-aware)
+        signal_dtype = signals_df["signal_date"].dtype
+        is_date_type = signal_dtype == pl.Date
+        is_datetime_type = (
+            signal_dtype == pl.Datetime
+            or (hasattr(signal_dtype, "base_type") and signal_dtype.base_type() == pl.Datetime)
+        )
+        if not (is_date_type or is_datetime_type):
             raise ValueError(
                 f"signal_date column must be Date or Datetime type, "
-                f"got {signals_df['signal_date'].dtype}"
+                f"got {signal_dtype}"
             )
 
         if signals_df.height == 0:

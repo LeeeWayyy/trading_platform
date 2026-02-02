@@ -1,6 +1,6 @@
 # libs/data
 
-<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - signal key deduplication before join -->
+<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - accept timezone-aware Datetime for signal_date -->
 
 ## Identity
 - **Type:** Library Group (Data Pipeline and Providers)
