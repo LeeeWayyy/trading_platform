@@ -100,6 +100,118 @@ def _compute_wealth_and_drawdown(sorted_df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _find_peak_dates(
+    period_stats: pl.DataFrame,
+    analysis_with_idx: pl.DataFrame,
+    first_date: date,
+) -> pl.DataFrame:
+    """Find peak dates and wealth for each drawdown period.
+
+    For each period, the peak is the last non-drawdown row before the first
+    drawdown date where wealth equals the running peak.
+
+    Args:
+        period_stats: DataFrame with period statistics including first_drawdown_date.
+        analysis_with_idx: Analysis DataFrame with row_idx and in_drawdown columns.
+        first_date: First date in the series (fallback for periods starting at beginning).
+
+    Returns:
+        DataFrame with columns: period_id, first_dd_idx, last_dd_idx, peak_date, peak_wealth,
+        plus all original period_stats columns.
+    """
+    # Join period_stats with analysis_df to find the row index of first_drawdown_date
+    period_with_idx = period_stats.join(
+        analysis_with_idx.select(["date", "row_idx"]),
+        left_on="first_drawdown_date",
+        right_on="date",
+        how="left",
+    ).rename({"row_idx": "first_dd_idx"})
+
+    # Also get last_drawdown_date index
+    period_with_idx = period_with_idx.join(
+        analysis_with_idx.select(["date", "row_idx"]),
+        left_on="last_drawdown_date",
+        right_on="date",
+        how="left",
+    ).rename({"row_idx": "last_dd_idx"})
+
+    # Find peak dates by looking at the row before first_dd_idx
+    # Peak is where running_peak was set (last row before drawdown where wealth=running_peak)
+    non_drawdown_rows = analysis_with_idx.filter(~pl.col("in_drawdown")).select([
+        "row_idx", "date", "wealth"
+    ])
+
+    # For each period, find the latest non-drawdown row before first_dd_idx
+    # Use join_asof with backward strategy instead of O(M*N) cross join
+    non_drawdown_sorted = non_drawdown_rows.sort("row_idx")
+    period_for_asof = period_with_idx.select(["period_id", "first_dd_idx"]).sort("first_dd_idx")
+
+    peak_candidates = period_for_asof.join_asof(
+        non_drawdown_sorted,
+        left_on="first_dd_idx",
+        right_on="row_idx",
+        strategy="backward",
+    ).filter(
+        # Ensure we found a valid peak (row_idx < first_dd_idx)
+        pl.col("row_idx").is_not_null() & (pl.col("row_idx") < pl.col("first_dd_idx"))
+    ).select([
+        "period_id",
+        pl.col("date").alias("peak_date"),
+        pl.col("wealth").alias("peak_wealth"),
+    ])
+
+    # Handle periods that start at the beginning (no row before first_dd_idx)
+    # These have no peak_date from the join, default to first_date with wealth=1.0
+    return period_with_idx.join(
+        peak_candidates,
+        on="period_id",
+        how="left",
+    ).with_columns([
+        pl.col("peak_date").fill_null(pl.lit(first_date)),
+        pl.col("peak_wealth").fill_null(1.0),
+    ])
+
+
+def _find_recovery_dates(
+    period_with_peak: pl.DataFrame,
+    non_drawdown_sorted: pl.DataFrame,
+) -> pl.DataFrame:
+    """Find recovery dates for each drawdown period.
+
+    A recovery occurs when wealth returns to or exceeds the peak wealth level.
+    Uses iterative approach over periods (small set) instead of O(M*N) cross join.
+
+    Args:
+        period_with_peak: DataFrame with period info including last_dd_idx and peak_wealth.
+        non_drawdown_sorted: Non-drawdown rows sorted by row_idx.
+
+    Returns:
+        DataFrame with columns: period_id, recovery_date.
+    """
+    recovery_dates: list[dict[str, object]] = []
+    for period_row in period_with_peak.iter_rows(named=True):
+        period_id = period_row["period_id"]
+        last_dd_idx = period_row["last_dd_idx"]
+        peak_wealth = period_row["peak_wealth"]
+
+        # Find first non-drawdown row after period where wealth recovered
+        recovery_df = non_drawdown_sorted.filter(
+            (pl.col("row_idx") > last_dd_idx)
+            & (pl.col("wealth") >= peak_wealth)
+        ).head(1)
+
+        if recovery_df.height > 0:
+            recovery_dates.append({
+                "period_id": period_id,
+                "recovery_date": recovery_df["date"].item(),
+            })
+
+    return pl.DataFrame(recovery_dates) if recovery_dates else pl.DataFrame(schema={
+        "period_id": pl.Int64,
+        "recovery_date": pl.Date,
+    })
+
+
 def render_drawdown_chart(
     daily_returns: pl.DataFrame | None,
     title: str = "Drawdown",
@@ -298,93 +410,25 @@ def compute_drawdown_periods(
         ]
     )
 
-    # Step 6: Find peak and recovery dates using vectorized Polars operations
+    # Step 6: Find peak and recovery dates using helper functions
     # Add row index for positional lookups
     analysis_with_idx = analysis_df.with_row_index("row_idx")
 
-    # Get the first date (for periods starting at the beginning)
+    # Get the first and last dates for fallback handling
     first_date = analysis_df["date"].head(1).item()
     last_date = analysis_df["date"].tail(1).item()
 
-    # Find peak dates: for each period, peak is the row just before first_drawdown_date
-    # where wealth equals running_peak (not in drawdown)
-    # Join period_stats with analysis_df to find the row index of first_drawdown_date
-    period_with_idx = period_stats.join(
-        analysis_with_idx.select(["date", "row_idx"]),
-        left_on="first_drawdown_date",
-        right_on="date",
-        how="left",
-    ).rename({"row_idx": "first_dd_idx"})
+    # Find peak dates using helper
+    period_with_peak = _find_peak_dates(period_stats, analysis_with_idx, first_date)
 
-    # Also get last_drawdown_date index
-    period_with_idx = period_with_idx.join(
-        analysis_with_idx.select(["date", "row_idx"]),
-        left_on="last_drawdown_date",
-        right_on="date",
-        how="left",
-    ).rename({"row_idx": "last_dd_idx"})
-
-    # Find peak dates by looking at the row before first_dd_idx
-    # Peak is where running_peak was set (last row before drawdown where wealth=running_peak)
+    # Prepare non-drawdown rows for recovery lookup
     non_drawdown_rows = analysis_with_idx.filter(~pl.col("in_drawdown")).select([
         "row_idx", "date", "wealth"
     ])
-
-    # For each period, find the latest non-drawdown row before first_dd_idx
-    # Use join_asof with backward strategy instead of O(M*N) cross join
     non_drawdown_sorted = non_drawdown_rows.sort("row_idx")
-    period_for_asof = period_with_idx.select(["period_id", "first_dd_idx"]).sort("first_dd_idx")
 
-    peak_candidates = period_for_asof.join_asof(
-        non_drawdown_sorted,
-        left_on="first_dd_idx",
-        right_on="row_idx",
-        strategy="backward",
-    ).filter(
-        # Ensure we found a valid peak (row_idx < first_dd_idx)
-        pl.col("row_idx").is_not_null() & (pl.col("row_idx") < pl.col("first_dd_idx"))
-    ).select([
-        "period_id",
-        pl.col("date").alias("peak_date"),
-        pl.col("wealth").alias("peak_wealth"),
-    ])
-
-    # Handle periods that start at the beginning (no row before first_dd_idx)
-    # These have no peak_date from the join, default to first_date with wealth=1.0
-    period_with_peak = period_with_idx.join(
-        peak_candidates,
-        on="period_id",
-        how="left",
-    ).with_columns([
-        pl.col("peak_date").fill_null(pl.lit(first_date)),
-        pl.col("peak_wealth").fill_null(1.0),
-    ])
-
-    # Find recovery dates: first non-drawdown row after last_dd_idx where wealth >= peak_wealth
-    # Use iterative approach over periods (small set) instead of O(M*N) cross join
-    # This is memory-efficient since periods are typically few (tens) vs many non-drawdown rows
-    recovery_dates: list[dict[str, object]] = []
-    for period_row in period_with_peak.iter_rows(named=True):
-        period_id = period_row["period_id"]
-        last_dd_idx = period_row["last_dd_idx"]
-        peak_wealth = period_row["peak_wealth"]
-
-        # Find first non-drawdown row after period where wealth recovered
-        recovery_df = non_drawdown_sorted.filter(
-            (pl.col("row_idx") > last_dd_idx)
-            & (pl.col("wealth") >= peak_wealth)
-        ).head(1)
-
-        if recovery_df.height > 0:
-            recovery_dates.append({
-                "period_id": period_id,
-                "recovery_date": recovery_df["date"].item(),
-            })
-
-    recovery_candidates = pl.DataFrame(recovery_dates) if recovery_dates else pl.DataFrame(schema={
-        "period_id": pl.Int64,
-        "recovery_date": pl.Date,
-    })
+    # Find recovery dates using helper
+    recovery_candidates = _find_recovery_dates(period_with_peak, non_drawdown_sorted)
 
     # Join recovery dates
     period_final = period_with_peak.join(

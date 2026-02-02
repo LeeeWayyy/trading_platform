@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - use schema dict for empty DataFrame -->
+<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - extract _find_peak_dates and _find_recovery_dates helpers -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
