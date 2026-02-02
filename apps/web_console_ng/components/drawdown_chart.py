@@ -381,9 +381,9 @@ def compute_drawdown_periods(
                 "recovery_date": recovery_df["date"].item(),
             })
 
-    recovery_candidates = pl.DataFrame(recovery_dates) if recovery_dates else pl.DataFrame({
-        "period_id": pl.Series([], dtype=pl.Int64),
-        "recovery_date": pl.Series([], dtype=pl.Date),
+    recovery_candidates = pl.DataFrame(recovery_dates) if recovery_dates else pl.DataFrame(schema={
+        "period_id": pl.Int64,
+        "recovery_date": pl.Date,
     })
 
     # Join recovery dates

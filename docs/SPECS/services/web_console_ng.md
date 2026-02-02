@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - replace cross join with iterative recovery date lookup -->
+<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - use schema dict for empty DataFrame -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
