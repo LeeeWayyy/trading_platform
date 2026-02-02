@@ -886,7 +886,10 @@ def test_filter_month_partitions_skips_paths_outside_data_root(
     )
 
     # Test the internal method directly with a path outside data_root
-    paths = ["../../../outside/202401.parquet", str(storage_path / "aggregates/1min_bars/202401.parquet")]
+    paths = [
+        "../../../outside/202401.parquet",
+        str(storage_path / "aggregates/1min_bars/202401.parquet"),
+    ]
     needed_months = {"202401"}
 
     with caplog.at_level(logging.WARNING):

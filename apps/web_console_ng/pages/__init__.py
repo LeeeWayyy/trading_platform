@@ -16,6 +16,7 @@ from apps.web_console_ng.pages import (
     admin,  # noqa: F401
     alerts,  # noqa: F401
     alpha_explorer,  # noqa: F401 - P5T8
+    attribution,  # noqa: F401 - P6T10
     backtest,  # noqa: F401
     circuit_breaker,  # noqa: F401
     compare,  # noqa: F401 - P5T8

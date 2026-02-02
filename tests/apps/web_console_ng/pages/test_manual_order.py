@@ -675,7 +675,9 @@ async def test_twap_disabled_for_stop_orders(
 
 
 @pytest.mark.asyncio()
-@pytest.mark.skip(reason="Async task scheduling in mocked NiceGUI context is complex; manual verification passed")
+@pytest.mark.skip(
+    reason="Async task scheduling in mocked NiceGUI context is complex; manual verification passed"
+)
 async def test_twap_preview_called_on_param_change(
     fake_ui: FakeUI,
     trading_client: MagicMock,
@@ -737,7 +739,9 @@ async def test_manual_order_submit_flow_success(
     order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
     side_select = _find_element(fake_ui.elements, kind="select", label="Side")
     tif_select = _find_element(fake_ui.elements, kind="select", label="Time in Force")
-    _limit_price_input = _find_element(fake_ui.elements, kind="number", label="Limit Price")  # noqa: F841
+    _limit_price_input = _find_element(
+        fake_ui.elements, kind="number", label="Limit Price"
+    )  # noqa: F841
     submit_btn = _find_element(fake_ui.elements, kind="button", text="Preview Order")
 
     symbol_input.value = "AAPL"
@@ -809,7 +813,9 @@ async def test_twap_submit_includes_execution_style(
 
 
 @pytest.mark.asyncio()
-@pytest.mark.skip(reason="Async TWAP preview validation in mocked NiceGUI context is complex; manual verification passed")
+@pytest.mark.skip(
+    reason="Async TWAP preview validation in mocked NiceGUI context is complex; manual verification passed"
+)
 async def test_twap_validation_errors_displayed(
     fake_ui: FakeUI,
     trading_client: MagicMock,
@@ -849,9 +855,7 @@ async def test_twap_validation_errors_displayed(
 
     await submit_btn._click_cb()
 
-    assert any(
-        "TWAP parameters invalid" in message for message, _ in fake_ui.notifications
-    )
+    assert any("TWAP parameters invalid" in message for message, _ in fake_ui.notifications)
     assert any("Order submitted:" in message for message, _ in fake_ui.notifications)
     assert symbol_input.value == ""
     assert qty_input.value == 0
@@ -969,7 +973,7 @@ async def test_kill_switch_cached_engaged_blocks_preview(
             break
 
     # Find the kill switch handler from subscriptions
-    for channel, handler in (realtime_instance.subscriptions if realtime_instance else []):
+    for channel, handler in realtime_instance.subscriptions if realtime_instance else []:
         if channel == "kill-switch":
             await handler({"state": "ENGAGED"})
             break
@@ -986,9 +990,7 @@ async def test_kill_switch_cached_engaged_blocks_preview(
 
     await submit_btn._click_cb()
 
-    assert any(
-        "Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications
-    )
+    assert any("Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -1031,9 +1033,7 @@ async def test_kill_switch_api_engaged_blocks_confirm(
 
     # Order should NOT have been submitted
     assert trading_client.submit_manual_order.await_count == 0
-    assert any(
-        "Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications
-    )
+    assert any("Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -1133,9 +1133,7 @@ async def test_kill_switch_http_error_blocks(
     confirm_btn = _find_element(fake_ui.elements, kind="button", text="Confirm")
     await confirm_btn._click_cb()
 
-    assert any(
-        "Cannot verify kill switch: HTTP 500" in msg for msg, _ in fake_ui.notifications
-    )
+    assert any("Cannot verify kill switch: HTTP 500" in msg for msg, _ in fake_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -1413,7 +1411,9 @@ async def test_stop_order_shows_stop_price_field(
     order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
     order_type_select._value_change_cb(FakeEvent("stop"))
 
-    containers = [e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None]
+    containers = [
+        e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None
+    ]
     assert containers
     assert containers[0].visible is False
     assert containers[1].visible is True
@@ -1439,7 +1439,9 @@ async def test_stop_limit_order_shows_both_price_fields(
     order_type_select = _find_element(fake_ui.elements, kind="select", label="Order Type")
     order_type_select._value_change_cb(FakeEvent("stop_limit"))
 
-    containers = [e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None]
+    containers = [
+        e for e in fake_ui.elements if e.kind == "column" and e.visibility_set is not None
+    ]
     assert containers
     assert containers[0].visible is True
     assert containers[1].visible is True
@@ -1557,7 +1559,9 @@ async def test_read_only_mode_blocks_preview(
         lambda: {"user_id": "u1", "role": "operator"},
     )
     monkeypatch.setattr(
-        manual_order_module, "app", SimpleNamespace(storage=SimpleNamespace(user={"read_only": True}, client={}))
+        manual_order_module,
+        "app",
+        SimpleNamespace(storage=SimpleNamespace(user={"read_only": True}, client={})),
     )
     client = SimpleNamespace(storage={})
 
@@ -1592,9 +1596,7 @@ async def test_read_only_mode_blocks_confirm(
         "get_current_user",
         lambda: {"user_id": "u1", "role": "operator"},
     )
-    monkeypatch.setattr(
-        manual_order_module, "app", SimpleNamespace(storage=app_storage)
-    )
+    monkeypatch.setattr(manual_order_module, "app", SimpleNamespace(storage=app_storage))
     client = SimpleNamespace(storage={})
 
     await _unwrap_page(manual_order_module.manual_order_page)(client)
@@ -1779,10 +1781,7 @@ async def test_order_submit_http_error_without_detail(
     await confirm_btn._click_cb()
 
     # Without error detail, should show generic message
-    assert any(
-        msg == "Order failed: HTTP 500"
-        for msg, _ in fake_ui.notifications
-    )
+    assert any(msg == "Order failed: HTTP 500" for msg, _ in fake_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -1934,9 +1933,7 @@ async def test_realtime_kill_switch_update_engaged(
 
     await submit_btn._click_cb()
 
-    assert any(
-        "Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications
-    )
+    assert any("Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -1989,9 +1986,7 @@ async def test_realtime_kill_switch_update_disengaged(
     await submit_btn._click_cb()
 
     # Should show preview dialog (no kill switch error)
-    assert not any(
-        "Kill Switch" in msg for msg, _ in fake_ui.notifications
-    )
+    assert not any("Kill Switch" in msg for msg, _ in fake_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -2031,9 +2026,7 @@ async def test_initial_kill_switch_check_failure(
 
     await submit_btn._click_cb()
 
-    assert any(
-        "Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications
-    )
+    assert any("Cannot submit: Kill Switch is ENGAGED" in msg for msg, _ in fake_ui.notifications)
 
 
 # ============================================================================

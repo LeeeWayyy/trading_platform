@@ -22,6 +22,13 @@ from .monte_carlo import (
 
 # Walk-forward optimization and parameter search utilities
 from .param_search import SearchResult, grid_search, random_search
+from .quantile_analysis import (
+    InsufficientDataError,
+    QuantileAnalysisConfig,
+    QuantileAnalyzer,
+    QuantileResult,
+    run_quantile_analysis,
+)
 from .result_storage import BacktestResultStorage
 
 # walk_forward depends on structlog; guard to keep lightweight test imports working
@@ -82,6 +89,12 @@ __all__ = [
     "MonteCarloConfig",
     "MonteCarloResult",
     "MonteCarloSimulator",
+    # Quantile Analysis (P6T10)
+    "InsufficientDataError",
+    "QuantileAnalysisConfig",
+    "QuantileAnalyzer",
+    "QuantileResult",
+    "run_quantile_analysis",
     # Walk-forward optimization
     "WalkForwardConfig",
     "WalkForwardOptimizer",

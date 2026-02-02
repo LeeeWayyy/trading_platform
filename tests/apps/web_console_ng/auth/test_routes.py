@@ -241,7 +241,11 @@ async def test_auth_callback_rate_limited_blocks(
     ui_spy: dict[str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = SimpleNamespace(headers={}, url=URL("http://testserver/auth/callback"), client=SimpleNamespace(host="1.2.3.4"))
+    request = SimpleNamespace(
+        headers={},
+        url=URL("http://testserver/auth/callback"),
+        client=SimpleNamespace(host="1.2.3.4"),
+    )
     mock_contextvar = SimpleNamespace(get=lambda: request)
     monkeypatch.setattr("nicegui.storage.request_contextvar", mock_contextvar)
     monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
@@ -266,7 +270,11 @@ async def test_auth_callback_rate_limiter_redis_error(
     ui_spy: dict[str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = SimpleNamespace(headers={}, url=URL("http://testserver/auth/callback"), client=SimpleNamespace(host="1.2.3.4"))
+    request = SimpleNamespace(
+        headers={},
+        url=URL("http://testserver/auth/callback"),
+        client=SimpleNamespace(host="1.2.3.4"),
+    )
     mock_contextvar = SimpleNamespace(get=lambda: request)
     monkeypatch.setattr("nicegui.storage.request_contextvar", mock_contextvar)
     monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")

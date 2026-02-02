@@ -92,9 +92,7 @@ class TestWatchlistInitialize:
         )
 
     @pytest.mark.asyncio()
-    async def test_initialize_default_symbols(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_initialize_default_symbols(self, component: WatchlistComponent) -> None:
         """Initialize with default symbols when none provided."""
         tracker = MagicMock()
 
@@ -108,9 +106,7 @@ class TestWatchlistInitialize:
         assert len(component._items) == 5
 
     @pytest.mark.asyncio()
-    async def test_initialize_custom_symbols(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_initialize_custom_symbols(self, component: WatchlistComponent) -> None:
         """Initialize with custom symbols."""
         tracker = MagicMock()
 
@@ -124,9 +120,7 @@ class TestWatchlistInitialize:
         assert len(component._items) == 2
 
     @pytest.mark.asyncio()
-    async def test_initialize_deduplicates_symbols(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_initialize_deduplicates_symbols(self, component: WatchlistComponent) -> None:
         """Initialize removes duplicate symbols."""
         tracker = MagicMock()
 
@@ -139,9 +133,7 @@ class TestWatchlistInitialize:
         assert "AAPL" in component._items
 
     @pytest.mark.asyncio()
-    async def test_initialize_skips_invalid_symbols(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_initialize_skips_invalid_symbols(self, component: WatchlistComponent) -> None:
         """Initialize skips invalid symbols."""
         tracker = MagicMock()
 
@@ -156,9 +148,7 @@ class TestWatchlistInitialize:
         assert len(component._items) == 2
 
     @pytest.mark.asyncio()
-    async def test_initialize_calls_subscribe_callback(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_initialize_calls_subscribe_callback(self, component: WatchlistComponent) -> None:
         """Initialize calls subscribe callback for each symbol."""
         tracker = MagicMock()
 
@@ -201,67 +191,56 @@ class TestWatchlistPriceData:
         comp._list_container = MagicMock()
         return comp
 
-    def test_set_price_data_updates_item(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_updates_item(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data updates the item."""
-        component.set_symbol_price_data("AAPL", {
-            "price": "150.50",
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_symbol_price_data(
+            "AAPL",
+            {
+                "price": "150.50",
+                "timestamp": "2024-01-01T12:00:00Z",
+            },
+        )
 
         item = component._items["AAPL"]
         assert item.last_price == Decimal("150.50")
         assert item.timestamp is not None
 
-    def test_set_price_data_rejects_non_dict(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_rejects_non_dict(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data rejects non-dict input."""
         component.set_symbol_price_data("AAPL", "invalid")  # type: ignore[arg-type]
 
         item = component._items["AAPL"]
         assert item.last_price is None
 
-    def test_set_price_data_ignores_unknown_symbol(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_ignores_unknown_symbol(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data ignores unknown symbols."""
         component.set_symbol_price_data("UNKNOWN", {"price": "100.00"})
 
         # No error, just ignored
         assert "UNKNOWN" not in component._items
 
-    def test_set_price_data_handles_invalid_price(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_handles_invalid_price(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data handles invalid price."""
         component.set_symbol_price_data("AAPL", {"price": "not-a-number"})
 
         item = component._items["AAPL"]
         assert item.last_price is None
 
-    def test_set_price_data_handles_nan_price(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_handles_nan_price(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data handles NaN price."""
         component.set_symbol_price_data("AAPL", {"price": "NaN"})
 
         item = component._items["AAPL"]
         assert item.last_price is None
 
-    def test_set_price_data_handles_negative_price(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_handles_negative_price(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data handles negative price."""
         component.set_symbol_price_data("AAPL", {"price": "-100"})
 
         item = component._items["AAPL"]
         assert item.last_price is None
 
-    def test_set_price_data_updates_sparkline(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_updates_sparkline(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data appends to sparkline."""
         for i in range(5):
             component.set_symbol_price_data("AAPL", {"price": str(100 + i)})
@@ -271,9 +250,7 @@ class TestWatchlistPriceData:
         assert item.sparkline_data[0] == 100.0
         assert item.sparkline_data[4] == 104.0
 
-    def test_set_price_data_limits_sparkline_points(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_limits_sparkline_points(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data limits sparkline to SPARKLINE_POINTS."""
         for i in range(30):
             component.set_symbol_price_data("AAPL", {"price": str(100 + i)})
@@ -293,14 +270,15 @@ class TestWatchlistPriceData:
         assert item.change == Decimal("5.00")
         assert item.change_pct == Decimal("5.00")
 
-    def test_set_price_data_parses_prev_close(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_parses_prev_close(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data parses prev_close from data."""
-        component.set_symbol_price_data("AAPL", {
-            "price": "105.00",
-            "prev_close": "100.00",
-        })
+        component.set_symbol_price_data(
+            "AAPL",
+            {
+                "price": "105.00",
+                "prev_close": "100.00",
+            },
+        )
 
         item = component._items["AAPL"]
         assert item.prev_close == Decimal("100.00")
@@ -311,18 +289,19 @@ class TestWatchlistPriceData:
         self, component: WatchlistComponent
     ) -> None:
         """set_symbol_price_data parses previous_close as alias."""
-        component.set_symbol_price_data("AAPL", {
-            "price": "110.00",
-            "previous_close": "100.00",
-        })
+        component.set_symbol_price_data(
+            "AAPL",
+            {
+                "price": "110.00",
+                "previous_close": "100.00",
+            },
+        )
 
         item = component._items["AAPL"]
         assert item.prev_close == Decimal("100.00")
         assert item.change == Decimal("10.00")
 
-    def test_set_price_data_ignores_when_disposed(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_set_price_data_ignores_when_disposed(self, component: WatchlistComponent) -> None:
         """set_symbol_price_data does nothing when disposed."""
         component._disposed = True
 
@@ -349,9 +328,7 @@ class TestWatchlistSelection:
         return comp
 
     @pytest.mark.asyncio()
-    async def test_select_symbol_updates_state(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_select_symbol_updates_state(self, component: WatchlistComponent) -> None:
         """_select_symbol updates selected_symbol."""
         with patch.object(component, "_render_items"):
             component._select_symbol("AAPL")
@@ -359,18 +336,14 @@ class TestWatchlistSelection:
         assert component._selected_symbol == "AAPL"
 
     @pytest.mark.asyncio()
-    async def test_select_symbol_creates_task(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_select_symbol_creates_task(self, component: WatchlistComponent) -> None:
         """_select_symbol creates async task for callback."""
         with patch.object(component, "_render_items"):
             component._select_symbol("AAPL")
 
         assert component._pending_selection_task is not None
 
-    def test_get_selected_symbol(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_get_selected_symbol(self, component: WatchlistComponent) -> None:
         """get_selected_symbol returns current selection."""
         assert component.get_selected_symbol() is None
 
@@ -394,17 +367,13 @@ class TestWatchlistGetters:
         comp._symbol_order = ["AAPL", "MSFT"]
         return comp
 
-    def test_get_symbols_returns_order(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_get_symbols_returns_order(self, component: WatchlistComponent) -> None:
         """get_symbols returns symbols in order."""
         symbols = component.get_symbols()
 
         assert symbols == ["AAPL", "MSFT"]
 
-    def test_get_symbols_returns_copy(
-        self, component: WatchlistComponent
-    ) -> None:
+    def test_get_symbols_returns_copy(self, component: WatchlistComponent) -> None:
         """get_symbols returns a copy, not the internal list."""
         symbols = component.get_symbols()
         symbols.append("TSLA")
@@ -425,18 +394,14 @@ class TestWatchlistDispose:
         return comp
 
     @pytest.mark.asyncio()
-    async def test_dispose_sets_disposed_flag(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_dispose_sets_disposed_flag(self, component: WatchlistComponent) -> None:
         """dispose() sets disposed flag."""
         await component.dispose()
 
         assert component._disposed is True
 
     @pytest.mark.asyncio()
-    async def test_dispose_clears_state(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_dispose_clears_state(self, component: WatchlistComponent) -> None:
         """dispose() clears internal state."""
         component._selected_symbol = "AAPL"
         component._pending_row_renders.add("AAPL")
@@ -451,10 +416,9 @@ class TestWatchlistDispose:
         assert component._last_row_render == {}
 
     @pytest.mark.asyncio()
-    async def test_dispose_cancels_pending_task(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_dispose_cancels_pending_task(self, component: WatchlistComponent) -> None:
         """dispose() cancels pending selection task."""
+
         # Create a real task that we can cancel
         async def never_finish() -> None:
             await asyncio.sleep(100)
@@ -468,9 +432,7 @@ class TestWatchlistDispose:
         assert task.cancelled()
 
     @pytest.mark.asyncio()
-    async def test_dispose_cancels_render_batch(
-        self, component: WatchlistComponent
-    ) -> None:
+    async def test_dispose_cancels_render_batch(self, component: WatchlistComponent) -> None:
         """dispose() cancels pending render batch."""
         mock_handle = MagicMock()
         component._render_batch_handle = mock_handle
@@ -479,4 +441,3 @@ class TestWatchlistDispose:
 
         mock_handle.cancel.assert_called_once()
         assert component._render_batch_handle is None
-

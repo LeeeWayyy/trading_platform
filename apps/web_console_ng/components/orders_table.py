@@ -321,6 +321,7 @@ def _prepare_orders_for_grid(
     current_ids = {order["client_order_id"] for order in valid_orders}
     return valid_orders, current_ids
 
+
 async def update_orders_table(
     grid: ui.aggrid,
     orders: list[dict[str, Any]],

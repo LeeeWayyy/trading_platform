@@ -84,9 +84,7 @@ class FlattenControls:
         self._validator = fat_finger_validator
         self._strategies = strategies
 
-    def _validate_price_timestamp(
-        self, raw_ts: object, strict_timestamp: bool
-    ) -> tuple[bool, str]:
+    def _validate_price_timestamp(self, raw_ts: object, strict_timestamp: bool) -> tuple[bool, str]:
         """Validate price timestamp for staleness.
 
         Args:
@@ -110,7 +108,10 @@ class FlattenControls:
             else:
                 # Non-string, non-datetime (e.g., int/float timestamp)
                 if strict_timestamp:
-                    return False, f"Price timestamp unrecognized type: {type(raw_ts).__name__} (FAIL-CLOSED)"
+                    return (
+                        False,
+                        f"Price timestamp unrecognized type: {type(raw_ts).__name__} (FAIL-CLOSED)",
+                    )
                 return True, ""  # FAIL_OPEN: proceed with unrecognized format
 
             if ts and isinstance(ts, datetime):
@@ -169,9 +170,7 @@ class FlattenControls:
                 return price_val, ""
             return None, "No price data available for symbol"
         except Exception as exc:
-            logger.warning(
-                "price_fetch_failed", extra={"symbol": symbol, "error": str(exc)}
-            )
+            logger.warning("price_fetch_failed", extra={"symbol": symbol, "error": str(exc)})
             return None, f"Price fetch failed: {exc}"
 
     async def _get_adv(self, symbol: str, user_id: str, user_role: str) -> int | None:
@@ -256,9 +255,7 @@ class FlattenControls:
 
             # Cancel orders with valid IDs
             cancellable = [
-                o
-                for o in all_symbol_orders
-                if is_cancellable_order_id(o.get("client_order_id"))
+                o for o in all_symbol_orders if is_cancellable_order_id(o.get("client_order_id"))
             ]
 
             # Cancel orders concurrently with bounded concurrency (avoids overwhelming backend)
@@ -297,9 +294,7 @@ class FlattenControls:
 
             return cancelled, failed, len(uncancellable), False
         except Exception as exc:
-            logger.warning(
-                "cancel_orders_failed", extra={"symbol": symbol, "error": str(exc)}
-            )
+            logger.warning("cancel_orders_failed", extra={"symbol": symbol, "error": str(exc)})
             return 0, 0, 0, True  # had_fetch_error = True
 
     async def _verify_orders_cleared(
@@ -583,11 +578,7 @@ class FlattenControls:
                 return
 
             open_order_count = len(
-                [
-                    o
-                    for o in all_symbol_orders
-                    if is_cancellable_order_id(o.get("client_order_id"))
-                ]
+                [o for o in all_symbol_orders if is_cancellable_order_id(o.get("client_order_id"))]
             )
         except Exception as fetch_exc:
             ui.notify(
@@ -613,9 +604,7 @@ class FlattenControls:
             symbol=symbol, qty=abs(validated_qty), price=price, adv=adv
         )
         if validation.blocked:
-            ui.notify(
-                f"Reverse blocked: {validation.warnings[0].message}", type="negative"
-            )
+            ui.notify(f"Reverse blocked: {validation.warnings[0].message}", type="negative")
             return
 
         # Double-submit protection
@@ -638,14 +627,14 @@ class FlattenControls:
                     cached_connection_state=cached_connection_state,
                 )
                 if not confirm_result.allowed:
-                    ui.notify(
-                        f"Reverse blocked: {confirm_result.reason}", type="negative"
-                    )
+                    ui.notify(f"Reverse blocked: {confirm_result.reason}", type="negative")
                     return
 
                 # Step 0: Cancel open orders (FAIL_CLOSED: block on any error or uncertainty)
-                cancelled, failed, uncancellable, had_fetch_error = await self._cancel_symbol_orders(
-                    symbol, user_id, user_role, "Reverse position - pre-cancel"
+                cancelled, failed, uncancellable, had_fetch_error = (
+                    await self._cancel_symbol_orders(
+                        symbol, user_id, user_role, "Reverse position - pre-cancel"
+                    )
                 )
 
                 # FAIL_CLOSED: Block on fetch error - can't verify no working orders
@@ -672,9 +661,7 @@ class FlattenControls:
                     return
 
                 if cancelled > 0:
-                    ui.notify(
-                        f"Cancelled {cancelled} order(s) for {symbol}", type="info"
-                    )
+                    ui.notify(f"Cancelled {cancelled} order(s) for {symbol}", type="info")
 
                 # Step 0a: Verify all orders cleared (FAIL_CLOSED: must confirm no working orders)
                 # Cancel is async - orders can still fill during close/poll window if we don't verify
@@ -697,7 +684,11 @@ class FlattenControls:
                     )
                     positions_list = positions_resp.get("positions", [])
                     current_pos = next(
-                        (p for p in positions_list if p.get("symbol", "").upper() == symbol.upper()),
+                        (
+                            p
+                            for p in positions_list
+                            if p.get("symbol", "").upper() == symbol.upper()
+                        ),
                         None,
                     )
                     if current_pos:
@@ -707,7 +698,9 @@ class FlattenControls:
                             qty_float = float(qty_raw)
                             raw_qty = int(qty_float)
                         except (ValueError, TypeError) as e:
-                            raise ValueError(f"Unparseable position qty from API: {qty_raw!r}") from e
+                            raise ValueError(
+                                f"Unparseable position qty from API: {qty_raw!r}"
+                            ) from e
                         authoritative_qty = abs(raw_qty)
                         # FAIL_CLOSED: Block reverse if fractional shares detected
                         # Fractional positions can't be fully closed with integer qty,
@@ -807,7 +800,9 @@ class FlattenControls:
                 start_time = datetime.now(UTC)
                 confirmed_flat = False
                 consecutive_flat_polls = 0  # Require 2 consecutive confirmations for safety
-                while (datetime.now(UTC) - start_time).total_seconds() < CLOSE_CONFIRMATION_TIMEOUT_S:
+                while (
+                    datetime.now(UTC) - start_time
+                ).total_seconds() < CLOSE_CONFIRMATION_TIMEOUT_S:
                     try:
                         positions_resp = await self._client.fetch_positions(
                             user_id, role=user_role, strategies=self._strategies
@@ -940,9 +935,7 @@ class FlattenControls:
                     dialog.close()
                     await execute_reverse()
 
-                ui.button("Reverse", on_click=on_confirm).classes(
-                    "bg-orange-600 text-white"
-                )
+                ui.button("Reverse", on_click=on_confirm).classes("bg-orange-600 text-white")
                 ui.button("Cancel", on_click=dialog.close)
 
         dialog.open()

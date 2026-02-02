@@ -159,9 +159,7 @@ class ManualOrderRequest(BaseModel):
             return self
 
         if self.order_type not in ("market", "limit"):
-            raise ValueError(
-                "TWAP execution only supports market or limit order types"
-            )
+            raise ValueError("TWAP execution only supports market or limit order types")
 
         if self.time_in_force != "day":
             raise ValueError("TWAP execution only supports time_in_force=day")
@@ -172,9 +170,7 @@ class ManualOrderRequest(BaseModel):
             raise ValueError("twap_interval_seconds required for TWAP orders")
 
         if not (
-            TWAP_MIN_DURATION_MINUTES
-            <= self.twap_duration_minutes
-            <= TWAP_MAX_DURATION_MINUTES
+            TWAP_MIN_DURATION_MINUTES <= self.twap_duration_minutes <= TWAP_MAX_DURATION_MINUTES
         ):
             raise ValueError(
                 f"twap_duration_minutes must be between {TWAP_MIN_DURATION_MINUTES} "
@@ -182,9 +178,7 @@ class ManualOrderRequest(BaseModel):
             )
 
         if not (
-            TWAP_MIN_INTERVAL_SECONDS
-            <= self.twap_interval_seconds
-            <= TWAP_MAX_INTERVAL_SECONDS
+            TWAP_MIN_INTERVAL_SECONDS <= self.twap_interval_seconds <= TWAP_MAX_INTERVAL_SECONDS
         ):
             raise ValueError(
                 f"twap_interval_seconds must be between {TWAP_MIN_INTERVAL_SECONDS} "

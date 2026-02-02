@@ -97,9 +97,7 @@ class CostModelConfig:
         if not math.isfinite(self.portfolio_value_usd):
             raise ValueError(f"portfolio_value_usd must be finite, got {self.portfolio_value_usd}")
         if self.portfolio_value_usd <= 0:
-            raise ValueError(
-                f"portfolio_value_usd must be > 0, got {self.portfolio_value_usd}"
-            )
+            raise ValueError(f"portfolio_value_usd must be > 0, got {self.portfolio_value_usd}")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
@@ -440,16 +438,18 @@ def _compute_daily_costs_generic(
         - Volatility fallback count (0 if use_fallbacks=False)
         - Participation violation count (0 if use_fallbacks=False)
     """
-    empty_trades_df = pl.DataFrame(schema={
-        "date": pl.Date,
-        identifier_col: pl.Utf8,
-        "trade_value_usd": pl.Float64,
-        "commission_spread_usd": pl.Float64,
-        "market_impact_usd": pl.Float64,
-        "total_cost_usd": pl.Float64,
-        "adv_usd": pl.Float64,
-        "volatility": pl.Float64,
-    })
+    empty_trades_df = pl.DataFrame(
+        schema={
+            "date": pl.Date,
+            identifier_col: pl.Utf8,
+            "trade_value_usd": pl.Float64,
+            "commission_spread_usd": pl.Float64,
+            "market_impact_usd": pl.Float64,
+            "total_cost_usd": pl.Float64,
+            "adv_usd": pl.Float64,
+            "volatility": pl.Float64,
+        }
+    )
     if not config.enabled:
         dates = daily_weights.select("date").unique().sort("date")
         return dates.with_columns(pl.lit(0.0).alias("cost_drag")), [], empty_trades_df, 0, 0, 0
@@ -489,8 +489,9 @@ def _compute_daily_costs_generic(
     # Compute weight changes (turnover), filling null from shift with 0.0 for the first day
     # This assumes starting from cash (zero weight), so first day's change equals the full weight
     weight_changes = daily_weights_filled.with_columns(
-        (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col).fill_null(0.0))
-        .alias("weight_change")
+        (pl.col("weight") - pl.col("weight").shift(1).over(identifier_col).fill_null(0.0)).alias(
+            "weight_change"
+        )
     )
 
     # Trade value = |weight_change| * portfolio_value
@@ -514,10 +515,16 @@ def _compute_daily_costs_generic(
     trades = trades.with_columns(
         used_adv_fallback=pl.when(
             pl.col("adv_usd").is_null() | ~pl.col("adv_usd").is_finite() | (pl.col("adv_usd") <= 0)
-        ).then(True).otherwise(False),
+        )
+        .then(True)
+        .otherwise(False),
         used_vol_fallback=pl.when(
-            pl.col("volatility").is_null() | ~pl.col("volatility").is_finite() | (pl.col("volatility") <= 0)
-        ).then(True).otherwise(False),
+            pl.col("volatility").is_null()
+            | ~pl.col("volatility").is_finite()
+            | (pl.col("volatility") <= 0)
+        )
+        .then(True)
+        .otherwise(False),
     )
 
     # Step 2: Apply fallbacks using vectorized expressions
@@ -576,7 +583,12 @@ def _compute_daily_costs_generic(
             & pl.col("participation_pct").is_not_null()
             & (pl.col("participation_pct") > 0)
         )
-        .then(config.impact_coefficient * pl.col("volatility") * 10000 * pl.col("participation_pct").sqrt())
+        .then(
+            config.impact_coefficient
+            * pl.col("volatility")
+            * 10000
+            * pl.col("participation_pct").sqrt()
+        )
         .otherwise(0.0),
     )
     trades = trades.with_columns(
@@ -611,9 +623,13 @@ def _compute_daily_costs_generic(
     )
 
     # Convert to cost drag (fraction of AUM) using vectorized operations
-    cost_drag_df = daily_costs_df.with_columns(
-        (pl.col("daily_cost_usd") / config.portfolio_value_usd).alias("cost_drag")
-    ).select(["date", "cost_drag"]).sort("date")
+    cost_drag_df = (
+        daily_costs_df.with_columns(
+            (pl.col("daily_cost_usd") / config.portfolio_value_usd).alias("cost_drag")
+        )
+        .select(["date", "cost_drag"])
+        .sort("date")
+    )
 
     # Ensure all dates from daily_weights are included
     all_dates = daily_weights.select("date").unique().sort("date")
@@ -621,7 +637,14 @@ def _compute_daily_costs_generic(
         pl.col("cost_drag").fill_null(0.0)
     )
 
-    return cost_drag_df, trade_costs, trades, adv_fallback_count, vol_fallback_count, participation_violations
+    return (
+        cost_drag_df,
+        trade_costs,
+        trades,
+        adv_fallback_count,
+        vol_fallback_count,
+        participation_violations,
+    )
 
 
 def compute_daily_costs(
@@ -677,9 +700,7 @@ def compute_net_returns(
     # This is critical for correct max drawdown calculation downstream
     result = gross_returns.join(cost_drag, on="date", how="left", maintain_order="left")
     result = result.with_columns(pl.col("cost_drag").fill_null(0.0))
-    result = result.with_columns(
-        (pl.col("return") - pl.col("cost_drag")).alias("net_return")
-    )
+    result = result.with_columns((pl.col("return") - pl.col("cost_drag")).alias("net_return"))
     result = result.rename({"return": "gross_return"})
     # Sort by date for safety (ensures chronological order even if input wasn't sorted)
     return result.select(["date", "gross_return", "cost_drag", "net_return"]).sort("date")
@@ -911,13 +932,17 @@ def compute_capacity_analysis(
                 pl.when(pl.col("adv_usd").is_not_null() & pl.col("adv_usd").is_finite())
                 .then(pl.col("trade_value_usd") * pl.col("adv_usd"))
                 .otherwise(0.0)
-            ).sum().alias("weighted_adv"),
+            )
+            .sum()
+            .alias("weighted_adv"),
             # Weighted volatility: sum(trade_value * volatility) for valid volatility
             (
                 pl.when(pl.col("volatility").is_not_null() & pl.col("volatility").is_finite())
                 .then(pl.col("trade_value_usd") * pl.col("volatility"))
                 .otherwise(0.0)
-            ).sum().alias("weighted_sigma"),
+            )
+            .sum()
+            .alias("weighted_sigma"),
         ).row(0, named=True)
 
         total_trade_value = weighted_agg["total_trade_value"] or 0.0
@@ -946,7 +971,9 @@ def compute_capacity_analysis(
 
     # Capacity constraints
     impact_aum_5bps = _compute_impact_aum(5.0, portfolio_adv, portfolio_sigma, avg_turnover, config)
-    impact_aum_10bps = _compute_impact_aum(10.0, portfolio_adv, portfolio_sigma, avg_turnover, config)
+    impact_aum_10bps = _compute_impact_aum(
+        10.0, portfolio_adv, portfolio_sigma, avg_turnover, config
+    )
     participation_aum = _compute_participation_aum(
         portfolio_adv, avg_turnover, config.participation_limit
     )
@@ -1010,7 +1037,9 @@ def _compute_impact_aum(
     # sqrt(trade / ADV) = target_bps / (eta * sigma * 10000)
     # trade / ADV = (target_bps / (eta * sigma * 10000))^2
     # trade = ADV * (target_bps / (eta * sigma * 10000))^2
-    participation_at_target = (target_impact_bps / (config.impact_coefficient * portfolio_sigma * 10000)) ** 2
+    participation_at_target = (
+        target_impact_bps / (config.impact_coefficient * portfolio_sigma * 10000)
+    ) ** 2
     trade_at_target = portfolio_adv * participation_at_target
 
     # Convert trade size to AUM: AUM = trade / avg_turnover
@@ -1047,7 +1076,11 @@ def _compute_breakeven_aum(
     Cost_drag = (bps_per_trade + impact_bps) * turnover * 252 / 10000
     Impact depends on sqrt(AUM * turnover / ADV)
     """
-    if gross_alpha_annual is None or gross_alpha_annual <= 0 or not math.isfinite(gross_alpha_annual):
+    if (
+        gross_alpha_annual is None
+        or gross_alpha_annual <= 0
+        or not math.isfinite(gross_alpha_annual)
+    ):
         return None
     if portfolio_adv is None or portfolio_adv <= 0 or not math.isfinite(portfolio_adv):
         return None
@@ -1159,9 +1192,9 @@ def compute_rolling_adv_volatility(
     )
 
     # Filter to requested date range
-    result = df.filter(
-        (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-    ).select(["permno", "date", "adv_usd", "volatility"])
+    result = df.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date)).select(
+        ["permno", "date", "adv_usd", "volatility"]
+    )
 
     return result
 

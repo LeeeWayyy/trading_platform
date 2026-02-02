@@ -1135,9 +1135,7 @@ class TestSyncAggregatePartition:
         # Should still succeed despite new column
         assert manifest is not None
 
-    def test_sync_aggregate_partition_breaking_schema_drift(
-        self, monkeypatch, storage_manager
-    ):
+    def test_sync_aggregate_partition_breaking_schema_drift(self, monkeypatch, storage_manager):
         """Test sync raises error on breaking schema drift."""
         from libs.data.data_quality.exceptions import SchemaError
 
@@ -1188,9 +1186,7 @@ class TestSyncAggregatePartition:
 class TestSyncSampleSymbol:
     """Tests for _sync_sample_symbol."""
 
-    def test_sync_sample_symbol_breaking_schema_drift(
-        self, monkeypatch, storage_manager
-    ):
+    def test_sync_sample_symbol_breaking_schema_drift(self, monkeypatch, storage_manager):
         """Test sync_samples raises error on breaking schema drift."""
         from libs.data.data_quality.exceptions import SchemaError
 
@@ -1234,9 +1230,7 @@ class TestSyncSampleSymbol:
                 symbols=["AAPL"],
             )
 
-    def test_sync_sample_symbol_with_additions(
-        self, monkeypatch, storage_manager
-    ):
+    def test_sync_sample_symbol_with_additions(self, monkeypatch, storage_manager):
         """Test sync_samples handles schema with additions."""
         register_taq_schemas(storage_manager.schema_registry)
 
@@ -1271,9 +1265,7 @@ class TestSyncSampleSymbol:
 class TestIncrementalSync:
     """Tests for incremental sync functionality."""
 
-    def test_sync_aggregates_incremental_with_existing_manifest(
-        self, monkeypatch, storage_manager
-    ):
+    def test_sync_aggregates_incremental_with_existing_manifest(self, monkeypatch, storage_manager):
         """Test incremental sync uses existing manifest data."""
         register_taq_schemas(storage_manager.schema_registry)
 

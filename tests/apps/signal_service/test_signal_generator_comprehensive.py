@@ -291,8 +291,12 @@ class TestSignalGeneration:
         # Without overlap, weights should sum to 1.0 and -1.0
         assert len(long_weights) == 2, f"Expected 2 longs, got {len(long_weights)}"
         assert len(short_weights) == 2, f"Expected 2 shorts, got {len(short_weights)}"
-        assert np.isclose(long_weights.sum(), 1.0, atol=1e-6), f"Long weights sum: {long_weights.sum()}"
-        assert np.isclose(short_weights.sum(), -1.0, atol=1e-6), f"Short weights sum: {short_weights.sum()}"
+        assert np.isclose(
+            long_weights.sum(), 1.0, atol=1e-6
+        ), f"Long weights sum: {long_weights.sum()}"
+        assert np.isclose(
+            short_weights.sum(), -1.0, atol=1e-6
+        ), f"Short weights sum: {short_weights.sum()}"
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_generate_signals_with_no_features_raises_error(
@@ -1111,7 +1115,13 @@ class TestEdgeCases:
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_overlap_logs_warning(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features, caplog
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        sample_features,
+        caplog,
     ):
         """Test that overlap scales weights to maintain market neutrality."""
         import logging
@@ -1134,7 +1144,9 @@ class TestEdgeCases:
         assert len(overlap_warnings) > 0, "Expected overlap warning to be logged"
 
         # Verify short positions reduced warning was logged
-        reduced_warnings = [r for r in caplog.records if "short positions reduced" in r.message.lower()]
+        reduced_warnings = [
+            r for r in caplog.records if "short positions reduced" in r.message.lower()
+        ]
         assert len(reduced_warnings) > 0, "Expected short positions reduced warning"
 
         # Verify market neutrality: long + short weights should sum to 0 (net exposure)
@@ -1148,12 +1160,19 @@ class TestEdgeCases:
         short_positions = signals[signals["target_weight"] < 0]
         assert len(short_positions) == 1, "Should have 1 short after overlap removal"
         actual_short_weight = abs(short_positions["target_weight"].iloc[0])
-        assert actual_short_weight <= max_short_per_position + 0.01, \
-            f"Short weight should be capped at {max_short_per_position}, got {actual_short_weight}"
+        assert (
+            actual_short_weight <= max_short_per_position + 0.01
+        ), f"Short weight should be capped at {max_short_per_position}, got {actual_short_weight}"
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_overlap_zeros_weights_when_all_shorts_removed(
-        self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features, caplog
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        sample_features,
+        caplog,
     ):
         """Test that when overlap removes ALL shorts, weights are zeroed for safety."""
         import logging
@@ -1161,7 +1180,9 @@ class TestEdgeCases:
         # Only 2 symbols with top_n=2, bottom_n=2
         # This will cause complete overlap and should zero all weights
         # sample_features has MultiIndex with (datetime, instrument), filter by instrument level
-        two_symbol_mask = sample_features.index.get_level_values("instrument").isin(["AAPL", "MSFT"])
+        two_symbol_mask = sample_features.index.get_level_values("instrument").isin(
+            ["AAPL", "MSFT"]
+        )
         two_symbol_features = sample_features.loc[two_symbol_mask]
         mock_get_features.return_value = two_symbol_features
 
@@ -1174,8 +1195,12 @@ class TestEdgeCases:
             )
 
         # Verify market neutrality violation error was logged
-        error_logs = [r for r in caplog.records if "market neutrality violated" in r.message.lower()]
+        error_logs = [
+            r for r in caplog.records if "market neutrality violated" in r.message.lower()
+        ]
         assert len(error_logs) > 0, "Expected market neutrality violation error to be logged"
 
         # Verify all weights are zero (safety fallback)
-        assert (signals["target_weight"] == 0.0).all(), "All weights should be zero when neutrality cannot be maintained"
+        assert (
+            signals["target_weight"] == 0.0
+        ).all(), "All weights should be zero when neutrality cannot be maintained"

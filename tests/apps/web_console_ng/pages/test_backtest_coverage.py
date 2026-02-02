@@ -363,12 +363,8 @@ async def test_download_signals_csv_no_export_permission(
         backtest_id="b1",
         daily_prices=prices_df,
         daily_signals=signals_df,
-        daily_returns=pl.DataFrame(
-            {"permno": [1], "date": [date(2025, 1, 1)], "return": [0.01]}
-        ),
-        daily_weights=pl.DataFrame(
-            {"permno": [1], "date": [date(2025, 1, 1)], "weight": [0.5]}
-        ),
+        daily_returns=pl.DataFrame({"permno": [1], "date": [date(2025, 1, 1)], "return": [0.01]}),
+        daily_weights=pl.DataFrame({"permno": [1], "date": [date(2025, 1, 1)], "weight": [0.5]}),
     )
 
     # User lacks EXPORT_DATA permission
@@ -406,12 +402,8 @@ async def test_download_signals_csv_no_events(
         backtest_id="b1",
         daily_prices=prices_df,
         daily_signals=signals_df,
-        daily_returns=pl.DataFrame(
-            {"permno": [1], "date": [date(2025, 1, 1)], "return": [0.0]}
-        ),
-        daily_weights=pl.DataFrame(
-            {"permno": [1], "date": [date(2025, 1, 1)], "weight": [0.5]}
-        ),
+        daily_returns=pl.DataFrame({"permno": [1], "date": [date(2025, 1, 1)], "return": [0.0]}),
+        daily_weights=pl.DataFrame({"permno": [1], "date": [date(2025, 1, 1)], "weight": [0.5]}),
     )
 
     monkeypatch.setattr(backtest_module, "has_permission", lambda user, perm: True)
@@ -928,9 +920,7 @@ async def test_render_backtest_results_with_failed_and_cancelled_jobs(
 
 
 @pytest.mark.asyncio()
-async def test_cancel_job_success(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_cancel_job_success(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test successful job cancellation."""
     jobs = [
         {
@@ -1047,9 +1037,7 @@ async def test_cancel_job_connection_error(
 
 
 @pytest.mark.asyncio()
-async def test_cancel_job_value_error(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_cancel_job_value_error(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test job cancellation handles value errors."""
     jobs = [
         {

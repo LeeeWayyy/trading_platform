@@ -103,10 +103,12 @@ class TestCostModelConfig:
 
     def test_from_dict_handles_none_with_defaults(self):
         """Test from_dict uses defaults when values are None."""
-        config = CostModelConfig.from_dict({
-            "bps_per_trade": None,
-            "impact_coefficient": None,
-        })
+        config = CostModelConfig.from_dict(
+            {
+                "bps_per_trade": None,
+                "impact_coefficient": None,
+            }
+        )
         assert config.bps_per_trade == 5.0  # default
         assert config.impact_coefficient == 0.1  # default
 
@@ -356,9 +358,7 @@ class TestComputeDailyCosts:
             {"date": pl.Date, "symbol": pl.Utf8, "volatility": pl.Float64}
         )
 
-        cost_drag_df, trade_costs = compute_daily_costs(
-            daily_weights, adv_data, vol_data, config
-        )
+        cost_drag_df, trade_costs = compute_daily_costs(daily_weights, adv_data, vol_data, config)
 
         assert len(trade_costs) == 2  # Day 1 and Day 3
         assert cost_drag_df.height == 3
@@ -392,9 +392,7 @@ class TestComputeDailyCosts:
             {"date": pl.Date, "symbol": pl.Utf8, "volatility": pl.Float64}
         )
 
-        cost_drag_df, trade_costs = compute_daily_costs(
-            daily_weights, adv_data, vol_data, config
-        )
+        cost_drag_df, trade_costs = compute_daily_costs(daily_weights, adv_data, vol_data, config)
 
         assert len(trade_costs) == 0
         assert cost_drag_df["cost_drag"].sum() == 0.0
@@ -693,16 +691,18 @@ class TestComputeCapacityAnalysis:
         )
 
         # Empty trades DataFrame
-        empty_trades_df = pl.DataFrame(schema={
-            "date": pl.Date,
-            "symbol": pl.Utf8,
-            "trade_value_usd": pl.Float64,
-            "commission_spread_usd": pl.Float64,
-            "market_impact_usd": pl.Float64,
-            "total_cost_usd": pl.Float64,
-            "adv_usd": pl.Float64,
-            "volatility": pl.Float64,
-        })
+        empty_trades_df = pl.DataFrame(
+            schema={
+                "date": pl.Date,
+                "symbol": pl.Utf8,
+                "trade_value_usd": pl.Float64,
+                "commission_spread_usd": pl.Float64,
+                "market_impact_usd": pl.Float64,
+                "total_cost_usd": pl.Float64,
+                "adv_usd": pl.Float64,
+                "volatility": pl.Float64,
+            }
+        )
 
         analysis = compute_capacity_analysis(daily_weights, empty_trades_df, cost_summary, config)
 
@@ -803,9 +803,7 @@ class TestComputeDailyCostsEdgeCases:
             {"date": pl.Date, "symbol": pl.Utf8, "volatility": pl.Float64}
         )
 
-        cost_drag_df, trade_costs = compute_daily_costs(
-            daily_weights, adv_data, vol_data, config
-        )
+        cost_drag_df, trade_costs = compute_daily_costs(daily_weights, adv_data, vol_data, config)
 
         assert len(trade_costs) == 0
         assert cost_drag_df.height == 3
@@ -859,9 +857,7 @@ class TestComputeDailyCostsEdgeCases:
             }
         )
 
-        cost_drag_df, trade_costs = compute_daily_costs(
-            daily_weights, adv_data, vol_data, config
-        )
+        cost_drag_df, trade_costs = compute_daily_costs(daily_weights, adv_data, vol_data, config)
 
         # Filter trade costs for AAPL to verify exit/re-entry are captured
         aapl_trades = [tc for tc in trade_costs if tc.identifier == "AAPL"]

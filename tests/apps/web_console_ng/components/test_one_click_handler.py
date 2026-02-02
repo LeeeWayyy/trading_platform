@@ -52,9 +52,7 @@ def create_mock_handler(
     mock_state_manager.restore_state = AsyncMock(
         return_value={
             "preferences": {
-                f"one_click_notional_{datetime.now(UTC).strftime('%Y-%m-%d')}": str(
-                    daily_notional
-                )
+                f"one_click_notional_{datetime.now(UTC).strftime('%Y-%m-%d')}": str(daily_notional)
             }
         }
     )
@@ -78,9 +76,7 @@ def create_mock_handler(
         handler.set_cached_prices(cached_prices)
     else:
         # Default fresh price for AAPL
-        handler.set_cached_prices(
-            {"AAPL": (Decimal("150.00"), datetime.now(UTC))}
-        )
+        handler.set_cached_prices({"AAPL": (Decimal("150.00"), datetime.now(UTC))})
 
     # Set cached safety state (good state)
     handler.set_cached_safety_state(
@@ -466,16 +462,12 @@ class TestOnAltClick:
         ]
 
         with patch("apps.web_console_ng.components.one_click_handler.ui") as mock_ui:
-            await handler.on_alt_click(
-                "AAPL", Decimal("150.00"), working_orders, is_read_only=True
-            )
+            await handler.on_alt_click("AAPL", Decimal("150.00"), working_orders, is_read_only=True)
 
             # Should still cancel (fail-open for risk-reducing)
             mock_client.cancel_order.assert_called_once()
             # Should have warning about connection
-            warning_calls = [
-                c for c in mock_ui.notify.call_args_list if "warning" in str(c)
-            ]
+            warning_calls = [c for c in mock_ui.notify.call_args_list if "warning" in str(c)]
             assert len(warning_calls) > 0
 
     @pytest.mark.asyncio()
@@ -579,9 +571,7 @@ class TestConnectionStateCaseSensitivity:
             # is_read_only should be True with "disconnected"
             mock_client.cancel_order.assert_called_once()
             # Should show warning for disconnected state
-            warning_calls = [
-                c for c in mock_ui.notify.call_args_list if "warning" in str(c)
-            ]
+            warning_calls = [c for c in mock_ui.notify.call_args_list if "warning" in str(c)]
             assert len(warning_calls) > 0
 
     @pytest.mark.asyncio()
@@ -610,9 +600,7 @@ class TestConnectionStateCaseSensitivity:
             # Should still cancel (risk-reducing action)
             mock_client.cancel_order.assert_called_once()
             # Should show warning about unknown connection
-            warning_calls = [
-                c for c in mock_ui.notify.call_args_list if "warning" in str(c)
-            ]
+            warning_calls = [c for c in mock_ui.notify.call_args_list if "warning" in str(c)]
             assert len(warning_calls) > 0
             # Check the warning mentions unknown
             warning_msg = str(mock_ui.notify.call_args_list[0])
@@ -730,9 +718,7 @@ class TestFirstUseConfirmation:
         """First use requires confirmation dialog."""
         handler, mock_client, *_ = create_mock_handler(session_confirmed=False)
 
-        with patch(
-            "apps.web_console_ng.components.one_click_handler.ui"
-        ) as mock_ui:
+        with patch("apps.web_console_ng.components.one_click_handler.ui") as mock_ui:
             # Mock dialog to not confirm
             mock_dialog = MagicMock()
             mock_dialog.__enter__ = MagicMock(return_value=mock_dialog)
@@ -840,9 +826,7 @@ class TestHandleOneClick:
         """Missing symbol logs warning."""
         handler, mock_client, *_ = create_mock_handler()
 
-        with patch(
-            "apps.web_console_ng.components.one_click_handler.logger"
-        ) as mock_logger:
+        with patch("apps.web_console_ng.components.one_click_handler.logger") as mock_logger:
             await handler.handle_one_click({"mode": "shift_limit", "price": "150.00"})
 
             mock_logger.warning.assert_called()
@@ -872,9 +856,7 @@ class TestHandleOneClick:
         """Unknown mode logs warning."""
         handler, mock_client, *_ = create_mock_handler()
 
-        with patch(
-            "apps.web_console_ng.components.one_click_handler.logger"
-        ) as mock_logger:
+        with patch("apps.web_console_ng.components.one_click_handler.logger") as mock_logger:
             await handler.handle_one_click({"mode": "unknown", "symbol": "AAPL"})
 
             mock_logger.warning.assert_called()
@@ -891,9 +873,7 @@ class TestAuditLog:
 
         with (
             patch("apps.web_console_ng.components.one_click_handler.ui"),
-            patch(
-                "apps.web_console_ng.components.one_click_handler.logger"
-            ) as mock_logger,
+            patch("apps.web_console_ng.components.one_click_handler.logger") as mock_logger,
         ):
             await handler.on_shift_click("AAPL", Decimal("150.00"), "buy")
 

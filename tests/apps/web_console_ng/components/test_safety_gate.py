@@ -463,9 +463,7 @@ class TestSafetyGateCheckWithApiVerification:
         self, gate: SafetyGate, mock_client: AsyncMock
     ) -> None:
         """FAIL_CLOSED should block on network errors."""
-        mock_client.fetch_kill_switch_status.side_effect = httpx.RequestError(
-            "Connection refused"
-        )
+        mock_client.fetch_kill_switch_status.side_effect = httpx.RequestError("Connection refused")
         result = await gate.check_with_api_verification(
             policy=SafetyPolicy.FAIL_CLOSED,
             cached_connection_state="CONNECTED",
@@ -560,9 +558,7 @@ class TestSafetyGateCheckWithApiVerification:
         self, gate: SafetyGate, mock_client: AsyncMock
     ) -> None:
         """FAIL_OPEN should warn but allow on network errors (risk-reducing)."""
-        mock_client.fetch_kill_switch_status.side_effect = httpx.RequestError(
-            "Connection refused"
-        )
+        mock_client.fetch_kill_switch_status.side_effect = httpx.RequestError("Connection refused")
         result = await gate.check_with_api_verification(
             policy=SafetyPolicy.FAIL_OPEN,
             cached_connection_state="CONNECTED",

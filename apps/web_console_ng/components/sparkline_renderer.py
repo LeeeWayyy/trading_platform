@@ -57,11 +57,11 @@ def create_sparkline_svg(
     color = "var(--profit)" if trend_up else "var(--loss)"
 
     return (
-        f"<svg class=\"sparkline\" width=\"{width}\" height=\"{height}\" "
-        f"viewBox=\"0 0 {width} {height}\" "
-        f"xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" focusable=\"false\" "
-        f"style=\"color: {color};\">"
-        f"<polyline fill=\"none\" stroke=\"currentColor\" "
+        f'<svg class="sparkline" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" '
+        f'style="color: {color};">'
+        f'<polyline fill="none" stroke="currentColor" '
         f"stroke-width=\"{stroke_width}\" points=\"{' '.join(points)}\" />"
         "</svg>"
     )

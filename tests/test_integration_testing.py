@@ -204,7 +204,9 @@ class TestCIWorkflowIntegration:
             content = f.read()
 
         # Check for integration-tests job in parallel workflow
-        assert "integration-tests:" in content, "Parallel CI workflow missing 'integration-tests' job"
+        assert (
+            "integration-tests:" in content
+        ), "Parallel CI workflow missing 'integration-tests' job"
 
     def test_ci_workflow_uses_docker_compose_ci(self, project_root: Path) -> None:
         """Test that E2E CI workflow uses docker-compose.ci.yml."""

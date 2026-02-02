@@ -270,9 +270,7 @@ def test_get_session_state_none_calendar_returns_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test get_session_state returns CLOSED when calendar is None (line 121)."""
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: None)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: None))
     result = MarketHours.get_session_state("NYSE")
     assert result == SessionState.CLOSED
 
@@ -282,9 +280,7 @@ def test_get_session_state_non_trading_day_returns_closed(
 ) -> None:
     """Test get_session_state returns CLOSED on non-trading day (line 128)."""
     cal = FakeCalendarNonTradingDay(date(2026, 1, 17))  # Saturday
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
     now = datetime.combine(date(2026, 1, 17), time(10, 0), ZoneInfo("America/New_York"))
     result = MarketHours.get_session_state("NYSE", now=now)
     assert result == SessionState.CLOSED
@@ -306,9 +302,7 @@ def test_get_next_transition_none_calendar_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test get_next_transition returns None when calendar is None (line 152)."""
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: None)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: None))
     result = MarketHours.get_next_transition("NYSE")
     assert result is None
 
@@ -381,9 +375,7 @@ def test_get_next_transition_trading_day_after_post_market(
     """Test get_next_transition on trading day after post-market returns next day (line 169->172)."""
     session_date = date(2026, 1, 16)
     cal = FakeCalendarTwoTradingDays(session_date)
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
     # Time is 21:00 - after post-market close (20:00) on a trading day
     now = datetime.combine(session_date, time(21, 0), ZoneInfo("America/New_York"))
     result = MarketHours.get_next_transition("NYSE", now=now)
@@ -400,9 +392,7 @@ def test_get_next_transition_after_post_market_returns_next_day_pre_open(
     """Test get_next_transition returns next trading day pre-market (lines 172-175)."""
     session_date = date(2026, 1, 16)
     cal = FakeCalendarFutureTradingDay(session_date)
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
     now = datetime.combine(session_date, time(21, 0), ZoneInfo("America/New_York"))
     result = MarketHours.get_next_transition("NYSE", now=now)
     assert result is not None
@@ -416,9 +406,7 @@ def test_get_next_transition_no_future_sessions_returns_none(
 ) -> None:
     """Test get_next_transition returns None when no future sessions (lines 173-174)."""
     cal = FakeCalendarNonTradingDay(date(2026, 1, 16))
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
     now = datetime.combine(date(2026, 1, 16), time(21, 0), ZoneInfo("America/New_York"))
     result = MarketHours.get_next_transition("NYSE", now=now)
     assert result is None
@@ -445,9 +433,7 @@ def test_is_trading_day_none_calendar_returns_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test is_trading_day returns False when calendar is None (lines 194-195)."""
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: None)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: None))
     result = MarketHours.is_trading_day("NYSE", date(2026, 1, 16))
     assert result is False
 
@@ -456,9 +442,7 @@ def test_is_trading_day_with_valid_calendar(monkeypatch: pytest.MonkeyPatch) -> 
     """Test is_trading_day returns True for valid trading day (line 196)."""
     session_date = date(2026, 1, 16)
     cal = FakeCalendar(session_date)
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
     result = MarketHours.is_trading_day("NYSE", session_date)
     assert result is True
 
@@ -466,8 +450,6 @@ def test_is_trading_day_with_valid_calendar(monkeypatch: pytest.MonkeyPatch) -> 
 def test_is_trading_day_with_non_trading_day(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test is_trading_day returns False for non-trading day (line 196)."""
     cal = FakeCalendarNonTradingDay(date(2026, 1, 17))
-    monkeypatch.setattr(
-        MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal)
-    )
+    monkeypatch.setattr(MarketHours, "_get_calendar", classmethod(lambda cls, exchange: cal))
     result = MarketHours.is_trading_day("NYSE", date(2026, 1, 17))
     assert result is False

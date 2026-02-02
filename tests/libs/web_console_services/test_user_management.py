@@ -520,9 +520,7 @@ class TestDatabaseErrors:
     """Test database error handling."""
 
     @pytest.mark.asyncio()
-    async def test_change_role_database_error(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_change_role_database_error(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         """Test database error handling in change_user_role."""
         mock_conn = AsyncMock()
         _setup_transaction_mock(mock_conn)
@@ -546,9 +544,7 @@ class TestDatabaseErrors:
         audit_logger.log_action.assert_awaited()
 
     @pytest.mark.asyncio()
-    async def test_grant_strategy_exception(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_grant_strategy_exception(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         """Test exception handling in grant_strategy."""
         mock_conn = AsyncMock()
         _setup_transaction_mock(mock_conn)
@@ -571,9 +567,7 @@ class TestDatabaseErrors:
         audit_logger.log_action.assert_awaited()
 
     @pytest.mark.asyncio()
-    async def test_revoke_strategy_exception(
-        self, mock_db_pool: Mock, audit_logger: Mock
-    ) -> None:
+    async def test_revoke_strategy_exception(self, mock_db_pool: Mock, audit_logger: Mock) -> None:
         """Test exception handling in revoke_strategy."""
         mock_conn = AsyncMock()
         _setup_transaction_mock(mock_conn)

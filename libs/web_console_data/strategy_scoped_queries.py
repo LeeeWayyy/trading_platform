@@ -485,6 +485,60 @@ class StrategyScopedDataAccess:
                 async for row in cursor:
                     yield dict(row)
 
+    # P6T10: Attribution and Quantile Analysis
+    async def get_portfolio_returns(
+        self,
+        strategy_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict[str, Any]]:
+        """Get portfolio returns for attribution analysis.
+
+        Returns list of {date, daily_return} dicts.
+        Computes returns from pnl_daily using daily_pnl / (nav - daily_pnl).
+        """
+        # Verify strategy authorization
+        if strategy_id not in self.authorized_strategies:
+            raise PermissionError(f"Not authorized for strategy: {strategy_id}")
+
+        # Query daily P&L and NAV to compute returns
+        # daily_return = daily_pnl / (nav - daily_pnl) where (nav - daily_pnl) is prior NAV
+        query = """
+            SELECT
+                trade_date as date,
+                CASE
+                    WHEN (nav - daily_pnl) > 0 THEN daily_pnl / (nav - daily_pnl)
+                    ELSE 0.0
+                END as daily_return
+            FROM pnl_daily
+            WHERE strategy_id = %s
+              AND trade_date BETWEEN %s AND %s
+            ORDER BY trade_date ASC
+        """
+        params = (strategy_id, start_date, end_date)
+        async with acquire_connection(self.db_pool) as conn:
+            rows = await self._execute_fetchall(conn, query, params)
+        return [dict(row) for row in rows]
+
+    async def verify_job_ownership(self, job_id: str) -> None:
+        """Verify the current user owns the specified backtest job.
+
+        Raises PermissionError if user does not own the job.
+        Checks that the job's strategy_id is in user's authorized strategies.
+        """
+        query = """
+            SELECT strategy_id FROM backtest_jobs WHERE job_id = %s
+        """
+        async with acquire_connection(self.db_pool) as conn:
+            rows = await self._execute_fetchall(conn, query, (job_id,))
+
+        if not rows:
+            raise PermissionError(f"Backtest job not found: {job_id}")
+
+        job_strategy = rows[0].get("strategy_id")
+        if job_strategy not in self.authorized_strategies:
+            raise PermissionError(f"Not authorized for backtest job: {job_id}")
+
 
 def get_scoped_data_access(
     db_pool: Any, redis_client: Any, user: dict[str, Any]

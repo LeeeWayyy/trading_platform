@@ -412,18 +412,14 @@ class TestExtractPositions:
         result = metrics._extract_positions(positions_result)
         assert result == positions_list
 
-    def test_extract_positions_from_dict_with_non_list_positions(
-        self, dummy_ui: None
-    ) -> None:
+    def test_extract_positions_from_dict_with_non_list_positions(self, dummy_ui: None) -> None:
         """Test extracting positions when dict has non-list positions value."""
         metrics = HeaderMetrics()
         positions_result = {"positions": "invalid"}
         result = metrics._extract_positions(positions_result)
         assert result == []
 
-    def test_extract_positions_from_dict_without_positions_key(
-        self, dummy_ui: None
-    ) -> None:
+    def test_extract_positions_from_dict_without_positions_key(self, dummy_ui: None) -> None:
         """Test extracting positions when dict doesn't have positions key."""
         metrics = HeaderMetrics()
         positions_result = {"data": [{"symbol": "AAPL"}]}
@@ -459,9 +455,7 @@ class TestGetOrSetBaselineNLV:
         dummy = types.SimpleNamespace(row=row, label=label)
         monkeypatch.setattr(metrics_module, "ui", dummy)
 
-    def test_get_existing_baseline(
-        self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_existing_baseline(self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test getting existing baseline NLV from storage."""
         metrics = HeaderMetrics()
 
@@ -478,9 +472,7 @@ class TestGetOrSetBaselineNLV:
         result = metrics._get_or_set_baseline_nlv(105000.0)
         assert result == 100000.0  # Should return existing baseline
 
-    def test_set_new_baseline(
-        self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_set_new_baseline(self, dummy_ui: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test setting new baseline NLV when not present."""
         metrics = HeaderMetrics()
 

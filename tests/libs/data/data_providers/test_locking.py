@@ -380,7 +380,9 @@ class TestReleaseEdgeCases:
             "hostname": "other-host",
             "writer_id": "different_writer",
             "acquired_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "expires_at": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)).isoformat(),
+            "expires_at": (
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
+            ).isoformat(),
         }
         token.lock_path.write_text(json.dumps(different_lock_data))
 
@@ -452,7 +454,9 @@ class TestRefreshEdgeCases:
             "hostname": "other-host",
             "writer_id": "different_writer",
             "acquired_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "expires_at": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)).isoformat(),
+            "expires_at": (
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
+            ).isoformat(),
         }
         token.lock_path.write_text(json.dumps(different_data))
 
@@ -605,7 +609,9 @@ class TestCleanupStaleReleasingFile:
             "hostname": socket.gethostname(),
             "writer_id": "crashed_writer",
             "acquired_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "expires_at": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)).isoformat(),
+            "expires_at": (
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
+            ).isoformat(),
         }
         release_path.write_text(json.dumps(releasing_data))
 
@@ -626,7 +632,9 @@ class TestCleanupStaleReleasingFile:
             "hostname": "other-host",  # Different host
             "writer_id": "remote_writer",
             "acquired_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "expires_at": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)).isoformat(),
+            "expires_at": (
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
+            ).isoformat(),
         }
         release_path.write_text(json.dumps(releasing_data))
 
@@ -649,7 +657,9 @@ class TestCleanupStaleReleasingFile:
             "hostname": "other-host",
             "writer_id": "remote_writer",
             "acquired_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "expires_at": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)).isoformat(),
+            "expires_at": (
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
+            ).isoformat(),
         }
         release_path.write_text(json.dumps(releasing_data))
 
@@ -703,7 +713,9 @@ class TestCleanupStaleReleasingFile:
             "hostname": socket.gethostname(),
             "writer_id": "active_writer",
             "acquired_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "expires_at": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)).isoformat(),
+            "expires_at": (
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
+            ).isoformat(),
         }
         release_path.write_text(json.dumps(releasing_data))
 

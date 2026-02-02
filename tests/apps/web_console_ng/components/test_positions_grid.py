@@ -708,9 +708,7 @@ async def test_on_close_position_uses_cached_kill_switch_engaged(
     monkeypatch.setattr(grid_module.AsyncTradingClient, "get", lambda: mock_client)
 
     # Pass kill_switch_engaged=True to use cached state
-    await grid_module.on_close_position(
-        "AAPL", 10, "user-1", "admin", kill_switch_engaged=True
-    )
+    await grid_module.on_close_position("AAPL", 10, "user-1", "admin", kill_switch_engaged=True)
 
     # No API call made (used cached state)
     mock_client.fetch_kill_switch_status.assert_not_awaited()
@@ -730,9 +728,7 @@ async def test_on_close_position_skips_precheck_when_cached_safe(
     monkeypatch.setattr(grid_module.AsyncTradingClient, "get", lambda: mock_client)
 
     # Pass kill_switch_engaged=False to skip pre-check
-    await grid_module.on_close_position(
-        "AAPL", 10, "user-1", "admin", kill_switch_engaged=False
-    )
+    await grid_module.on_close_position("AAPL", 10, "user-1", "admin", kill_switch_engaged=False)
 
     # Pre-check was skipped, but dialog opened
     assert dummy_ui_with_dialog["dialog"].is_open
@@ -847,8 +843,7 @@ async def test_on_close_position_circuit_breaker_http_error_silent(
     assert dummy_ui_with_dialog["dialog"].is_open
     # Should be logged
     assert any(
-        "close_position_circuit_breaker_check_failed" in record.message
-        for record in caplog.records
+        "close_position_circuit_breaker_check_failed" in record.message for record in caplog.records
     )
 
 
@@ -967,7 +962,9 @@ async def test_confirm_network_error_proceeds(
     # Should proceed despite network error
     mock_client.close_position.assert_awaited_once()
     # Warning about unreachable
-    assert any("unreachable" in message.lower() for message, _ in dummy_ui_with_dialog["notify_calls"])
+    assert any(
+        "unreachable" in message.lower() for message, _ in dummy_ui_with_dialog["notify_calls"]
+    )
 
 
 @pytest.mark.asyncio()
@@ -989,9 +986,7 @@ async def test_confirm_missing_order_id_in_response(
     # Should still succeed
     assert any("Closing AAPL" in message for message, _ in dummy_ui_with_dialog["notify_calls"])
     # Warning should be logged
-    assert any(
-        "close_position_missing_order_id" in record.message for record in caplog.records
-    )
+    assert any("close_position_missing_order_id" in record.message for record in caplog.records)
 
 
 @pytest.mark.asyncio()
@@ -1014,7 +1009,10 @@ async def test_confirm_close_position_http_error(
     await confirm_btn.on_click()
 
     # Error notification
-    assert any("Close failed" in message and "500" in message for message, _ in dummy_ui_with_dialog["notify_calls"])
+    assert any(
+        "Close failed" in message and "500" in message
+        for message, _ in dummy_ui_with_dialog["notify_calls"]
+    )
 
 
 @pytest.mark.asyncio()
@@ -1034,7 +1032,10 @@ async def test_confirm_close_position_network_error(
     await confirm_btn.on_click()
 
     # Error notification suggesting retry
-    assert any("network error" in message.lower() and "retry" in message.lower() for message, _ in dummy_ui_with_dialog["notify_calls"])
+    assert any(
+        "network error" in message.lower() and "retry" in message.lower()
+        for message, _ in dummy_ui_with_dialog["notify_calls"]
+    )
 
 
 @pytest.mark.asyncio()

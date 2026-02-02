@@ -36,9 +36,7 @@ class DummySemaphore:
 class DummyRedis:
     """Mock Redis client for testing eval operations."""
 
-    def __init__(
-        self, eval_results: list[int] | None = None, exc: Exception | None = None
-    ) -> None:
+    def __init__(self, eval_results: list[int] | None = None, exc: Exception | None = None) -> None:
         self.eval_calls: list[tuple[Any, ...]] = []
         self._eval_results = eval_results or []
         self._exc = exc
@@ -377,9 +375,7 @@ async def test_session_authenticated_capacity_rejection(
     async def _acquire_fail(self) -> bool:
         return False
 
-    monkeypatch.setattr(
-        AdmissionControlMiddleware, "_try_acquire_semaphore", _acquire_fail
-    )
+    monkeypatch.setattr(AdmissionControlMiddleware, "_try_acquire_semaphore", _acquire_fail)
 
     middleware = AdmissionControlMiddleware(lambda *_: None)
     cookie = f"{config.SESSION_COOKIE_NAME}=cookie"
@@ -454,9 +450,7 @@ async def test_non_session_exception_in_app_releases_semaphore(
     async def _acquire_ok(self) -> bool:
         return True
 
-    monkeypatch.setattr(
-        AdmissionControlMiddleware, "_try_acquire_semaphore", _acquire_ok
-    )
+    monkeypatch.setattr(AdmissionControlMiddleware, "_try_acquire_semaphore", _acquire_ok)
 
     dummy_semaphore = DummySemaphore()
     monkeypatch.setattr(admission, "_connection_semaphore", dummy_semaphore)

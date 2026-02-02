@@ -136,7 +136,9 @@ class StubDB:
         if strategy_ids is not None:
             filtered = [o for o in filtered if o.strategy_id in strategy_ids]
         if parent_order_id:
-            filtered = [o for o in filtered if getattr(o, "parent_order_id", None) == parent_order_id]
+            filtered = [
+                o for o in filtered if getattr(o, "parent_order_id", None) == parent_order_id
+            ]
         return filtered[offset : offset + limit], len(filtered)
 
     def get_positions_for_strategies(self, strategies: list[str]) -> list[Position]:
@@ -963,7 +965,9 @@ def test_cancel_order_db_update_error_returns_500():
     """Test cancel order fails when DB update before broker call fails."""
 
     class ErrorDB(StubDB):
-        def update_order_status(self, client_order_id: str, status: str, **_: Any) -> OrderDetail | None:
+        def update_order_status(
+            self, client_order_id: str, status: str, **_: Any
+        ) -> OrderDetail | None:
             raise OperationalError("db down")
 
     client = build_client(overrides={deps.get_db_client: lambda: ErrorDB()})
@@ -983,7 +987,9 @@ def test_cancel_order_validation_error_returns_500():
     """Test cancel order fails when DB update raises validation error."""
 
     class ValidationErrorDB(StubDB):
-        def update_order_status(self, client_order_id: str, status: str, **_: Any) -> OrderDetail | None:
+        def update_order_status(
+            self, client_order_id: str, status: str, **_: Any
+        ) -> OrderDetail | None:
             class DummyModel(BaseModel):
                 qty: int
 
@@ -2084,6 +2090,7 @@ def test_submit_manual_order_fat_finger_blocked():
     )
     assert response.status_code == 400
     assert _err(response)["error"] == "fat_finger_rejected"
+
 
 def test_submit_manual_order_dry_run(monkeypatch: pytest.MonkeyPatch):
     """Test manual order in dry-run mode."""

@@ -175,8 +175,8 @@ async def get_adv(
                 cached_at_dt = None
 
     now = datetime.now(UTC)
-    cache_is_fresh = (
-        cached_at_dt is not None and (now - cached_at_dt) <= timedelta(seconds=ADV_FRESHNESS_SECONDS)
+    cache_is_fresh = cached_at_dt is not None and (now - cached_at_dt) <= timedelta(
+        seconds=ADV_FRESHNESS_SECONDS
     )
 
     if cached_payload and cache_is_fresh:

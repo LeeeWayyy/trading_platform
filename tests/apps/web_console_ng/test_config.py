@@ -643,7 +643,10 @@ class TestModuleLevelConfigValidation:
         with caplog.at_level(logging.WARNING):
             importlib.reload(config_module)
 
-        assert any("WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH is enabled" in record.message for record in caplog.records)
+        assert any(
+            "WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH is enabled" in record.message
+            for record in caplog.records
+        )
 
 
 class TestGetBoolEnv:

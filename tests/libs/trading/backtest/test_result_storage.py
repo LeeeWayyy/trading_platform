@@ -512,3 +512,201 @@ def test_load_result_corrupt_parquet_raises_value_error(tmp_path):
 
     with pytest.raises(ValueError, match="Failed to load Parquet artifact"):
         storage._load_result_from_path(result_dir)
+
+
+# ------------------------------------------------------------------ load_universe_signals_lazy Tests
+
+
+def _write_signals_parquet(base: Path, include_signal_name: bool = False) -> None:
+    """Create minimal signals parquet file for testing."""
+    base.mkdir(parents=True, exist_ok=True)
+    data = {
+        "permno": [1, 2, 1, 2, 3],
+        "date": [
+            date(2024, 1, 2),
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 3),
+            date(2024, 1, 4),
+        ],
+        "signal": [0.1, -0.2, 0.3, -0.1, 0.5],
+    }
+    if include_signal_name:
+        data["signal_name"] = ["alpha1", "alpha1", "alpha1", "alpha2", "alpha1"]
+    signals = pl.DataFrame(data)
+    signals.write_parquet(base / "daily_signals.parquet")
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_happy_path(tmp_path):
+    """Should return LazyFrame with signals data."""
+    result_dir = tmp_path / "job_signals"
+    _write_signals_parquet(result_dir)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    lf = storage.load_universe_signals_lazy("job123")
+
+    assert lf is not None
+    # Collect to verify data
+    df = lf.collect()
+    assert df.height == 5
+    assert "signal" in df.columns
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_job_not_found_raises(tmp_path):
+    """Missing job should raise JobNotFound."""
+    cursor = DummyCursor(rows=[])  # No rows
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn))
+
+    with pytest.raises(JobNotFound):
+        storage.load_universe_signals_lazy("missing_job")
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_no_result_path_returns_none(tmp_path):
+    """Job with no result_path should return None."""
+    row = {"result_path": None}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn))
+
+    result = storage.load_universe_signals_lazy("job123")
+
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_no_signals_file_returns_none(tmp_path):
+    """Missing signals file should return None."""
+    result_dir = tmp_path / "job_no_signals"
+    result_dir.mkdir()
+    # No daily_signals.parquet created
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_universe_signals_lazy("job123")
+
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_filters_by_signal_name(tmp_path):
+    """Should filter by signal_name when provided."""
+    result_dir = tmp_path / "job_signal_filter"
+    _write_signals_parquet(result_dir, include_signal_name=True)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    lf = storage.load_universe_signals_lazy("job123", signal_name="alpha2")
+
+    assert lf is not None
+    df = lf.collect()
+    assert df.height == 1  # Only one row with alpha2
+    assert df["signal_name"][0] == "alpha2"
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_filters_by_date_range(tmp_path):
+    """Should filter by date_range when provided."""
+    result_dir = tmp_path / "job_date_filter"
+    _write_signals_parquet(result_dir)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    lf = storage.load_universe_signals_lazy(
+        "job123",
+        date_range=(date(2024, 1, 2), date(2024, 1, 3)),
+    )
+
+    assert lf is not None
+    df = lf.collect()
+    # Should have 4 rows (2 on Jan 2, 2 on Jan 3)
+    assert df.height == 4
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_applies_limit(tmp_path):
+    """Should apply limit when provided."""
+    result_dir = tmp_path / "job_limit"
+    _write_signals_parquet(result_dir)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    lf = storage.load_universe_signals_lazy("job123", limit=2)
+
+    assert lf is not None
+    df = lf.collect()
+    assert df.height == 2
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_no_limit_returns_all(tmp_path):
+    """Should return all rows when limit is None."""
+    result_dir = tmp_path / "job_no_limit"
+    _write_signals_parquet(result_dir)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    lf = storage.load_universe_signals_lazy("job123", limit=None)
+
+    assert lf is not None
+    df = lf.collect()
+    assert df.height == 5  # All rows
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_rejects_path_outside_base(tmp_path):
+    """Path outside base_dir should raise ResultPathMissing."""
+    # Create directories: one inside base_dir, one outside
+    base_dir = tmp_path / "allowed"
+    base_dir.mkdir()
+
+    outside_dir = tmp_path / "outside_job"
+    _write_signals_parquet(outside_dir)
+
+    row = {"result_path": str(outside_dir)}  # Points outside base_dir
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=base_dir)
+
+    with pytest.raises(ResultPathMissing, match="outside allowed directory"):
+        storage.load_universe_signals_lazy("job123")
+
+
+@pytest.mark.unit()
+def test_load_universe_signals_lazy_rejects_path_traversal(tmp_path):
+    """Path traversal attack should raise ResultPathMissing."""
+    base_dir = tmp_path / "allowed"
+    base_dir.mkdir()
+
+    # Attempt path traversal via ..
+    malicious_path = str(base_dir / ".." / "escaped")
+
+    row = {"result_path": malicious_path}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=base_dir)
+
+    with pytest.raises(ResultPathMissing, match="outside allowed directory"):
+        storage.load_universe_signals_lazy("job123")

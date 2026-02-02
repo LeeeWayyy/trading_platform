@@ -377,9 +377,7 @@ async def test_on_disconnect_without_semaphore_acquired(
 
 
 @pytest.mark.asyncio()
-async def test_on_disconnect_without_client_id(
-    handlers, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_disconnect_without_client_id(handlers, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test on_disconnect when client_id is missing."""
     dummy_app, lifecycle, metrics, _semaphore = handlers
 
@@ -443,9 +441,7 @@ async def test_on_disconnect_without_session_conn_key(
 
 
 @pytest.mark.asyncio()
-async def test_on_disconnect_redis_error(
-    handlers, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_disconnect_redis_error(handlers, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test on_disconnect handles Redis errors gracefully."""
     dummy_app, lifecycle, metrics, _semaphore = handlers
 
@@ -492,9 +488,7 @@ async def test_on_disconnect_network_errors(
 
 
 @pytest.mark.asyncio()
-async def test_on_disconnect_with_exception_flag(
-    handlers, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_disconnect_with_exception_flag(handlers, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test on_disconnect when had_exception flag is set."""
     dummy_app, lifecycle, metrics, _semaphore = handlers
 
@@ -515,9 +509,7 @@ async def test_on_disconnect_with_exception_flag(
 
 
 @pytest.mark.asyncio()
-async def test_on_disconnect_without_metrics(
-    handlers, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_disconnect_without_metrics(handlers, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test on_disconnect when metrics module is unavailable."""
     dummy_app, lifecycle, _metrics, _semaphore = handlers
 
@@ -540,9 +532,7 @@ async def test_on_disconnect_without_metrics(
 
 
 @pytest.mark.asyncio()
-async def test_on_disconnect_without_scope_state(
-    handlers, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_disconnect_without_scope_state(handlers, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test on_disconnect when scope state is None."""
     dummy_app, lifecycle, _metrics, _semaphore = handlers
 
@@ -559,9 +549,7 @@ async def test_on_disconnect_without_scope_state(
 
 
 @pytest.mark.asyncio()
-async def test_on_disconnect_without_semaphore(
-    handlers, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_disconnect_without_semaphore(handlers, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test on_disconnect when semaphore is None."""
     dummy_app, lifecycle, _metrics, _semaphore = handlers
 
@@ -608,9 +596,7 @@ async def test_on_exception_with_kwargs(handlers) -> None:
     client = DummyClient(scope)
     client.storage["client_id"] = "client-456"
 
-    await dummy_app.on_exception_handler(
-        client=client, exception=ValueError("test error")
-    )
+    await dummy_app.on_exception_handler(client=client, exception=ValueError("test error"))
 
     assert client.storage["had_exception"] is True
     assert metrics.ws_disconnects_total.inc_count == 1

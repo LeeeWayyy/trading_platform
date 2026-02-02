@@ -838,9 +838,10 @@ def test_get_session_store_creates_singleton() -> None:
     store_module._store = None
 
     try:
-        with patch.object(store_module, "get_redis_store") as mock_redis_store, patch.object(
-            store_module, "config"
-        ) as mock_config:
+        with (
+            patch.object(store_module, "get_redis_store") as mock_redis_store,
+            patch.object(store_module, "config") as mock_config,
+        ):
             mock_redis_client = MagicMock()
             mock_redis_store.return_value.get_master_client.return_value = mock_redis_client
             mock_config.REDIS_URL = "redis://localhost:6379/1"
@@ -868,9 +869,10 @@ def test_get_session_store_with_audit_logger() -> None:
     store_module._store = None
 
     try:
-        with patch.object(store_module, "get_redis_store") as mock_redis_store, patch.object(
-            store_module, "config"
-        ) as mock_config:
+        with (
+            patch.object(store_module, "get_redis_store") as mock_redis_store,
+            patch.object(store_module, "config") as mock_config,
+        ):
             mock_redis_client = MagicMock()
             mock_redis_store.return_value.get_master_client.return_value = mock_redis_client
             mock_config.REDIS_URL = "redis://localhost:6379/1"
@@ -897,9 +899,10 @@ def test_get_session_store_update_audit_logger() -> None:
     store_module._store = None
 
     try:
-        with patch.object(store_module, "get_redis_store") as mock_redis_store, patch.object(
-            store_module, "config"
-        ) as mock_config:
+        with (
+            patch.object(store_module, "get_redis_store") as mock_redis_store,
+            patch.object(store_module, "config") as mock_config,
+        ):
             mock_redis_client = MagicMock()
             mock_redis_store.return_value.get_master_client.return_value = mock_redis_client
             mock_config.REDIS_URL = "redis://localhost:6379/1"
@@ -998,9 +1001,10 @@ async def test_rate_limit_production_warning(redis_client: FakeRedis) -> None:
     store = _make_store(redis_client)
     store.redis.eval = AsyncMock(side_effect=redis.RedisError("unknown command"))
 
-    with patch("apps.web_console_ng.auth.session_store.config") as mock_config, patch(
-        "apps.web_console_ng.auth.session_store.logger"
-    ) as mock_logger:
+    with (
+        patch("apps.web_console_ng.auth.session_store.config") as mock_config,
+        patch("apps.web_console_ng.auth.session_store.logger") as mock_logger,
+    ):
         mock_config.DEBUG = False
 
         await store._check_rate_limit("10.0.0.1", "test", 100)

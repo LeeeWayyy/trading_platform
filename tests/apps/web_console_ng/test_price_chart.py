@@ -117,9 +117,7 @@ class TestPriceChartPriceData:
         client = MagicMock()
         return PriceChartComponent(trading_client=client)
 
-    def test_set_price_data_rejects_non_dict(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_non_dict(self, component: PriceChartComponent) -> None:
         """set_price_data rejects non-dict input."""
         component._current_symbol = "AAPL"
 
@@ -128,102 +126,102 @@ class TestPriceChartPriceData:
         # No error raised, silently ignored
         assert component._last_realtime_update is None
 
-    def test_set_price_data_ignores_wrong_symbol(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_ignores_wrong_symbol(self, component: PriceChartComponent) -> None:
         """set_price_data ignores data for different symbol."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "GOOGL",  # Different symbol
-            "price": "100.00",
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "GOOGL",  # Different symbol
+                "price": "100.00",
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         # Should not update
         assert component._last_realtime_update is None
 
-    def test_set_price_data_rejects_missing_price(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_missing_price(self, component: PriceChartComponent) -> None:
         """set_price_data rejects data without price."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "timestamp": "2024-01-01T12:00:00Z",
-            # No price field
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "timestamp": "2024-01-01T12:00:00Z",
+                # No price field
+            }
+        )
 
         assert component._last_realtime_update is None
 
-    def test_set_price_data_rejects_invalid_price(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_invalid_price(self, component: PriceChartComponent) -> None:
         """set_price_data rejects invalid price values."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": "not-a-number",
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": "not-a-number",
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         assert component._last_realtime_update is None
 
-    def test_set_price_data_rejects_nan(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_nan(self, component: PriceChartComponent) -> None:
         """set_price_data rejects NaN price values."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": float("nan"),
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": float("nan"),
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         assert component._last_realtime_update is None
 
-    def test_set_price_data_rejects_infinity(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_infinity(self, component: PriceChartComponent) -> None:
         """set_price_data rejects infinity price values."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": float("inf"),
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": float("inf"),
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         assert component._last_realtime_update is None
 
-    def test_set_price_data_rejects_negative_price(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_negative_price(self, component: PriceChartComponent) -> None:
         """set_price_data rejects negative price values."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": -100.0,
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": -100.0,
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         assert component._last_realtime_update is None
 
-    def test_set_price_data_rejects_zero_price(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_rejects_zero_price(self, component: PriceChartComponent) -> None:
         """set_price_data rejects zero price values."""
         component._current_symbol = "AAPL"
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": 0,
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": 0,
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         assert component._last_realtime_update is None
 
@@ -234,59 +232,61 @@ class TestPriceChartPriceData:
         component._current_symbol = "AAPL"
 
         with patch("asyncio.create_task"):
-            component.set_price_data({
-                "symbol": "AAPL",
-                "price": 150.0,
-                "timestamp": "2024-01-01T12:00:00Z",
-            })
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": "2024-01-01T12:00:00Z",
+                }
+            )
 
         assert component._last_realtime_update is not None
         assert component._last_realtime_update.year == 2024
 
-    def test_set_price_data_handles_missing_timestamp(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_handles_missing_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when missing (FAIL-CLOSED)."""
         component._current_symbol = "AAPL"
 
         with patch("asyncio.create_task"):
-            component.set_price_data({
-                "symbol": "AAPL",
-                "price": 150.0,
-                # No timestamp
-            })
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    # No timestamp
+                }
+            )
 
         # FAIL-CLOSED: timestamp None when missing
         assert component._last_realtime_update is None
 
-    def test_set_price_data_handles_invalid_timestamp(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_handles_invalid_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when invalid (FAIL-CLOSED)."""
         component._current_symbol = "AAPL"
 
         with patch("asyncio.create_task"):
-            component.set_price_data({
-                "symbol": "AAPL",
-                "price": 150.0,
-                "timestamp": "not-a-timestamp",
-            })
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": "not-a-timestamp",
+                }
+            )
 
         # FAIL-CLOSED: timestamp None when invalid
         assert component._last_realtime_update is None
 
-    def test_set_price_data_ignored_when_disposed(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_set_price_data_ignored_when_disposed(self, component: PriceChartComponent) -> None:
         """set_price_data does nothing when disposed."""
         component._current_symbol = "AAPL"
         component._disposed = True
 
-        component.set_price_data({
-            "symbol": "AAPL",
-            "price": 150.0,
-            "timestamp": "2024-01-01T12:00:00Z",
-        })
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": 150.0,
+                "timestamp": "2024-01-01T12:00:00Z",
+            }
+        )
 
         assert component._last_realtime_update is None
 
@@ -300,25 +300,19 @@ class TestPriceChartStaleness:
         client = MagicMock()
         return PriceChartComponent(trading_client=client)
 
-    def test_is_data_stale_true_when_no_update(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_is_data_stale_true_when_no_update(self, component: PriceChartComponent) -> None:
         """Data is stale when no realtime update received."""
         component._last_realtime_update = None
 
         assert component.is_data_stale() is True
 
-    def test_is_data_stale_false_when_fresh(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_is_data_stale_false_when_fresh(self, component: PriceChartComponent) -> None:
         """Data is fresh when recently updated."""
         component._last_realtime_update = datetime.now(UTC)
 
         assert component.is_data_stale() is False
 
-    def test_is_data_stale_true_when_old(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_is_data_stale_true_when_old(self, component: PriceChartComponent) -> None:
         """Data is stale when update is too old."""
         old_time = datetime.now(UTC) - timedelta(seconds=REALTIME_STALE_THRESHOLD_S + 10)
         component._last_realtime_update = old_time
@@ -335,9 +329,7 @@ class TestPriceChartVWAPTWAP:
         client = MagicMock()
         return PriceChartComponent(trading_client=client)
 
-    def test_calculate_vwap_empty_candles(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_calculate_vwap_empty_candles(self, component: PriceChartComponent) -> None:
         """VWAP returns empty list for no candles."""
         component._candles = []
 
@@ -345,9 +337,7 @@ class TestPriceChartVWAPTWAP:
 
         assert result == []
 
-    def test_calculate_vwap_with_candles(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_calculate_vwap_with_candles(self, component: PriceChartComponent) -> None:
         """VWAP is calculated correctly from candles."""
         component._candles = [
             CandleData(time=1, open=100, high=105, low=95, close=100, volume=1000),
@@ -361,9 +351,7 @@ class TestPriceChartVWAPTWAP:
         assert result[0]["time"] == 1
         assert abs(result[0]["vwap"] - 100.0) < 0.01
 
-    def test_calculate_vwap_skips_zero_volume(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_calculate_vwap_skips_zero_volume(self, component: PriceChartComponent) -> None:
         """VWAP handles candles with zero volume."""
         component._candles = [
             CandleData(time=1, open=100, high=105, low=95, close=100, volume=0),
@@ -377,9 +365,7 @@ class TestPriceChartVWAPTWAP:
         assert len(result) == 1
         assert result[0]["time"] == 2
 
-    def test_calculate_twap_empty_candles(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_calculate_twap_empty_candles(self, component: PriceChartComponent) -> None:
         """TWAP returns empty list for no candles."""
         component._candles = []
 
@@ -387,9 +373,7 @@ class TestPriceChartVWAPTWAP:
 
         assert result == []
 
-    def test_calculate_twap_with_candles(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_calculate_twap_with_candles(self, component: PriceChartComponent) -> None:
         """TWAP is calculated correctly from candles."""
         component._candles = [
             CandleData(time=1, open=100, high=105, low=95, close=100, volume=1000),
@@ -416,9 +400,7 @@ class TestPriceChartGetters:
         client = MagicMock()
         return PriceChartComponent(trading_client=client)
 
-    def test_get_current_price_returns_last_close(
-        self, component: PriceChartComponent
-    ) -> None:
+    def test_get_current_price_returns_last_close(self, component: PriceChartComponent) -> None:
         """get_current_price returns last candle's close price."""
         component._candles = [
             CandleData(time=1, open=100, high=105, low=95, close=100, volume=1000),
@@ -446,9 +428,7 @@ class TestPriceChartSymbolChange:
         return PriceChartComponent(trading_client=client)
 
     @pytest.mark.asyncio()
-    async def test_symbol_change_resets_timestamp(
-        self, component: PriceChartComponent
-    ) -> None:
+    async def test_symbol_change_resets_timestamp(self, component: PriceChartComponent) -> None:
         """Symbol change resets realtime update timestamp."""
         component._last_realtime_update = datetime.now(UTC)
 
@@ -490,9 +470,7 @@ class TestPriceChartSymbolChange:
         assert component._symbol_changed_at is None
 
     @pytest.mark.asyncio()
-    async def test_symbol_change_to_none_clears_chart(
-        self, component: PriceChartComponent
-    ) -> None:
+    async def test_symbol_change_to_none_clears_chart(self, component: PriceChartComponent) -> None:
         """Setting symbol to None clears the chart."""
         component._current_symbol = "AAPL"
         component._candles = [
@@ -516,18 +494,14 @@ class TestPriceChartDispose:
         return PriceChartComponent(trading_client=client)
 
     @pytest.mark.asyncio()
-    async def test_dispose_sets_disposed_flag(
-        self, component: PriceChartComponent
-    ) -> None:
+    async def test_dispose_sets_disposed_flag(self, component: PriceChartComponent) -> None:
         """dispose() sets disposed flag."""
         await component.dispose()
 
         assert component._disposed is True
 
     @pytest.mark.asyncio()
-    async def test_dispose_clears_state(
-        self, component: PriceChartComponent
-    ) -> None:
+    async def test_dispose_clears_state(self, component: PriceChartComponent) -> None:
         """dispose() clears internal state."""
         component._current_symbol = "AAPL"
         component._candles = [
@@ -544,9 +518,7 @@ class TestPriceChartDispose:
         assert component._markers == []
 
     @pytest.mark.asyncio()
-    async def test_dispose_cancels_timer(
-        self, component: PriceChartComponent
-    ) -> None:
+    async def test_dispose_cancels_timer(self, component: PriceChartComponent) -> None:
         """dispose() cancels staleness timer."""
         mock_timer = MagicMock()
         component._staleness_timer = mock_timer
@@ -554,4 +526,3 @@ class TestPriceChartDispose:
         await component.dispose()
 
         mock_timer.cancel.assert_called_once()
-

@@ -517,9 +517,7 @@ class TestModelLoadingErrorPaths:
 class TestGracefulDegradation:
     """Tests for graceful degradation on reload errors."""
 
-    def test_file_error_keeps_current_model(
-        self, test_db_url, sample_model_metadata, monkeypatch
-    ):
+    def test_file_error_keeps_current_model(self, test_db_url, sample_model_metadata, monkeypatch):
         """Test FileNotFoundError keeps current model when one is loaded."""
         registry = ModelRegistry(test_db_url)
         registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
@@ -538,9 +536,7 @@ class TestGracefulDegradation:
         assert registry.current_metadata is not None
         assert registry.current_metadata.version == sample_model_metadata["version"]
 
-    def test_value_error_keeps_current_model(
-        self, test_db_url, sample_model_metadata, monkeypatch
-    ):
+    def test_value_error_keeps_current_model(self, test_db_url, sample_model_metadata, monkeypatch):
         """Test ValueError keeps current model when one is loaded."""
         registry = ModelRegistry(test_db_url)
         registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
@@ -637,8 +633,13 @@ class TestShadowValidationAdvanced:
 
         def validator(_old, _new):
             return ShadowValidationResult(
-                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
-                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                passed=True,
+                correlation=0.99,
+                mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0,
+                sample_count=10,
+                old_range=1.0,
+                new_range=1.0,
                 message="ok",
             )
 
@@ -676,8 +677,13 @@ class TestShadowValidationAdvanced:
 
         def validator(_old, _new):
             return ShadowValidationResult(
-                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
-                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                passed=True,
+                correlation=0.99,
+                mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0,
+                sample_count=10,
+                old_range=1.0,
+                new_range=1.0,
                 message="ok",
             )
 
@@ -745,8 +751,13 @@ class TestScheduleValidation:
 
         def validator(_old, _new):
             return ShadowValidationResult(
-                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
-                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                passed=True,
+                correlation=0.99,
+                mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0,
+                sample_count=10,
+                old_range=1.0,
+                new_range=1.0,
                 message="ok",
             )
 
@@ -934,8 +945,13 @@ class TestShadowValidationExceptions:
 
         def validator(_old, _new):
             return ShadowValidationResult(
-                passed=True, correlation=0.99, mean_abs_diff_ratio=0.1,
-                sign_change_rate=0.0, sample_count=10, old_range=1.0, new_range=1.0,
+                passed=True,
+                correlation=0.99,
+                mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0,
+                sample_count=10,
+                old_range=1.0,
+                new_range=1.0,
                 message="ok",
             )
 
@@ -953,9 +969,7 @@ class TestShadowValidationExceptions:
 class TestNoVersionChange:
     """Tests for no version change scenario."""
 
-    def test_no_version_change_returns_false(
-        self, test_db_url, sample_model_metadata, monkeypatch
-    ):
+    def test_no_version_change_returns_false(self, test_db_url, sample_model_metadata, monkeypatch):
         """Test that no version change returns False."""
         registry = ModelRegistry(test_db_url)
         registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]

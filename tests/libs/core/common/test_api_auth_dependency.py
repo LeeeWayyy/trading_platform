@@ -1263,7 +1263,13 @@ class TestBodyHashForNonBodyMethods:
         empty_body_hash = hashlib.sha256(b"").hexdigest()
 
         token = self._generate_token(
-            service_id, "GET", "/api/v1/orders", timestamp, nonce, body_hash=empty_body_hash, secret=secret
+            service_id,
+            "GET",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=empty_body_hash,
+            secret=secret,
         )
 
         with patch.dict(os.environ, {"INTERNAL_TOKEN_SECRET": secret}, clear=False):
@@ -1296,7 +1302,13 @@ class TestBodyHashForNonBodyMethods:
         invalid_body_hash = hashlib.sha256(b"some body").hexdigest()
 
         token = self._generate_token(
-            service_id, "GET", "/api/v1/orders", timestamp, nonce, body_hash=invalid_body_hash, secret=secret
+            service_id,
+            "GET",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=invalid_body_hash,
+            secret=secret,
         )
 
         with patch.dict(os.environ, {"INTERNAL_TOKEN_SECRET": secret}, clear=False):
@@ -1380,7 +1392,13 @@ class TestBodyReadError:
         body_hash = hashlib.sha256(b"some body").hexdigest()
 
         token = self._generate_token(
-            service_id, "POST", "/api/v1/orders", timestamp, nonce, body_hash=body_hash, secret=secret
+            service_id,
+            "POST",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=body_hash,
+            secret=secret,
         )
 
         with patch.dict(os.environ, {"INTERNAL_TOKEN_SECRET": secret}, clear=False):
@@ -1412,7 +1430,13 @@ class TestBodyReadError:
         body_hash = hashlib.sha256(b"some body").hexdigest()
 
         token = self._generate_token(
-            service_id, "POST", "/api/v1/orders", timestamp, nonce, body_hash=body_hash, secret=secret
+            service_id,
+            "POST",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=body_hash,
+            secret=secret,
         )
 
         with patch.dict(os.environ, {"INTERNAL_TOKEN_SECRET": secret}, clear=False):
@@ -1703,9 +1727,7 @@ class TestApiAuthDependency:
         assert result.is_authenticated is False
 
     @pytest.mark.asyncio()
-    async def test_jwt_auth_failure_in_enforce_mode(
-        self, mock_request: MagicMock
-    ) -> None:
+    async def test_jwt_auth_failure_in_enforce_mode(self, mock_request: MagicMock) -> None:
         """Test JWT auth failure raises 401 in enforce mode."""
         from libs.core.common.api_auth_dependency import api_auth
 
@@ -1735,9 +1757,7 @@ class TestApiAuthDependency:
         assert "invalid_token" in str(exc_info.value.detail)
 
     @pytest.mark.asyncio()
-    async def test_no_auth_in_enforce_mode_raises_401(
-        self, mock_request: MagicMock
-    ) -> None:
+    async def test_no_auth_in_enforce_mode_raises_401(self, mock_request: MagicMock) -> None:
         """Test unauthenticated request raises 401 in enforce mode."""
         from libs.core.common.api_auth_dependency import api_auth
 
@@ -1764,9 +1784,7 @@ class TestApiAuthDependency:
         assert "authentication_required" in str(exc_info.value.detail)
 
     @pytest.mark.asyncio()
-    async def test_no_auth_in_log_only_mode_allowed(
-        self, mock_request: MagicMock
-    ) -> None:
+    async def test_no_auth_in_log_only_mode_allowed(self, mock_request: MagicMock) -> None:
         """Test unauthenticated request is allowed in log_only mode."""
         from libs.core.common.api_auth_dependency import api_auth
 
@@ -1986,9 +2004,7 @@ class TestApiAuthDependency:
         assert result.is_authenticated is True
 
     @pytest.mark.asyncio()
-    async def test_permission_check_in_log_only_allows(
-        self, mock_request: MagicMock
-    ) -> None:
+    async def test_permission_check_in_log_only_allows(self, mock_request: MagicMock) -> None:
         """Test permission denied in log_only mode allows request but logs."""
         from libs.core.common.api_auth_dependency import api_auth
 

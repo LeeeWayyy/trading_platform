@@ -244,9 +244,7 @@ async def test_is_allowed_with_defaults_set() -> None:
     """Test lines 144-150: is_allowed method with defaults set."""
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(return_value=2)
-    limiter = RateLimiter(
-        redis_client, fallback_mode="deny", max_requests=10, window_seconds=60
-    )
+    limiter = RateLimiter(redis_client, fallback_mode="deny", max_requests=10, window_seconds=60)
 
     result = await limiter.is_allowed("test_key")
 
@@ -258,9 +256,7 @@ async def test_is_allowed_blocked_when_exceeded() -> None:
     """Test lines 144-150: is_allowed returns False when limit exceeded."""
     redis_client = AsyncMock()
     redis_client.eval = AsyncMock(return_value=15)
-    limiter = RateLimiter(
-        redis_client, fallback_mode="deny", max_requests=10, window_seconds=60
-    )
+    limiter = RateLimiter(redis_client, fallback_mode="deny", max_requests=10, window_seconds=60)
 
     result = await limiter.is_allowed("test_key_blocked")
 
@@ -519,7 +515,9 @@ def test_int_env_invalid_value() -> None:
     # Suppress logging as the source code logs with 'name' in extra which conflicts
     # with LogRecord reserved attributes in some logging configs
     with patch.dict("os.environ", {"TEST_INT_VAR_INVALID": "not_an_int"}):
-        with patch.object(logging.getLogger("libs.platform.web_console_auth.rate_limiter"), "warning"):
+        with patch.object(
+            logging.getLogger("libs.platform.web_console_auth.rate_limiter"), "warning"
+        ):
             result = _int_env("TEST_INT_VAR_INVALID", 100)
             assert result == 100  # Should return default
 
@@ -689,7 +687,9 @@ def test_rate_limiter_health_check_sync_return() -> None:
 
     # Create a mock limiter where health_check returns a non-coroutine (synchronous)
     mock_limiter = MagicMock(spec=RateLimiter)
-    mock_limiter.health_check = MagicMock(return_value=True)  # Returns bool directly, not a coroutine
+    mock_limiter.health_check = MagicMock(
+        return_value=True
+    )  # Returns bool directly, not a coroutine
     rl_module._rate_limiter_singleton = mock_limiter
 
     try:

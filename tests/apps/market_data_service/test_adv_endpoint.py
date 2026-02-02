@@ -87,9 +87,7 @@ def test_adv_returns_503_when_provider_unavailable(test_client, monkeypatch):
     assert response.status_code == 503
 
 
-def test_adv_returns_cached_value_when_provider_temporarily_unavailable(
-    test_client, monkeypatch
-):
+def test_adv_returns_cached_value_when_provider_temporarily_unavailable(test_client, monkeypatch):
     from apps.market_data_service.routes import market_data
 
     cache = DummyCache()
@@ -97,10 +95,10 @@ def test_adv_returns_cached_value_when_provider_temporarily_unavailable(
     cache.set(
         "adv:AAPL",
         (
-            '{'
+            "{"
             f'"adv": 1000, "data_date": "{(datetime.now(UTC).date()).isoformat()}", '
             f'"source": "alpaca", "cached_at": "{cached_at.isoformat()}"'
-            '}'
+            "}"
         ),
     )
 
@@ -124,15 +122,17 @@ def test_adv_staleness_calculation(test_client, monkeypatch):
     cache.set(
         "adv:AAPL",
         (
-            '{'
+            "{"
             f'"adv": 1000, "data_date": "2025-01-01", '
             f'"source": "alpaca", "cached_at": "{cached_at.isoformat()}"'
-            '}'
+            "}"
         ),
     )
 
     monkeypatch.setattr(market_data, "_trading_days_since", lambda *_: 6)
-    monkeypatch.setattr(market_data, "_get_provider", lambda: DummyProvider(error=MarketDataError("down")))
+    monkeypatch.setattr(
+        market_data, "_get_provider", lambda: DummyProvider(error=MarketDataError("down"))
+    )
     monkeypatch.setattr(market_data, "_get_cache", lambda: cache)
 
     response = test_client.get("/api/v1/market-data/AAPL/adv")

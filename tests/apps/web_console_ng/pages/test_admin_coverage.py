@@ -694,6 +694,7 @@ async def test_render_trading_hours_form(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test trading hours form rendering and save."""
+
     async def fake_get_config(*_: Any, **__: Any) -> admin_module.TradingHoursConfig:
         return admin_module.TradingHoursConfig(
             market_open=time(9, 30),
@@ -724,6 +725,7 @@ async def test_render_trading_hours_form_validation_error(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test trading hours form handles validation errors."""
+
     async def fake_get_config(*_: Any, **__: Any) -> admin_module.TradingHoursConfig:
         return admin_module.TradingHoursConfig()
 
@@ -745,6 +747,7 @@ async def test_render_trading_hours_form_save_failure(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test trading hours form handles save failure."""
+
     async def fake_get_config(*_: Any, **__: Any) -> admin_module.TradingHoursConfig:
         return admin_module.TradingHoursConfig()
 
@@ -766,6 +769,7 @@ async def test_render_position_limits_form(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test position limits form rendering and save."""
+
     async def fake_get_config(*_: Any, **__: Any) -> admin_module.PositionLimitsConfig:
         return admin_module.PositionLimitsConfig()
 
@@ -787,6 +791,7 @@ async def test_render_position_limits_form_validation_error(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test position limits form handles validation errors."""
+
     async def fake_get_config(*_: Any, **__: Any) -> admin_module.PositionLimitsConfig:
         return admin_module.PositionLimitsConfig()
 
@@ -808,6 +813,7 @@ async def test_render_system_defaults_form(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test system defaults form rendering and save."""
+
     async def fake_get_config(*_: Any, **__: Any) -> admin_module.SystemDefaultsConfig:
         return admin_module.SystemDefaultsConfig()
 

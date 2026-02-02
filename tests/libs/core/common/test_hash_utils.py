@@ -493,9 +493,7 @@ class TestHashUtilsCLI:
 
         # Create and commit an initial file
         (repo_dir / "initial.txt").write_text("initial content")
-        subprocess.run(
-            ["git", "add", "."], cwd=repo_dir, check=True, capture_output=True
-        )
+        subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "Initial commit"],
             cwd=repo_dir,
@@ -505,9 +503,7 @@ class TestHashUtilsCLI:
 
         # Create and stage a new file
         (repo_dir / "test.txt").write_text("test content for hashing")
-        subprocess.run(
-            ["git", "add", "test.txt"], cwd=repo_dir, check=True, capture_output=True
-        )
+        subprocess.run(["git", "add", "test.txt"], cwd=repo_dir, check=True, capture_output=True)
 
         # Mock sys.argv to have no arguments
         monkeypatch.setattr(sys, "argv", ["hash_utils.py"])

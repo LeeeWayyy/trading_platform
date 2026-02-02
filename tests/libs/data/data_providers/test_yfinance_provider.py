@@ -1878,9 +1878,7 @@ class TestCacheIntegrity:
             f.write("not a parquet file")
 
         # Mock checksum verification to pass - otherwise we get checksum mismatch
-        with patch.object(
-            provider_with_cache, "_verify_cache_integrity", return_value=True
-        ):
+        with patch.object(provider_with_cache, "_verify_cache_integrity", return_value=True):
             with caplog.at_level(logging.WARNING):
                 result = provider_with_cache._read_from_cache(
                     "SPY", date(2024, 1, 1), date(2024, 1, 31)
@@ -2506,9 +2504,7 @@ class TestBaselinePath:
 
         # Mock _validate_symbol to return actual traversal pattern (not URL-encoded)
         # The path "../evil" will cause the resolved path to escape baseline_path
-        with patch.object(
-            provider_with_baseline, "_validate_symbol", return_value="../evil"
-        ):
+        with patch.object(provider_with_baseline, "_validate_symbol", return_value="../evil"):
             with caplog.at_level(logging.WARNING):
                 result = provider_with_baseline._safe_baseline_path("test")
 

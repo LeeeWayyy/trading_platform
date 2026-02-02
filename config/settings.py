@@ -99,6 +99,16 @@ class Settings(BaseSettings):
         description="Max timestamp skew allowed for internal token validation (±seconds)",
     )
 
+    # Data Providers Configuration (P6T10)
+    crsp_data_dir: str = Field(
+        default="data/crsp",
+        description="Directory containing CRSP parquet files (daily_returns, index_constituents)",
+    )
+    ff_data_dir: str = Field(
+        default="data/fama_french",
+        description="Directory containing Fama-French factor parquet files",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

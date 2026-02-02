@@ -301,8 +301,12 @@ def _get_market_hours_warning(start: datetime, end: datetime) -> str | None:
     start_local = start.astimezone(market_tz)
     end_local = end.astimezone(market_tz)
     session_date = start_local.date()
-    market_open = datetime.combine(session_date, datetime.strptime("09:30", "%H:%M").time(), market_tz)
-    market_close = datetime.combine(session_date, datetime.strptime("16:00", "%H:%M").time(), market_tz)
+    market_open = datetime.combine(
+        session_date, datetime.strptime("09:30", "%H:%M").time(), market_tz
+    )
+    market_close = datetime.combine(
+        session_date, datetime.strptime("16:00", "%H:%M").time(), market_tz
+    )
 
     if start_local < market_open or end_local > market_close:
         return (
@@ -617,7 +621,9 @@ def _validate_modify_fields(order: OrderDetail, payload: OrderModifyRequest) -> 
                 )
 
     if errors:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="; ".join(errors))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="; ".join(errors)
+        )
 
 
 # Valid modification statuses for idempotent response handling
@@ -643,7 +649,10 @@ def _handle_idempotent_modification_response(
     status_value = str(existing.get("status") or "pending")
     # Validate status against known values and provide type-safe default
     _VALID_STATUSES: set[Literal["pending", "completed", "failed", "submitted_unconfirmed"]] = {
-        "pending", "completed", "failed", "submitted_unconfirmed"
+        "pending",
+        "completed",
+        "failed",
+        "submitted_unconfirmed",
     }
     status_literal: Literal["pending", "completed", "failed", "submitted_unconfirmed"] = (
         status_value if status_value in _VALID_STATUSES else "pending"  # type: ignore[assignment]
@@ -795,7 +804,11 @@ def _reserve_modify_delta(
     except Exception as exc:
         logger.error(
             "Position lookup unavailable during modification reservation (fail-closed)",
-            extra={"client_order_id": order.client_order_id, "symbol": order.symbol, "error": str(exc)},
+            extra={
+                "client_order_id": order.client_order_id,
+                "symbol": order.symbol,
+                "error": str(exc),
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -860,11 +873,11 @@ async def _validate_modify_fat_finger(
         return
 
     effective_qty = payload.qty if payload.qty is not None else order.qty
-    effective_limit = (
-        payload.limit_price if payload.limit_price is not None else order.limit_price
-    )
+    effective_limit = payload.limit_price if payload.limit_price is not None else order.limit_price
     effective_stop = payload.stop_price if payload.stop_price is not None else order.stop_price
-    effective_tif = payload.time_in_force if payload.time_in_force is not None else order.time_in_force
+    effective_tif = (
+        payload.time_in_force if payload.time_in_force is not None else order.time_in_force
+    )
 
     replacement_request = OrderRequest(
         symbol=order.symbol,
@@ -1018,9 +1031,7 @@ def _acquire_modification_lock(
                 detail="Order modification in progress. Retry with same idempotency_key.",
             ) from None
 
-        new_client_order_id = _generate_replacement_order_id(
-            client_order_id, modification_seq
-        )
+        new_client_order_id = _generate_replacement_order_id(client_order_id, modification_seq)
         modification_id = ctx.db.insert_pending_modification(
             original_client_order_id=client_order_id,
             new_client_order_id=new_client_order_id,
@@ -1090,15 +1101,17 @@ def _call_broker_replace(
         # Release reservation on failure
         if reservation_token and ctx.recovery_manager.position_reservation:
             ctx.recovery_manager.position_reservation.release(order.symbol, reservation_token)
-        ctx.db.update_modification_status(
-            modification_id, status="failed", error_message=str(exc)
-        )
+        ctx.db.update_modification_status(modification_id, status="failed", error_message=str(exc))
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
-            if isinstance(exc, AlpacaRejectionError)
-            else status.HTTP_400_BAD_REQUEST
-            if isinstance(exc, AlpacaValidationError)
-            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_ENTITY
+                if isinstance(exc, AlpacaRejectionError)
+                else (
+                    status.HTTP_400_BAD_REQUEST
+                    if isinstance(exc, AlpacaValidationError)
+                    else status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            ),
             detail=str(exc),
         ) from exc
 
@@ -1338,6 +1351,7 @@ async def twap_preview(
 # =============================================================================
 # POST /api/v1/orders - Submit Order
 # =============================================================================
+
 
 @router.post("/orders", response_model=OrderResponse)
 async def submit_order(

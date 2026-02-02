@@ -143,9 +143,7 @@ class TestOrderTicketSafetyChecks:
         assert disabled is True
         assert "Connection unavailable" in reason
 
-    def test_set_connection_state_stores_read_only(
-        self, component: OrderTicketComponent
-    ) -> None:
+    def test_set_connection_state_stores_read_only(self, component: OrderTicketComponent) -> None:
         """set_connection_state stores the read-only state for later checks."""
         # Initially True (fail-closed default)
         assert component._connection_read_only is True
@@ -555,9 +553,7 @@ class TestOrderTicketEffectivePrice:
 
         assert result == Decimal("145")
 
-    def test_buy_stop_uses_max_for_worst_case(
-        self, component: OrderTicketComponent
-    ) -> None:
+    def test_buy_stop_uses_max_for_worst_case(self, component: OrderTicketComponent) -> None:
         """Buy stop orders use max(stop, last) for worst-case estimate."""
         component._state.order_type = "stop"
         component._state.side = "buy"
@@ -567,9 +563,7 @@ class TestOrderTicketEffectivePrice:
 
         assert result == Decimal("160")  # max(160, 150)
 
-    def test_sell_stop_uses_min_for_worst_case(
-        self, component: OrderTicketComponent
-    ) -> None:
+    def test_sell_stop_uses_min_for_worst_case(self, component: OrderTicketComponent) -> None:
         """Sell stop orders use min(stop, last) for worst-case estimate.
 
         This prevents overstating notional for risk-reducing sell stops
@@ -771,9 +765,7 @@ class TestOrderTicketExposureLimits:
         comp._max_total_exposure = Decimal("100000")  # 100k limit
         return comp
 
-    def test_exposure_check_passes_when_within_limit(
-        self, component: OrderTicketComponent
-    ) -> None:
+    def test_exposure_check_passes_when_within_limit(self, component: OrderTicketComponent) -> None:
         """Exposure check passes when projected exposure within limit."""
         component._current_position = 0
         component._current_total_exposure = Decimal("50000")  # Existing 50k
@@ -784,9 +776,7 @@ class TestOrderTicketExposureLimits:
 
         assert result is None  # No violation
 
-    def test_exposure_check_fails_when_exceeds_limit(
-        self, component: OrderTicketComponent
-    ) -> None:
+    def test_exposure_check_fails_when_exceeds_limit(self, component: OrderTicketComponent) -> None:
         """Exposure check fails when projected exposure exceeds limit."""
         component._current_position = 0
         component._current_total_exposure = Decimal("90000")  # Existing 90k
