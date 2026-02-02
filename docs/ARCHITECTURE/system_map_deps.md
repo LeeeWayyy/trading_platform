@@ -46,6 +46,7 @@ flowchart TB
   lib_web_console_data -.-> lib_core
   lib_web_console_data -.-> lib_platform
   lib_web_console_services -.-> lib_core
+  lib_web_console_services -.-> lib_data
   lib_web_console_services -.-> lib_models
   lib_web_console_services -.-> lib_platform
   lib_web_console_services -.-> lib_trading
@@ -70,6 +71,7 @@ flowchart TB
   svc_signal_service -.-> strat_alpha_baseline
   svc_web_console_ng -.-> lib_common
   svc_web_console_ng -.-> lib_core
+  svc_web_console_ng -.-> lib_data
   svc_web_console_ng -.-> lib_models
   svc_web_console_ng -.-> lib_platform
   svc_web_console_ng -.-> lib_trading

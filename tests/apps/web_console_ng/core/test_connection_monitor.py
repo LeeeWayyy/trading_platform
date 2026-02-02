@@ -256,9 +256,7 @@ def test_get_badge_class_for_all_states(fake_time: FakeTime) -> None:
         CONNECTION_STALE,
     )
 
-    monitor = ConnectionMonitor(
-        degraded_required_count=2, stale_threshold_seconds=30.0
-    )
+    monitor = ConnectionMonitor(degraded_required_count=2, stale_threshold_seconds=30.0)
 
     # CONNECTED state
     monitor.record_success()
@@ -286,9 +284,7 @@ def test_get_badge_class_stale_overrides_degraded(fake_time: FakeTime) -> None:
     """Test that stale data overrides degraded badge class."""
     from apps.web_console_ng.ui.theme import CONNECTION_STALE
 
-    monitor = ConnectionMonitor(
-        degraded_required_count=2, stale_threshold_seconds=30.0
-    )
+    monitor = ConnectionMonitor(degraded_required_count=2, stale_threshold_seconds=30.0)
     monitor.record_success()
     monitor.record_latency(DEGRADED_LATENCY_MS + 10)
     monitor.record_latency(DEGRADED_LATENCY_MS + 10)

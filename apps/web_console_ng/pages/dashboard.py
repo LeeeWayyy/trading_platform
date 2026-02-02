@@ -484,11 +484,7 @@ async def dashboard(client: Client) -> None:
     ) -> list[dict[str, Any]]:
         if not positions:
             return []
-        symbols = [
-            str(item.get("symbol", "")).strip()
-            for item in positions
-            if item.get("symbol")
-        ]
+        symbols = [str(item.get("symbol", "")).strip() for item in positions if item.get("symbol")]
         sparkline_map = await sparkline_service.get_sparkline_map(user_id, symbols)
         enriched: list[dict[str, Any]] = []
         for position in positions:
@@ -698,9 +694,7 @@ async def dashboard(client: Client) -> None:
         _update_filter_options()
         if tabbed_panel is not None:
             tabbed_panel.set_badge_count(TAB_POSITIONS, len(positions_snapshot))
-            tabbed_panel.set_badge_count(
-                TAB_WORKING, len(filter_working_orders(orders_snapshot))
-            )
+            tabbed_panel.set_badge_count(TAB_WORKING, len(filter_working_orders(orders_snapshot)))
             tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
 
         async with grid_update_lock:

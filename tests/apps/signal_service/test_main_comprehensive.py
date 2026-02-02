@@ -58,12 +58,14 @@ class TestSignalGenerationAdvanced:
         from apps.signal_service import main
 
         mock_generator = Mock()
-        mock_signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT"],
-            "predicted_return": [0.023, 0.018],
-            "rank": [1, 2],
-            "target_weight": [0.5, 0.5],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "predicted_return": [0.023, 0.018],
+                "rank": [1, 2],
+                "target_weight": [0.5, 0.5],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 2
         mock_generator.bottom_n = 0
@@ -153,7 +155,9 @@ class TestSignalGenerationAdvanced:
             with patch("apps.signal_service.main.SignalGenerator") as mock_sig_gen_class:
                 mock_new_gen = Mock()
                 # Return empty DataFrame with proper structure
-                empty_df = pd.DataFrame(columns=["symbol", "predicted_return", "rank", "target_weight"])
+                empty_df = pd.DataFrame(
+                    columns=["symbol", "predicted_return", "rank", "target_weight"]
+                )
                 mock_new_gen.generate_signals.return_value = empty_df
                 mock_sig_gen_class.return_value = mock_new_gen
 
@@ -183,12 +187,14 @@ class TestSignalGenerationAdvanced:
 
         mock_generator = Mock()
         # DataFrame with missing symbol (edge case)
-        mock_signals = pd.DataFrame({
-            "symbol": [None],  # Missing symbol
-            "predicted_return": [0.023],
-            "rank": [1],
-            "target_weight": [1.0],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": [None],  # Missing symbol
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 1
         mock_generator.bottom_n = 0
@@ -609,12 +615,14 @@ class TestEdgeCases:
         from apps.signal_service import main
 
         mock_generator = Mock()
-        mock_signals = pd.DataFrame({
-            "symbol": ["AAPL"],
-            "predicted_return": [0.023],
-            "rank": [1],
-            "target_weight": [1.0],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 1
         mock_generator.bottom_n = 0
@@ -649,12 +657,14 @@ class TestEdgeCases:
         from apps.signal_service import main
 
         mock_generator = Mock()
-        mock_signals = pd.DataFrame({
-            "symbol": ["AAPL"],
-            "predicted_return": [0.023],
-            "rank": [1],
-            "target_weight": [1.0],
-        })
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
         mock_generator.generate_signals.return_value = mock_signals
         mock_generator.top_n = 1
         mock_generator.bottom_n = 0

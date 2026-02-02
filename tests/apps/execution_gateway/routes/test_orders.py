@@ -2361,12 +2361,15 @@ class TestModifyOrder:
         client = _build_test_app(ctx, create_test_config())
 
         payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
-        with patch(
-            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
-            new=AsyncMock(return_value=(Decimal("100"), 100000)),
-        ), patch(
-            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
-            return_value="replace-1",
+        with (
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new=AsyncMock(return_value=(Decimal("100"), 100000)),
+            ),
+            patch(
+                "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+                return_value="replace-1",
+            ),
         ):
             response = client.patch("/api/v1/orders/client-1", json=payload)
 
@@ -2477,12 +2480,15 @@ class TestModifyOrder:
         client = _build_test_app(ctx, create_test_config())
 
         payload = {"idempotency_key": str(uuid.uuid4()), "qty": 12}
-        with patch(
-            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
-            new=AsyncMock(return_value=(Decimal("100"), 100000)),
-        ), patch(
-            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
-            return_value="replace-1",
+        with (
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new=AsyncMock(return_value=(Decimal("100"), 100000)),
+            ),
+            patch(
+                "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+                return_value="replace-1",
+            ),
         ):
             response = client.patch("/api/v1/orders/client-10", json=payload)
 
@@ -2531,12 +2537,15 @@ class TestModifyOrder:
         client = _build_test_app(ctx, create_test_config())
 
         payload = {"idempotency_key": str(uuid.uuid4()), "qty": 5}
-        with patch(
-            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
-            new=AsyncMock(return_value=(Decimal("100"), 100000)),
-        ), patch(
-            "apps.execution_gateway.routes.orders._generate_replacement_order_id",
-            return_value="replace-1",
+        with (
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new=AsyncMock(return_value=(Decimal("100"), 100000)),
+            ),
+            patch(
+                "apps.execution_gateway.routes.orders._generate_replacement_order_id",
+                return_value="replace-1",
+            ),
         ):
             response = client.patch("/api/v1/orders/client-3", json=payload)
 

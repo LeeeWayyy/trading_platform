@@ -626,12 +626,16 @@ class TestDeliveryExecutorDelayMethods:
 
     def test_rate_limit_delay_valid_retry_after(self, executor):
         """Test _rate_limit_delay with valid retry_after."""
-        result = DeliveryResult(success=False, error="rate_limited", metadata={"retry_after": "120"})
+        result = DeliveryResult(
+            success=False, error="rate_limited", metadata={"retry_after": "120"}
+        )
         assert executor._rate_limit_delay(result) == 120
 
     def test_rate_limit_delay_invalid_retry_after(self, executor):
         """Test _rate_limit_delay with invalid retry_after."""
-        result = DeliveryResult(success=False, error="rate_limited", metadata={"retry_after": "bad"})
+        result = DeliveryResult(
+            success=False, error="rate_limited", metadata={"retry_after": "bad"}
+        )
         assert executor._rate_limit_delay(result) == executor.RATE_LIMIT_RETRY_DELAY
 
     def test_rate_limit_delay_zero_retry_after(self, executor):
@@ -1385,9 +1389,7 @@ class TestDeliveryExecutorTerminalFailure:
         return AsyncMock()
 
     @pytest.mark.asyncio()
-    async def test_execute_non_retryable_failure(
-        self, mock_db_pool, mock_redis, mock_poison_queue
-    ):
+    async def test_execute_non_retryable_failure(self, mock_db_pool, mock_redis, mock_poison_queue):
         """Test execute with non-retryable failure goes to poison queue immediately."""
         delivery_id = uuid4()
         claimed_delivery = AlertDelivery(
@@ -1567,9 +1569,7 @@ class TestDeliveryExecutorAttemptLimitReached:
         return AsyncMock()
 
     @pytest.mark.asyncio()
-    async def test_execute_max_attempts_reached(
-        self, mock_db_pool, mock_redis, mock_poison_queue
-    ):
+    async def test_execute_max_attempts_reached(self, mock_db_pool, mock_redis, mock_poison_queue):
         """Test execute when max attempts are exhausted."""
         delivery_id = uuid4()
         claimed_delivery = AlertDelivery(
@@ -1758,9 +1758,7 @@ class TestDeliveryExecutorSchedulerFailureContinue:
         mock_rate_limiter.check_channel_rate_limit = AsyncMock(return_value=False)
 
         # Scheduler fails
-        retry_scheduler = AsyncMock(
-            side_effect=redis.exceptions.ConnectionError("Redis down")
-        )
+        retry_scheduler = AsyncMock(side_effect=redis.exceptions.ConnectionError("Redis down"))
 
         executor = DeliveryExecutor(
             channels={},

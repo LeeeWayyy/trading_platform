@@ -158,7 +158,9 @@ class FatFingerValidator:
         )
 
 
-def parse_thresholds(payload: dict[str, object]) -> tuple[FatFingerThresholds, dict[str, FatFingerThresholds]]:
+def parse_thresholds(
+    payload: dict[str, object]
+) -> tuple[FatFingerThresholds, dict[str, FatFingerThresholds]]:
     """Parse thresholds API payload into frontend models."""
 
     default_payload = payload.get("default_thresholds")

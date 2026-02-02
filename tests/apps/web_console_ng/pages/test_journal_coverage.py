@@ -164,8 +164,13 @@ def mock_get_current_user(mock_user):
 @pytest.fixture()
 def mock_permissions():
     """Mock permission checks."""
-    with patch.object(journal_module, "has_permission", return_value=True), patch.object(
-        journal_module, "get_authorized_strategies", return_value=["alpha_baseline", "momentum_v1"]
+    with (
+        patch.object(journal_module, "has_permission", return_value=True),
+        patch.object(
+            journal_module,
+            "get_authorized_strategies",
+            return_value=["alpha_baseline", "momentum_v1"],
+        ),
     ):
         yield
 
@@ -401,8 +406,9 @@ class TestDoExport:
 
         mock_data_access.stream_trades_for_export = mock_stream
 
-        with patch.object(journal_module, "get_db_pool", return_value=None), patch.object(
-            journal_module, "get_authorized_strategies", return_value=["momentum_v1"]
+        with (
+            patch.object(journal_module, "get_db_pool", return_value=None),
+            patch.object(journal_module, "get_authorized_strategies", return_value=["momentum_v1"]),
         ):
             await journal_module._do_export(
                 data_access=mock_data_access,
@@ -432,8 +438,9 @@ class TestDoExport:
 
         mock_data_access.stream_trades_for_export = mock_stream
 
-        with patch.object(journal_module, "get_db_pool", return_value=None), patch.object(
-            journal_module, "get_authorized_strategies", return_value=["momentum_v1"]
+        with (
+            patch.object(journal_module, "get_db_pool", return_value=None),
+            patch.object(journal_module, "get_authorized_strategies", return_value=["momentum_v1"]),
         ):
             await journal_module._do_export(
                 data_access=mock_data_access,
@@ -446,9 +453,7 @@ class TestDoExport:
             )
 
         # Check error notification
-        assert any(
-            "Database connection error" in msg[0] for msg in mock_ui.notifications
-        )
+        assert any("Database connection error" in msg[0] for msg in mock_ui.notifications)
 
 
 class TestSaveWorkbookToBytes:
@@ -484,15 +489,15 @@ class TestTradeJournalPageRouting:
 
     @pytest.mark.skip(reason="Requires NiceGUI slot context - needs full app integration test")
     @pytest.mark.asyncio()
-    async def test_page_feature_disabled(
-        self, mock_ui, mock_get_current_user, mock_permissions
-    ):
+    async def test_page_feature_disabled(self, mock_ui, mock_get_current_user, mock_permissions):
         """Test page handles feature flag disabled."""
         mock_app = MagicMock()
         mock_app.storage.user = {"user": {"user_id": "test_user", "role": "admin"}}
 
-        with patch.object(journal_module, "FEATURE_TRADE_JOURNAL", False), \
-             patch("apps.web_console_ng.auth.middleware.app", mock_app):
+        with (
+            patch.object(journal_module, "FEATURE_TRADE_JOURNAL", False),
+            patch("apps.web_console_ng.auth.middleware.app", mock_app),
+        ):
             await journal_module.trade_journal_page()
 
             assert any("not available" in label for label in mock_ui.labels)
@@ -504,43 +509,45 @@ class TestTradeJournalPageRouting:
         mock_app = MagicMock()
         mock_app.storage.user = {"user": {"user_id": "test_user", "role": "admin"}}
 
-        with patch.object(journal_module, "has_permission", return_value=False), \
-             patch.object(journal_module, "FEATURE_TRADE_JOURNAL", True), \
-             patch("apps.web_console_ng.auth.middleware.app", mock_app):
+        with (
+            patch.object(journal_module, "has_permission", return_value=False),
+            patch.object(journal_module, "FEATURE_TRADE_JOURNAL", True),
+            patch("apps.web_console_ng.auth.middleware.app", mock_app),
+        ):
             await journal_module.trade_journal_page()
 
             assert any("Permission denied" in msg[0] for msg in mock_ui.notifications)
 
     @pytest.mark.skip(reason="Requires NiceGUI slot context - needs full app integration test")
     @pytest.mark.asyncio()
-    async def test_page_no_authorized_strategies(
-        self, mock_ui, mock_get_current_user
-    ):
+    async def test_page_no_authorized_strategies(self, mock_ui, mock_get_current_user):
         """Test page handles no authorized strategies."""
         mock_app = MagicMock()
         mock_app.storage.user = {"user": {"user_id": "test_user", "role": "admin"}}
 
-        with patch.object(journal_module, "has_permission", return_value=True), \
-             patch.object(journal_module, "get_authorized_strategies", return_value=[]), \
-             patch.object(journal_module, "FEATURE_TRADE_JOURNAL", True), \
-             patch.object(journal_module, "get_db_pool", return_value=MagicMock()), \
-             patch("apps.web_console_ng.auth.middleware.app", mock_app):
+        with (
+            patch.object(journal_module, "has_permission", return_value=True),
+            patch.object(journal_module, "get_authorized_strategies", return_value=[]),
+            patch.object(journal_module, "FEATURE_TRADE_JOURNAL", True),
+            patch.object(journal_module, "get_db_pool", return_value=MagicMock()),
+            patch("apps.web_console_ng.auth.middleware.app", mock_app),
+        ):
             await journal_module.trade_journal_page()
 
             assert any("don't have access" in label for label in mock_ui.labels)
 
     @pytest.mark.skip(reason="Requires NiceGUI slot context - needs full app integration test")
     @pytest.mark.asyncio()
-    async def test_page_demo_mode(
-        self, mock_ui, mock_get_current_user, mock_permissions
-    ):
+    async def test_page_demo_mode(self, mock_ui, mock_get_current_user, mock_permissions):
         """Test page renders demo mode when database not configured."""
         mock_app = MagicMock()
         mock_app.storage.user = {"user": {"user_id": "test_user", "role": "admin"}}
 
-        with patch.object(journal_module, "FEATURE_TRADE_JOURNAL", True), \
-             patch.object(journal_module, "get_db_pool", return_value=None), \
-             patch("apps.web_console_ng.auth.middleware.app", mock_app):
+        with (
+            patch.object(journal_module, "FEATURE_TRADE_JOURNAL", True),
+            patch.object(journal_module, "get_db_pool", return_value=None),
+            patch("apps.web_console_ng.auth.middleware.app", mock_app),
+        ):
             await journal_module.trade_journal_page()
 
             assert any("Demo Mode" in label for label in mock_ui.labels)

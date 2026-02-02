@@ -317,9 +317,7 @@ class AsyncTradingClient:
     ) -> dict[str, Any]:
         """Fetch 20-day average daily volume (ADV) for a symbol."""
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._market_client.get(
-            f"/api/v1/market-data/{symbol}/adv", headers=headers
-        )
+        resp = await self._market_client.get(f"/api/v1/market-data/{symbol}/adv", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -333,9 +331,7 @@ class AsyncTradingClient:
     ) -> dict[str, Any]:
         """Fetch TWAP slicing preview (POST)."""
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.post(
-            "/api/v1/orders/twap-preview", headers=headers, json=payload
-        )
+        resp = await self._client.post("/api/v1/orders/twap-preview", headers=headers, json=payload)
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -475,7 +471,9 @@ class AsyncTradingClient:
         headers = self._get_auth_headers(user_id, role, None)
         # URL-encode order_id to prevent path traversal attacks
         safe_order_id = url_quote(order_id, safe="")
-        resp = await self._client.patch(f"/api/v1/orders/{safe_order_id}", headers=headers, json=payload)
+        resp = await self._client.patch(
+            f"/api/v1/orders/{safe_order_id}", headers=headers, json=payload
+        )
         resp.raise_for_status()
         return self._json_dict(resp)
 

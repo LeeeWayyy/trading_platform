@@ -130,23 +130,19 @@ class SafetyGate:
         if require_connected:
             if cached_connection_state is None or conn_state_upper == "UNKNOWN":
                 if policy == SafetyPolicy.FAIL_CLOSED:
-                    return SafetyCheckResult(
-                        False, "Connection state unknown - cannot proceed", []
-                    )
+                    return SafetyCheckResult(False, "Connection state unknown - cannot proceed", [])
                 warnings.append("Connection state unknown - proceeding with caution")
             elif conn_state_upper in READ_ONLY_STATES:
                 if policy == SafetyPolicy.FAIL_CLOSED:
-                    return SafetyCheckResult(
-                        False, f"Connection {cached_connection_state}", []
-                    )
-                warnings.append(
-                    f"Connection {cached_connection_state} - proceeding with caution"
-                )
+                    return SafetyCheckResult(False, f"Connection {cached_connection_state}", [])
+                warnings.append(f"Connection {cached_connection_state} - proceeding with caution")
             # Handle unrecognized states (not in KNOWN_GOOD_STATES or READ_ONLY_STATES)
             elif conn_state_upper not in KNOWN_GOOD_STATES:
                 if policy == SafetyPolicy.FAIL_CLOSED:
                     return SafetyCheckResult(
-                        False, f"Connection state '{cached_connection_state}' unrecognized (FAIL-CLOSED)", []
+                        False,
+                        f"Connection state '{cached_connection_state}' unrecognized (FAIL-CLOSED)",
+                        [],
                     )
                 # FAIL_OPEN: Warn on unrecognized state for visibility (mirrors API verification)
                 warnings.append(
@@ -156,9 +152,7 @@ class SafetyGate:
         # 2. Kill switch check (FAIL_CLOSED blocks; FAIL_OPEN allows risk reduction)
         if cached_kill_switch is None:
             if policy == SafetyPolicy.FAIL_CLOSED:
-                return SafetyCheckResult(
-                    False, "Kill switch state unknown - cannot proceed", []
-                )
+                return SafetyCheckResult(False, "Kill switch state unknown - cannot proceed", [])
             warnings.append("Kill switch state unknown - proceeding with caution")
         elif cached_kill_switch is True:
             if policy == SafetyPolicy.FAIL_CLOSED:
@@ -208,9 +202,7 @@ class SafetyGate:
         if policy == SafetyPolicy.FAIL_CLOSED:
             # Block on None/unknown (fail-closed means uncertainty = block)
             if cached_connection_state is None:
-                return SafetyCheckResult(
-                    False, "Connection state unknown (FAIL-CLOSED)", []
-                )
+                return SafetyCheckResult(False, "Connection state unknown (FAIL-CLOSED)", [])
             state_upper = cached_connection_state.upper()
             if state_upper in READ_ONLY_STATES:
                 return SafetyCheckResult(
@@ -259,15 +251,15 @@ class SafetyGate:
                         False, f"Kill switch state unknown: '{ks_state}' (FAIL-CLOSED)", []
                     )
                 # FAIL_OPEN: Warn but proceed (LOW issue fix)
-                warnings.append(f"Kill switch state unknown: '{ks_state}' - proceeding (risk-reducing)")
+                warnings.append(
+                    f"Kill switch state unknown: '{ks_state}' - proceeding (risk-reducing)"
+                )
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             if status >= 500:
                 # 5xx = Server error (transient)
                 if policy == SafetyPolicy.FAIL_CLOSED:
-                    return SafetyCheckResult(
-                        False, f"Kill switch check failed (HTTP {status})", []
-                    )
+                    return SafetyCheckResult(False, f"Kill switch check failed (HTTP {status})", [])
                 # FAIL_OPEN: Allow risk-reducing action when safety service has transient issues
                 warnings.append(
                     f"Kill switch service error ({status}) - proceeding (risk-reducing)"
@@ -317,7 +309,9 @@ class SafetyGate:
                         False, f"Circuit breaker state unknown: '{cb_state}' (FAIL-CLOSED)", []
                     )
                 # FAIL_OPEN: Warn but proceed (LOW issue fix)
-                warnings.append(f"Circuit breaker state unknown: '{cb_state}' - proceeding (risk-reducing)")
+                warnings.append(
+                    f"Circuit breaker state unknown: '{cb_state}' - proceeding (risk-reducing)"
+                )
         except httpx.HTTPStatusError as exc:
             if policy == SafetyPolicy.FAIL_CLOSED:
                 # FAIL_CLOSED: Block on any CB verification failure
@@ -332,9 +326,7 @@ class SafetyGate:
             )
         except httpx.RequestError:
             if policy == SafetyPolicy.FAIL_CLOSED:
-                return SafetyCheckResult(
-                    False, "Circuit breaker service unreachable", []
-                )
+                return SafetyCheckResult(False, "Circuit breaker service unreachable", [])
             # FAIL_OPEN: Allow risk-reducing action
             warnings.append("Circuit breaker service unreachable - proceeding")
         except Exception as exc:

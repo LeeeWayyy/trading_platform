@@ -99,7 +99,10 @@ class Level2WebSocketService:
 
             # Check symbol cap only for new user-symbol combinations
             if is_new_user_subscription:
-                if symbol not in self._symbol_refcounts and len(self._symbol_refcounts) >= self._max_symbols:
+                if (
+                    symbol not in self._symbol_refcounts
+                    and len(self._symbol_refcounts) >= self._max_symbols
+                ):
                     logger.warning(
                         "level2_symbol_cap_reached",
                         extra={"symbol": symbol, "max": self._max_symbols},

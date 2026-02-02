@@ -133,9 +133,7 @@ class CancelAllDialog:
                 symbols.add(symbol)
         return sorted(symbols)
 
-    async def _execute_cancel_all(
-        self, orders: list[dict[str, object]]
-    ) -> tuple[int, int]:
+    async def _execute_cancel_all(self, orders: list[dict[str, object]]) -> tuple[int, int]:
         """Execute cancellation with partial failure reporting and bounded concurrency.
 
         Uses semaphore to limit concurrent cancels (avoids overwhelming backend).
@@ -254,9 +252,7 @@ class CancelAllDialog:
                                 # Re-apply filters to fresh data
                                 self._orders = fresh_orders
                         except Exception as fetch_exc:
-                            ui.notify(
-                                f"Failed to refresh orders: {fetch_exc}", type="warning"
-                            )
+                            ui.notify(f"Failed to refresh orders: {fetch_exc}", type="warning")
                             # Proceed with stale data but warn user
                             logger.warning(
                                 "cancel_all_dialog_fetch_failed",

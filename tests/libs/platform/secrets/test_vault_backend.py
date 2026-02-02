@@ -1042,9 +1042,7 @@ class TestVaultSecretManagerListSecretsEdgeCases:
 
     def test_list_secrets_value_error_in_response(self, vault_secret_mgr, mock_hvac_client):
         """Test handling of ValueError during list processing."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = ValueError(
-            "Invalid response"
-        )
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = ValueError("Invalid response")
 
         with pytest.raises(SecretAccessError) as exc_info:
             vault_secret_mgr.list_secrets()

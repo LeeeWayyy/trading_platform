@@ -168,9 +168,7 @@ class TestSerialization:
 
         assert verify_checksum(test_file, "wrong_checksum") is False
 
-    def test_load_metadata_success(
-        self, tmp_path: Path, env_metadata: EnvironmentMetadata
-    ) -> None:
+    def test_load_metadata_success(self, tmp_path: Path, env_metadata: EnvironmentMetadata) -> None:
         """load_metadata should return ModelMetadata on success."""
         metadata = _make_metadata(ModelType.risk_model, env_metadata)
         model = {"weights": [1.0]}
@@ -298,6 +296,7 @@ class TestGetPackageVersion:
 
     def test_returns_none_on_import_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Should return None when ImportError occurs."""
+
         def raise_import_error(package: str) -> None:
             raise ImportError("test error")
 
@@ -307,6 +306,7 @@ class TestGetPackageVersion:
 
     def test_returns_none_on_module_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Should return None when ModuleNotFoundError occurs."""
+
         def raise_module_not_found(package: str) -> None:
             raise ModuleNotFoundError("test error")
 
@@ -316,6 +316,7 @@ class TestGetPackageVersion:
 
     def test_returns_none_on_generic_exception(self) -> None:
         """Should return None when generic Exception occurs."""
+
         def raise_generic_exception(package: str) -> None:
             raise RuntimeError("generic error")
 
@@ -436,9 +437,7 @@ class TestAtomicWriteBytes:
                 with pytest.raises(PartialWriteError):
                     _atomic_write_bytes(test_file, b"test content")
 
-    def test_cleanup_on_failure_with_unlink_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_cleanup_on_failure_with_unlink_error(self, tmp_path: Path) -> None:
         """Should handle OSError during cleanup unlink."""
         test_file = tmp_path / "test.txt"
 

@@ -270,9 +270,7 @@ class OneClickHandler:
                 def on_cancel() -> None:
                     dialog.close()
 
-                ui.button("I Understand", on_click=on_confirm).classes(
-                    "bg-blue-600 text-white"
-                )
+                ui.button("I Understand", on_click=on_confirm).classes("bg-blue-600 text-white")
                 ui.button("Cancel", on_click=on_cancel)
 
         dialog.open()
@@ -369,7 +367,8 @@ class OneClickHandler:
         if is_read_only or conn_unknown:
             state_desc = (
                 self._cached_connection_state
-                if self._cached_connection_state and self._cached_connection_state.upper() != "UNKNOWN"
+                if self._cached_connection_state
+                and self._cached_connection_state.upper() != "UNKNOWN"
                 else "unknown"
             )
             ui.notify(
@@ -398,9 +397,7 @@ class OneClickHandler:
                 return False
 
         orders_at_level = [
-            o
-            for o in working_orders
-            if o.get("symbol") == symbol and _price_matches(o, price)
+            o for o in working_orders if o.get("symbol") == symbol and _price_matches(o, price)
         ]
 
         if not orders_at_level:
@@ -485,9 +482,7 @@ class OneClickHandler:
 
         if mode == "shift_limit":
             if price_raw is None or side_raw is None:
-                logger.warning(
-                    "handle_one_click_shift_missing_params", extra={"args": args}
-                )
+                logger.warning("handle_one_click_shift_missing_params", extra={"args": args})
                 return
             try:
                 price = Decimal(str(price_raw))
@@ -505,9 +500,7 @@ class OneClickHandler:
 
         elif mode == "ctrl_market":
             if side_raw is None:
-                logger.warning(
-                    "handle_one_click_ctrl_missing_side", extra={"args": args}
-                )
+                logger.warning("handle_one_click_ctrl_missing_side", extra={"args": args})
                 return
             if side_raw not in ("buy", "sell"):
                 ui.notify("Invalid side", type="negative")
@@ -516,9 +509,7 @@ class OneClickHandler:
 
         elif mode == "alt_cancel":
             if price_raw is None:
-                logger.warning(
-                    "handle_one_click_alt_missing_price", extra={"args": args}
-                )
+                logger.warning("handle_one_click_alt_missing_price", extra={"args": args})
                 return
             try:
                 price = Decimal(str(price_raw))
@@ -628,9 +619,7 @@ class OneClickHandler:
         adv = await self._get_adv(symbol)
         validation = self._validator.validate(symbol=symbol, qty=qty, price=price, adv=adv)
         if validation.blocked:
-            ui.notify(
-                f"Fat finger blocked: {validation.warnings[0].message}", type="negative"
-            )
+            ui.notify(f"Fat finger blocked: {validation.warnings[0].message}", type="negative")
             return
 
         # 6. Submit order via manual order endpoint (consistent audit trail)

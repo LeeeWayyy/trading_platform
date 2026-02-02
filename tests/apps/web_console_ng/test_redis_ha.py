@@ -280,7 +280,9 @@ def test_ha_redis_store_sentinel_ssl_enabled():
         patch("apps.web_console_ng.core.redis_ha.config.REDIS_SSL_CERT_REQS", "required"),
         patch("apps.web_console_ng.core.redis_ha.config.REDIS_SSL_CERTFILE", None),
         patch("apps.web_console_ng.core.redis_ha.config.REDIS_SSL_KEYFILE", None),
-        patch("apps.web_console_ng.core.redis_ha._build_ssl_context", return_value=mock_ssl_context),
+        patch(
+            "apps.web_console_ng.core.redis_ha._build_ssl_context", return_value=mock_ssl_context
+        ),
         patch("apps.web_console_ng.core.redis_ha.Sentinel") as mock_sentinel,
     ):
         HARedisStore._instance = None

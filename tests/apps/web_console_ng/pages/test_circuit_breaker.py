@@ -169,9 +169,7 @@ async def test_trip_and_reset_callbacks(
 
 
 @pytest.mark.asyncio()
-async def test_feature_flag_disabled(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_feature_flag_disabled(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test page shows message when feature flag is disabled."""
     monkeypatch.setattr(cb_module.config, "FEATURE_CIRCUIT_BREAKER", False)
     monkeypatch.setattr(cb_module, "get_current_user", lambda: {"user_id": "u1"})
@@ -188,9 +186,7 @@ async def test_feature_flag_disabled(
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_permission_denied(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test page shows permission denied when VIEW_CIRCUIT_BREAKER missing."""
     monkeypatch.setattr(cb_module.config, "FEATURE_CIRCUIT_BREAKER", True)
     monkeypatch.setattr(cb_module, "get_current_user", lambda: {"user_id": "u1"})
@@ -213,9 +209,7 @@ async def test_permission_denied(
 
 
 @pytest.mark.asyncio()
-async def test_redis_unavailable(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_redis_unavailable(dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test page shows error when Redis/cb_service is unavailable."""
     monkeypatch.setattr(cb_module.config, "FEATURE_CIRCUIT_BREAKER", True)
     monkeypatch.setattr(cb_module, "get_current_user", lambda: {"user_id": "u1"})

@@ -544,6 +544,7 @@ async def test_flush_to_db_handles_metrics_import_error(monkeypatch, caplog):
 @pytest.mark.usefixtures("_audit_sink_db")
 async def test_flush_to_db_requeues_on_failure_before_max_retries(monkeypatch, caplog):
     """Test _flush_to_db re-queues items on failure if retries not exhausted."""
+
     def fake_acquire(_pool):
         return _AcquireContext(None, enter_exc=RuntimeError("boom"))
 

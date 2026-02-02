@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-01-30 - P6T9 TradeCost.symbol→identifier, compute_cost_summary/capacity_analysis use trades_df -->
+<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - backtest module updates -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)
@@ -41,7 +41,7 @@ See [libs/alpha.md](./alpha.md) for detailed specification.
 ### libs/trading/backtest
 See [libs/backtest.md](./backtest.md) for detailed specification.
 
-**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, transaction cost modeling, and RQ queue/worker utilities.
+**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, transaction cost modeling, quantile analysis, and RQ queue/worker utilities.
 
 **Key Features:**
 - Job queue management
@@ -50,6 +50,7 @@ See [libs/backtest.md](./backtest.md) for detailed specification.
 - Parameter search
 - Transaction cost model (Almgren-Chriss)
 - Capacity analysis
+- Quantile analysis with Rank IC computation
 
 ### libs/trading/risk
 See [libs/risk.md](./risk.md) for detailed specification.
@@ -87,6 +88,6 @@ See [libs/risk_management.md](./risk_management.md) for detailed specification.
 - **Run Tests:** `pytest tests/libs/trading -v`
 
 ## Metadata
-- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from collocated directories to tests/libs/trading/)
-- **Source Files:** `libs/trading/` (group index)
+- **Last Updated:** 2026-02-01 (P6T10 - Added quantile_analysis.py with QuantileAnalyzer)
+- **Source Files:** `libs/trading/` (group index), `libs/trading/backtest/quantile_analysis.py`
 - **ADRs:** N/A

@@ -427,10 +427,14 @@ async def test_schedule_cleanup_without_event_loop(
     )
 
     with caplog.at_level("DEBUG"):
-        grid_performance._schedule_monitor_cleanup("grid-5", "sess-5", GridPerformanceMonitor("grid-5"))
+        grid_performance._schedule_monitor_cleanup(
+            "grid-5", "sess-5", GridPerformanceMonitor("grid-5")
+        )
 
     # Check debug log
-    assert any("grid_performance_cleanup_no_event_loop" in record.message for record in caplog.records)
+    assert any(
+        "grid_performance_cleanup_no_event_loop" in record.message for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio()
@@ -589,7 +593,9 @@ def test_attach_multiple_times_overwrites(monkeypatch: pytest.MonkeyPatch) -> No
     monitor2 = GridPerformanceMonitor("grid-multi")
     grid = DummyGrid()
 
-    monkeypatch.setattr(grid_performance, "get_or_create_client_id", Mock(return_value="sess-multi"))
+    monkeypatch.setattr(
+        grid_performance, "get_or_create_client_id", Mock(return_value="sess-multi")
+    )
     monkeypatch.setattr(grid_performance, "_schedule_monitor_cleanup", Mock())
 
     monitor1.attach_to_grid(grid)

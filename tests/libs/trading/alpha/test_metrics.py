@@ -236,7 +236,9 @@ class TestAlphaMetricsAdapter:
         """Test ICIR computation with valid data."""
         # Create daily IC data for 30 days
         dates = [date(2024, 1, 1) + timedelta(days=i) for i in range(30)]
-        daily_ic = pl.DataFrame({"date": dates, "rank_ic": [0.05 + 0.01 * (i % 5) for i in range(30)]})
+        daily_ic = pl.DataFrame(
+            {"date": dates, "rank_ic": [0.05 + 0.01 * (i % 5) for i in range(30)]}
+        )
 
         result = adapter.compute_icir(daily_ic, window=20)
 
@@ -247,7 +249,9 @@ class TestAlphaMetricsAdapter:
 
     def test_compute_icir_insufficient_data(self, adapter):
         """Test ICIR returns NaN with insufficient data."""
-        daily_ic = pl.DataFrame({"date": [date(2024, 1, i) for i in range(1, 11)], "rank_ic": [0.05] * 10})
+        daily_ic = pl.DataFrame(
+            {"date": [date(2024, 1, i) for i in range(1, 11)], "rank_ic": [0.05] * 10}
+        )
 
         result = adapter.compute_icir(daily_ic, window=20)
 
@@ -313,9 +317,15 @@ class TestAlphaMetricsAdapter:
 
     def test_compute_grouped_ic_empty_data(self, adapter):
         """Test grouped IC with empty data."""
-        empty_signal = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
-        empty_returns = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64})
-        empty_mapping = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "gics_sector": pl.Utf8})
+        empty_signal = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
+        )
+        empty_returns = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64}
+        )
+        empty_mapping = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "gics_sector": pl.Utf8}
+        )
 
         result = adapter.compute_grouped_ic(empty_signal, empty_returns, empty_mapping)
 
@@ -374,7 +384,10 @@ class TestAlphaMetricsAdapter:
                 {
                     "permno": list(range(n_stocks)),
                     "date": [date(2024, 1, 1)] * n_stocks,
-                    "return": [i / 1000 * (1 - noise_factor) + (i % 3) * noise_factor / 1000 for i in range(n_stocks)],
+                    "return": [
+                        i / 1000 * (1 - noise_factor) + (i % 3) * noise_factor / 1000
+                        for i in range(n_stocks)
+                    ],
                 }
             )
 
@@ -448,23 +461,33 @@ class TestAlphaMetricsAdapter:
 
     def test_compute_hit_rate_empty(self, adapter):
         """Test hit rate with empty data."""
-        empty_signal = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
-        empty_returns = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64})
+        empty_signal = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
+        )
+        empty_returns = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64}
+        )
 
         hr = adapter.compute_hit_rate(empty_signal, empty_returns)
         assert math.isnan(hr)
 
     def test_compute_coverage_empty(self, adapter):
         """Test coverage with empty signal."""
-        empty_signal = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
+        empty_signal = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
+        )
 
         cov = adapter.compute_coverage(empty_signal, 100)
         assert cov == 0.0
 
     def test_compute_long_short_spread_empty(self, adapter):
         """Test long/short spread with empty data."""
-        empty_signal = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
-        empty_returns = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64})
+        empty_signal = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
+        )
+        empty_returns = pl.DataFrame(
+            schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64}
+        )
 
         spread = adapter.compute_long_short_spread(empty_signal, empty_returns)
         assert math.isnan(spread)
@@ -740,7 +763,9 @@ class TestEstimateHalfLife:
 
     def test_half_life_prev_nan(self, adapter):
         """Test half-life when previous IC is NaN."""
-        decay_df = pl.DataFrame({"horizon": [1, 5, 10, 15], "rank_ic": [0.5, float("nan"), 0.3, 0.2]})
+        decay_df = pl.DataFrame(
+            {"horizon": [1, 5, 10, 15], "rank_ic": [0.5, float("nan"), 0.3, 0.2]}
+        )
 
         half_life = adapter._estimate_half_life(decay_df)
         # Should handle this edge case
@@ -770,7 +795,9 @@ class TestDataclasses:
 
     def test_decay_curve_result_creation(self):
         """Test DecayCurveResult dataclass creation."""
-        decay_df = pl.DataFrame({"horizon": [1, 5, 10], "ic": [0.5, 0.4, 0.3], "rank_ic": [0.55, 0.45, 0.35]})
+        decay_df = pl.DataFrame(
+            {"horizon": [1, 5, 10], "ic": [0.5, 0.4, 0.3], "rank_ic": [0.55, 0.45, 0.35]}
+        )
         result = DecayCurveResult(decay_curve=decay_df, half_life=7.5)
 
         assert result.decay_curve.height == 3

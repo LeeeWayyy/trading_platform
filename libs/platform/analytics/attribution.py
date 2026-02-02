@@ -435,11 +435,22 @@ class FactorAttribution:
         # Align data
         aligned_portfolio, aligned_factors = self._align_data(portfolio_returns, ff_factors)
 
-        # Check minimum observations
+        # Filter out rows with non-finite values (NaN/inf) to prevent statsmodels errors
+        # Check both portfolio returns and all factor columns
+        factor_cols = list(FACTOR_COLS_BY_MODEL[self.config.model])
+        finite_mask = aligned_portfolio["return"].is_finite()
+        for col in [RISK_FREE_COL] + factor_cols:
+            if col in aligned_factors.columns:
+                finite_mask = finite_mask & aligned_factors[col].is_finite()
+
+        aligned_portfolio = aligned_portfolio.filter(finite_mask)
+        aligned_factors = aligned_factors.filter(finite_mask)
+
+        # Check minimum observations after finite filtering
         n_obs = len(aligned_portfolio)
         if n_obs < self.config.min_observations:
             raise InsufficientObservationsError(
-                f"Only {n_obs} observations after filtering, "
+                f"Only {n_obs} observations after filtering (incl. NaN/inf removal), "
                 f"need {self.config.min_observations}"
             )
 
@@ -667,6 +678,14 @@ class FactorAttribution:
                     )
                 continue
 
+            # Filter out non-finite values (NaN/inf) to prevent statsmodels errors
+            finite_mask = aligned_p["return"].is_finite()
+            for col in [RISK_FREE_COL] + factor_cols:
+                if col in aligned_f.columns:
+                    finite_mask = finite_mask & aligned_f[col].is_finite()
+            aligned_p = aligned_p.filter(finite_mask)
+            aligned_f = aligned_f.filter(finite_mask)
+
             n_obs = len(aligned_p)
             if n_obs < self.config.min_observations:
                 skipped_windows.append(
@@ -826,13 +845,28 @@ class FactorAttribution:
             ]
         )
 
-        # Add factor contributions
+        # Add factor contributions (treat NaN betas as 0 to prevent NaN contamination)
         total_factor_contrib = np.zeros(n_rows)
+        nan_beta_factors: list[str] = []
         for factor in factor_cols:
             factor_vals = aligned_f[factor].to_numpy()
-            contrib = factor_vals * betas[factor]
+            beta_val = betas[factor]
+            # Handle NaN betas (from collinear/dropped factors) by treating as 0
+            if np.isnan(beta_val):
+                beta_val = 0.0
+                nan_beta_factors.append(factor)
+            contrib = factor_vals * beta_val
             total_factor_contrib += contrib
             decomp_df = decomp_df.with_columns(pl.Series(f"{factor}_contrib", contrib))
+
+        if nan_beta_factors:
+            logger.warning(
+                "decomposition_nan_betas_zeroed",
+                extra={
+                    "factors": nan_beta_factors,
+                    "note": "NaN betas treated as 0 in contribution calculation",
+                },
+            )
 
         decomp_df = decomp_df.with_columns(pl.Series("total_factor_contrib", total_factor_contrib))
 

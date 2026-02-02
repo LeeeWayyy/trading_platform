@@ -248,10 +248,7 @@ def test_verify_histograms_no_data(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test verify_histograms when histograms don't have data."""
     # Create responses with empty results
     queue: deque[Any] = deque(
-        [
-            MockResponse(200, {"status": "success", "data": {"result": []}})
-            for _ in range(5)
-        ]
+        [MockResponse(200, {"status": "success", "data": {"result": []}}) for _ in range(5)]
     )
 
     def factory(*_: Any, **__: Any) -> MockAsyncClient:
@@ -347,9 +344,7 @@ def test_get_latency_percentile_returns_none_when_no_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test get_latency_percentile returns None when results array is empty."""
-    queue: deque[Any] = deque(
-        [MockResponse(200, {"status": "success", "data": {"result": []}})]
-    )
+    queue: deque[Any] = deque([MockResponse(200, {"status": "success", "data": {"result": []}})])
 
     def factory(*_: Any, **__: Any) -> MockAsyncClient:
         return MockAsyncClient(queue)
@@ -364,9 +359,7 @@ def test_get_latency_percentile_returns_none_when_status_not_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test get_latency_percentile returns None when status is not success."""
-    queue: deque[Any] = deque(
-        [MockResponse(200, {"status": "error", "data": {"result": []}})]
-    )
+    queue: deque[Any] = deque([MockResponse(200, {"status": "error", "data": {"result": []}})])
 
     def factory(*_: Any, **__: Any) -> MockAsyncClient:
         return MockAsyncClient(queue)
@@ -526,9 +519,7 @@ def test_get_service_latencies_exception_with_stale_cache(
     async def _raise_timeout(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
         raise TimeoutError("timeout")
 
-    monkeypatch.setattr(
-        PrometheusClient, "_fetch_latencies_from_prometheus", _raise_timeout
-    )
+    monkeypatch.setattr(PrometheusClient, "_fetch_latencies_from_prometheus", _raise_timeout)
 
     result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
 
@@ -551,9 +542,7 @@ def test_get_service_latencies_exception_without_cache(
     async def _raise_request_error(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
         raise httpx.RequestError("network error", request=httpx.Request("GET", "http://prom"))
 
-    monkeypatch.setattr(
-        PrometheusClient, "_fetch_latencies_from_prometheus", _raise_request_error
-    )
+    monkeypatch.setattr(PrometheusClient, "_fetch_latencies_from_prometheus", _raise_request_error)
 
     result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
 
@@ -586,9 +575,7 @@ def test_get_service_latencies_http_status_error_with_cache(
             response=httpx.Response(500),
         )
 
-    monkeypatch.setattr(
-        PrometheusClient, "_fetch_latencies_from_prometheus", _raise_http_error
-    )
+    monkeypatch.setattr(PrometheusClient, "_fetch_latencies_from_prometheus", _raise_http_error)
 
     result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
 
@@ -675,9 +662,7 @@ def test_get_service_latencies_all_errors_no_cache(
     async def _return_all_errors(*_args: Any, **_kwargs: Any) -> dict[str, LatencyMetrics]:
         return error_results
 
-    monkeypatch.setattr(
-        PrometheusClient, "_fetch_latencies_from_prometheus", _return_all_errors
-    )
+    monkeypatch.setattr(PrometheusClient, "_fetch_latencies_from_prometheus", _return_all_errors)
 
     result, is_stale, stale_age = asyncio.run(client.get_service_latencies())
 

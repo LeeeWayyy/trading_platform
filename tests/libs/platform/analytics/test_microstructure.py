@@ -1772,7 +1772,9 @@ class TestNumbaAcceleration:
             }
         )
         mock_taq_provider.fetch_ticks.return_value = ticks
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="numba_v1")
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="numba_v1"
+        )
 
         result = analyzer.compute_vpin(
             "AAPL",
@@ -1821,7 +1823,9 @@ class TestNumbaAcceleration:
             }
         )
         mock_taq_provider.fetch_ticks.return_value = ticks
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="partial_v1")
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="partial_v1"
+        )
 
         result = analyzer.compute_vpin(
             "AAPL",
@@ -1861,7 +1865,9 @@ class TestVPINBucketComputation:
             }
         )
         mock_taq_provider.fetch_ticks.return_value = ticks
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="exact_v1")
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="exact_v1"
+        )
 
         result = analyzer.compute_vpin(
             "AAPL",
@@ -1895,7 +1901,9 @@ class TestVPINBucketComputation:
             }
         )
         mock_taq_provider.fetch_ticks.return_value = ticks
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="capacity_v1")
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="capacity_v1"
+        )
 
         result = analyzer.compute_vpin(
             "AAPL",
@@ -1929,7 +1937,9 @@ class TestVPINBucketComputation:
             }
         )
         mock_taq_provider.fetch_ticks.return_value = ticks
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="large_v1")
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="large_v1"
+        )
 
         result = analyzer.compute_vpin(
             "AAPL",

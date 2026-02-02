@@ -309,9 +309,7 @@ def _validate_config_size(raw_params: dict[str, Any]) -> None:
         )
 
 
-def _validate_cost_params_preparse(
-    cost_params: Any, logger: Any, job_id: str
-) -> bool:
+def _validate_cost_params_preparse(cost_params: Any, logger: Any, job_id: str) -> bool:
     """Pre-parse validation for cost model parameters.
 
     Validates the raw cost_params dict BEFORE parsing with CostModelConfig.from_dict().
@@ -792,9 +790,9 @@ def _save_parquet_artifacts(
             "net_return": pl.Float64,
         }
         _validate_schema(net_returns_df, required_net_return_schema)
-        net_returns_df.select(
-            ["date", "gross_return", "cost_drag", "net_return"]
-        ).cast(cast(Any, required_net_return_schema)).write_parquet(
+        net_returns_df.select(["date", "gross_return", "cost_drag", "net_return"]).cast(
+            cast(Any, required_net_return_schema)
+        ).write_parquet(
             result_dir / "net_portfolio_returns.parquet",
             compression="snappy",
         )

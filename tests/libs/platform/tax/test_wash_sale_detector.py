@@ -358,7 +358,6 @@ class TestWashSaleDetection:
         assert matches[1].matching_shares == Decimal(20)
         assert matches[1].disallowed_loss == Decimal("200")
 
-
     @pytest.mark.asyncio()
     async def test_wash_sale_with_already_used_shares(self, make_pool: Any) -> None:
         """Wash sale respects shares already used in prior wash sales."""

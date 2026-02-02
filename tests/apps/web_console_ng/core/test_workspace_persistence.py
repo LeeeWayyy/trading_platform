@@ -155,6 +155,7 @@ async def test_load_panel_state_from_json(
 
     assert result == {"active_tab": "positions"}
 
+
 @pytest.mark.asyncio()
 async def test_load_grid_state_from_json(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()

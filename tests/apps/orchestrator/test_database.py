@@ -492,9 +492,48 @@ class TestGetMappingsEdgeCases:
             db = OrchestrationDatabaseClient("postgresql://localhost/db")
             run_id = UUID("12345678-1234-5678-1234-567812345678")
             mock_cursor.fetchall.return_value = [
-                ("AAPL", 0.1, 1, 0.5, "cid1", 10, "buy", "brk1", "accepted", Decimal("10"), Decimal("150"), None),
-                ("MSFT", 0.08, 2, 0.3, "cid2", 5, "buy", "brk2", "accepted", Decimal("5"), Decimal("300"), None),
-                ("TSLA", -0.05, 3, -0.2, None, None, None, None, None, None, None, "insufficient_liquidity"),
+                (
+                    "AAPL",
+                    0.1,
+                    1,
+                    0.5,
+                    "cid1",
+                    10,
+                    "buy",
+                    "brk1",
+                    "accepted",
+                    Decimal("10"),
+                    Decimal("150"),
+                    None,
+                ),
+                (
+                    "MSFT",
+                    0.08,
+                    2,
+                    0.3,
+                    "cid2",
+                    5,
+                    "buy",
+                    "brk2",
+                    "accepted",
+                    Decimal("5"),
+                    Decimal("300"),
+                    None,
+                ),
+                (
+                    "TSLA",
+                    -0.05,
+                    3,
+                    -0.2,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "insufficient_liquidity",
+                ),
             ]
 
             results = db.get_mappings(run_id)
@@ -514,7 +553,20 @@ class TestGetMappingsEdgeCases:
             db = OrchestrationDatabaseClient("postgresql://localhost/db")
             run_id = UUID("12345678-1234-5678-1234-567812345678")
             mock_cursor.fetchall.return_value = [
-                ("AAPL", 0.1, 1, 0.5, "cid1", 10, "buy", "brk1", "partially_filled", Decimal("5"), Decimal("150.5"), None),
+                (
+                    "AAPL",
+                    0.1,
+                    1,
+                    0.5,
+                    "cid1",
+                    10,
+                    "buy",
+                    "brk1",
+                    "partially_filled",
+                    Decimal("5"),
+                    Decimal("150.5"),
+                    None,
+                ),
             ]
 
             results = db.get_mappings(run_id)

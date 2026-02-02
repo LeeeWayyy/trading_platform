@@ -634,9 +634,7 @@ async def _run_extended_layout(
     monkeypatch.setattr(layout_module, "ClientLifecycleManager", _LifecycleWrapper)
     monkeypatch.setattr(layout_module, "get_or_create_client_id", lambda: "client-1")
     monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
-    monkeypatch.setattr(
-        layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client)
-    )
+    monkeypatch.setattr(layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client))
 
     async def _page() -> None:
         return None
@@ -946,7 +944,8 @@ async def test_log_grid_metrics_with_monitors(monkeypatch: pytest.MonkeyPatch) -
 
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -963,9 +962,7 @@ async def test_log_grid_metrics_with_monitors(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1014,7 +1011,8 @@ async def test_cleanup_id_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test behavior when client ID is None."""
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1031,9 +1029,7 @@ async def test_cleanup_id_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1078,9 +1074,7 @@ async def test_request_url_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1122,9 +1116,7 @@ async def test_request_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1189,7 +1181,8 @@ async def test_dispatch_trading_state_exception(monkeypatch: pytest.MonkeyPatch)
 
     dummy_ui = _FailingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
 
@@ -1205,9 +1198,7 @@ async def test_dispatch_trading_state_exception(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1281,7 +1272,8 @@ async def test_log_grid_metrics_executes_for_monitors(monkeypatch: pytest.Monkey
 
     dummy_ui = _ExtendedDummyUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1308,9 +1300,7 @@ async def test_log_grid_metrics_executes_for_monitors(monkeypatch: pytest.Monkey
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1372,7 +1362,8 @@ async def test_status_poll_lock_prevents_concurrent_updates(
 
     dummy_ui = _TimerCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1399,9 +1390,7 @@ async def test_status_poll_lock_prevents_concurrent_updates(
     monkeypatch.setattr(layout_module, "ClientLifecycleManager", _LifecycleWrapper)
     monkeypatch.setattr(layout_module, "get_or_create_client_id", lambda: "client-1")
     monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
-    monkeypatch.setattr(
-        layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client)
-    )
+    monkeypatch.setattr(layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client))
 
     async def _page() -> None:
         return None
@@ -1459,7 +1448,8 @@ async def test_kill_switch_engaged_notification_on_state_change(
 
     dummy_ui = _TimerCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1500,9 +1490,7 @@ async def test_kill_switch_engaged_notification_on_state_change(
     monkeypatch.setattr(layout_module, "ClientLifecycleManager", _LifecycleWrapper)
     monkeypatch.setattr(layout_module, "get_or_create_client_id", lambda: "client-1")
     monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
-    monkeypatch.setattr(
-        layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client)
-    )
+    monkeypatch.setattr(layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client))
 
     async def _page() -> None:
         return None
@@ -1536,7 +1524,8 @@ async def test_connection_state_read_only_change(monkeypatch: pytest.MonkeyPatch
 
     dummy_ui = _TimerCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1573,9 +1562,7 @@ async def test_connection_state_read_only_change(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(layout_module, "ClientLifecycleManager", _LifecycleWrapper)
     monkeypatch.setattr(layout_module, "get_or_create_client_id", lambda: "client-1")
     monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
-    monkeypatch.setattr(
-        layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client)
-    )
+    monkeypatch.setattr(layout_module.AsyncTradingClient, "get", classmethod(lambda cls: client))
 
     async def _page() -> None:
         return None
@@ -1624,7 +1611,8 @@ async def test_logout_button_normal_execution(monkeypatch: pytest.MonkeyPatch) -
     """Test logout button executes JavaScript."""
     dummy_ui = _ButtonCapturingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1649,9 +1637,7 @@ async def test_logout_button_normal_execution(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1696,7 +1682,8 @@ async def test_logout_button_runtime_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     dummy_ui = _FailingJSUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1713,9 +1700,7 @@ async def test_logout_button_runtime_error(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1755,7 +1740,8 @@ async def test_logout_button_timeout_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     dummy_ui = _TimeoutJSUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1772,9 +1758,7 @@ async def test_logout_button_timeout_error(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1819,7 +1803,8 @@ async def test_engage_kill_switch_button_opens_dialog(
 
     dummy_ui = _DialogTrackingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1836,9 +1821,7 @@ async def test_engage_kill_switch_button_opens_dialog(
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod
@@ -1885,7 +1868,8 @@ async def test_disengage_kill_switch_button_opens_dialog(
 
     dummy_ui = _DialogTrackingUI()
     dummy_app = SimpleNamespace(
-        storage=SimpleNamespace(user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/"))
         )
     )
     lifecycle_manager = _DummyLifecycleManager()
@@ -1902,9 +1886,7 @@ async def test_disengage_kill_switch_button_opens_dialog(
     monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
     monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
     monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
-    monkeypatch.setattr(
-        layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor
-    )
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
 
     class _LifecycleWrapper:
         @classmethod

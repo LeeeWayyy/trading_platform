@@ -182,9 +182,7 @@ async def manual_order_page(client: Client) -> None:
             stop_price_container.set_visibility(show_stop)
             if execution_style_selector:
                 if e.value in ("stop", "stop_limit"):
-                    execution_style_selector.set_disabled(
-                        True, "TWAP unavailable for stop orders"
-                    )
+                    execution_style_selector.set_disabled(True, "TWAP unavailable for stop orders")
                     if twap_config:
                         twap_config.set_visibility(False)
                 else:
@@ -272,15 +270,11 @@ async def manual_order_page(client: Client) -> None:
 
         if fat_finger_price_warning:
             with fat_finger_details:
-                ui.label(f"WARNING: {fat_finger_price_warning}").classes(
-                    "text-amber-600 text-sm"
-                )
+                ui.label(f"WARNING: {fat_finger_price_warning}").classes("text-amber-600 text-sm")
 
         if fat_finger_adv_warning:
             with fat_finger_details:
-                ui.label(f"WARNING: {fat_finger_adv_warning}").classes(
-                    "text-amber-600 text-sm"
-                )
+                ui.label(f"WARNING: {fat_finger_adv_warning}").classes("text-amber-600 text-sm")
 
         if result.warnings:
             for warning in result.warnings:
@@ -299,14 +293,10 @@ async def manual_order_page(client: Client) -> None:
                 ui.label(f"Remaining qty: {remaining_qty:,} shares").classes("text-xs")
             if result.remaining_notional is not None:
                 remaining_notional = max(result.remaining_notional, Decimal("0"))
-                ui.label(
-                    f"Remaining notional: ${remaining_notional:,.2f}"
-                ).classes("text-xs")
+                ui.label(f"Remaining notional: ${remaining_notional:,.2f}").classes("text-xs")
             if result.remaining_adv_shares is not None:
                 remaining_adv = max(result.remaining_adv_shares, 0)
-                ui.label(f"Remaining ADV capacity: {remaining_adv:,} shares").classes(
-                    "text-xs"
-                )
+                ui.label(f"Remaining ADV capacity: {remaining_adv:,} shares").classes("text-xs")
 
     async def check_kill_switch(*, use_cache: bool = False) -> bool:
         """Check if kill switch is engaged. Returns True if safe to proceed.
@@ -376,9 +366,7 @@ async def manual_order_page(client: Client) -> None:
                 return True
 
         try:
-            cb_status = await trading_client.fetch_circuit_breaker_status(
-                user_id, role=user_role
-            )
+            cb_status = await trading_client.fetch_circuit_breaker_status(user_id, role=user_role)
             state = str(cb_status.get("state", "")).upper()
             if state == "OPEN":
                 return True
@@ -616,10 +604,7 @@ async def manual_order_page(client: Client) -> None:
         twap_notional_acknowledged = acknowledged
 
     def _is_twap_selected() -> bool:
-        return bool(
-            execution_style_selector
-            and execution_style_selector.value() == "twap"
-        )
+        return bool(execution_style_selector and execution_style_selector.value() == "twap")
 
     def _basic_twap_order_data() -> dict[str, Any] | None:
         symbol = (symbol_input.value or "").strip().upper()
@@ -690,9 +675,7 @@ async def manual_order_page(client: Client) -> None:
             payload["start_time"] = state.start_time.isoformat()
 
         try:
-            response = await trading_client.fetch_twap_preview(
-                payload, user_id, role=user_role
-            )
+            response = await trading_client.fetch_twap_preview(payload, user_id, role=user_role)
         except httpx.HTTPStatusError as exc:
             twap_preview_data = None
             twap_notional_warning = None
@@ -961,12 +944,8 @@ async def manual_order_page(client: Client) -> None:
                 if _is_twap_selected() and twap_config:
                     twap_state = twap_config.get_state(user_timezone)
                     ui.label("Execution: TWAP").classes("font-mono")
-                    ui.label(
-                        f"Duration: {twap_state.duration_minutes} min"
-                    ).classes("font-mono")
-                    ui.label(
-                        f"Interval: {twap_state.interval_seconds} sec"
-                    ).classes("font-mono")
+                    ui.label(f"Duration: {twap_state.duration_minutes} min").classes("font-mono")
+                    ui.label(f"Interval: {twap_state.interval_seconds} sec").classes("font-mono")
                 ui.label(f"Time in Force: {order_data['time_in_force'].upper()}").classes(
                     "font-mono"
                 )
@@ -1254,9 +1233,7 @@ async def manual_order_page(client: Client) -> None:
     async def check_initial_circuit_breaker() -> None:
         nonlocal circuit_breaker_tripped
         try:
-            cb_status = await trading_client.fetch_circuit_breaker_status(
-                user_id, role=user_role
-            )
+            cb_status = await trading_client.fetch_circuit_breaker_status(user_id, role=user_role)
             state = str(cb_status.get("state", "")).upper()
             circuit_breaker_tripped = state != "OPEN"
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:

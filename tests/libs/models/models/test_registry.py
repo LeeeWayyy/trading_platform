@@ -311,11 +311,13 @@ def test_backup_lock_blocks_write_operations(tmp_path: Path) -> None:
 def test_lock_release_failure_logged(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Test that lock release failure is logged but doesn't raise."""
     import logging
+
     caplog.set_level(logging.DEBUG)
     registry = ModelRegistry(tmp_path / "registry")
 
     # Mock flock to raise on LOCK_UN
     import fcntl
+
     original_flock = fcntl.flock
 
     def mock_flock(fd: int, operation: int) -> None:
@@ -401,6 +403,7 @@ def test_register_model_db_integrity_error_cleanup(tmp_path: Path) -> None:
     metadata2 = make_metadata(version=metadata.version)  # Same version
     # Change model_id to avoid early version check
     from libs.models.models.types import ModelMetadata
+
     metadata2_dict = metadata2.model_dump()
     metadata2_dict["model_id"] = str(uuid.uuid4())  # Different ID
     metadata2_modified = ModelMetadata(**metadata2_dict)
@@ -793,9 +796,7 @@ def test_get_model_info_bulk(tmp_path: Path) -> None:
     registry.register_model({"weights": [3]}, meta_v3)
     registry.promote_model(meta_v1.model_type.value, meta_v1.version, skip_gates=True)
 
-    info = registry.get_model_info_bulk(
-        meta_v1.model_type.value, ["v1.0.0", "v2.0.0", "v3.0.0"]
-    )
+    info = registry.get_model_info_bulk(meta_v1.model_type.value, ["v1.0.0", "v2.0.0", "v3.0.0"])
 
     assert len(info) == 3
     assert info["v1.0.0"]["status"] == ModelStatus.production.value
@@ -906,9 +907,7 @@ def test_validate_alpha_weights_model(tmp_path: Path) -> None:
     # Alpha weights models use json serialization
     registry.register_model({"weights": {"AAPL": 0.5, "GOOG": 0.5}}, alpha_metadata)
 
-    result = registry.validate_model(
-        alpha_metadata.model_type.value, alpha_metadata.version
-    )
+    result = registry.validate_model(alpha_metadata.model_type.value, alpha_metadata.version)
     assert result.valid is True
     assert result.checksum_verified is True
     assert result.load_successful is True
@@ -950,9 +949,7 @@ def test_promotion_without_prior_production(tmp_path: Path) -> None:
     metadata = make_metadata()
     registry.register_model({"weights": [1]}, metadata)
 
-    result = registry.promote_model(
-        metadata.model_type.value, metadata.version, skip_gates=True
-    )
+    result = registry.promote_model(metadata.model_type.value, metadata.version, skip_gates=True)
 
     assert result.success
     assert result.from_version is None  # No prior production
@@ -975,6 +972,7 @@ def test_list_models_no_filters(tmp_path: Path) -> None:
     meta_v1 = make_metadata(version="v1.0.0")
     # For alpha_weights, need different parameters
     from libs.models.models.types import ModelMetadata
+
     config = {"combination_method": "equal"}
     alpha_metadata = ModelMetadata(
         model_id=str(uuid.uuid4()),

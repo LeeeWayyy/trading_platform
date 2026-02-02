@@ -210,9 +210,7 @@ class TestOnFlattenSymbol:
     @pytest.fixture()
     def mock_safety(self) -> AsyncMock:
         safety = AsyncMock(spec=SafetyGate)
-        safety.check.return_value = SafetyCheckResult(
-            allowed=True, reason=None, warnings=[]
-        )
+        safety.check.return_value = SafetyCheckResult(allowed=True, reason=None, warnings=[])
         safety.check_with_api_verification.return_value = SafetyCheckResult(
             allowed=True, reason=None, warnings=[]
         )
@@ -235,9 +233,7 @@ class TestOnFlattenSymbol:
 
     @pytest.mark.asyncio()
     @patch("apps.web_console_ng.components.flatten_controls.ui")
-    async def test_viewer_blocked(
-        self, mock_ui: MagicMock, controls: FlattenControls
-    ) -> None:
+    async def test_viewer_blocked(self, mock_ui: MagicMock, controls: FlattenControls) -> None:
         """Viewers should be blocked from flattening."""
         await controls.on_flatten_symbol("AAPL", 100, "user_id", "viewer")
         mock_ui.notify.assert_called_once()
@@ -245,9 +241,7 @@ class TestOnFlattenSymbol:
 
     @pytest.mark.asyncio()
     @patch("apps.web_console_ng.components.flatten_controls.ui")
-    async def test_invalid_qty_blocked(
-        self, mock_ui: MagicMock, controls: FlattenControls
-    ) -> None:
+    async def test_invalid_qty_blocked(self, mock_ui: MagicMock, controls: FlattenControls) -> None:
         """Invalid quantity should block with error."""
         await controls.on_flatten_symbol("AAPL", 0, "user_id", "trader")
         mock_ui.notify.assert_called_once()
@@ -287,7 +281,10 @@ class TestOnFlattenSymbol:
     ) -> None:
         """Should use FAIL_OPEN policy for safety check."""
         await controls.on_flatten_symbol(
-            "AAPL", 100, "user_id", "trader",
+            "AAPL",
+            100,
+            "user_id",
+            "trader",
             cached_kill_switch=False,
             cached_connection_state="CONNECTED",
             cached_circuit_breaker=False,
@@ -303,9 +300,7 @@ class TestOnReversePosition:
     @pytest.fixture()
     def mock_safety(self) -> AsyncMock:
         safety = AsyncMock(spec=SafetyGate)
-        safety.check.return_value = SafetyCheckResult(
-            allowed=True, reason=None, warnings=[]
-        )
+        safety.check.return_value = SafetyCheckResult(allowed=True, reason=None, warnings=[])
         safety.check_with_api_verification.return_value = SafetyCheckResult(
             allowed=True, reason=None, warnings=[]
         )
@@ -343,9 +338,7 @@ class TestOnReversePosition:
 
     @pytest.mark.asyncio()
     @patch("apps.web_console_ng.components.flatten_controls.ui")
-    async def test_viewer_blocked(
-        self, mock_ui: MagicMock, controls: FlattenControls
-    ) -> None:
+    async def test_viewer_blocked(self, mock_ui: MagicMock, controls: FlattenControls) -> None:
         """Viewers should be blocked from reversing."""
         await controls.on_reverse_position("AAPL", 100, "buy", "user_id", "viewer")
         mock_ui.notify.assert_called_once()
@@ -358,7 +351,11 @@ class TestOnReversePosition:
     ) -> None:
         """Should use FAIL_CLOSED policy for safety check."""
         await controls.on_reverse_position(
-            "AAPL", 100, "buy", "user_id", "trader",
+            "AAPL",
+            100,
+            "buy",
+            "user_id",
+            "trader",
             cached_kill_switch=False,
             cached_connection_state="CONNECTED",
             cached_circuit_breaker=False,
@@ -378,7 +375,11 @@ class TestOnReversePosition:
             allowed=False, reason="Connection unknown", warnings=[]
         )
         await controls.on_reverse_position(
-            "AAPL", 100, "buy", "user_id", "trader",
+            "AAPL",
+            100,
+            "buy",
+            "user_id",
+            "trader",
             cached_kill_switch=None,  # Unknown state
         )
         mock_ui.notify.assert_called_once()
@@ -391,12 +392,14 @@ class TestOnReversePosition:
     ) -> None:
         """Uncancellable orders should block reverse."""
         mock_client.fetch_open_orders.return_value = {
-            "orders": [
-                {"symbol": "AAPL", "client_order_id": f"{SYNTHETIC_ID_PREFIX}abc"}
-            ]
+            "orders": [{"symbol": "AAPL", "client_order_id": f"{SYNTHETIC_ID_PREFIX}abc"}]
         }
         await controls.on_reverse_position(
-            "AAPL", 100, "buy", "user_id", "trader",
+            "AAPL",
+            100,
+            "buy",
+            "user_id",
+            "trader",
             cached_kill_switch=False,
             cached_connection_state="CONNECTED",
             cached_circuit_breaker=False,
@@ -413,7 +416,11 @@ class TestOnReversePosition:
         """Unavailable price should block reverse (FAIL-CLOSED needs fresh price)."""
         mock_client.fetch_market_prices.return_value = []  # No price for symbol
         await controls.on_reverse_position(
-            "AAPL", 100, "buy", "user_id", "trader",
+            "AAPL",
+            100,
+            "buy",
+            "user_id",
+            "trader",
             cached_kill_switch=False,
             cached_connection_state="CONNECTED",
             cached_circuit_breaker=False,
@@ -435,7 +442,11 @@ class TestOnReversePosition:
         mock_validator.validate.return_value = validation_result
 
         await controls.on_reverse_position(
-            "AAPL", 100, "buy", "user_id", "trader",
+            "AAPL",
+            100,
+            "buy",
+            "user_id",
+            "trader",
             cached_kill_switch=False,
             cached_connection_state="CONNECTED",
             cached_circuit_breaker=False,
@@ -468,9 +479,7 @@ class TestGetFreshPriceWithFallback:
         mock_client.fetch_market_prices.return_value = [
             {"symbol": "AAPL", "mid": "150.50", "timestamp": None}
         ]
-        price, error = await controls._get_fresh_price_with_fallback(
-            "AAPL", "user_id", "trader"
-        )
+        price, error = await controls._get_fresh_price_with_fallback("AAPL", "user_id", "trader")
         assert price == Decimal("150.50")
         assert error == ""
 
@@ -481,9 +490,7 @@ class TestGetFreshPriceWithFallback:
         mock_client.fetch_market_prices.return_value = [
             {"symbol": "GOOG", "mid": "100.00", "timestamp": None}
         ]
-        price, error = await controls._get_fresh_price_with_fallback(
-            "AAPL", "user_id", "trader"
-        )
+        price, error = await controls._get_fresh_price_with_fallback("AAPL", "user_id", "trader")
         assert price is None
         assert "No price data" in error
 
@@ -494,9 +501,7 @@ class TestGetFreshPriceWithFallback:
         mock_client.fetch_market_prices.return_value = [
             {"symbol": "AAPL", "mid": "invalid", "timestamp": None}
         ]
-        price, error = await controls._get_fresh_price_with_fallback(
-            "AAPL", "user_id", "trader"
-        )
+        price, error = await controls._get_fresh_price_with_fallback("AAPL", "user_id", "trader")
         assert price is None
         assert "Unparseable" in error
 
@@ -507,9 +512,7 @@ class TestGetFreshPriceWithFallback:
         mock_client.fetch_market_prices.return_value = [
             {"symbol": "AAPL", "mid": "-10.00", "timestamp": None}
         ]
-        price, error = await controls._get_fresh_price_with_fallback(
-            "AAPL", "user_id", "trader"
-        )
+        price, error = await controls._get_fresh_price_with_fallback("AAPL", "user_id", "trader")
         assert price is None
         assert "Invalid price" in error
 
@@ -518,9 +521,7 @@ class TestGetFreshPriceWithFallback:
         self, controls: FlattenControls, mock_client: AsyncMock
     ) -> None:
         mock_client.fetch_market_prices.side_effect = Exception("Network error")
-        price, error = await controls._get_fresh_price_with_fallback(
-            "AAPL", "user_id", "trader"
-        )
+        price, error = await controls._get_fresh_price_with_fallback("AAPL", "user_id", "trader")
         assert price is None
         assert "failed" in error.lower()
 
@@ -727,9 +728,7 @@ class TestGetAdv:
         )
 
     @pytest.mark.asyncio()
-    async def test_get_adv_success(
-        self, controls: FlattenControls, mock_client: AsyncMock
-    ) -> None:
+    async def test_get_adv_success(self, controls: FlattenControls, mock_client: AsyncMock) -> None:
         mock_client.fetch_adv.return_value = {"adv": 1000000}
         adv = await controls._get_adv("AAPL", "user_id", "trader")
         assert adv == 1000000

@@ -57,6 +57,11 @@ from libs.data.data_providers.unified_fetcher import (
     ProviderType,
     UnifiedDataFetcher,
 )
+from libs.data.data_providers.universe import (
+    CRSPUnavailableError,
+    ForwardReturnsProvider,
+    UniverseProvider,
+)
 from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 from libs.data.data_providers.yfinance_provider import (
     DriftDetectedError,
@@ -78,6 +83,10 @@ __all__ = [
     "FamaFrenchLocalProvider",
     "FamaFrenchSyncError",
     "ChecksumError",
+    # Universe and Forward Returns (P6T10)
+    "UniverseProvider",
+    "ForwardReturnsProvider",
+    "CRSPUnavailableError",
     # Locking
     "AtomicFileLock",
     "atomic_lock",

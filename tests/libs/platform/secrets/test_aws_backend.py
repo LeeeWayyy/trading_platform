@@ -825,7 +825,9 @@ class TestAWSSecretsManagerInitializationErrors:
         # Arrange
         from botocore.exceptions import EndpointConnectionError
 
-        mock_boto_client.side_effect = EndpointConnectionError(endpoint_url="https://secretsmanager.us-east-1.amazonaws.com")
+        mock_boto_client.side_effect = EndpointConnectionError(
+            endpoint_url="https://secretsmanager.us-east-1.amazonaws.com"
+        )
 
         # Act & Assert
         with pytest.raises(SecretAccessError) as exc_info:
@@ -879,7 +881,9 @@ class TestAWSSecretsManagerGetSecretAdditionalErrors:
         from botocore.exceptions import ReadTimeoutError
 
         mock_client = MagicMock()
-        mock_client.get_secret_value.side_effect = ReadTimeoutError(endpoint_url="https://secretsmanager.us-east-1.amazonaws.com")
+        mock_client.get_secret_value.side_effect = ReadTimeoutError(
+            endpoint_url="https://secretsmanager.us-east-1.amazonaws.com"
+        )
         mock_boto_client.return_value = mock_client
 
         secret_mgr = AWSSecretsManager(region_name="us-east-1")
@@ -1054,7 +1058,9 @@ class TestAWSSecretsManagerSetSecretRetry:
         """Test set_secret raises original exception (not RetryError) when retries exhausted."""
         # Arrange
         mock_client = MagicMock()
-        throttling_error = ClientError({"Error": {"Code": "TooManyRequestsException"}}, "PutSecretValue")
+        throttling_error = ClientError(
+            {"Error": {"Code": "TooManyRequestsException"}}, "PutSecretValue"
+        )
         # Always fail with transient error to exhaust retries
         mock_client.put_secret_value.side_effect = throttling_error
         mock_boto_client.return_value = mock_client
