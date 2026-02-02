@@ -442,6 +442,9 @@ FEATURE_STRATEGY_COMPARISON = _get_bool_env("FEATURE_STRATEGY_COMPARISON")
 FEATURE_TRADE_JOURNAL = _get_bool_env("FEATURE_TRADE_JOURNAL")
 FEATURE_PERFORMANCE_DASHBOARD = _get_bool_env("FEATURE_PERFORMANCE_DASHBOARD")
 
+# P6T8: Execution Analytics feature flags
+FEATURE_TCA_DASHBOARD = _get_bool_env("FEATURE_TCA_DASHBOARD")
+
 # =============================================================================
 # Auto-refresh and UI settings (P5T7)
 # =============================================================================

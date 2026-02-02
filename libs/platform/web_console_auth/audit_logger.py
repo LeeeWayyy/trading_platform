@@ -77,6 +77,8 @@ class AuditLogger:
         outcome: str = "success",
         details: dict[str, Any] | None = None,
         amr_method: str | None = None,
+        ip_address: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         details = details or {}
 
@@ -103,9 +105,11 @@ class AuditLogger:
                             resource_type,
                             resource_id,
                             outcome,
-                            amr_method
+                            amr_method,
+                            ip_address,
+                            session_id
                         )
-                        VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             user_id,
@@ -116,6 +120,8 @@ class AuditLogger:
                             resource_id,
                             outcome,
                             amr_method,
+                            ip_address,
+                            session_id,
                         ),
                     )
             audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
@@ -129,6 +135,7 @@ class AuditLogger:
                     "resource_type": resource_type,
                     "resource_id": resource_id,
                     "outcome": outcome,
+                    "ip_address": ip_address,
                 },
             )
         finally:
@@ -142,6 +149,8 @@ class AuditLogger:
         resource_id: str | None,
         outcome: str,
         details: dict[str, Any] | None = None,
+        ip_address: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         await self._write(
             user_id=user_id,
@@ -151,6 +160,8 @@ class AuditLogger:
             resource_id=resource_id,
             outcome=outcome,
             details=details,
+            ip_address=ip_address,
+            session_id=session_id,
         )
 
     async def log_action(
@@ -163,6 +174,8 @@ class AuditLogger:
         outcome: str,
         details: dict[str, Any] | None = None,
         amr_method: str | None = None,
+        ip_address: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         await self._write(
             user_id=user_id,
@@ -173,6 +186,8 @@ class AuditLogger:
             outcome=outcome,
             details=details,
             amr_method=amr_method,
+            ip_address=ip_address,
+            session_id=session_id,
         )
 
     async def log_auth_event(

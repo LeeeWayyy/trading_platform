@@ -125,6 +125,10 @@ def _sanitize_reason(reason: str) -> str:
     return cleaned
 
 
+# Helper functions moved to apps/execution_gateway/api/utils.py
+# Import if needed: from apps.execution_gateway.api.utils import get_client_ip, get_user_agent
+
+
 async def _check_circuit_breaker(
     redis_client: redis_async.Redis | None,
     *,

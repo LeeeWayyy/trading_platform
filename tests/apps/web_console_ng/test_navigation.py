@@ -316,6 +316,7 @@ def test_navigation_item_structure() -> None:
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
+        ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
         ("Alpha Explorer", "/alpha-explorer", "insights", None),
         ("Compare", "/compare", "compare_arrows", None),
         ("Journal", "/journal", "book", None),

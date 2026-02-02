@@ -176,58 +176,6 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 ---
 
-## 🔧 Repomix Integration
-
-Repomix packages codebases into AI-optimized formats with ~70% token reduction through Tree-sitter compression.
-
-### Available Tools
-
-| Tool | Purpose |
-|------|---------|
-| `/repomix-commands:pack-local` | Pack local directories for analysis |
-| `/repomix-commands:pack-remote` | Pack GitHub repositories |
-| `/repomix-explorer:explore-local` | Natural language codebase exploration |
-
-### When to Use
-
-- **Pre-analysis phase:** Pack directories before implementing features
-- **Understanding unfamiliar code:** Use explorer for natural language queries
-- **Delegation context:** Pack relevant files for subagent handoff
-
-### Quick Commands
-
-```bash
-# Pack specific directories
-/repomix-commands:pack-local ./libs/secrets ./apps/execution_gateway
-
-# Explore with natural language
-/repomix-explorer:explore-local ./apps "How does order execution work?"
-
-# Pack remote repository
-/repomix-commands:pack-remote alpacahq/alpaca-py
-```
-
-**See [Workflows/06-repomix.md](./Workflows/06-repomix.md) for complete guide**
-
----
-
-## 📁 Repository Structure
-
-- `apps/` — Microservices (FastAPI): signal_service, execution_gateway, reconciler, risk_manager, cli
-- `strategies/` — Strategy implementations (alpha_baseline)
-- `infra/` — Infrastructure configs (docker-compose, prometheus, grafana)
-- `db/` — Database migrations (Alembic)
-- `libs/` — Shared libraries (feature_store, common, secrets)
-- `../` — Documentation (STANDARDS, GETTING_STARTED, ADRs, CONCEPTS, TASKS, AI)
-- `tests/` — Test suite (mirrors src structure)
-- `data/` — Parquet files, DuckDB catalogs
-- `artifacts/` — Models, backtests, reports
-- `scripts/` — Utility scripts (workflow_gate.py, tasks.py, etc.)
-
-See [/../GETTING_STARTED/REPO_MAP.md](../GETTING_STARTED/REPO_MAP.md) for detailed structure.
-
----
-
 ## ⚙️ Common Commands
 
 ### Python Environment Setup

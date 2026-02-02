@@ -1,6 +1,6 @@
 # Execution Gateway
 
-<!-- Last reviewed: 2026-01-29 - Extracted _format_alpaca_order helper for DRY response formatting, improved type safety in modification status handling -->
+<!-- Last reviewed: 2026-02-01 - Added TCA routes and export routes for P6T8 Execution Analytics, improved order_submitted_at parsing -->
 
 ## Identity
 - **Type:** Service
@@ -44,7 +44,15 @@
 | `/api/v1/manual/orders` | POST | `ManualOrderRequest` | `OrderResponse` |
 | `/api/v1/orders/twap-preview` | POST | `TWAPPreviewRequest` | `TWAPPreviewResponse` |
 | `/api/v1/orders/{client_order_id}` | PATCH | `OrderModifyRequest` | `OrderModifyResponse` |
+| `/api/v1/orders/{client_order_id}/audit` | GET | Path `client_order_id`, Query `limit` | `OrderAuditResponse` |
 | `/api/v1/reconciliation/fills-backfill` | POST | `ReconciliationFillsBackfillRequest` | Status JSON |
+| `/api/v1/tca/analysis` | GET | Query `start_date`, `end_date`, `symbol`, `side`, `strategy_id` | `TCAAnalysisResponse` |
+| `/api/v1/tca/analysis/{client_order_id}` | GET | Path `client_order_id` | `TCAOrderDetail` |
+| `/api/v1/tca/benchmarks` | GET | Query `client_order_id`, `benchmark` | `TCABenchmarkResponse` |
+| `/api/v1/export/audit` | POST | `ExportAuditRequest` | `ExportAuditResponse` |
+| `/api/v1/export/audit/{audit_id}` | GET | Path `audit_id` | `ExportAuditResponse` |
+| `/api/v1/export/audit/{audit_id}` | PATCH | Path `audit_id`, `ExportAuditUpdateRequest` | Status JSON |
+| `/api/v1/export/excel/{audit_id}` | GET | Path `audit_id` | Excel file download |
 | `/metrics` | GET | None | Prometheus metrics |
 
 ## Behavioral Contracts
@@ -254,7 +262,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-29 (P6T6 Advanced Orders - mypy type fixes for Protocol definitions)
+- **Last Updated:** 2026-01-31 (P6T8 Execution Analytics - TCA routes, export routes)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`
@@ -291,7 +299,14 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
   - `apps/execution_gateway/routes/slicing.py`
   - `apps/execution_gateway/routes/webhooks.py`
   - `apps/execution_gateway/routes/admin.py`
+  - `apps/execution_gateway/routes/tca.py`
+  - `apps/execution_gateway/routes/export.py`
   - `apps/execution_gateway/schemas.py`
+  - `apps/execution_gateway/schemas/tca.py`
   - `apps/execution_gateway/schemas_manual_controls.py`
+  - `apps/execution_gateway/api/` (package - API dependencies and utilities)
+    - `dependencies.py` (shared dependencies for route handlers)
+    - `manual_controls.py` (manual trading control endpoints)
+    - `utils.py` (shared utilities: IP extraction, user-agent parsing)
   - `config/settings.py`
 - **ADRs:** `docs/ADRs/0014-execution-gateway-architecture.md`

@@ -170,8 +170,22 @@ window.orderActionsRenderer = function(params) {
         };
     }
 
+    // Audit button - always available to view order history (P6T8)
+    const auditBtn = document.createElement('button');
+    auditBtn.className = 'px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-500';
+    auditBtn.textContent = 'Audit';
+    auditBtn.title = 'View order audit trail';
+    auditBtn.onclick = function() {
+        window.dispatchEvent(new CustomEvent('show_order_audit', {
+            detail: {
+                client_order_id: params.data?.client_order_id || ''
+            }
+        }));
+    };
+
     container.appendChild(modifyBtn);
     container.appendChild(cancelBtn);
+    container.appendChild(auditBtn);
     return container;
 };
 

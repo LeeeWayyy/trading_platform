@@ -10,6 +10,7 @@ from typing import Any
 
 from nicegui import ui
 
+from apps.web_console_ng.components.grid_export_toolbar import GridExportToolbar
 from apps.web_console_ng.components.symbol_filter import (
     SymbolFilterState,
     create_symbol_filter,
@@ -39,6 +40,14 @@ TAB_TITLES = {
     TAB_WORKING: "Working",
     TAB_FILLS: "Fills",
     TAB_HISTORY: "History",
+}
+
+# Grid ID and name mapping for export toolbar
+TAB_GRID_CONFIG = {
+    TAB_POSITIONS: {"grid_id": "_positionsGridApi", "grid_name": "positions", "prefix": "positions"},
+    TAB_WORKING: {"grid_id": "_ordersGridApi", "grid_name": "orders", "prefix": "orders"},
+    TAB_FILLS: {"grid_id": "_fillsGridApi", "grid_name": "fills", "prefix": "fills"},
+    TAB_HISTORY: {"grid_id": "_historyGridApi", "grid_name": "history", "prefix": "history"},
 }
 
 WORKING_ORDER_STATUSES = {
@@ -140,6 +149,8 @@ class TabbedPanel:
         grid_factories: dict[str, Callable[[], ui.aggrid]],
         symbol_filter: SymbolFilterState,
         on_tab_change: Callable[[str], None] | None = None,
+        export_toolbars: dict[str, GridExportToolbar] | None = None,
+        toolbar_containers: dict[str, ui.element] | None = None,
     ) -> None:
         self.state = state
         self._tabs = tabs
@@ -149,6 +160,8 @@ class TabbedPanel:
         self._grids: dict[str, ui.aggrid] = {}
         self.symbol_filter = symbol_filter
         self._on_tab_change = on_tab_change
+        self._export_toolbars = export_toolbars or {}
+        self._toolbar_containers = toolbar_containers or {}
 
     def set_badge_count(self, tab_name: str, count: int | None) -> None:
         """Update badge count for a tab label."""
@@ -181,11 +194,23 @@ class TabbedPanel:
         new_tab = self.state.normalize_tab(str(value) if value is not None else None)
         if new_tab == self.state.active_tab:
             return
+        old_tab = self.state.active_tab
         self.state.active_tab = new_tab
         self.ensure_tab(new_tab)
+        # Update toolbar visibility
+        self._update_toolbar_visibility(old_tab, new_tab)
         if self._on_tab_change is not None:
             self._on_tab_change(new_tab)
         asyncio.create_task(self._safe_save_state())
+
+    def _update_toolbar_visibility(self, old_tab: str, new_tab: str) -> None:
+        """Show/hide export toolbars based on active tab."""
+        # Hide old toolbar
+        if old_tab in self._toolbar_containers:
+            self._toolbar_containers[old_tab].set_visibility(False)
+        # Show new toolbar
+        if new_tab in self._toolbar_containers:
+            self._toolbar_containers[new_tab].set_visibility(True)
 
     async def _safe_save_state(self) -> None:
         """Save state with exception handling to avoid unhandled task errors."""
@@ -208,9 +233,23 @@ def create_tabbed_panel(
     symbol_options: list[str] | None = None,
     on_filter_change: Callable[[str | None], None] | None = None,
     on_tab_change: Callable[[str], None] | None = None,
+    enable_export: bool = True,
+    api_base_url: str = "/api/v1",
 ) -> TabbedPanel:
-    """Create the tabbed panel with lazy-loaded tabs."""
+    """Create the tabbed panel with lazy-loaded tabs.
 
+    Args:
+        positions_grid_factory: Factory function for positions grid
+        orders_grid_factory: Factory function for orders grid
+        fills_grid_factory: Factory function for fills grid
+        history_grid_factory: Factory function for history grid
+        state: Panel state for persistence
+        symbol_options: Options for symbol filter
+        on_filter_change: Callback when filter changes
+        on_tab_change: Callback when tab changes
+        enable_export: Whether to show export toolbar (default True)
+        api_base_url: Base URL for export audit API
+    """
     state.active_tab = state.normalize_tab(state.active_tab)
 
     def _on_filter_change(value: str | None) -> None:
@@ -218,12 +257,33 @@ def create_tabbed_panel(
         if on_filter_change is not None:
             on_filter_change(value)
 
+    export_toolbars: dict[str, GridExportToolbar] = {}
+    toolbar_containers: dict[str, ui.element] = {}
+
     with ui.column().classes("w-full gap-2"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
             filter_state = create_symbol_filter(
                 symbol_options, value=state.symbol_filter, on_change=_on_filter_change
             )
             ui.element("div").classes("flex-1")
+
+            # Create export toolbars (one per tab, show/hide based on active)
+            if enable_export:
+                for tab_name in (TAB_POSITIONS, TAB_WORKING, TAB_FILLS, TAB_HISTORY):
+                    config = TAB_GRID_CONFIG.get(tab_name, {})
+                    with ui.element("div").classes("") as toolbar_container:
+                        toolbar = GridExportToolbar(
+                            grid_id=config.get("grid_id", ""),
+                            grid_name=config.get("grid_name", tab_name),
+                            filename_prefix=config.get("prefix", tab_name),
+                            api_base_url=api_base_url,
+                        )
+                        toolbar.create()
+                    # Only show toolbar for active tab
+                    is_active = tab_name == state.active_tab
+                    toolbar_container.set_visibility(is_active)
+                    export_toolbars[tab_name] = toolbar
+                    toolbar_containers[tab_name] = toolbar_container
 
         with ui.tabs(value=state.active_tab).classes("w-full") as tabs:  # type: ignore[arg-type]
             tab_positions = ui.tab(name=TAB_POSITIONS, label=TAB_TITLES[TAB_POSITIONS])
@@ -259,6 +319,8 @@ def create_tabbed_panel(
         },
         symbol_filter=filter_state,
         on_tab_change=on_tab_change,
+        export_toolbars=export_toolbars,
+        toolbar_containers=toolbar_containers,
     )
 
     tabs.on_value_change(lambda event: panel._handle_tab_change(getattr(event, "value", None)))

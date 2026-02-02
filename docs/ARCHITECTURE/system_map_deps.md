@@ -56,6 +56,7 @@ flowchart TB
   svc_auth_service -.-> lib_platform
   svc_backtest_worker -.-> lib_trading
   svc_execution_gateway -.-> lib_core
+  svc_execution_gateway -.-> lib_data
   svc_execution_gateway -.-> lib_platform
   svc_execution_gateway -.-> lib_trading
   svc_market_data_service -.-> lib_core

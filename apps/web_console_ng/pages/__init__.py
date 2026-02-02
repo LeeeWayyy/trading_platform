@@ -21,6 +21,7 @@ from apps.web_console_ng.pages import (
     compare,  # noqa: F401 - P5T8
     dashboard,  # noqa: F401
     data_management,  # noqa: F401
+    execution_quality,  # noqa: F401 - P6T8
     forgot_password,  # noqa: F401 - Auth page
     health,  # noqa: F401
     journal,  # noqa: F401 - P5T8

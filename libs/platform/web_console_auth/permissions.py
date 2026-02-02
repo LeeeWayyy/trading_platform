@@ -97,6 +97,9 @@ class Permission(str, Enum):
     VIEW_TAX_REPORTS = "view_tax_reports"
     MANAGE_TAX_SETTINGS = "manage_tax_settings"
 
+    # P6T8: Execution Analytics
+    VIEW_TCA = "view_tca"  # Transaction Cost Analysis dashboard access
+
 
 class DatasetPermission(str, Enum):
     """Per-dataset access permissions for licensing compliance."""
@@ -156,6 +159,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.GENERATE_SIGNALS,  # C6: Signal generation access
         Permission.VIEW_REPORTS,
         Permission.VIEW_TAX_LOTS,
+        Permission.VIEW_TCA,  # P6T8: TCA dashboard access
+        Permission.VIEW_AUDIT,  # P6T8: Audit trail access
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
@@ -167,6 +172,7 @@ ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {
         DatasetPermission.FAMA_FRENCH_ACCESS,
         DatasetPermission.CRSP_ACCESS,
         DatasetPermission.COMPUSTAT_ACCESS,
+        DatasetPermission.TAQ_ACCESS,  # P6T8: TCA requires TAQ data
     },
     Role.ADMIN: set(DatasetPermission),  # All datasets
 }
@@ -345,6 +351,23 @@ def require_permission(
     return decorator
 
 
+def is_admin(user_or_role: Any) -> bool:
+    """Check if user has admin role.
+
+    Use this for security-sensitive checks where only true admins should
+    have access (e.g., PII visibility). Prefer this over permission-based
+    checks when Role.ADMIN exclusivity is required.
+
+    Args:
+        user_or_role: User object, role string, or dict with 'role' key
+
+    Returns:
+        True if user has Role.ADMIN, False otherwise
+    """
+    role = _extract_role(user_or_role)
+    return role is Role.ADMIN
+
+
 def get_authorized_strategies(user: Any | None) -> list[str]:
     """Return list of strategies user may access (default‑deny).
 
@@ -385,6 +408,7 @@ __all__ = [
     "ROLE_DATASET_PERMISSIONS",
     "has_permission",
     "has_dataset_permission",
+    "is_admin",
     "require_permission",
     "get_authorized_strategies",
 ]

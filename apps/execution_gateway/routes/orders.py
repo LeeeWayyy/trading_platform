@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import math
 import time
@@ -47,9 +48,11 @@ from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import psycopg.errors
 import redis.exceptions
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from psycopg.errors import LockNotAvailable, UniqueViolation
+from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 
 from apps.execution_gateway.alpaca_client import (
@@ -92,7 +95,11 @@ from libs.core.common.api_auth_dependency import (
 )
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisKeys
-from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    is_admin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2243,6 +2250,150 @@ async def get_order(
         )
 
     return order
+
+
+# =============================================================================
+# GET /api/v1/orders/{client_order_id}/audit - Order Audit Trail (P6T8)
+# =============================================================================
+
+
+class AuditEntryResponse(BaseModel):
+    """Response model for a single audit entry."""
+
+    id: int = Field(..., description="Audit log entry ID")
+    timestamp: datetime = Field(..., description="When the action occurred")
+    user_id: str | None = Field(None, description="User who performed the action")
+    action: str = Field(..., description="Action type (submit, cancel, modify, etc.)")
+    outcome: str = Field(..., description="Action outcome (success, failure)")
+    details: dict[str, Any] = Field(default_factory=dict, description="Action details")
+    ip_address: str | None = Field(None, description="Client IP address")
+    session_id: str | None = Field(None, description="Session ID")
+
+
+class OrderAuditResponse(BaseModel):
+    """Response model for order audit trail."""
+
+    client_order_id: str = Field(..., description="Order client ID")
+    entries: list[AuditEntryResponse] = Field(
+        default_factory=list, description="Audit trail entries in chronological order"
+    )
+    total_count: int = Field(..., description="Total number of entries", ge=0)
+
+
+@router.get("/orders/{client_order_id}/audit", response_model=OrderAuditResponse)
+async def get_order_audit_trail(
+    client_order_id: str,
+    limit: int = 100,
+    _auth_context: AuthContext = Depends(order_read_auth),
+    ctx: AppContext = Depends(get_context),
+) -> OrderAuditResponse:
+    """
+    Get audit trail for an order.
+
+    Returns chronological list of all actions taken on this order including:
+    - Order submission
+    - Modifications (price, qty changes)
+    - Cancellation attempts
+    - Status transitions
+
+    Each entry includes IP address and session ID for compliance tracking.
+
+    Args:
+        client_order_id: Deterministic client order ID
+        limit: Maximum entries to return (default 100)
+
+    Returns:
+        OrderAuditResponse with audit entries
+
+    Raises:
+        HTTPException 404: Order not found
+        HTTPException 403: Not authorized for this order's strategy
+    """
+    # Verify order exists and user has access
+    order = ctx.db.get_order_by_client_id(client_order_id)
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Order not found: {client_order_id}",
+        )
+
+    # Verify strategy authorization (fail-closed: empty list = deny)
+    authorized_strategies = get_authorized_strategies(_auth_context.user)
+    if not authorized_strategies:
+        # No strategies assigned - deny access (fail-closed security)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access - cannot view audit trail",
+        )
+    if order.strategy_id not in authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this order's audit trail",
+        )
+
+    # Check if user is admin (for PII visibility)
+    user_is_admin = is_admin(_auth_context.user)
+
+    # Query audit_log for this order
+    # Uses idx_audit_log_resource index created in migration 0027
+    entries: list[AuditEntryResponse] = []
+    try:
+        with ctx.db.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, timestamp, user_id, action, outcome, details,
+                           ip_address, session_id
+                    FROM audit_log
+                    WHERE resource_type = 'order' AND resource_id = %s
+                    ORDER BY timestamp ASC, id ASC
+                    LIMIT %s
+                    """,
+                    (client_order_id, limit),
+                )
+                rows = cur.fetchall()
+
+                for row in rows:
+                    # Parse details JSON (json imported at module top)
+                    details_raw = row[5]
+                    if isinstance(details_raw, str):
+                        details = json.loads(details_raw)
+                    elif isinstance(details_raw, dict):
+                        details = details_raw
+                    else:
+                        details = {}
+
+                    # Redact PII (IP, session_id, user_id) for non-admin users
+                    entries.append(
+                        AuditEntryResponse(
+                            id=row[0],
+                            timestamp=row[1],
+                            user_id=row[2] if user_is_admin else None,
+                            action=row[3],
+                            outcome=row[4],
+                            details=details,
+                            ip_address=row[6] if user_is_admin else None,
+                            session_id=row[7] if user_is_admin else None,
+                        )
+                    )
+    except (psycopg.errors.Error, json.JSONDecodeError) as e:
+        # Catch specific database and JSON parsing errors
+        # Audit is supplementary - return empty rather than fail
+        logger.warning(
+            "Failed to query audit log",
+            extra={
+                "client_order_id": client_order_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+        entries = []
+
+    return OrderAuditResponse(
+        client_order_id=client_order_id,
+        entries=entries,
+        total_count=len(entries),
+    )
 
 
 # =============================================================================
