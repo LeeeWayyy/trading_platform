@@ -300,9 +300,14 @@ def _build_fill_batch(
     if side is None:
         return None  # No valid side found in any trade
 
-    # Parse order_submitted_at from first trade (timestamp metadata)
-    first_trade = trades[0]
-    order_submitted_at = _parse_datetime(first_trade.get("order_submitted_at"), "order_submitted_at")
+    # Find first valid order_submitted_at across all trades (not just first)
+    # This ensures we don't miss the decision timestamp if first trade has NULL
+    order_submitted_at: datetime | None = None
+    for trade in trades:
+        submitted_at = _parse_datetime(trade.get("order_submitted_at"), "order_submitted_at")
+        if submitted_at:
+            order_submitted_at = submitted_at
+            break
 
     # Find first valid numeric order_qty across all trades (not just first)
     # This ensures we don't skip consistency checks when first trade is missing order_qty

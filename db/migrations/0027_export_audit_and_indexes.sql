@@ -5,8 +5,9 @@
 
 -- Add index for audit trail queries (resource_type + resource_id + timestamp)
 -- Used by GET /api/v1/orders/{client_order_id}/audit endpoint
+-- Index sort order matches query ORDER BY (timestamp ASC, id ASC) for optimal performance
 CREATE INDEX IF NOT EXISTS idx_audit_log_resource
-    ON audit_log (resource_type, resource_id, timestamp DESC, id DESC);
+    ON audit_log (resource_type, resource_id, timestamp ASC, id ASC);
 
 -- Create export_audit table for tracking data exports
 -- Separate from audit_log because exports have lifecycle (pending -> completed/failed/expired)
