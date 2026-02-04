@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
 import polars as pl
+import structlog
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from libs.trading.alpha.portfolio import TurnoverCalculator, TurnoverResult
 from libs.trading.alpha.research_platform import BacktestResult
 from libs.trading.backtest.models import BacktestJob, JobNotFound, ResultPathMissing
+from libs.trading.backtest.param_search import SearchResult
+from libs.trading.backtest.walk_forward import (
+    WalkForwardConfig,
+    WalkForwardResult,
+    WindowResult,
+)
+
+logger = structlog.get_logger(__name__)
 
 PARQUET_BASE_DIR = Path("data/backtest_results")
 
@@ -169,6 +179,155 @@ class BacktestResultStorage:
 
         return lf
 
+    def load_walk_forward(self, job_id: str) -> WalkForwardResult | None:
+        """Load walk-forward results for a backtest job.
+
+        Args:
+            job_id: The backtest job identifier.
+
+        Returns:
+            WalkForwardResult if artifact exists, None if not available (legacy job).
+
+        Raises:
+            JobNotFound: If job_id doesn't exist in database.
+            ResultPathMissing: If result_path is invalid or missing.
+        """
+        target_path = self._get_job_artifact_path(job_id)
+        if target_path is None:
+            return None
+
+        walk_forward_path = target_path / "walk_forward.json"
+        if not walk_forward_path.exists():
+            return None  # Legacy job or walk-forward not run
+
+        try:
+            data = json.loads(walk_forward_path.read_text())
+            return self._deserialize_walk_forward(data)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            logger.warning(
+                "walk_forward_artifact_load_failed",
+                job_id=job_id,
+                path=str(walk_forward_path),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return None
+
+    def load_param_search(self, job_id: str) -> SearchResult | None:
+        """Load parameter search results for a backtest job.
+
+        Args:
+            job_id: The backtest job identifier.
+
+        Returns:
+            SearchResult if artifact exists, None if not available.
+
+        Raises:
+            JobNotFound: If job_id doesn't exist in database.
+            ResultPathMissing: If result_path is invalid or missing.
+        """
+        target_path = self._get_job_artifact_path(job_id)
+        if target_path is None:
+            return None
+
+        param_search_path = target_path / "param_search.json"
+        if not param_search_path.exists():
+            return None  # Legacy job or param search not run
+
+        try:
+            data = json.loads(param_search_path.read_text())
+            return self._deserialize_param_search(data)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            logger.warning(
+                "param_search_artifact_load_failed",
+                job_id=job_id,
+                path=str(param_search_path),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return None
+
+    def _get_job_artifact_path(self, job_id: str) -> Path | None:
+        """Get validated artifact path for a job.
+
+        Returns:
+            Resolved Path if valid, None if no result_path.
+
+        Raises:
+            JobNotFound: If job_id doesn't exist.
+            ResultPathMissing: If path is invalid or outside allowed directory.
+        """
+        sql = "SELECT result_path FROM backtest_jobs WHERE job_id = %s"
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (job_id,))
+            row = cur.fetchone()
+
+        if row is None:
+            raise JobNotFound(f"job_id {job_id} not found")
+
+        result_path = row.get("result_path")
+        if not result_path:
+            return None  # No result_path means no artifacts
+
+        # Security: Validate result_path is within allowed directory
+        try:
+            safe_base = self.base_dir.resolve()
+            target_path = Path(result_path).resolve(strict=False)
+            if not target_path.is_relative_to(safe_base):
+                raise ResultPathMissing(f"job_id {job_id} result_path outside allowed directory")
+        except (OSError, ValueError) as e:
+            raise ResultPathMissing(f"job_id {job_id} invalid result_path: {e}") from e
+
+        return target_path
+
+    def _deserialize_walk_forward(self, data: dict[str, Any]) -> WalkForwardResult:
+        """Deserialize walk-forward result from JSON data."""
+        config_data = data.get("config", {})
+        windows_data = data.get("windows", [])
+        aggregated = data.get("aggregated", {})
+
+        windows = [
+            WindowResult(
+                window_id=w["window_id"],
+                train_start=date.fromisoformat(w["train_start"]),
+                train_end=date.fromisoformat(w["train_end"]),
+                test_start=date.fromisoformat(w["test_start"]),
+                test_end=date.fromisoformat(w["test_end"]),
+                best_params=w["best_params"],
+                train_ic=_restore_float(w["train_ic"]),
+                test_ic=_restore_float(w["test_ic"]),
+                test_icir=_restore_float(w["test_icir"]),
+            )
+            for w in windows_data
+        ]
+
+        return WalkForwardResult(
+            windows=windows,
+            aggregated_test_ic=_restore_float(aggregated.get("test_ic")),
+            aggregated_test_icir=_restore_float(aggregated.get("test_icir")),
+            overfitting_ratio=_restore_float(aggregated.get("overfitting_ratio")),
+            overfitting_threshold=config_data.get("overfitting_threshold", 2.0),
+        )
+
+    def _deserialize_param_search(self, data: dict[str, Any]) -> SearchResult:
+        """Deserialize parameter search result from JSON data.
+
+        Restores sanitized None scores back to float("nan") so downstream
+        numeric code (comparisons, aggregations) works correctly.
+        """
+        restored_results = [
+            {"params": r["params"], "score": _restore_float(r.get("score"))}
+            for r in data["all_results"]
+        ]
+        return SearchResult(
+            best_params=data["best_params"],
+            best_score=_restore_float(data["best_score"]),
+            all_results=restored_results,
+            param_names=data.get("param_names"),
+            param_ranges=data.get("param_ranges"),
+            metric_name=data.get("metric_name"),
+        )
+
     def cleanup_old_results(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> int:
         """
         Delete Parquet artifacts and DB rows older than retention window.
@@ -320,18 +479,26 @@ class BacktestResultStorage:
                 f"snapshot_id={snapshot_id}, dataset_version_ids={dataset_version_ids}"
             )
 
-        mean_ic = summary.get("mean_ic")
-        if mean_ic is None:
+        # Restore NaN-sanitized metrics (None in JSON → NaN in domain).
+        # Only recompute when the key is missing entirely (legacy summaries),
+        # not when the key is present with null (sanitized NaN).
+        if "mean_ic" in summary:
+            mean_ic = _restore_float(summary["mean_ic"])
+        else:
             mean_ic_raw = ic["ic"].mean()
             mean_ic = float(cast(float, mean_ic_raw)) if mean_ic_raw is not None else 0.0
 
-        icir = summary.get("icir")
-        if icir is None:
+        if "icir" in summary:
+            icir = _restore_float(summary["icir"])
+        else:
             std_ic_raw = ic["ic"].std()
             std_ic = float(cast(float, std_ic_raw)) if std_ic_raw is not None else 0.0
             icir = float(mean_ic / std_ic) if std_ic != 0 else 0.0
 
-        hit_rate = summary.get("hit_rate")
+        if "hit_rate" in summary:
+            hit_rate = _restore_float(summary["hit_rate"])
+        else:
+            hit_rate = 0.0
 
         # Metadata from DB row where available
         alpha_name = (job_row or {}).get("alpha_name", "unknown")
@@ -452,4 +619,122 @@ class BacktestResultStorage:
         }
 
 
-__all__ = ["BacktestResultStorage", "PARQUET_BASE_DIR"]
+def _sanitize_float(value: float) -> float | None:
+    """Convert NaN/inf to None for strict JSON compatibility.
+
+    Standard json.dumps allows NaN by default, but strict JSON parsers
+    (including many JS front-ends) reject NaN/inf as invalid JSON values.
+
+    Handles native Python floats, numpy.float64, and Decimal types by
+    normalizing to native float. Returns the normalized float (not the
+    original type) to avoid stringify issues with json.dump(default=str).
+    Non-numeric types pass through unchanged.
+    """
+    try:
+        as_float = float(value)
+        if math.isnan(as_float) or math.isinf(as_float):
+            return None
+        return as_float
+    except (TypeError, ValueError, OverflowError):
+        return value  # Non-numeric type (str, dict, etc.) — return as-is
+
+
+def _restore_float(value: float | None) -> float:
+    """Convert None back to NaN during deserialization.
+
+    Inverse of _sanitize_float: restores None values (produced by NaN
+    sanitization during serialization) back to float("nan") so that
+    domain objects always hold float values in numeric fields.
+    """
+    if value is None:
+        return float("nan")
+    return float(value)
+
+
+def serialize_walk_forward(result: WalkForwardResult, config: WalkForwardConfig) -> dict[str, Any]:
+    """Serialize WalkForwardResult to JSON-compatible dict.
+
+    Float values are sanitized: NaN/inf are converted to None for strict
+    JSON parser compatibility.
+
+    Args:
+        result: The walk-forward result to serialize.
+        config: The configuration used for the optimization.
+
+    Returns:
+        Dict ready for JSON serialization.
+    """
+    return {
+        "version": "1.0",
+        "config": {
+            "train_months": config.train_months,
+            "test_months": config.test_months,
+            "step_months": config.step_months,
+            "min_train_samples": config.min_train_samples,
+            "overfitting_threshold": config.overfitting_threshold,
+        },
+        "windows": [
+            {
+                "window_id": w.window_id,
+                "train_start": w.train_start.isoformat(),
+                "train_end": w.train_end.isoformat(),
+                "test_start": w.test_start.isoformat(),
+                "test_end": w.test_end.isoformat(),
+                "best_params": w.best_params,
+                "train_ic": _sanitize_float(w.train_ic),
+                "test_ic": _sanitize_float(w.test_ic),
+                "test_icir": _sanitize_float(w.test_icir),
+            }
+            for w in result.windows
+        ],
+        "aggregated": {
+            "test_ic": _sanitize_float(result.aggregated_test_ic),
+            "test_icir": _sanitize_float(result.aggregated_test_icir),
+            "overfitting_ratio": _sanitize_float(result.overfitting_ratio),
+            "is_overfit": result.is_overfit,
+        },
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def serialize_param_search(result: SearchResult) -> dict[str, Any]:
+    """Serialize SearchResult to JSON-compatible dict.
+
+    Omits optional visualization fields when None so downstream consumers
+    can distinguish "not available" from "intentionally empty".
+
+    Args:
+        result: The parameter search result to serialize.
+
+    Returns:
+        Dict ready for JSON serialization.
+    """
+    sanitized_results = [
+        {"params": r["params"], "score": _sanitize_float(r["score"])}
+        for r in result.all_results
+    ]
+    data: dict[str, Any] = {
+        "version": "1.0",
+        "best_params": result.best_params,
+        "best_score": _sanitize_float(result.best_score),
+        "all_results": sanitized_results,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    # Only include optional visualization fields when populated
+    if result.param_names is not None:
+        data["param_names"] = result.param_names
+    if result.param_ranges is not None:
+        data["param_ranges"] = result.param_ranges
+    if result.metric_name is not None:
+        data["metric_name"] = result.metric_name
+
+    return data
+
+
+__all__ = [
+    "BacktestResultStorage",
+    "PARQUET_BASE_DIR",
+    "serialize_walk_forward",
+    "serialize_param_search",
+]
