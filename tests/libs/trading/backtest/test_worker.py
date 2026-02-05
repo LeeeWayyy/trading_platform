@@ -2290,6 +2290,80 @@ class TestArtifactWriting:
         assert data["hit_rate"] is None
 
     @pytest.mark.unit()
+    def test_write_summary_json_sanitizes_nested_cost_data(self, tmp_path):
+        """summary.json should sanitize NaN in nested cost_summary/capacity_analysis."""
+        result = types.SimpleNamespace(
+            mean_ic=0.1,
+            icir=0.2,
+            hit_rate=0.3,
+            snapshot_id="snap",
+            dataset_version_ids={"ds": 1},
+        )
+
+        # cost_summary and capacity_analysis with nested NaN values
+        cost_summary = types.SimpleNamespace(
+            to_dict=lambda: {
+                "total_cost_usd": float("nan"),
+                "net_sharpe": float("inf"),
+                "details": {"per_trade": float("-inf")},
+            },
+        )
+        capacity_analysis = {
+            "capacity_at_breakeven": float("nan"),
+            "metrics": [float("inf"), 1.0, float("-inf")],
+        }
+
+        worker_module._write_summary_json(
+            tmp_path,
+            result,  # type: ignore[arg-type]
+            cost_summary=cost_summary,  # type: ignore[arg-type]
+            capacity_analysis=capacity_analysis,
+        )
+
+        summary_path = tmp_path / "summary.json"
+        content = summary_path.read_text()
+
+        # Strict JSON should not contain NaN/Infinity tokens
+        assert "NaN" not in content
+        assert "Infinity" not in content
+
+        data = json.loads(content)
+        assert data["cost_summary"]["total_cost_usd"] is None
+        assert data["cost_summary"]["net_sharpe"] is None
+        assert data["cost_summary"]["details"]["per_trade"] is None
+        assert data["capacity_analysis"]["capacity_at_breakeven"] is None
+        assert data["capacity_analysis"]["metrics"] == [None, 1.0, None]
+
+    @pytest.mark.unit()
+    def test_sanitize_nested_handles_all_types(self):
+        """_sanitize_nested should handle dicts, lists, floats, and pass-through others."""
+        from libs.trading.backtest.worker import _sanitize_nested
+
+        # Nested structure with various types
+        data = {
+            "float_nan": float("nan"),
+            "float_inf": float("inf"),
+            "float_normal": 1.5,
+            "int_value": 42,
+            "str_value": "hello",
+            "none_value": None,
+            "nested_dict": {"a": float("nan"), "b": 2.0},
+            "nested_list": [float("inf"), 3.0, "text"],
+        }
+
+        result = _sanitize_nested(data)
+
+        assert result["float_nan"] is None
+        assert result["float_inf"] is None
+        assert result["float_normal"] == 1.5
+        assert result["int_value"] == 42
+        assert result["str_value"] == "hello"
+        assert result["none_value"] is None
+        assert result["nested_dict"]["a"] is None
+        assert result["nested_dict"]["b"] == 2.0
+        assert result["nested_list"] == [None, 3.0, "text"]
+
+    @pytest.mark.unit()
     def test_stale_walk_forward_cleaned_on_rerun(self, tmp_path, monkeypatch):
         """Re-running without walk-forward should remove stale walk_forward.json."""
         import sys

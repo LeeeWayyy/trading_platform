@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - backtest module updates -->
+<!-- Last reviewed: 2026-02-04 - P6T11: Walk-Forward & Parameters storage/schema foundation -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

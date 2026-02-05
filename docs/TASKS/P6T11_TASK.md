@@ -635,12 +635,11 @@ def _compute_stability_score(
     neighbor_mean = sum(neighbor_metrics) / len(neighbor_metrics)
     neighbor_std = (sum((m - neighbor_mean) ** 2 for m in neighbor_metrics) / len(neighbor_metrics)) ** 0.5
 
-    if neighbor_mean == 0:
-        return 0.0
-
     # Score based on: (1) relative difference to neighbors, (2) neighbor variance
-    relative_diff = abs(best_metric - neighbor_mean) / abs(neighbor_mean)
-    cv = neighbor_std / abs(neighbor_mean) if neighbor_mean != 0 else float('inf')
+    # Use epsilon to prevent division by near-zero neighbor_mean
+    epsilon = 1e-9
+    relative_diff = abs(best_metric - neighbor_mean) / (abs(neighbor_mean) + epsilon)
+    cv = neighbor_std / (abs(neighbor_mean) + epsilon)
 
     # Stable if: small relative diff AND low neighbor variance
     stability = max(0, 1 - relative_diff) * max(0, 1 - cv)

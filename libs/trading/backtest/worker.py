@@ -829,6 +829,21 @@ def _save_parquet_artifacts(
     return result_dir
 
 
+def _sanitize_nested(obj: Any) -> Any:
+    """Recursively sanitize NaN/inf floats in nested dicts and lists.
+
+    Applies _sanitize_float to all float values in nested structures so that
+    _atomic_json_write (with allow_nan=False) won't fail on unsanitized data.
+    """
+    if isinstance(obj, dict):
+        return {k: _sanitize_nested(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_nested(item) for item in obj]
+    if isinstance(obj, float):
+        return _sanitize_float(obj)
+    return obj
+
+
 def _atomic_json_write(path: Path, data: Any) -> None:
     """Write JSON atomically via temp file + rename to avoid partial writes on crash.
 
@@ -876,13 +891,13 @@ def _write_summary_json(
         "dataset_version_ids": result.dataset_version_ids,
     }
 
-    # Include cost model data if provided
+    # Include cost model data if provided (sanitize nested floats for strict JSON)
     if cost_config is not None:
-        summary["cost_config"] = cost_config.to_dict()
+        summary["cost_config"] = _sanitize_nested(cost_config.to_dict())
     if cost_summary is not None:
-        summary["cost_summary"] = cost_summary.to_dict()
+        summary["cost_summary"] = _sanitize_nested(cost_summary.to_dict())
     if capacity_analysis is not None:
-        summary["capacity_analysis"] = capacity_analysis
+        summary["capacity_analysis"] = _sanitize_nested(capacity_analysis)
 
     # Include walk-forward metadata if provided (P6T11)
     summary["has_walk_forward"] = walk_forward_result is not None

@@ -293,10 +293,10 @@ class BacktestResultStorage:
                 train_end=date.fromisoformat(w["train_end"]),
                 test_start=date.fromisoformat(w["test_start"]),
                 test_end=date.fromisoformat(w["test_end"]),
-                best_params=w["best_params"],
-                train_ic=_restore_float(w["train_ic"]),
-                test_ic=_restore_float(w["test_ic"]),
-                test_icir=_restore_float(w["test_icir"]),
+                best_params=w.get("best_params", {}),
+                train_ic=_restore_float(w.get("train_ic")),
+                test_ic=_restore_float(w.get("test_ic")),
+                test_icir=_restore_float(w.get("test_icir")),
             )
             for w in windows_data
         ]
