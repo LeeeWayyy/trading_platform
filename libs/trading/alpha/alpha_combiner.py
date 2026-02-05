@@ -193,7 +193,9 @@ def _winsorize(series: pl.Series, pct: float) -> pl.Series:
     if lower is None or upper is None:
         return series
 
-    return series.clip(lower, upper)
+    # Cast to float for mypy (quantile returns float | list[float] but with
+    # scalar interpolation arg it's always float)
+    return series.clip(float(lower), float(upper))
 
 
 # =============================================================================

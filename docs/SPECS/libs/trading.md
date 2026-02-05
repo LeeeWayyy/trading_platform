@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-04 - P6T11: Walk-Forward & Parameters storage/schema foundation -->
+<!-- Last reviewed: 2026-02-05 - P6T11: PR review fixes (numpy float sanitization, alpha combiner mypy) -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

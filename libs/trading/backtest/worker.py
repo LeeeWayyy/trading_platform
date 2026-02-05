@@ -832,16 +832,17 @@ def _save_parquet_artifacts(
 def _sanitize_nested(obj: Any) -> Any:
     """Recursively sanitize NaN/inf floats in nested dicts and lists.
 
-    Applies _sanitize_float to all float values in nested structures so that
+    Applies _sanitize_float to all scalar values in nested structures so that
     _atomic_json_write (with allow_nan=False) won't fail on unsanitized data.
+    Handles numpy.float64 and other numeric types, not just native float.
     """
     if isinstance(obj, dict):
         return {k: _sanitize_nested(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_sanitize_nested(item) for item in obj]
-    if isinstance(obj, float):
-        return _sanitize_float(obj)
-    return obj
+    # For scalars, attempt to sanitize them. _sanitize_float will handle
+    # numeric types and pass through non-numeric types.
+    return _sanitize_float(obj)
 
 
 def _atomic_json_write(path: Path, data: Any) -> None:

@@ -619,7 +619,7 @@ class BacktestResultStorage:
         }
 
 
-def _sanitize_float(value: float) -> float | None:
+def _sanitize_float(value: Any) -> Any:
     """Convert NaN/inf to None for strict JSON compatibility.
 
     Standard json.dumps allows NaN by default, but strict JSON parsers

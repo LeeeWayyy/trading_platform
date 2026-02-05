@@ -612,14 +612,15 @@ def _get_neighbors(
     ]
 
     # 4. Map indices back to param values and find matching points
+    # Use dictionary for O(1) lookups instead of O(N) nested loop
+    grid_map = {(p.params[param_x], p.params[param_y]): p for p in grid_points}
     neighbors = []
     for xi, yi in neighbor_indices:
         target_x = x_values[xi]
         target_y = y_values[yi]
-        for p in grid_points:
-            if p.params[param_x] == target_x and p.params[param_y] == target_y:
-                neighbors.append(p)
-                break
+        neighbor_point = grid_map.get((target_x, target_y))
+        if neighbor_point:
+            neighbors.append(neighbor_point)
         # Note: Missing grid point is OK (sparse grid) - just skip
 
     return neighbors
