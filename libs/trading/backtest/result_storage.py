@@ -294,18 +294,18 @@ class BacktestResultStorage:
                 test_start=date.fromisoformat(w["test_start"]),
                 test_end=date.fromisoformat(w["test_end"]),
                 best_params=w["best_params"],
-                train_ic=_restore_float(w["train_ic"]),
-                test_ic=_restore_float(w["test_ic"]),
-                test_icir=_restore_float(w["test_icir"]),
+                train_ic=_restore_float(w.get("train_ic")),
+                test_ic=_restore_float(w.get("test_ic")),
+                test_icir=_restore_float(w.get("test_icir")),
             )
             for w in windows_data
         ]
 
         return WalkForwardResult(
             windows=windows,
-            aggregated_test_ic=_restore_float(aggregated["test_ic"]),
-            aggregated_test_icir=_restore_float(aggregated["test_icir"]),
-            overfitting_ratio=_restore_float(aggregated["overfitting_ratio"]),
+            aggregated_test_ic=_restore_float(aggregated.get("test_ic")),
+            aggregated_test_icir=_restore_float(aggregated.get("test_icir")),
+            overfitting_ratio=_restore_float(aggregated.get("overfitting_ratio")),
             overfitting_threshold=config_data.get("overfitting_threshold", 2.0),
         )
 
@@ -316,12 +316,12 @@ class BacktestResultStorage:
         numeric code (comparisons, aggregations) works correctly.
         """
         restored_results = [
-            {"params": r["params"], "score": _restore_float(r["score"])}
+            {"params": r["params"], "score": _restore_float(r.get("score"))}
             for r in data["all_results"]
         ]
         return SearchResult(
             best_params=data["best_params"],
-            best_score=_restore_float(data["best_score"]),
+            best_score=_restore_float(data.get("best_score")),
             all_results=restored_results,
             param_names=data.get("param_names"),
             param_ranges=data.get("param_ranges"),
