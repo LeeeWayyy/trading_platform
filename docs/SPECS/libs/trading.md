@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-05 - P6T11: PR review fixes (numpy float sanitization, alpha combiner mypy) -->
+<!-- Last reviewed: 2026-02-06 - P6T11: PR review round 4 (direct dict access, cast for mypy) -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

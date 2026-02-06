@@ -84,7 +84,7 @@ fakeredis = "^2.20.0"
 # Linting & formatting
 black = "^24.1.0"
 ruff = "^0.3.0"
-mypy = "^1.8.0"
+mypy = "1.19.1"  # Pinned to avoid local/CI version mismatch
 # Type stubs
 pandas-stubs = "^2.3.0"
 types-psycopg2 = "^2.9.0"

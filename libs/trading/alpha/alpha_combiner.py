@@ -190,12 +190,12 @@ def _winsorize(series: pl.Series, pct: float) -> pl.Series:
     lower = series.quantile(pct)
     upper = series.quantile(1 - pct)
 
-    if lower is None or upper is None:
+    # quantile with scalar arg returns float, but type hint says float | list[float]
+    # Use isinstance narrowing to satisfy all mypy versions
+    if lower is None or upper is None or isinstance(lower, list) or isinstance(upper, list):
         return series
 
-    # Cast to float for mypy (quantile returns float | list[float] but with
-    # scalar interpolation arg it's always float)
-    return series.clip(float(lower), float(upper))
+    return series.clip(lower, upper)
 
 
 # =============================================================================
