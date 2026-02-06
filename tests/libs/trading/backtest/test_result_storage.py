@@ -6,6 +6,7 @@ import math
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -710,3 +711,631 @@ def test_load_universe_signals_lazy_rejects_path_traversal(tmp_path):
 
     with pytest.raises(ResultPathMissing, match="outside allowed directory"):
         storage.load_universe_signals_lazy("job123")
+
+
+# =============================================================================
+# P6T11: Walk-Forward and Parameter Search Artifact Tests
+# =============================================================================
+
+
+def _write_walk_forward_artifact(base: Path) -> dict:
+    """Create a valid walk_forward.json artifact and return the data."""
+    base.mkdir(parents=True, exist_ok=True)
+
+    walk_forward_data = {
+        "version": "1.0",
+        "config": {
+            "train_months": 12,
+            "test_months": 3,
+            "step_months": 3,
+            "min_train_samples": 252,
+            "overfitting_threshold": 2.0,
+        },
+        "windows": [
+            {
+                "window_id": 0,
+                "train_start": "2020-01-01",
+                "train_end": "2020-12-31",
+                "test_start": "2021-01-01",
+                "test_end": "2021-03-31",
+                "best_params": {"window": 20, "zscore": 2.0},
+                "train_ic": 0.045,
+                "test_ic": 0.032,
+                "test_icir": 1.2,
+            },
+            {
+                "window_id": 1,
+                "train_start": "2020-04-01",
+                "train_end": "2021-03-31",
+                "test_start": "2021-04-01",
+                "test_end": "2021-06-30",
+                "best_params": {"window": 25, "zscore": 1.5},
+                "train_ic": 0.038,
+                "test_ic": 0.028,
+                "test_icir": 1.1,
+            },
+        ],
+        "aggregated": {
+            "test_ic": 0.030,
+            "test_icir": 1.15,
+            "overfitting_ratio": 1.4,
+            "is_overfit": False,
+        },
+        "created_at": "2026-02-02T10:30:00Z",
+    }
+
+    (base / "walk_forward.json").write_text(json.dumps(walk_forward_data))
+    return walk_forward_data
+
+
+def _write_param_search_artifact(base: Path) -> dict:
+    """Create a valid param_search.json artifact and return the data."""
+    base.mkdir(parents=True, exist_ok=True)
+
+    param_search_data = {
+        "version": "1.0",
+        "param_names": ["window", "zscore"],
+        "param_ranges": {"window": [10, 15, 20, 25, 30], "zscore": [1.0, 1.5, 2.0, 2.5]},
+        "metric_name": "mean_ic",
+        "best_params": {"window": 20, "zscore": 2.0},
+        "best_score": 0.045,
+        "all_results": [
+            {"params": {"window": 10, "zscore": 1.0}, "score": 0.012},
+            {"params": {"window": 20, "zscore": 2.0}, "score": 0.045},
+            {"params": {"window": 30, "zscore": 1.5}, "score": 0.028},
+        ],
+        "created_at": "2026-02-02T10:30:00Z",
+    }
+
+    (base / "param_search.json").write_text(json.dumps(param_search_data))
+    return param_search_data
+
+
+@pytest.mark.unit()
+def test_load_walk_forward_success(tmp_path):
+    """Successfully load walk-forward results from artifact."""
+    result_dir = tmp_path / "job123"
+    _write_walk_forward_artifact(result_dir)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_walk_forward("job123")
+
+    assert result is not None
+    assert len(result.windows) == 2
+    assert result.windows[0].window_id == 0
+    assert result.windows[0].train_start == date(2020, 1, 1)
+    assert result.windows[0].test_end == date(2021, 3, 31)
+    assert result.windows[0].best_params == {"window": 20, "zscore": 2.0}
+    assert math.isclose(result.windows[0].train_ic, 0.045)
+    assert math.isclose(result.aggregated_test_ic, 0.030)
+    assert math.isclose(result.overfitting_ratio, 1.4)
+    assert result.overfitting_threshold == 2.0
+    assert not result.is_overfit
+
+
+@pytest.mark.unit()
+def test_load_walk_forward_not_found(tmp_path):
+    """Job not found should raise JobNotFound."""
+    cursor = DummyCursor(rows=[])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    with pytest.raises(JobNotFound):
+        storage.load_walk_forward("nonexistent")
+
+
+@pytest.mark.unit()
+def test_load_walk_forward_legacy_job_returns_none(tmp_path):
+    """Legacy job without walk_forward.json should return None."""
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+    # Don't create walk_forward.json - simulate legacy job
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_walk_forward("job123")
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_walk_forward_no_result_path_returns_none(tmp_path):
+    """Job with no result_path should return None."""
+    row = {"result_path": None}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_walk_forward("job123")
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_walk_forward_invalid_json_returns_none(tmp_path):
+    """Corrupted walk_forward.json should return None (graceful degradation)."""
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+    (result_dir / "walk_forward.json").write_text("not valid json {{{")
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_walk_forward("job123")
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_param_search_success(tmp_path):
+    """Successfully load parameter search results from artifact."""
+    result_dir = tmp_path / "job123"
+    _write_param_search_artifact(result_dir)
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_param_search("job123")
+
+    assert result is not None
+    assert result.best_params == {"window": 20, "zscore": 2.0}
+    assert math.isclose(result.best_score, 0.045)
+    assert len(result.all_results) == 3
+    assert result.param_names == ["window", "zscore"]
+    assert result.param_ranges == {"window": [10, 15, 20, 25, 30], "zscore": [1.0, 1.5, 2.0, 2.5]}
+    assert result.metric_name == "mean_ic"
+
+
+@pytest.mark.unit()
+def test_load_param_search_not_found(tmp_path):
+    """Job not found should raise JobNotFound."""
+    cursor = DummyCursor(rows=[])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    with pytest.raises(JobNotFound):
+        storage.load_param_search("nonexistent")
+
+
+@pytest.mark.unit()
+def test_load_param_search_legacy_job_returns_none(tmp_path):
+    """Legacy job without param_search.json should return None."""
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+    # Don't create param_search.json - simulate legacy job
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_param_search("job123")
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_param_search_invalid_json_returns_none(tmp_path):
+    """Corrupted param_search.json should return None (graceful degradation)."""
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+    (result_dir / "param_search.json").write_text("{{invalid json")
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_param_search("job123")
+    assert result is None
+
+
+@pytest.mark.unit()
+def test_load_param_search_legacy_schema_missing_optional_fields(tmp_path):
+    """Legacy param_search.json without optional fields should still load."""
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+
+    # Minimal schema without optional fields
+    legacy_data = {
+        "best_params": {"window": 20},
+        "best_score": 0.05,
+        "all_results": [{"params": {"window": 20}, "score": 0.05}],
+    }
+    (result_dir / "param_search.json").write_text(json.dumps(legacy_data))
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    result = storage.load_param_search("job123")
+
+    assert result is not None
+    assert result.best_params == {"window": 20}
+    assert math.isclose(result.best_score, 0.05)
+    assert result.param_names is None  # Optional field missing
+    assert result.param_ranges is None
+    assert result.metric_name is None
+
+
+@pytest.mark.unit()
+def test_serialize_walk_forward_roundtrip(tmp_path):
+    """Serialize and deserialize walk-forward result preserves data."""
+    from libs.trading.backtest.result_storage import serialize_walk_forward
+    from libs.trading.backtest.walk_forward import (
+        WalkForwardConfig,
+        WalkForwardResult,
+        WindowResult,
+    )
+
+    config = WalkForwardConfig(
+        train_months=12,
+        test_months=3,
+        step_months=3,
+        min_train_samples=252,
+        overfitting_threshold=2.0,
+    )
+
+    original = WalkForwardResult(
+        windows=[
+            WindowResult(
+                window_id=0,
+                train_start=date(2020, 1, 1),
+                train_end=date(2020, 12, 31),
+                test_start=date(2021, 1, 1),
+                test_end=date(2021, 3, 31),
+                best_params={"window": 20},
+                train_ic=0.045,
+                test_ic=0.032,
+                test_icir=1.2,
+            )
+        ],
+        aggregated_test_ic=0.032,
+        aggregated_test_icir=1.2,
+        overfitting_ratio=1.4,
+        overfitting_threshold=2.0,
+    )
+
+    # Serialize
+    serialized = serialize_walk_forward(original, config)
+
+    # Write to file and read back
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir()
+    (result_dir / "walk_forward.json").write_text(json.dumps(serialized))
+
+    # Deserialize
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    loaded = storage.load_walk_forward("job123")
+
+    assert loaded is not None
+    assert len(loaded.windows) == 1
+    assert loaded.windows[0].train_start == original.windows[0].train_start
+    assert loaded.windows[0].best_params == original.windows[0].best_params
+    assert math.isclose(loaded.aggregated_test_ic, original.aggregated_test_ic)
+    assert math.isclose(loaded.overfitting_ratio, original.overfitting_ratio)
+
+
+@pytest.mark.unit()
+def test_serialize_param_search_roundtrip(tmp_path):
+    """Serialize and deserialize param search result preserves data."""
+    from libs.trading.backtest.param_search import SearchResult
+    from libs.trading.backtest.result_storage import serialize_param_search
+
+    original = SearchResult(
+        best_params={"window": 20, "zscore": 2.0},
+        best_score=0.045,
+        all_results=[
+            {"params": {"window": 10, "zscore": 1.0}, "score": 0.012},
+            {"params": {"window": 20, "zscore": 2.0}, "score": 0.045},
+        ],
+        param_names=["window", "zscore"],
+        param_ranges={"window": [10, 20], "zscore": [1.0, 2.0]},
+        metric_name="mean_ic",
+    )
+
+    # Serialize
+    serialized = serialize_param_search(original)
+
+    # Write to file and read back
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir()
+    (result_dir / "param_search.json").write_text(json.dumps(serialized))
+
+    # Deserialize
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    loaded = storage.load_param_search("job123")
+
+    assert loaded is not None
+    assert loaded.best_params == original.best_params
+    assert math.isclose(loaded.best_score, original.best_score)
+    assert len(loaded.all_results) == len(original.all_results)
+    assert loaded.param_names == original.param_names
+    assert loaded.param_ranges == original.param_ranges
+    assert loaded.metric_name == original.metric_name
+
+
+@pytest.mark.unit()
+def test_serialize_param_search_omits_none_fields():
+    """Optional visualization fields should be omitted when None."""
+    from libs.trading.backtest.param_search import SearchResult
+    from libs.trading.backtest.result_storage import serialize_param_search
+
+    result = SearchResult(
+        best_params={"window": 20},
+        best_score=0.045,
+        all_results=[{"params": {"window": 20}, "score": 0.045}],
+        param_names=None,
+        param_ranges=None,
+        metric_name=None,
+    )
+
+    serialized = serialize_param_search(result)
+
+    assert "param_names" not in serialized
+    assert "param_ranges" not in serialized
+    assert "metric_name" not in serialized
+    assert serialized["best_params"] == {"window": 20}
+    assert serialized["best_score"] == 0.045
+
+
+@pytest.mark.unit()
+def test_load_walk_forward_invalid_json_logs_warning(tmp_path):
+    """Corrupted walk_forward.json should log a warning with job_id and path."""
+    import libs.trading.backtest.result_storage as rs_module
+
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+    (result_dir / "walk_forward.json").write_text("not valid json {{{")
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    mock_logger = MagicMock()
+    original_logger = rs_module.logger
+    rs_module.logger = mock_logger
+    try:
+        result = storage.load_walk_forward("job123")
+    finally:
+        rs_module.logger = original_logger
+
+    assert result is None
+    mock_logger.warning.assert_called_once()
+    call_kwargs = mock_logger.warning.call_args
+    assert call_kwargs.args[0] == "walk_forward_artifact_load_failed"
+    assert call_kwargs.kwargs["job_id"] == "job123"
+
+
+@pytest.mark.unit()
+def test_load_param_search_invalid_json_logs_warning(tmp_path):
+    """Corrupted param_search.json should log a warning with job_id and path."""
+    import libs.trading.backtest.result_storage as rs_module
+
+    result_dir = tmp_path / "job123"
+    result_dir.mkdir(parents=True)
+    (result_dir / "param_search.json").write_text("{{invalid json")
+
+    row = {"result_path": str(result_dir)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path)
+
+    mock_logger = MagicMock()
+    original_logger = rs_module.logger
+    rs_module.logger = mock_logger
+    try:
+        result = storage.load_param_search("job123")
+    finally:
+        rs_module.logger = original_logger
+
+    assert result is None
+    mock_logger.warning.assert_called_once()
+    call_kwargs = mock_logger.warning.call_args
+    assert call_kwargs.args[0] == "param_search_artifact_load_failed"
+    assert call_kwargs.kwargs["job_id"] == "job123"
+
+
+@pytest.mark.unit()
+def test_serialize_walk_forward_sanitizes_nan():
+    """NaN/inf float values should be serialized as None for strict JSON compatibility."""
+    from datetime import date
+
+    from libs.trading.backtest.result_storage import serialize_walk_forward
+    from libs.trading.backtest.walk_forward import (
+        WalkForwardConfig,
+        WalkForwardResult,
+        WindowResult,
+    )
+
+    config = WalkForwardConfig(overfitting_threshold=2.0)
+
+    windows = [
+        WindowResult(
+            window_id=0,
+            train_start=date(2020, 1, 1),
+            train_end=date(2020, 12, 31),
+            test_start=date(2021, 1, 1),
+            test_end=date(2021, 3, 31),
+            best_params={"window": 20},
+            train_ic=float("nan"),
+            test_ic=0.032,
+            test_icir=float("inf"),
+        ),
+    ]
+
+    result = WalkForwardResult(
+        windows=windows,
+        aggregated_test_ic=float("nan"),
+        aggregated_test_icir=float("nan"),
+        overfitting_ratio=float("nan"),
+        overfitting_threshold=2.0,
+    )
+
+    serialized = serialize_walk_forward(result, config)
+
+    # Window-level NaN/inf should become None
+    assert serialized["windows"][0]["train_ic"] is None
+    assert serialized["windows"][0]["test_ic"] == 0.032
+    assert serialized["windows"][0]["test_icir"] is None
+
+    # Aggregated NaN should become None
+    assert serialized["aggregated"]["test_ic"] is None
+    assert serialized["aggregated"]["test_icir"] is None
+    assert serialized["aggregated"]["overfitting_ratio"] is None
+
+    # Verify the output is valid strict JSON (no NaN tokens)
+    import json
+
+    json_str = json.dumps(serialized)
+    assert "NaN" not in json_str
+    assert "Infinity" not in json_str
+
+
+@pytest.mark.unit()
+def test_serialize_param_search_sanitizes_nan_scores():
+    """NaN scores in param search results should be serialized as None."""
+    from libs.trading.backtest.param_search import SearchResult
+    from libs.trading.backtest.result_storage import serialize_param_search
+
+    result = SearchResult(
+        best_params={"window": 20},
+        best_score=float("nan"),
+        all_results=[
+            {"params": {"window": 10}, "score": float("nan")},
+            {"params": {"window": 20}, "score": 0.045},
+        ],
+        param_names=["window"],
+        param_ranges={"window": [10, 20]},
+        metric_name="mean_ic",
+    )
+
+    serialized = serialize_param_search(result)
+
+    assert serialized["best_score"] is None
+    assert serialized["all_results"][0]["score"] is None
+    assert serialized["all_results"][1]["score"] == 0.045
+
+    import json
+
+    json_str = json.dumps(serialized)
+    assert "NaN" not in json_str
+
+
+@pytest.mark.unit()
+def test_deserialize_walk_forward_restores_nan_from_none(tmp_path):
+    """Deserialization should restore None values back to NaN for numeric fields."""
+    import json
+    import math
+    from datetime import date
+
+    from libs.trading.backtest.result_storage import serialize_walk_forward
+    from libs.trading.backtest.walk_forward import (
+        WalkForwardConfig,
+        WalkForwardResult,
+        WindowResult,
+    )
+
+    config = WalkForwardConfig(overfitting_threshold=2.0)
+    windows = [
+        WindowResult(
+            window_id=0,
+            train_start=date(2020, 1, 1),
+            train_end=date(2020, 12, 31),
+            test_start=date(2021, 1, 1),
+            test_end=date(2021, 3, 31),
+            best_params={"window": 20},
+            train_ic=float("nan"),
+            test_ic=0.032,
+            test_icir=float("inf"),
+        ),
+    ]
+    result = WalkForwardResult(
+        windows=windows,
+        aggregated_test_ic=float("nan"),
+        aggregated_test_icir=float("nan"),
+        overfitting_ratio=float("nan"),
+        overfitting_threshold=2.0,
+    )
+
+    # Serialize (NaN/inf → None) then write to disk and reload
+    serialized = serialize_walk_forward(result, config)
+    artifact_path = tmp_path / "walk_forward.json"
+    artifact_path.write_text(json.dumps(serialized))
+
+    # Create storage and load
+    row = {"result_path": str(tmp_path)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path.parent)
+
+    loaded = storage.load_walk_forward("test_job")
+
+    assert loaded is not None
+    # Window-level: None should be restored to NaN
+    assert math.isnan(loaded.windows[0].train_ic)
+    assert loaded.windows[0].test_ic == 0.032
+    assert math.isnan(loaded.windows[0].test_icir)
+    # Aggregated: None should be restored to NaN
+    assert math.isnan(loaded.aggregated_test_ic)
+    assert math.isnan(loaded.overfitting_ratio)
+    # is_overfit should work without TypeError (NaN → not overfit)
+    assert loaded.is_overfit is False
+
+
+@pytest.mark.unit()
+def test_deserialize_param_search_restores_nan_from_none(tmp_path):
+    """Deserialization should restore None scores back to NaN."""
+    import json
+    import math
+
+    from libs.trading.backtest.param_search import SearchResult
+    from libs.trading.backtest.result_storage import serialize_param_search
+
+    original = SearchResult(
+        best_params={"window": 20},
+        best_score=float("nan"),
+        all_results=[
+            {"params": {"window": 10}, "score": float("nan")},
+            {"params": {"window": 20}, "score": 0.045},
+        ],
+        param_names=["window"],
+        param_ranges={"window": [10, 20]},
+        metric_name="mean_ic",
+    )
+
+    # Serialize (NaN → None) then write to disk and reload
+    serialized = serialize_param_search(original)
+    artifact_path = tmp_path / "param_search.json"
+    artifact_path.write_text(json.dumps(serialized))
+
+    row = {"result_path": str(tmp_path)}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    storage = BacktestResultStorage(DummyPool(conn), base_dir=tmp_path.parent)
+
+    loaded = storage.load_param_search("test_job")
+
+    assert loaded is not None
+    assert math.isnan(loaded.best_score)
+    assert math.isnan(loaded.all_results[0]["score"])
+    assert loaded.all_results[1]["score"] == 0.045
+    assert loaded.param_names == ["window"]
+    assert loaded.metric_name == "mean_ic"

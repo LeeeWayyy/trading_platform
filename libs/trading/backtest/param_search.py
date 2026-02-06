@@ -23,9 +23,24 @@ from libs.trading.alpha.research_platform import BacktestResult, PITBacktester
 
 @dataclass
 class SearchResult:
+    """Result of parameter search optimization.
+
+    Attributes:
+        best_params: Optimal parameter combination found.
+        best_score: Best metric value achieved.
+        all_results: All grid points evaluated, each dict has 'params' and 'score' keys.
+        param_names: Parameter names searched (optional, for visualization).
+        param_ranges: Parameter value ranges, {name: [values]} (optional, for visualization).
+        metric_name: Name of optimized metric (optional, defaults to 'mean_ic').
+    """
+
     best_params: dict[str, Any]
     best_score: float
     all_results: list[dict[str, Any]]  # Each dict has 'params' and 'score' keys
+    # Optional fields for visualization (P6T11)
+    param_names: list[str] | None = None
+    param_ranges: dict[str, list[Any]] | None = None
+    metric_name: str | None = None
 
 
 def _extract_metric(result: BacktestResult, metric: str) -> float:
@@ -51,6 +66,7 @@ def _perform_search(
     end_date: date,
     snapshot_id: str | None,
     metric: str,
+    param_grid: dict[str, list[Any]] | None = None,
 ) -> SearchResult:
     """Core search logic shared by grid_search and random_search.
 
@@ -62,6 +78,7 @@ def _perform_search(
         end_date: Backtest end date
         snapshot_id: Optional snapshot ID for PIT determinism
         metric: Metric to optimize ('mean_ic', 'icir', 'hit_rate')
+        param_grid: Optional parameter grid for visualization metadata
 
     Returns:
         SearchResult with best params and all results
@@ -93,7 +110,18 @@ def _perform_search(
     if best_params is None:
         raise ValueError("No parameter combinations to evaluate")
 
-    return SearchResult(best_params=best_params, best_score=best_score, all_results=all_results)
+    # Populate optional visualization fields
+    param_names = list(param_grid.keys()) if param_grid else None
+    param_ranges = param_grid if param_grid else None
+
+    return SearchResult(
+        best_params=best_params,
+        best_score=best_score,
+        all_results=all_results,
+        param_names=param_names,
+        param_ranges=param_ranges,
+        metric_name=metric,
+    )
 
 
 def _grid_params_iterator(param_grid: dict[str, list[Any]]) -> Iterator[dict[str, Any]]:
@@ -176,6 +204,7 @@ def grid_search(
         end_date=end_date,
         snapshot_id=snapshot_id,
         metric=metric,
+        param_grid=param_grid,
     )
 
 
@@ -234,6 +263,7 @@ def random_search(
         end_date=end_date,
         snapshot_id=snapshot_id,
         metric=metric,
+        param_grid=param_distributions,
     )
 
 

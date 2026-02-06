@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - backtest module updates -->
+<!-- Last reviewed: 2026-02-06 - P6T11: PR review round 4 (direct dict access, cast for mypy) -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)

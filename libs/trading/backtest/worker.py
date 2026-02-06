@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
 import os
 import shutil
+import tempfile
 import threading
 import time
 from collections.abc import Mapping
@@ -37,6 +39,13 @@ from libs.trading.backtest.cost_model import (
     load_pit_adv_volatility,
 )
 from libs.trading.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
+from libs.trading.backtest.param_search import SearchResult
+from libs.trading.backtest.result_storage import (
+    _sanitize_float,
+    serialize_param_search,
+    serialize_walk_forward,
+)
+from libs.trading.backtest.walk_forward import WalkForwardConfig, WalkForwardResult
 
 
 class BacktestWorker:
@@ -695,6 +704,8 @@ def _save_parquet_artifacts(
     cost_summary: CostSummary | None = None,
     capacity_analysis: dict[str, Any] | None = None,
     net_returns_df: Any | None = None,
+    walk_forward_result: WalkForwardResult | None = None,
+    param_search_result: SearchResult | None = None,
 ) -> Path:
     """
     Save bulk time-series data to Parquet files.
@@ -797,9 +808,60 @@ def _save_parquet_artifacts(
             compression="snappy",
         )
 
-    _write_summary_json(result_dir, result, cost_config, cost_summary, capacity_analysis)
+    # Clean stale optional artifacts from prior runs to prevent reading outdated data.
+    # If this run didn't produce walk-forward/param-search results, remove any leftover
+    # artifacts so loaders don't return stale data from a previous execution.
+    if walk_forward_result is None:
+        (result_dir / "walk_forward.json").unlink(missing_ok=True)
+    if param_search_result is None:
+        (result_dir / "param_search.json").unlink(missing_ok=True)
+
+    _write_summary_json(
+        result_dir,
+        result,
+        cost_config=cost_config,
+        cost_summary=cost_summary,
+        capacity_analysis=capacity_analysis,
+        walk_forward_result=walk_forward_result,
+        param_search_result=param_search_result,
+    )
 
     return result_dir
+
+
+def _sanitize_nested(obj: Any) -> Any:
+    """Recursively sanitize NaN/inf floats in nested dicts and lists.
+
+    Applies _sanitize_float to all scalar values in nested structures so that
+    _atomic_json_write (with allow_nan=False) won't fail on unsanitized data.
+    Handles numpy.float64 and other numeric types, not just native float.
+    """
+    if isinstance(obj, dict):
+        return {k: _sanitize_nested(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_nested(item) for item in obj]
+    # For scalars, attempt to sanitize them. _sanitize_float will handle
+    # numeric types and pass through non-numeric types.
+    return _sanitize_float(obj)
+
+
+def _atomic_json_write(path: Path, data: Any) -> None:
+    """Write JSON atomically via temp file + rename to avoid partial writes on crash.
+
+    Uses allow_nan=False to reject unsanitized NaN/inf values early rather than
+    emitting invalid JSON tokens that strict parsers would reject.
+    """
+    tmp_fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            json.dump(data, f, default=str, indent=2, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path_str, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path_str)
+        raise
 
 
 def _write_summary_json(
@@ -808,6 +870,8 @@ def _write_summary_json(
     cost_config: CostModelConfig | None = None,
     cost_summary: CostSummary | None = None,
     capacity_analysis: dict[str, Any] | None = None,
+    walk_forward_result: WalkForwardResult | None = None,
+    param_search_result: SearchResult | None = None,
 ) -> None:
     """Persist summary metrics and reproducibility metadata alongside Parquet artifacts.
 
@@ -817,24 +881,85 @@ def _write_summary_json(
         cost_config: Optional cost model configuration
         cost_summary: Optional cost summary (computed if cost_config.enabled)
         capacity_analysis: Optional capacity analysis dict
+        walk_forward_result: Optional walk-forward optimization result (P6T11)
+        param_search_result: Optional parameter search result (P6T11)
     """
     summary: dict[str, Any] = {
-        "mean_ic": result.mean_ic,
-        "icir": result.icir,
-        "hit_rate": result.hit_rate,
+        "mean_ic": _sanitize_float(result.mean_ic),
+        "icir": _sanitize_float(result.icir),
+        "hit_rate": _sanitize_float(result.hit_rate),
         "snapshot_id": result.snapshot_id,
         "dataset_version_ids": result.dataset_version_ids,
     }
 
-    # Include cost model data if provided
+    # Include cost model data if provided (sanitize nested floats for strict JSON)
     if cost_config is not None:
-        summary["cost_config"] = cost_config.to_dict()
+        summary["cost_config"] = _sanitize_nested(cost_config.to_dict())
     if cost_summary is not None:
-        summary["cost_summary"] = cost_summary.to_dict()
+        summary["cost_summary"] = _sanitize_nested(cost_summary.to_dict())
     if capacity_analysis is not None:
-        summary["capacity_analysis"] = capacity_analysis
+        summary["capacity_analysis"] = _sanitize_nested(capacity_analysis)
 
-    (result_dir / "summary.json").write_text(json.dumps(summary, default=str, indent=2))
+    # Include walk-forward metadata if provided (P6T11)
+    summary["has_walk_forward"] = walk_forward_result is not None
+    if walk_forward_result is not None:
+        summary["walk_forward_windows"] = len(walk_forward_result.windows)
+        summary["walk_forward_overfit"] = walk_forward_result.is_overfit
+
+    # Include param search metadata if provided (P6T11)
+    summary["has_param_search"] = param_search_result is not None
+    if param_search_result is not None:
+        summary["param_search_combinations"] = len(param_search_result.all_results)
+
+    _atomic_json_write(result_dir / "summary.json", summary)
+
+
+def write_walk_forward_artifact(
+    result_dir: Path,
+    result: WalkForwardResult,
+    config: WalkForwardConfig,
+) -> Path:
+    """Write walk-forward results to JSON artifact.
+
+    Note: This writes only the artifact file; it does NOT update summary.json.
+    To keep summary flags consistent, pass walk_forward_result through
+    ``_save_parquet_artifacts()`` which threads it to ``_write_summary_json()``.
+
+    Args:
+        result_dir: Directory to write walk_forward.json
+        result: WalkForwardResult from optimization
+        config: WalkForwardConfig used for the optimization
+
+    Returns:
+        Path to the written artifact file.
+    """
+    artifact_path = result_dir / "walk_forward.json"
+    data = serialize_walk_forward(result, config)
+    _atomic_json_write(artifact_path, data)
+    return artifact_path
+
+
+def write_param_search_artifact(
+    result_dir: Path,
+    result: SearchResult,
+) -> Path:
+    """Write parameter search results to JSON artifact.
+
+    Note: This writes only the artifact file; it does NOT update summary.json.
+    To keep summary flags consistent, pass param_search_result through
+    ``_save_parquet_artifacts()`` which threads it to ``_write_summary_json()``.
+
+    Args:
+        result_dir: Directory to write param_search.json
+        result: SearchResult from grid/random search
+
+    Returns:
+        Path to the written artifact file.
+    """
+    artifact_path = result_dir / "param_search.json"
+    data = serialize_param_search(result)
+    _atomic_json_write(artifact_path, data)
+    return artifact_path
 
 
 def _save_result_to_db(
