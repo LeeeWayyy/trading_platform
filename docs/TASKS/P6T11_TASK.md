@@ -634,7 +634,8 @@ def _compute_stability_score(
         return 0.0  # No neighbors = can't assess stability
 
     neighbor_mean = sum(neighbor_metrics) / len(neighbor_metrics)
-    neighbor_std = (sum((m - neighbor_mean) ** 2 for m in neighbor_metrics) / len(neighbor_metrics)) ** 0.5
+    # Use sample std (n-1) for unbiased estimate with small sample sizes
+    neighbor_std = (sum((m - neighbor_mean) ** 2 for m in neighbor_metrics) / (len(neighbor_metrics) - 1)) ** 0.5 if len(neighbor_metrics) > 1 else 0.0
 
     # Score based on: (1) relative difference to neighbors, (2) neighbor variance
     # Use epsilon to prevent division by near-zero neighbor_mean
