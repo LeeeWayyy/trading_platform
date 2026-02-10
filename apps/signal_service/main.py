@@ -1818,6 +1818,16 @@ async def generate_signals(
                 )
             )
 
+        # Record signal heartbeat to Redis (best-effort, P6T12.4)
+        if redis_client is not None and settings.redis_enabled:
+            try:
+                redis_client.set(
+                    f"signal:last_update:{strategy_id}",
+                    datetime.now(UTC).isoformat(),
+                )
+            except Exception:
+                logger.warning("signal_heartbeat_redis_failed", exc_info=True)
+
         # Build response
         return SignalResponse(
             signals=signals,

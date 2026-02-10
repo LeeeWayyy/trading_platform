@@ -1189,7 +1189,11 @@ class TestGetPortfolioReturns:
 
 
 class TestVerifyJobOwnership:
-    """Tests for verify_job_ownership() method (P6T10)."""
+    """Tests for verify_job_ownership() method (P6T10, fixed in P6T12).
+
+    Verifies ownership via ``created_by`` column (not ``strategy_id``).
+    Uses generic "Access denied" message for both not-found and unauthorized.
+    """
 
     @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
@@ -1205,7 +1209,7 @@ class TestVerifyJobOwnership:
         mock_user: dict[str, Any],
         sample_strategies: list[str],
     ) -> None:
-        """Should succeed for job belonging to authorized strategy."""
+        """Should succeed when created_by matches user identity."""
         mock_get_strategies.return_value = sample_strategies
         mock_get_key.return_value = None
 
@@ -1214,7 +1218,8 @@ class TestVerifyJobOwnership:
         mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire.return_value.__aexit__ = AsyncMock()
 
-        db_rows = [{"strategy_id": "strategy-alpha"}]
+        # created_by matches mock_user["user_id"]
+        db_rows = [{"created_by": "user-123"}]
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         access._execute_fetchall = AsyncMock(return_value=db_rows)
@@ -1226,7 +1231,7 @@ class TestVerifyJobOwnership:
         call_args = access._execute_fetchall.call_args
         query = call_args[0][1]
         assert "backtest_jobs" in query
-        assert "job_id" in query
+        assert "created_by" in query
 
     @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
@@ -1242,7 +1247,7 @@ class TestVerifyJobOwnership:
         mock_user: dict[str, Any],
         sample_strategies: list[str],
     ) -> None:
-        """Should raise PermissionError for non-existent job."""
+        """Should raise generic PermissionError for non-existent job."""
         mock_get_strategies.return_value = sample_strategies
         mock_get_key.return_value = None
 
@@ -1256,14 +1261,14 @@ class TestVerifyJobOwnership:
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         access._execute_fetchall = AsyncMock(return_value=db_rows)
 
-        with pytest.raises(PermissionError, match="Backtest job not found"):
+        with pytest.raises(PermissionError, match="Access denied"):
             await access.verify_job_ownership("nonexistent-job")
 
     @pytest.mark.asyncio()
     @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
-    async def test_verify_job_ownership_unauthorized_strategy(
+    async def test_verify_job_ownership_different_user(
         self,
         mock_get_key: Mock,
         mock_get_strategies: Mock,
@@ -1273,7 +1278,7 @@ class TestVerifyJobOwnership:
         mock_user: dict[str, Any],
         sample_strategies: list[str],
     ) -> None:
-        """Should raise PermissionError for job belonging to unauthorized strategy."""
+        """Should raise PermissionError when created_by doesn't match user."""
         mock_get_strategies.return_value = sample_strategies
         mock_get_key.return_value = None
 
@@ -1282,10 +1287,43 @@ class TestVerifyJobOwnership:
         mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire.return_value.__aexit__ = AsyncMock()
 
-        db_rows = [{"strategy_id": "unauthorized-strategy"}]
+        # created_by does NOT match mock_user["user_id"] ("user-123")
+        db_rows = [{"created_by": "other-user-456"}]
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         access._execute_fetchall = AsyncMock(return_value=db_rows)
 
-        with pytest.raises(PermissionError, match="Not authorized for backtest job"):
+        with pytest.raises(PermissionError, match="Access denied"):
             await access.verify_job_ownership("job-456")
+
+    @pytest.mark.asyncio()
+    @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
+    @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
+    @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
+    async def test_verify_job_ownership_username_fallback(
+        self,
+        mock_get_key: Mock,
+        mock_get_strategies: Mock,
+        mock_acquire: AsyncMock,
+        mock_db_pool: AsyncMock,
+        mock_redis_client: AsyncMock,
+        sample_strategies: list[str],
+    ) -> None:
+        """Should use username fallback when user_id is absent."""
+        mock_get_strategies.return_value = sample_strategies
+        mock_get_key.return_value = None
+
+        mock_conn = AsyncMock()
+        mock_acquire.return_value = AsyncMock()
+        mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire.return_value.__aexit__ = AsyncMock()
+
+        # User without user_id but with username
+        user_no_id = {"username": "jane_doe", "session_version": 1, "roles": ["trader"]}
+        db_rows = [{"created_by": "jane_doe"}]
+
+        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, user_no_id)
+        access._execute_fetchall = AsyncMock(return_value=db_rows)
+
+        # Should not raise - username matches created_by
+        await access.verify_job_ownership("job-789")

@@ -6,13 +6,17 @@ This module orchestrates the complete data pipeline:
 2. Adjust for corporate actions
 3. Quality gate (outlier detection)
 4. Save results to Parquet (adjusted + quarantine)
+5. Record pipeline heartbeat to Redis (if client provided)
 
 See ADR-0001 for pipeline architecture decisions.
 """
 
-from datetime import date
+from __future__ import annotations
+
+import logging
+from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
@@ -20,6 +24,12 @@ from libs.core.common.exceptions import DataQualityError
 from libs.data.data_pipeline.corporate_actions import adjust_prices
 from libs.data.data_pipeline.freshness import check_freshness
 from libs.data.data_pipeline.quality_gate import detect_outliers
+
+if TYPE_CHECKING:
+    from libs.core.redis_client import RedisClient
+
+
+_etl_logger = logging.getLogger(__name__)
 
 
 def run_etl_pipeline(
@@ -30,6 +40,8 @@ def run_etl_pipeline(
     outlier_threshold: float = 0.30,
     output_dir: Path | str | None = None,
     run_date: date | None = None,
+    *,
+    redis_client: RedisClient | None = None,
 ) -> dict[str, pl.DataFrame | dict[str, Any]]:
     """
     Execute the complete ETL pipeline on raw market data.
@@ -173,6 +185,18 @@ def run_etl_pipeline(
             output_dir=output_dir,
             run_date=run_date,
         )
+
+    # Step 5: Record pipeline heartbeat (best-effort)
+    if redis_client is not None:
+        try:
+            now_iso = datetime.now(UTC).isoformat()
+            redis_client.set("market:last_update:prices", now_iso)
+            redis_client.set("market:last_update:volume", now_iso)
+        except Exception as exc:
+            _etl_logger.warning(
+                "etl_heartbeat_redis_failed",
+                extra={"error": str(exc)},
+            )
 
     # Return results
     return {

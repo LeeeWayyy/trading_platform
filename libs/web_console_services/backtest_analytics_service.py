@@ -5,13 +5,14 @@ backtest artifacts. All Parquet file access from UI pages MUST go
 through this service to ensure proper ownership verification.
 
 P6T10: Quantile & Attribution Analytics
+P6T12: Portfolio returns access for comparison and live overlay
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import polars as pl
 from starlette.concurrency import run_in_threadpool
@@ -271,6 +272,57 @@ class BacktestAnalyticsService:
         )
 
         return result
+
+    async def get_portfolio_returns(
+        self,
+        job_id: str,
+        basis: Literal["net", "gross"] = "net",
+    ) -> tuple[pl.DataFrame | None, Literal["net", "gross"]]:
+        """Load portfolio returns with ownership check and basis fallback.
+
+        Verifies user ownership, then loads the return series for the
+        requested basis.  If ``basis="net"`` and net returns are unavailable,
+        falls back to gross returns so the caller knows a fallback occurred.
+
+        Args:
+            job_id: The backtest job identifier.
+            basis: Preferred return basis (``"net"`` or ``"gross"``).
+
+        Returns:
+            Tuple of ``(DataFrame_with_{date,return}_columns | None,
+            actual_basis_used)``.  ``None`` means no return data is
+            available for this job.
+
+        Raises:
+            PermissionError: If user doesn't own the job (propagated).
+        """
+        await self.verify_job_ownership(job_id)
+
+        from libs.trading.backtest.models import JobNotFound, ResultPathMissing
+
+        try:
+            if basis == "net":
+                df = await run_in_threadpool(
+                    self._storage.load_portfolio_returns, job_id, "net"
+                )
+                if df is not None:
+                    return (df, "net")
+                # Fallback to gross
+                df = await run_in_threadpool(
+                    self._storage.load_portfolio_returns, job_id, "gross"
+                )
+                return (df, "gross")
+            else:
+                df = await run_in_threadpool(
+                    self._storage.load_portfolio_returns, job_id, "gross"
+                )
+                return (df, "gross")
+        except (JobNotFound, ResultPathMissing) as e:
+            logger.warning(
+                "get_portfolio_returns_unavailable",
+                extra={"job_id": job_id, "error": str(e)},
+            )
+            return (None, basis)
 
 
 __all__ = ["BacktestAnalyticsService"]

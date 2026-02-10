@@ -1,6 +1,6 @@
 # Signal Service
 
-<!-- Last reviewed: 2026-01-18 - ModelRegistry lazy pool initialization with _ensure_pool_open() -->
+<!-- Last reviewed: 2026-02-09 - P6T12: Added signal heartbeat to Redis after generate_signals -->
 
 ## Identity
 - **Type:** Service
@@ -34,6 +34,7 @@
 **Postconditions:**
 - Returns signals sorted/ranked with weights that sum to +1.0 (longs) and -1.0 (shorts).
 - Emits Prometheus metrics and (if Redis enabled) publishes a `SignalEvent`.
+- Records signal heartbeat to Redis key `signal:last_update:{strategy_id}` (best-effort, P6T12).
 
 **Behavior:**
 1. Validate model availability and request parameters.
@@ -198,6 +199,6 @@ curl -s -X POST http://localhost:8001/api/v1/signals/generate   -H 'Content-Type
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-16 (Test consolidation: tests moved from apps/signal_service/tests/ to tests/apps/signal_service/)
+- **Last Updated:** 2026-02-09 (P6T12 - Signal heartbeat recording to Redis after generate_signals)
 - **Source Files:** `apps/signal_service/main.py`, `apps/signal_service/config.py`, `apps/signal_service/signal_generator.py`, `apps/signal_service/model_registry.py`
 - **ADRs:** `docs/ADRs/0004-signal-service-architecture.md`

@@ -285,6 +285,8 @@ def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:
     """Fixture providing mocked NiceGUI ui module."""
     ui = DummyUI()
     monkeypatch.setattr(backtest_module, "ui", ui)
+    # Mock render_config_editor (uses real NiceGUI elements not supported by DummyUI)
+    monkeypatch.setattr(backtest_module, "render_config_editor", lambda **kwargs: None)
     return ui
 
 

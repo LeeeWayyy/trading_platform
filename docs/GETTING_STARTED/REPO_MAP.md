@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-02-09
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 
@@ -218,6 +218,7 @@ Reusable libraries shared across services, organized into logical subdirectories
 
 ```
 libs/
+├── analytics/               # Shared analytics (tracking error, live vs backtest)
 ├── core/                    # Core infrastructure (common, health, redis_client)
 ├── data/                    # Data pipeline and providers
 ├── trading/                 # Trading logic (allocation, alpha, backtest, risk)
@@ -226,6 +227,14 @@ libs/
 ├── web_console_data/        # Web console data layer (strategy-scoped queries)
 └── web_console_services/    # Web console backend services (migrated from apps/web_console)
 ```
+
+### libs/analytics/ - Shared Analytics (P6T12)
+
+**Purpose:** Shared analytics module for cross-component metrics (tracking error, live vs backtest comparison).
+
+**Key Files:**
+- `metrics.py` - `compute_tracking_error()` with inner-join and pre-aligned modes
+- `live_vs_backtest.py` - `LiveVsBacktestAnalyzer` with alert levels (RED/YELLOW/NONE)
 
 ### libs/core/ - Core Infrastructure
 
@@ -265,10 +274,11 @@ libs/
 - Quality validation
 
 **Key Files:**
-- `etl.py` - ETL pipeline
+- `etl.py` - ETL pipeline with optional Redis heartbeat recording
 - `corporate_actions.py` - Split/dividend handling
 - `quality_gate.py` - Data quality validation
 - `freshness.py` - Staleness detection
+- `health_monitor.py` - Data health monitoring with per-source caching (P6T12)
 
 #### libs/data/data_providers/
 **Purpose:** WRDS/CRSP/Compustat/Fama-French/yfinance providers with unified fetcher and sync tooling.
@@ -546,6 +556,7 @@ tests/
 │   ├── market_data_service/
 │   └── web_console/
 ├── libs/                  # Library tests (grouped by domain)
+│   ├── analytics/         # Shared analytics tests (metrics, live_vs_backtest)
 │   ├── core/              # Core infrastructure tests
 │   │   ├── common/
 │   │   ├── health/
@@ -797,5 +808,5 @@ make kill-switch # Emergency stop
 ---
 
 **Document Version:** 2.1 (Web Console Migration Complete)
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-02-09
 **Maintained By:** Development Team

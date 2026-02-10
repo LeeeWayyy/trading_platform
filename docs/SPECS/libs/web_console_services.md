@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-02-01 - P6T10: PR review fixes - use run_quantile_analysis helper -->
+<!-- Last reviewed: 2026-02-09 - P6T12: Added get_portfolio_returns to BacktestAnalyticsService -->
 
 ## Identity
 - **Type:** Library
@@ -26,7 +26,7 @@
 | `TaxLotService` | db_pool | service | Tax lot tracking and wash sale detection. |
 | `UserManagement` | db_pool, redis | service | User management and role assignment. |
 | `AttributionService` | data_access, ff_provider, crsp_provider | service | Fama-French factor attribution (FF3/FF5/FF6 models) for portfolio returns. |
-| `BacktestAnalyticsService` | data_access, storage | service | Backtest analytics with quantile analysis and universe signal loading. |
+| `BacktestAnalyticsService` | data_access, storage | service | Backtest analytics with quantile analysis, universe signal loading, and portfolio return retrieval (net→gross fallback). |
 
 ## Behavioral Contracts
 ### CircuitBreakerService
@@ -170,6 +170,6 @@ stress_results = await risk_service.run_stress_test(strategy_id="alpha_baseline"
 | Runtime import | LOW | scheduled_reports_service has runtime import of apps.web_console_ng (inside try/except) | Migration cleanup |
 
 ## Metadata
-- **Last Updated: 2026-02-01 (P6T10 - Added AttributionService, BacktestAnalyticsService)
+- **Last Updated:** 2026-02-09 (P6T12 - Added get_portfolio_returns to BacktestAnalyticsService)
 - **Source Files:** `libs/web_console_services/__init__.py`, `libs/web_console_services/alert_service.py`, `libs/web_console_services/alpha_explorer_service.py`, `libs/web_console_services/attribution_service.py`, `libs/web_console_services/backtest_analytics_service.py`, `libs/web_console_services/cb_metrics.py`, `libs/web_console_services/cb_rate_limiter.py`, `libs/web_console_services/cb_service.py`, `libs/web_console_services/comparison_service.py`, `libs/web_console_services/config.py`, `libs/web_console_services/data_explorer_service.py`, `libs/web_console_services/data_quality_service.py`, `libs/web_console_services/data_sync_service.py`, `libs/web_console_services/duckdb_connection.py`, `libs/web_console_services/health_service.py`, `libs/web_console_services/notebook_launcher_service.py`, `libs/web_console_services/risk_service.py`, `libs/web_console_services/scheduled_reports_service.py`, `libs/web_console_services/sql_validator.py`, `libs/web_console_services/tax_lot_service.py`, `libs/web_console_services/user_management.py`, `libs/web_console_services/schemas/`
 - **ADRs:** N/A

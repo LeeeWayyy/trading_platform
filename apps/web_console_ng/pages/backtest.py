@@ -27,6 +27,18 @@ from nicegui import run, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.components.backtest_comparison_chart import (
+    build_comparison_metrics,
+    render_comparison_equity_curves,
+    render_comparison_metrics_diff,
+    render_live_vs_backtest_overlay,
+    render_tracking_error_vs_baseline,
+)
+from apps.web_console_ng.components.config_editor import (
+    FormState,
+    form_state_to_json,
+    render_config_editor,
+)
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.ui.helpers import safe_classes
@@ -84,8 +96,12 @@ def _get_rq_redis_client() -> Redis:
 def _get_user_id(user: dict[str, Any]) -> str:
     """Get user identifier with fail-closed behavior.
 
-    Prefers user_id, falls back to username. Raises if neither present
-    to prevent cross-user visibility with "anonymous" fallback.
+    Uses ``user_id → username`` fallback (intentionally excludes ``sub``
+    / OIDC subject) to match the identity stored in ``created_by`` at
+    job creation time and in ``StrategyScopedDataAccess.verify_job_ownership``.
+
+    Raises if neither ``user_id`` nor ``username`` is present to prevent
+    cross-user visibility with an "anonymous" fallback.
     """
     user_id = user.get("user_id") or user.get("username")
     if not user_id:
@@ -121,7 +137,7 @@ def _get_user_jobs_sync(
     sql = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
-               result_path,
+               result_path, cost_summary,
                COALESCE(config_json->>'provider', 'crsp') AS provider
         FROM backtest_jobs
         WHERE created_by = %s AND status = ANY(%s)
@@ -174,6 +190,7 @@ def _get_user_jobs_sync(
                 "coverage": job.get("coverage"),
                 "average_turnover": job.get("average_turnover"),
                 "result_path": job.get("result_path"),
+                "cost_summary": job.get("cost_summary"),
                 "provider": job.get("provider") or "crsp",
             }
         )
@@ -220,7 +237,7 @@ def _verify_job_ownership(job_id: str, user_id: str, db_pool: ConnectionPool) ->
 
     if not row:
         return False
-    return row.get("created_by") == user_id
+    return str(row.get("created_by") or "") == str(user_id)
 
 
 @ui.page("/backtest")
@@ -283,6 +300,9 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
 
     with ui.card().classes("w-full p-4"):
         ui.label("Configure Backtest").classes("text-xl font-bold mb-4")
+
+        # Hidden state for extra_params keys that aren't form-representable
+        _extra_params_hidden: dict[str, Any] = {}
 
         with ui.row().classes("w-full gap-4"):
             # Left column
@@ -472,6 +492,110 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                 "adv_source": adv_source,
                 "portfolio_value_usd": portfolio_value_input.value,
             }
+
+        # --- Advanced Mode (JSON editor) - T12.1 ---
+        def _get_form_json() -> str:
+            """Serialize current form state to JSON for the editor."""
+            selected_provider = data_provider_select.value
+            dp = DataProvider.CRSP if selected_provider.startswith("CRSP") else DataProvider.YFINANCE
+            return form_state_to_json(
+                alpha_name=alpha_select.value or "",
+                start_date=start_date_input.value or "",
+                end_date=end_date_input.value or "",
+                weight_method=weight_select.value or "zscore",
+                provider_display_label=data_provider_select.value or "",
+                universe_csv=str(universe_input.value or ""),
+                cost_config=build_cost_config(dp),
+                extra_params_hidden=_extra_params_hidden or None,
+            )
+
+        def _get_priority() -> str:
+            return priority_select.value or "normal"
+
+        async def _submit_json(config_dict: dict[str, Any], priority_str: str) -> None:
+            """Submit a backtest from parsed JSON config."""
+            ui.notify("Submitting backtest...", type="info")
+            try:
+                job_config = BacktestJobConfig.from_dict(config_dict)
+            except (KeyError, ValueError, TypeError) as exc:
+                ui.notify(f"Config error: {exc}", type="negative")
+                return
+
+            try:
+                priority = JobPriority(priority_str)
+            except ValueError:
+                priority = JobPriority.NORMAL
+
+            try:
+                user_id = _get_user_id(user)
+            except ValueError as e:
+                logger.error("backtest_submit_user_missing", extra={"error": str(e)}, exc_info=True)
+                ui.notify("Failed to submit backtest: user identity missing", type="negative")
+                return
+
+            try:
+                def submit_sync() -> Any:
+                    queue = _get_job_queue()
+                    logger.info(
+                        "backtest_submit_request_json",
+                        extra={
+                            "user_id": user_id,
+                            "alpha_name": job_config.alpha_name,
+                            "provider": job_config.provider.value,
+                            "mode": "json",
+                        },
+                    )
+                    return queue.enqueue(job_config, priority=priority, created_by=user_id)
+
+                job = await run.io_bound(submit_sync)
+                ui.notify(
+                    f"Backtest queued! Job ID: {job.id} (data source: {job_config.provider.value})",
+                    type="positive",
+                )
+            except (ConnectionError, OSError) as e:
+                logger.error("backtest_submit_db_connection_failed", extra={"error": str(e)}, exc_info=True)
+                ui.notify("Failed to submit backtest: Database connection error", type="negative")
+            except (ValueError, TypeError) as e:
+                logger.error("backtest_submit_data_error", extra={"error": str(e)}, exc_info=True)
+                ui.notify("Failed to submit backtest: Invalid configuration", type="negative")
+
+        def _on_editor_deactivate(state: FormState) -> None:
+            """Sync JSON editor changes back to form controls on toggle-off."""
+            alpha_select.value = state.alpha_name
+            start_date_input.value = state.start_date
+            end_date_input.value = state.end_date
+            weight_select.value = state.weight_method
+            data_provider_select.value = state.provider_display_label
+            universe_input.value = state.universe_csv
+            cost_enabled.value = state.cost_config is not None
+            _extra_params_hidden.clear()
+            _extra_params_hidden.update(state.extra_params_hidden)
+            # Hydrate cost model inputs from JSON-edited values
+            if state.cost_config:
+                pv = state.cost_config.get("portfolio_value_usd")
+                if pv is not None:
+                    portfolio_value_input.value = pv
+                bps = state.cost_config.get("bps_per_trade")
+                if bps is not None:
+                    bps_per_trade_input.value = bps
+                eta = state.cost_config.get("impact_coefficient")
+                if eta is not None:
+                    impact_coefficient_input.value = eta
+                part_limit = state.cost_config.get("participation_limit")
+                if part_limit is not None:
+                    # JSON stores fraction (0.05); UI shows percent (5.0)
+                    participation_limit_input.value = part_limit * 100
+            # Re-run provider status side effects (status label, help text)
+            # in case provider changed while in JSON mode
+            _update_provider_status(state.provider_display_label)
+
+        render_config_editor(
+            on_submit=_submit_json,
+            get_form_json=_get_form_json,
+            get_priority=_get_priority,
+            alpha_options=alpha_options,
+            on_deactivate=_on_editor_deactivate,
+        )
 
         async def submit_job() -> None:
             ui.notify("Submitting backtest...", type="info")
@@ -753,8 +877,9 @@ async def _render_backtest_results(
     redis_client: Redis,
 ) -> None:
     """Render completed backtest results with visualization."""
-    from libs.trading.backtest.models import ResultPathMissing
+    from libs.trading.backtest.models import JobNotFound, ResultPathMissing
     from libs.trading.backtest.result_storage import BacktestResultStorage
+    from libs.web_console_services.backtest_analytics_service import BacktestAnalyticsService
 
     jobs_data: list[dict[str, Any]] = []
     comparison_mode = False
@@ -822,47 +947,151 @@ async def _render_backtest_results(
                     )
                     return
 
-                # SECURITY: Verify ownership for all selected jobs
-                user_id = _get_user_id(user)
+                # Build job lookup from completed_jobs
+                jobs_by_id = {j["job_id"]: j for j in completed_jobs}
+                selected_jobs = [jobs_by_id[jid] for jid in select.value if jid in jobs_by_id]
 
-                def check_ownership(jid: str) -> bool:
-                    return _verify_job_ownership(jid, user_id, db_pool)
+                # Construct service (ownership checks + storage access in one layer)
+                from apps.web_console_ng.core.database import get_db_pool as _get_async_pool
+                from libs.web_console_data.strategy_scoped_queries import (
+                    StrategyScopedDataAccess,
+                )
 
-                for job_id in select.value:
-                    if not await run.io_bound(check_ownership, job_id):
+                async_pool = _get_async_pool()
+                storage = BacktestResultStorage(db_pool)
+
+                if async_pool is None:
+                    ui.notify("Database unavailable for comparison", type="negative")
+                    return
+
+                data_access = StrategyScopedDataAccess(async_pool, None, user)
+                service = BacktestAnalyticsService(data_access, storage)
+
+                # Load lightweight return series through service layer
+                # (handles ownership verification + basis fallback internally)
+                returns_map: dict[str, pl.DataFrame] = {}
+                excluded_jids: set[str] = set()
+
+                # Build unique display labels (disambiguate duplicate alpha+dates)
+                _lbl_counts: dict[str, int] = {}
+                for j in selected_jobs:
+                    base = f"{j['alpha_name']} ({j['start_date']} - {j['end_date']})"
+                    _lbl_counts[base] = _lbl_counts.get(base, 0) + 1
+
+                job_labels: dict[str, str] = {}
+                labels: list[str] = []
+                _lbl_seen: dict[str, int] = {}
+                for j in selected_jobs:
+                    base = f"{j['alpha_name']} ({j['start_date']} - {j['end_date']})"
+                    if _lbl_counts[base] > 1:
+                        idx = _lbl_seen.get(base, 0) + 1
+                        _lbl_seen[base] = idx
+                        job_labels[j["job_id"]] = f"{base} [{j['job_id'][:8]}]"
+                    else:
+                        job_labels[j["job_id"]] = base
+                    labels.append(job_labels[j["job_id"]])
+
+                # First pass: probe net basis for all via service
+                basis_results: dict[str, tuple[pl.DataFrame | None, str]] = {}
+                any_gross_fallback = False
+
+                for job in selected_jobs:
+                    jid = job["job_id"]
+
+                    try:
+                        df, actual_basis = await service.get_portfolio_returns(jid, "net")
+                    except PermissionError:
                         ui.notify("Job not found or access denied", type="negative")
                         return
 
-                # Load full results for comparison
-                storage = BacktestResultStorage(db_pool)
-                results = []
+                    if df is not None:
+                        basis_results[jid] = (df, actual_basis)
+                        if actual_basis == "gross":
+                            any_gross_fallback = True
+                    else:
+                        basis_results[jid] = (None, "net")
+                        excluded_jids.add(jid)
 
-                def load_result(jid: str) -> Any:
-                    return storage.get_result(jid)
+                # Determine uniform basis
+                active_basis = "net"
+                if any_gross_fallback:
+                    active_basis = "gross"
+                    ui.notify(
+                        "Some backtests lack cost model data; "
+                        "showing gross returns for all.",
+                        type="warning",
+                    )
+                    # Re-fetch all with gross basis via service
+                    for job in selected_jobs:
+                        jid = job["job_id"]
+                        if jid in excluded_jids:
+                            continue
 
-                for job_id in select.value:
-                    try:
-                        result = await run.io_bound(load_result, job_id)
-                        results.append(result)
-                    except (ConnectionError, OSError) as e:
-                        logger.error(
-                            "result_load_db_connection_failed",
-                            extra={"job_id": job_id, "error": str(e)},
-                            exc_info=True,
-                        )
-                        ui.notify(
-                            "Failed to load result: Database connection error", type="negative"
-                        )
-                    except (ValueError, KeyError, TypeError) as e:
-                        logger.error(
-                            "result_load_data_error",
-                            extra={"job_id": job_id, "error": str(e)},
-                            exc_info=True,
-                        )
-                        ui.notify("Failed to load result: Data processing error", type="negative")
+                        try:
+                            df_g, _ = await service.get_portfolio_returns(jid, "gross")
+                        except PermissionError:
+                            df_g = None
+                        if df_g is not None:
+                            basis_results[jid] = (df_g, "gross")
+                        else:
+                            excluded_jids.add(jid)
 
-                if len(results) >= 2:
-                    _render_comparison_table(results)
+                # Build returns_map from basis_results (keyed by unique label)
+                for jid, (df, _) in basis_results.items():
+                    if df is not None and jid not in excluded_jids:
+                        returns_map[job_labels[jid]] = df
+
+                if excluded_jids:
+                    excluded_labels = [job_labels[j] for j in list(excluded_jids)[:3]]
+                    ui.notify(
+                        f"Returns unavailable for: {', '.join(excluded_labels)} "
+                        "- excluded from chart",
+                        type="warning",
+                    )
+
+                # Render equity curve overlay
+                if len(returns_map) >= 2:
+                    render_comparison_equity_curves(returns_map, active_basis)
+                    if any_gross_fallback:
+                        ui.label(
+                            "Basis: Gross (fallback) — some backtests lack cost model data"
+                        ).classes("text-xs text-amber-600 font-semibold mt-1")
+                elif returns_map:
+                    ui.label("Need at least 2 backtests with return data for chart").classes(
+                        "text-amber-600 text-sm"
+                    )
+
+                # Render tracking error vs baseline
+                if len(returns_map) >= 2:
+                    render_tracking_error_vs_baseline(returns_map, labels)
+
+                # Render metrics diff table (uses DB summary, always available)
+                metrics_list: list[dict[str, Any]] = []
+                any_cost = False
+                for job in selected_jobs:
+                    label = job_labels[job["job_id"]]
+                    ret_series: list[float] | None = None
+                    if label in returns_map:
+                        ret_series = returns_map[label]["return"].drop_nulls().to_list()
+
+                    cost_raw = job.get("cost_summary")
+                    if cost_raw is not None:
+                        any_cost = True
+
+                    m = build_comparison_metrics(
+                        job=job,
+                        label=label,
+                        return_series=ret_series,
+                        cost_summary_raw=cost_raw,
+                        basis=active_basis,
+                    )
+                    metrics_list.append(m)
+
+                if len(metrics_list) >= 2:
+                    render_comparison_metrics_diff(
+                        metrics_list,
+                        show_cost_column=(active_basis == "net" and any_cost),
+                    )
 
             ui.button("Compare Selected", on_click=show_comparison, color="primary").classes("mt-2")
 
@@ -900,18 +1129,35 @@ async def _render_backtest_results(
                         # Load and display full result
                         async def show_result(job_id: str = job["job_id"]) -> None:
                             try:
-                                # SECURITY: Verify job ownership before loading result
-                                user_id = _get_user_id(user)
-                                if not await run.io_bound(
-                                    lambda: _verify_job_ownership(job_id, user_id, db_pool)
-                                ):
-                                    ui.notify("Result not found or access denied", type="negative")
+                                # Use BacktestAnalyticsService for ownership-verified
+                                # artifact access (mandated by service layer policy)
+                                from apps.web_console_ng.core.database import (
+                                    get_db_pool as _get_async_pool,
+                                )
+                                from libs.web_console_data.strategy_scoped_queries import (
+                                    StrategyScopedDataAccess,
+                                )
+                                from libs.web_console_services.backtest_analytics_service import (
+                                    BacktestAnalyticsService,
+                                )
+
+                                async_pool = _get_async_pool()
+                                if async_pool is None:
+                                    ui.notify("Database unavailable", type="negative")
                                     return
 
+                                data_access = StrategyScopedDataAccess(async_pool, None, user)
                                 storage = BacktestResultStorage(db_pool)
-                                result = await run.io_bound(lambda: storage.get_result(job_id))
+                                service = BacktestAnalyticsService(data_access, storage)
+                                result = await service.get_backtest_result(job_id)
                                 _render_backtest_result(result, user)
-                            except ResultPathMissing:
+                                # Live vs Backtest Overlay (T12.3)
+                                await _render_live_overlay_section(
+                                    result, job_id, user, db_pool,
+                                )
+                            except PermissionError:
+                                ui.notify("Result not found or access denied", type="negative")
+                            except (JobNotFound, ResultPathMissing):
                                 ui.notify(
                                     "Result artifacts missing for this job. Rerun the backtest.",
                                     type="warning",
@@ -1714,6 +1960,112 @@ def _render_comparison_table(results: list[Any]) -> None:
         )
 
     ui.table(columns=columns, rows=rows).classes("w-full")
+
+
+async def _render_live_overlay_section(
+    result: Any,
+    job_id: str,
+    user: dict[str, Any],
+    db_pool: Any,
+) -> None:
+    """Render Live vs Backtest Overlay expansion panel (T12.3).
+
+    Shows when the user has authorized strategies.  The user selects
+    a live strategy, and the overlay chart compares live vs backtest
+    cumulative returns with alert badges.
+    """
+    from libs.platform.web_console_auth.permissions import get_authorized_strategies
+
+    strat_list = get_authorized_strategies(user)
+    if not strat_list:
+        return
+
+    ui.separator().classes("my-4")
+    with ui.expansion("Live vs Backtest Overlay", icon="compare_arrows").classes("w-full"):
+        ui.label(
+            "Compare live trading returns against this backtest's expected returns."
+        ).classes("text-xs text-gray-500 mb-2")
+
+        overlay_strat_select = ui.select(
+            label="Strategy (live data source)",
+            options=strat_list,
+            value=strat_list[0],
+        ).classes("w-full")
+        overlay_container = ui.column().classes("w-full")
+
+        async def _load_overlay() -> None:
+            strat_id = overlay_strat_select.value
+            if not strat_id:
+                ui.notify("Select a strategy", type="warning")
+                return
+
+            from apps.web_console_ng.core.database import get_db_pool as _get_apool
+            from libs.trading.backtest.result_storage import BacktestResultStorage
+            from libs.web_console_data.strategy_scoped_queries import (
+                StrategyScopedDataAccess,
+            )
+            from libs.web_console_services.backtest_analytics_service import (
+                BacktestAnalyticsService,
+            )
+
+            apool = _get_apool()
+            if apool is None:
+                ui.notify("Database unavailable", type="negative")
+                return
+
+            data_access = StrategyScopedDataAccess(apool, None, user)
+            storage = BacktestResultStorage(db_pool)
+            service = BacktestAnalyticsService(data_access, storage)
+
+            # Get backtest returns via service (normalized {date, return} schema)
+            try:
+                bt_df, bt_basis = await service.get_portfolio_returns(job_id, "net")
+            except PermissionError:
+                ui.notify("Access denied to backtest data", type="negative")
+                return
+
+            if bt_df is None or bt_df.is_empty():
+                ui.notify("No backtest returns available", type="warning")
+                return
+
+            # Fetch live returns from pnl_daily
+            # Coerce to date in case result fields are datetime/str
+            from datetime import date as _date_type
+
+            _start = result.start_date if isinstance(result.start_date, _date_type) else _date_type.fromisoformat(str(result.start_date))
+            _end = result.end_date if isinstance(result.end_date, _date_type) else _date_type.fromisoformat(str(result.end_date))
+            try:
+                live_rows = await data_access.get_portfolio_returns(
+                    strat_id, _start, _end,
+                )
+            except PermissionError:
+                ui.notify("Not authorized for this strategy", type="negative")
+                return
+
+            if not live_rows:
+                ui.notify("No live data for this strategy/period", type="warning")
+                return
+
+            live_df = pl.DataFrame(
+                {
+                    "date": [r["date"] for r in live_rows],
+                    "return": [float(r["daily_return"]) for r in live_rows],
+                },
+                schema={"date": pl.Date, "return": pl.Float64},
+            )
+
+            from libs.analytics.live_vs_backtest import LiveVsBacktestAnalyzer
+
+            analyzer = LiveVsBacktestAnalyzer()
+            overlay_res = analyzer.analyze(live_df, bt_df)
+
+            overlay_container.clear()
+            with overlay_container:
+                render_live_vs_backtest_overlay(overlay_res, bt_basis)
+
+        ui.button(
+            "Load Overlay", on_click=_load_overlay, color="primary",
+        ).classes("mt-2")
 
 
 __all__ = ["backtest_page"]

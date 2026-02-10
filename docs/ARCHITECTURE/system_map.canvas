@@ -222,41 +222,48 @@
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_28",
-      "toNode": "lib_common",
+      "toNode": "lib_analytics",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_29",
-      "toNode": "lib_core",
+      "toNode": "lib_common",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_30",
-      "toNode": "lib_data",
+      "toNode": "lib_core",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_31",
-      "toNode": "lib_models",
+      "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_32",
-      "toNode": "lib_web_console_data",
+      "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_33",
+      "toNode": "lib_web_console_data",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_34",
       "toNode": "lib_web_console_services",
       "toSide": "top"
     }
@@ -354,11 +361,20 @@
     },
     {
       "height": 60,
+      "id": "lib_analytics",
+      "text": "[[../SPECS/libs/analytics.md|Analytics]]",
+      "type": "text",
+      "width": 320,
+      "x": 490,
+      "y": 1000
+    },
+    {
+      "height": 60,
       "id": "lib_models",
       "text": "[[../SPECS/libs/models.md|Models]]",
       "type": "text",
       "width": 320,
-      "x": 490,
+      "x": 830,
       "y": 1000
     },
     {
@@ -367,7 +383,7 @@
       "text": "[[../SPECS/strategies/alpha_baseline.md|Alpha Baseline]]",
       "type": "text",
       "width": 320,
-      "x": 910,
+      "x": 1250,
       "y": 1000
     },
     {
@@ -376,7 +392,7 @@
       "text": "[[../SPECS/strategies/backtest.md|Backtest]]",
       "type": "text",
       "width": 320,
-      "x": 1250,
+      "x": 1590,
       "y": 1000
     },
     {
@@ -385,7 +401,7 @@
       "text": "[[../SPECS/strategies/ensemble.md|Ensemble]]",
       "type": "text",
       "width": 320,
-      "x": 1590,
+      "x": 1930,
       "y": 1000
     },
     {
@@ -533,7 +549,7 @@
       "id": "group_domain_ml",
       "label": "ML & Analytics",
       "type": "group",
-      "width": 380,
+      "width": 720,
       "x": 460,
       "y": 970
     },
@@ -543,7 +559,7 @@
       "label": "Strategies",
       "type": "group",
       "width": 1060,
-      "x": 880,
+      "x": 1220,
       "y": 970
     },
     {
@@ -551,7 +567,7 @@
       "id": "group_domain",
       "label": "Domain Logic",
       "type": "group",
-      "width": 1980,
+      "width": 2320,
       "x": 0,
       "y": 930
     },

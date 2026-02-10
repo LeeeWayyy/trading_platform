@@ -1,5 +1,7 @@
 # analytics
 
+<!-- Last reviewed: 2026-02-09 - P6T12: Added libs/analytics shared module (metrics, live_vs_backtest) -->
+
 ## Identity
 - **Type:** Library
 - **Port:** N/A
@@ -7,12 +9,23 @@
 
 ## Interface
 ### Public Interface (Exported Classes & Functions)
+
+#### libs/platform/analytics (Microstructure & Attribution)
 | Class/Function | Parameters | Returns | Description |
 |----------------|------------|---------|-------------|
 | `MicrostructureAnalyzer` | config | instance | VPIN/spread/realized vol analytics. |
 | `HARVolatilityModel` | config | instance | HAR volatility forecasting. |
 | `EventStudyFramework` | config | instance | CAR/PEAD/event study analysis. |
 | `FactorAttribution` | config | instance | Fama-French attribution. |
+
+#### libs/analytics (Shared Analytics - P6T12)
+| Class/Function | Parameters | Returns | Description |
+|----------------|------------|---------|-------------|
+| `compute_tracking_error` | returns_a, returns_b, *, pre_aligned=False | `float \| None` | Annualized tracking error between two return series. Inner-join or pre-aligned mode. |
+| `LiveVsBacktestAnalyzer` | config: OverlayConfig \| None | instance | Compare live trading performance against backtest expectations. Pure data-in/data-out. |
+| `OverlayConfig` | thresholds, window | BaseModel | Configuration for live vs backtest overlay analysis (TE threshold, divergence threshold, rolling window). |
+| `OverlayResult` | cumulative curves, metrics, alerts | dataclass | Output of `LiveVsBacktestAnalyzer.analyze()` with alert level and message. |
+| `AlertLevel` | - | Enum | Severity levels: NONE, YELLOW, RED. |
 
 ## Behavioral Contracts
 ### EventStudyFramework.run_event_study(...)
@@ -69,12 +82,13 @@ report = attr.run(...)
 - N/A (analytics library).
 
 ## Testing
-- **Test Files:** `tests/libs/platform/analytics/`
+- **Test Files:** `tests/libs/platform/analytics/`, `tests/libs/analytics/`
 - **Run Tests:** `pytest tests/libs/analytics -v`
 - **Coverage:** N/A
 
 ## Related Specs
 - `data_quality.md`
+- `web_console_ng.md` - Backtest comparison chart consumes tracking error and live vs backtest overlay
 
 ## Known Issues & TODO
 | Issue | Severity | Description | Tracking |
@@ -82,6 +96,6 @@ report = attr.run(...)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-09
-- **Source Files:** `libs/platform/analytics/__init__.py`, `libs/platform/analytics/event_study.py`, `libs/platform/analytics/attribution.py`
+- **Last Updated:** 2026-02-09 (P6T12 - Added libs/analytics shared module with compute_tracking_error, LiveVsBacktestAnalyzer)
+- **Source Files:** `libs/platform/analytics/__init__.py`, `libs/platform/analytics/event_study.py`, `libs/platform/analytics/attribution.py`, `libs/analytics/__init__.py`, `libs/analytics/metrics.py`, `libs/analytics/live_vs_backtest.py`
 - **ADRs:** N/A

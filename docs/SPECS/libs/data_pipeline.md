@@ -13,6 +13,13 @@
 | `ETLProgressManifest` | path | model | Tracks ETL progress for resume. |
 | `ETLResult` | fields | model | ETL outcome summary. |
 | `ETLError` | message | exception | Base ETL exception. |
+| `run_etl_pipeline` | raw_data, splits_df, dividends_df, *, redis_client | dict | Run daily ETL with optional Redis heartbeat recording (P6T12). |
+| `HealthMonitor` | thresholds | instance | Aggregates freshness across registered data sources with per-source caching (P6T12). |
+| `HealthThresholds` | per-category seconds | BaseModel | Configurable staleness thresholds (price/volume/signal/fundamental). |
+| `HealthStatus` | - | Enum | Health status: OK, STALE, ERROR. |
+| `DataSourceHealth` | fields | dataclass | Result of checking a single data source. |
+| `get_health_monitor` | thresholds | `HealthMonitor` | Module-level singleton factory. |
+| `format_age` | seconds | str | Human-readable age formatting (e.g., "5m 32s ago"). |
 
 ## Behavioral Contracts
 ### HistoricalETL.run(...)
@@ -81,6 +88,6 @@ manifest = ETLProgressManifest.load("path/to/manifest.json")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-10
-- **Source Files:** `libs/data/data_pipeline/historical_etl.py`
+- **Last Updated:** 2026-02-09 (P6T12 - Added HealthMonitor, run_etl_pipeline redis_client heartbeat)
+- **Source Files:** `libs/data/data_pipeline/historical_etl.py`, `libs/data/data_pipeline/etl.py`, `libs/data/data_pipeline/health_monitor.py`
 - **ADRs:** N/A

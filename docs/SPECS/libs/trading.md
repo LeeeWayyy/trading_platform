@@ -1,6 +1,6 @@
 # libs/trading
 
-<!-- Last reviewed: 2026-02-06 - P6T11: PR review round 4 (direct dict access, cast for mypy) -->
+<!-- Last reviewed: 2026-02-09 - P6T12: Added load_portfolio_returns to BacktestResultStorage -->
 
 ## Identity
 - **Type:** Library Group (Trading Logic)
@@ -41,7 +41,7 @@ See [libs/alpha.md](./alpha.md) for detailed specification.
 ### libs/trading/backtest
 See [libs/backtest.md](./backtest.md) for detailed specification.
 
-**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, transaction cost modeling, quantile analysis, and RQ queue/worker utilities.
+**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, transaction cost modeling, quantile analysis, result storage, and RQ queue/worker utilities.
 
 **Key Features:**
 - Job queue management
@@ -51,6 +51,7 @@ See [libs/backtest.md](./backtest.md) for detailed specification.
 - Transaction cost model (Almgren-Chriss)
 - Capacity analysis
 - Quantile analysis with Rank IC computation
+- Portfolio return loading from result Parquets (net/gross basis, P6T12)
 
 ### libs/trading/risk
 See [libs/risk.md](./risk.md) for detailed specification.
@@ -88,6 +89,6 @@ See [libs/risk_management.md](./risk_management.md) for detailed specification.
 - **Run Tests:** `pytest tests/libs/trading -v`
 
 ## Metadata
-- **Last Updated:** 2026-02-01 (P6T10 - Added quantile_analysis.py with QuantileAnalyzer)
-- **Source Files:** `libs/trading/` (group index), `libs/trading/backtest/quantile_analysis.py`
+- **Last Updated:** 2026-02-09 (P6T12 - Added load_portfolio_returns to BacktestResultStorage)
+- **Source Files:** `libs/trading/` (group index), `libs/trading/backtest/quantile_analysis.py`, `libs/trading/backtest/result_storage.py`
 - **ADRs:** N/A

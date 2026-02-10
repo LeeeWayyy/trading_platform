@@ -1,6 +1,6 @@
 # web_console_data
 
-<!-- Last reviewed: 2026-02-01 - P6T10 mypy type annotation fixes for strategy_scoped_queries.py -->
+<!-- Last reviewed: 2026-02-09 - P6T12: verify_job_ownership uses created_by column with user_id→username fallback -->
 
 ## Identity
 - **Type:** Library
@@ -28,6 +28,8 @@
 - Users can only access strategies they're authorized for
 - All queries respect strategy boundaries
 - Sensitive data is encrypted at rest
+- `verify_job_ownership()` uses `created_by` column (not `strategy_id`) with `user_id → username` fallback for identity matching
+- Generic "Access denied" error for both not-found and unauthorized jobs (prevents enumeration)
 
 ## Data Flow
 ```
@@ -87,6 +89,6 @@ positions = await accessor.get_positions(strategy_id="alpha_baseline")
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-15
+- **Last Updated:** 2026-02-09 (P6T12 - verify_job_ownership uses created_by with user_id→username fallback)
 - **Source Files:** `libs/web_console_data/__init__.py`, `libs/web_console_data/strategy_scoped_queries.py`
 - **ADRs:** N/A
