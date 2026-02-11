@@ -37,17 +37,20 @@ def compute_tracking_error(
         Returns ``0.0`` if ``std == 0`` (identical return series).
     """
     if pre_aligned:
-        aligned_a = returns_a.select("date", "return")
-        aligned_b = returns_b.select("date", "return")
-        # Drop rows with null/NaN in either series
-        mask_a = aligned_a.filter(
-            pl.col("return").is_not_null() & pl.col("return").is_not_nan()
+        # Caller guarantees row-aligned DataFrames (same dates in same order,
+        # e.g. after left-join + zero-fill in T12.3).  Just pair columns
+        # directly and drop rows where either side is null/NaN.
+        aligned = pl.DataFrame(
+            {
+                "return": returns_a["return"],
+                "return_b": returns_b["return"],
+            }
+        ).filter(
+            pl.col("return").is_not_null()
+            & pl.col("return").is_not_nan()
+            & pl.col("return_b").is_not_null()
+            & pl.col("return_b").is_not_nan()
         )
-        mask_b = aligned_b.filter(
-            pl.col("return").is_not_null() & pl.col("return").is_not_nan()
-        )
-        # Inner join on remaining valid dates
-        aligned = mask_a.join(mask_b, on="date", suffix="_b")
     else:
         # Inner join on date
         aligned = returns_a.select("date", "return").join(

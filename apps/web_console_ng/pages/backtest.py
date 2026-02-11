@@ -567,7 +567,10 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
             weight_select.value = state.weight_method
             data_provider_select.value = state.provider_display_label
             universe_input.value = state.universe_csv
-            cost_enabled.value = state.cost_config is not None
+            cost_enabled.value = (
+                state.cost_config is not None
+                and state.cost_config.get("enabled", True) is not False
+            )
             _extra_params_hidden.clear()
             _extra_params_hidden.update(state.extra_params_hidden)
             # Hydrate cost model inputs from JSON-edited values
@@ -1021,11 +1024,15 @@ async def _render_backtest_results(
                         "showing gross returns for all.",
                         type="warning",
                     )
-                    # Re-fetch all with gross basis via service
+                    # Re-fetch only jobs that were on net basis; jobs already
+                    # at gross from the first pass can be kept as-is.
                     for job in selected_jobs:
                         jid = job["job_id"]
                         if jid in excluded_jids:
                             continue
+                        existing = basis_results.get(jid)
+                        if existing and existing[1] == "gross":
+                            continue  # already gross from first pass
 
                         try:
                             df_g, _ = await service.get_portfolio_returns(jid, "gross")

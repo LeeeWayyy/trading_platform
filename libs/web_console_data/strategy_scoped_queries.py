@@ -110,6 +110,11 @@ class StrategyScopedDataAccess:
         self.db_pool = db_pool
         self.redis = _build_cache_client(redis_client)
         self.user = user
+        # Identity resolution: prefer user_id (unique UUID from auth provider),
+        # fall back to username only when user_id is absent (e.g. local dev).
+        # The auth layer guarantees both are unique within the tenant, so
+        # collision risk is negligible.  str() coercion ensures consistent
+        # comparison against the TEXT created_by column.
         raw_id = user.get("user_id") or user.get("username")
         self.user_id = str(raw_id) if raw_id is not None else None
 

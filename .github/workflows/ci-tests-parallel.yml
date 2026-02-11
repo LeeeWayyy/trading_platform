@@ -325,7 +325,7 @@ jobs:
           - name: libs-platform
             paths: "tests/libs/platform/ tests/libs/models/ tests/libs/web_console_data/ tests/libs/web_console_services/"
           - name: libs-trading
-            paths: "tests/libs/trading/ tests/libs/data/"
+            paths: "tests/libs/trading/ tests/libs/data/ tests/libs/analytics/"
           - name: apps-services
             paths: "tests/apps/"
           - name: strategies

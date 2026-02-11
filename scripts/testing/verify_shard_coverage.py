@@ -21,7 +21,7 @@ SHARD_DEFINITIONS = {
         "tests/libs/web_console_data/**",
         "tests/libs/web_console_services/**",
     ],
-    "libs-trading": ["tests/libs/trading/**", "tests/libs/data/**"],
+    "libs-trading": ["tests/libs/trading/**", "tests/libs/data/**", "tests/libs/analytics/**"],
     "apps-services": ["tests/apps/**"],
     "strategies": ["tests/strategies/**", "tests/research/**"],
     "root-and-misc": [

@@ -1825,7 +1825,7 @@ async def generate_signals(
                     f"signal:last_update:{strategy_id}",
                     datetime.now(UTC).isoformat(),
                 )
-            except Exception:
+            except (RedisConnectionError, OSError):
                 logger.warning("signal_heartbeat_redis_failed", exc_info=True)
 
         # Build response

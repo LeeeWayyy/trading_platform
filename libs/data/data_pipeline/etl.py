@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
+from redis.exceptions import RedisError
 
 from libs.core.common.exceptions import DataQualityError
 from libs.data.data_pipeline.corporate_actions import adjust_prices
@@ -27,7 +28,6 @@ from libs.data.data_pipeline.quality_gate import detect_outliers
 
 if TYPE_CHECKING:
     from libs.core.redis_client import RedisClient
-
 
 _etl_logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ def run_etl_pipeline(
             now_iso = datetime.now(UTC).isoformat()
             redis_client.set("market:last_update:prices", now_iso)
             redis_client.set("market:last_update:volume", now_iso)
-        except Exception as exc:
+        except (RedisError, OSError) as exc:
             _etl_logger.warning(
                 "etl_heartbeat_redis_failed",
                 extra={"error": str(exc)},

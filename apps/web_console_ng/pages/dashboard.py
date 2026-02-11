@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
-from nicegui import Client, events, run, ui
+from nicegui import Client, events, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -405,7 +405,7 @@ async def dashboard(client: Client) -> None:
         async def _check_redis_key(key: str) -> datetime | None:
             if redis_client is None:
                 return None
-            val = await run.io_bound(redis_client.get, key)
+            val = await redis_client.get(key)
             if val is None:
                 return None
             try:

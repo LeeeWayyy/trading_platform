@@ -20,6 +20,7 @@ import polars as pl
 from nicegui import ui
 
 from libs.analytics.metrics import compute_tracking_error
+from libs.trading.backtest.cost_model import CostSummary
 
 # ---------------------------------------------------------------------------
 # Metric directionality: True = higher is better, False = lower is better
@@ -363,8 +364,6 @@ def build_comparison_metrics(
     cs = None
     if cost_summary_raw and isinstance(cost_summary_raw, dict):
         try:
-            from libs.trading.backtest.cost_model import CostSummary
-
             cs = CostSummary.from_dict(cost_summary_raw)
         except (KeyError, TypeError, ValueError):
             cs = None
