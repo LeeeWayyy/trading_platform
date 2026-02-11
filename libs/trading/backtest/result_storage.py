@@ -307,7 +307,7 @@ class BacktestResultStorage:
                 )
                 return None
             return df.sort("date")
-        except Exception as exc:
+        except (pl.exceptions.PolarsError, FileNotFoundError, OSError) as exc:
             logger.warning(
                 "portfolio_returns_read_failed",
                 job_id=job_id,

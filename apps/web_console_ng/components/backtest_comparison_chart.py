@@ -239,8 +239,10 @@ def render_comparison_metrics_diff(
             # Skip color-coding when best and worst are tied
             # (same value → same rank, no meaningful differentiation)
             if best_idx != worst_idx and sorted_vals[0][1] != sorted_vals[-1][1]:
-                row[f"bt_{best_idx}"] = f'<span style="color: #16a34a; font-weight: 600">{row[f"bt_{best_idx}"]}</span>'
-                row[f"bt_{worst_idx}"] = f'<span style="color: #dc2626; font-weight: 600">{row[f"bt_{worst_idx}"]}</span>'
+                from html import escape as _esc
+
+                row[f"bt_{best_idx}"] = f'<span style="color: #16a34a; font-weight: 600">{_esc(str(row[f"bt_{best_idx}"]))}</span>'
+                row[f"bt_{worst_idx}"] = f'<span style="color: #dc2626; font-weight: 600">{_esc(str(row[f"bt_{worst_idx}"]))}</span>'
 
         rows.append(row)
 

@@ -967,7 +967,7 @@ async def _render_backtest_results(
                     ui.notify("Database unavailable for comparison", type="negative")
                     return
 
-                data_access = StrategyScopedDataAccess(async_pool, None, user)
+                data_access = StrategyScopedDataAccess(async_pool, redis_client, user)
                 service = BacktestAnalyticsService(data_access, storage)
 
                 # Load lightweight return series through service layer
@@ -1153,7 +1153,7 @@ async def _render_backtest_results(
                                     ui.notify("Database unavailable", type="negative")
                                     return
 
-                                data_access = StrategyScopedDataAccess(async_pool, None, user)
+                                data_access = StrategyScopedDataAccess(async_pool, redis_client, user)
                                 storage = BacktestResultStorage(db_pool)
                                 service = BacktestAnalyticsService(data_access, storage)
                                 result = await service.get_backtest_result(job_id)
