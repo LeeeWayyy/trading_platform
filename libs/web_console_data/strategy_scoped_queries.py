@@ -115,8 +115,8 @@ class StrategyScopedDataAccess:
         # The auth layer guarantees both are unique within the tenant, so
         # collision risk is negligible.  str() coercion ensures consistent
         # comparison against the TEXT created_by column.
-        raw_id = user.get("user_id") or user.get("username")
-        self.user_id = str(raw_id) if raw_id is not None else None
+        raw_id = user.get("user_id") or user.get("username") or ""
+        self.user_id = str(raw_id)
 
         # Primary source of truth: RBAC helper.
         self.authorized_strategies = get_authorized_strategies(user)
@@ -547,13 +547,9 @@ class StrategyScopedDataAccess:
         if not rows:
             raise PermissionError("Access denied")
 
-        # Use same identity resolution as job creation path:
-        # user_id → username fallback (not user_id → sub).
-        # Coerce both sides to str to prevent type mismatch when
-        # user_id is non-string (e.g. int from JWT payload).
-        owner_id = str(self.user.get("user_id") or self.user.get("username") or "")
+        # Reuse self.user_id (resolved once in __init__) for consistency.
         created_by = str(rows[0].get("created_by") or "")
-        if not owner_id or created_by != owner_id:
+        if not self.user_id or created_by != self.user_id:
             raise PermissionError("Access denied")
 
 

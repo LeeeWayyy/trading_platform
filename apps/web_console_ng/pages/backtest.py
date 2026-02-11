@@ -2001,6 +2001,8 @@ async def _render_live_overlay_section(
         overlay_container = ui.column().classes("w-full")
 
         async def _load_overlay() -> None:
+            # Clear previous overlay to avoid stale UI on failure
+            overlay_container.clear()
             strat_id = overlay_strat_select.value
             if not strat_id:
                 ui.notify("Select a strategy", type="warning")
@@ -2039,8 +2041,13 @@ async def _render_live_overlay_section(
             # Coerce to date in case result fields are datetime/str
             from datetime import date as _date_type
 
-            _start = result.start_date if isinstance(result.start_date, _date_type) else _date_type.fromisoformat(str(result.start_date))
-            _end = result.end_date if isinstance(result.end_date, _date_type) else _date_type.fromisoformat(str(result.end_date))
+            def _to_date(d: Any) -> _date_type:
+                if isinstance(d, _date_type):
+                    return d
+                return _date_type.fromisoformat(str(d))
+
+            _start = _to_date(result.start_date)
+            _end = _to_date(result.end_date)
             try:
                 live_rows = await data_access.get_portfolio_returns(
                     strat_id, _start, _end,
