@@ -1,6 +1,6 @@
 # analytics
 
-<!-- Last reviewed: 2026-02-09 - P6T12: Added libs/analytics shared module (metrics, live_vs_backtest) -->
+<!-- Last reviewed: 2026-02-12 - P6T12: Updated isinstance syntax in metrics.py -->
 
 ## Identity
 - **Type:** Library
@@ -96,6 +96,6 @@ report = attr.run(...)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-02-09 (P6T12 - Added libs/analytics shared module with compute_tracking_error, LiveVsBacktestAnalyzer)
+- **Last Updated:** 2026-02-12 (P6T12 - Updated isinstance syntax in metrics.py)
 - **Source Files:** `libs/platform/analytics/__init__.py`, `libs/platform/analytics/event_study.py`, `libs/platform/analytics/attribution.py`, `libs/analytics/__init__.py`, `libs/analytics/metrics.py`, `libs/analytics/live_vs_backtest.py`
 - **ADRs:** N/A
