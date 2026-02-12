@@ -430,7 +430,7 @@ async def dashboard(client: Client) -> None:
             if not monitor.has_source(source_name):
                 monitor.register_source(
                     source_name, "signal",
-                    (lambda s: lambda: _check_redis_key(f"signal:last_update:{s}"))(strat),
+                    lambda strat=strat: _check_redis_key(f"signal:last_update:{strat}"),
                 )
 
         # NOTE: Fundamental data source intentionally not registered here.
