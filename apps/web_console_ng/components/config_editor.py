@@ -26,6 +26,8 @@ from typing import Any
 
 from nicegui import ui
 
+from libs.trading.backtest.job_queue import BacktestJobConfig
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -37,18 +39,12 @@ PROVIDER_DISPLAY: dict[str, str] = {
 }
 PROVIDER_DISPLAY_INVERSE: dict[str, str] = {v: k for k, v in PROVIDER_DISPLAY.items()}
 
-# Known config keys – derived once from the dataclass to stay in sync
-# Lazy-initialised to avoid import-time side-effects.
-_KNOWN_CONFIG_KEYS: set[str] | None = None
+# Known config keys – derived from the dataclass to stay in sync
+_KNOWN_CONFIG_KEYS: set[str] = set(BacktestJobConfig.__dataclass_fields__.keys())
 
 
 def _get_known_config_keys() -> set[str]:
     """Return the set of known ``BacktestJobConfig`` field names."""
-    global _KNOWN_CONFIG_KEYS  # noqa: PLW0603
-    if _KNOWN_CONFIG_KEYS is None:
-        from libs.trading.backtest.job_queue import BacktestJobConfig
-
-        _KNOWN_CONFIG_KEYS = set(BacktestJobConfig.__dataclass_fields__.keys())
     return _KNOWN_CONFIG_KEYS
 
 
@@ -384,10 +380,18 @@ def render_config_editor(
                     error_label.set_visibility(True)
                     return
 
+                # 3b. Validate alpha_name against registered alphas
+                submitted_alpha = config_dict.get("alpha_name", "")
+                if submitted_alpha and submitted_alpha not in alpha_options:
+                    error_label.set_text(
+                        f"Unknown alpha '{submitted_alpha}'. "
+                        f"Available: {', '.join(alpha_options)}"
+                    )
+                    error_label.set_visibility(True)
+                    return
+
                 # 4. Validate via from_dict (catches enum/date errors)
                 try:
-                    from libs.trading.backtest.job_queue import BacktestJobConfig
-
                     BacktestJobConfig.from_dict(config_dict)
                 except (KeyError, ValueError, TypeError) as exc:
                     msg = str(exc)

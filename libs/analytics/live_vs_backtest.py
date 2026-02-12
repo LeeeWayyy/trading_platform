@@ -197,9 +197,12 @@ class LiveVsBacktestAnalyzer:
         divergences = [abs(lc - bc) for lc, bc in zip(live_cum, bt_cum, strict=True)]
 
         for i in range(window - 1, len(divergences)):
-            window_max = max(divergences[i - window + 1: i + 1])
-            if window_max > self.config.divergence_threshold:
-                return dates[i]
+            window_slice = divergences[i - window + 1: i + 1]
+            if max(window_slice) > self.config.divergence_threshold:
+                # Return the first date within this window that breached
+                for j, d in enumerate(window_slice):
+                    if d > self.config.divergence_threshold:
+                        return dates[i - window + 1 + j]
 
         return None
 

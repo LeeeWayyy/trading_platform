@@ -69,12 +69,10 @@ def compute_tracking_error(
         return None
 
     # Compute tracking error: std(R_a - R_b, ddof=1) * sqrt(252)
-    diff = (aligned["return"] - aligned["return_b"]).to_list()
-    n = len(diff)
-    mean_diff = sum(diff) / n
-    variance = sum((d - mean_diff) ** 2 for d in diff) / (n - 1)
-    std_diff = math.sqrt(variance)
-
+    std_raw = (aligned["return"] - aligned["return_b"]).std()
+    # std() on numeric Series always returns float (timedelta only for duration),
+    # but the type signature is broad; cast to satisfy mypy.
+    std_diff: float = float(std_raw) if isinstance(std_raw, (int, float)) else 0.0
     if std_diff == 0.0:
         return 0.0
 

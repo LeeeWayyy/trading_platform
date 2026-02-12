@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
+from html import escape as _html_escape
 from typing import Any
 
 import plotly.graph_objects as go
 import polars as pl
 from nicegui import ui
 
+from libs.analytics.live_vs_backtest import AlertLevel
 from libs.analytics.metrics import compute_tracking_error
 from libs.trading.backtest.cost_model import CostSummary
 
@@ -239,10 +241,8 @@ def render_comparison_metrics_diff(
             # Skip color-coding when best and worst are tied
             # (same value → same rank, no meaningful differentiation)
             if best_idx != worst_idx and sorted_vals[0][1] != sorted_vals[-1][1]:
-                from html import escape as _esc
-
-                row[f"bt_{best_idx}"] = f'<span style="color: #16a34a; font-weight: 600">{_esc(str(row[f"bt_{best_idx}"]))}</span>'
-                row[f"bt_{worst_idx}"] = f'<span style="color: #dc2626; font-weight: 600">{_esc(str(row[f"bt_{worst_idx}"]))}</span>'
+                row[f"bt_{best_idx}"] = f'<span style="color: #16a34a; font-weight: 600">{_html_escape(str(row[f"bt_{best_idx}"]))}</span>'
+                row[f"bt_{worst_idx}"] = f'<span style="color: #dc2626; font-weight: 600">{_html_escape(str(row[f"bt_{worst_idx}"]))}</span>'
 
         rows.append(row)
 
@@ -414,8 +414,6 @@ def render_live_vs_backtest_overlay(
         overlay_result: ``OverlayResult`` from ``LiveVsBacktestAnalyzer``.
         basis_label: ``"net"`` or ``"gross"`` for chart title.
     """
-    from libs.analytics.live_vs_backtest import AlertLevel
-
     result = overlay_result
 
     if len(result.live_cumulative) == 0 or len(result.backtest_cumulative) == 0:

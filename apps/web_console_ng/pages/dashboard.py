@@ -16,6 +16,7 @@ from nicegui import Client, events, ui
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
+from apps.web_console_ng.components.data_health_widget import render_data_health
 from apps.web_console_ng.components.fat_finger_validator import (
     FatFingerThresholds,
     FatFingerValidator,
@@ -72,6 +73,8 @@ from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
+from libs.data.data_pipeline.health_monitor import get_health_monitor
+from libs.platform.web_console_auth.permissions import get_authorized_strategies
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 logger = logging.getLogger(__name__)
@@ -369,11 +372,6 @@ async def dashboard(client: Client) -> None:
         prevent the global singleton from leaking cross-user signal
         health status.
         """
-        from libs.data.data_pipeline.health_monitor import get_health_monitor
-        from libs.platform.web_console_auth.permissions import (
-            get_authorized_strategies,
-        )
-
         monitor = get_health_monitor()
         all_sources = await monitor.check_all()
         # Filter: show generic sources (Price/Volume) plus only
@@ -386,16 +384,10 @@ async def dashboard(client: Client) -> None:
         ]
         health_container.clear()
         with health_container:
-            from apps.web_console_ng.components.data_health_widget import (
-                render_data_health,
-            )
-
             render_data_health(sources)
 
     # Register health sources and do initial load
     async def _setup_health_widget() -> None:
-        from libs.data.data_pipeline.health_monitor import get_health_monitor
-
         monitor = get_health_monitor()
 
         # Redis-based health checks — guarded by has_source() to avoid
@@ -432,10 +424,6 @@ async def dashboard(client: Client) -> None:
             )
 
         # Signal checks per authorized strategy
-        from libs.platform.web_console_auth.permissions import (
-            get_authorized_strategies,
-        )
-
         strategies = get_authorized_strategies(user) if user else []
         for strat in strategies:
             source_name = f"Signal: {strat}"
