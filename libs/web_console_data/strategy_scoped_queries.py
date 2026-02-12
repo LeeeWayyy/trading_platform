@@ -110,7 +110,13 @@ class StrategyScopedDataAccess:
         self.db_pool = db_pool
         self.redis = _build_cache_client(redis_client)
         self.user = user
-        self.user_id = user.get("user_id") or user.get("sub")
+        # Identity resolution: prefer user_id (unique UUID from auth provider),
+        # fall back to username only when user_id is absent (e.g. local dev).
+        # The auth layer guarantees both are unique within the tenant, so
+        # collision risk is negligible.  str() coercion ensures consistent
+        # comparison against the TEXT created_by column.
+        raw_id = user.get("user_id") or user.get("username") or ""
+        self.user_id = str(raw_id)
 
         # Primary source of truth: RBAC helper.
         self.authorized_strategies = get_authorized_strategies(user)
@@ -523,21 +529,28 @@ class StrategyScopedDataAccess:
     async def verify_job_ownership(self, job_id: str) -> None:
         """Verify the current user owns the specified backtest job.
 
-        Raises PermissionError if user does not own the job.
-        Checks that the job's strategy_id is in user's authorized strategies.
+        Checks ``created_by`` column against the user's identity.
+        Uses the same ``user_id → username`` fallback as the job
+        creation path to ensure ownership comparison matches.
+
+        Raises:
+            PermissionError: If user does not own the job or the job
+                does not exist (generic message to avoid leaking
+                job existence to unauthorized users).
         """
         query = """
-            SELECT strategy_id FROM backtest_jobs WHERE job_id = %s
+            SELECT created_by FROM backtest_jobs WHERE job_id = %s
         """
         async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, (job_id,))
 
         if not rows:
-            raise PermissionError(f"Backtest job not found: {job_id}")
+            raise PermissionError("Access denied")
 
-        job_strategy = rows[0].get("strategy_id")
-        if job_strategy not in self.authorized_strategies:
-            raise PermissionError(f"Not authorized for backtest job: {job_id}")
+        # Reuse self.user_id (resolved once in __init__) for consistency.
+        created_by = str(rows[0].get("created_by") or "")
+        if not self.user_id or created_by != self.user_id:
+            raise PermissionError("Access denied")
 
 
 def get_scoped_data_access(

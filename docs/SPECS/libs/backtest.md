@@ -23,6 +23,7 @@
 | `compute_backtest_costs` | weights, returns, adv | `BacktestCostResult` | Compute costs for a backtest. |
 | `compute_cost_summary` | returns, trades_df, value | `CostSummary` | Aggregate cost statistics from trades DataFrame. |
 | `compute_capacity_analysis` | weights, trades_df, summary | `CapacityAnalysis` | Analyze strategy capacity constraints. |
+| `BacktestResultStorage.load_portfolio_returns` | job_id, basis="net" | `pl.DataFrame \| None` | Load portfolio return series from result Parquets (net or gross). (P6T12) |
 
 ## Behavioral Contracts
 ### run_backtest(...)
@@ -91,6 +92,6 @@ report = sim.run(...)
 | None | - | No known issues | - |
 
 ## Metadata
-- **Last Updated:** 2026-01-11
-- **Source Files:** `libs/trading/backtest/__init__.py`, `libs/trading/backtest/job_queue.py`, `libs/trading/backtest/worker.py`
+- **Last Updated:** 2026-02-09 (P6T12 - Added load_portfolio_returns to BacktestResultStorage)
+- **Source Files:** `libs/trading/backtest/__init__.py`, `libs/trading/backtest/job_queue.py`, `libs/trading/backtest/worker.py`, `libs/trading/backtest/result_storage.py`
 - **ADRs:** N/A

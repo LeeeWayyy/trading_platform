@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -16,6 +17,7 @@ from nicegui import Client, events, ui
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
+from apps.web_console_ng.components.data_health_widget import render_data_health
 from apps.web_console_ng.components.fat_finger_validator import (
     FatFingerThresholds,
     FatFingerValidator,
@@ -72,6 +74,8 @@ from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import compact_card, trading_grid
+from libs.data.data_pipeline.health_monitor import get_health_monitor
+from libs.platform.web_console_auth.permissions import get_authorized_strategies
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 
 logger = logging.getLogger(__name__)
@@ -356,6 +360,95 @@ async def dashboard(client: Client) -> None:
             title="Buying Power",
             format_fn=lambda v: f"${v:,.2f}",
         )
+
+    # Data Health Widget (P6T12.4) - in expandable card
+    health_container = ui.expansion("Data Health", icon="monitor_heart").classes(
+        "w-full mb-4"
+    )
+
+    async def _refresh_health() -> None:
+        """Refresh data health widget via HealthMonitor.
+
+        Filters sources to the current user's authorized strategies to
+        prevent the global singleton from leaking cross-user signal
+        health status.
+        """
+        monitor = get_health_monitor()
+        all_sources = await monitor.check_all()
+        # Filter: show generic sources (Price/Volume) plus only
+        # Signal sources for strategies this user is authorized for
+        user_strats = set(get_authorized_strategies(user)) if user else set()
+        sources = [
+            s for s in all_sources
+            if not s.name.startswith("Signal: ")
+            or s.name.removeprefix("Signal: ") in user_strats
+        ]
+        health_container.clear()
+        with health_container:
+            render_data_health(sources)
+
+    # Register health sources and do initial load
+    async def _setup_health_widget() -> None:
+        monitor = get_health_monitor()
+
+        # Redis-based health checks — guarded by has_source() to avoid
+        # redundant lambda allocation on repeat page loads (the singleton
+        # already skips duplicate registrations, but this avoids the
+        # closure creation cost).
+        async def _check_redis_key(key: str) -> datetime | None:
+            if redis_client is None:
+                return None
+            val = await redis_client.get(key)
+            if val is None:
+                return None
+            try:
+                dt = datetime.fromisoformat(
+                    val.decode() if isinstance(val, bytes) else str(val)
+                )
+                # Normalize naive timestamps to UTC to prevent TypeError
+                # when HealthMonitor computes age against aware datetime
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                return dt
+            except (ValueError, AttributeError):
+                return None
+
+        if not monitor.has_source("Price Data"):
+            monitor.register_source(
+                "Price Data", "price",
+                lambda: _check_redis_key("market:last_update:prices"),
+            )
+        if not monitor.has_source("Volume Data"):
+            monitor.register_source(
+                "Volume Data", "volume",
+                lambda: _check_redis_key("market:last_update:volume"),
+            )
+
+        # Signal checks per authorized strategy
+        def _make_signal_checker(s: str) -> Callable[[], Coroutine[Any, Any, datetime | None]]:
+            return lambda: _check_redis_key(f"signal:last_update:{s}")
+
+        strategies = get_authorized_strategies(user) if user else []
+        for strat in strategies:
+            source_name = f"Signal: {strat}"
+            if not monitor.has_source(source_name):
+                monitor.register_source(
+                    source_name, "signal",
+                    _make_signal_checker(strat),
+                )
+
+        # NOTE: Fundamental data source intentionally not registered here.
+        # No ETL pipeline currently writes the "market:last_update:fundamentals"
+        # heartbeat key, so registering it would always show ERROR status.
+        # Register when a fundamental data pipeline is implemented.
+
+        await _refresh_health()
+
+    await _setup_health_widget()
+
+    # Auto-refresh health widget every 10s
+    health_timer = ui.timer(10.0, _refresh_health)
+    await lifecycle.register_cleanup_callback(client_id, lambda: health_timer.cancel())
 
     # Order Entry Section - Responsive 3-column layout
     # Desktop: [Watchlist] [Chart] [Market Context + Order Ticket]

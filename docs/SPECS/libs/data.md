@@ -1,6 +1,6 @@
 # libs/data
 
-<!-- Last reviewed: 2026-02-02 - P6T10: PR review fixes - accept timezone-aware Datetime for signal_date -->
+<!-- Last reviewed: 2026-02-09 - P6T12: Added HealthMonitor to data_pipeline, etl.py redis heartbeat -->
 
 ## Identity
 - **Type:** Library Group (Data Pipeline and Providers)
@@ -26,6 +26,8 @@ See [libs/data_pipeline.md](./data_pipeline.md) for detailed specification.
 - Split/dividend adjustments
 - Data freshness monitoring
 - Quality validation gates
+- Health monitoring with per-source caching and staleness thresholds (P6T12)
+- ETL pipeline heartbeat recording to Redis (P6T12)
 
 ### libs/data/data_providers
 See [libs/data_providers.md](./data_providers.md) for detailed specification.
@@ -69,6 +71,6 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - [../services/market_data_service.md](../services/market_data_service.md) - Market data service
 
 ## Metadata
-- **Last Updated:** 2026-02-01 (P6T10 - Added universe.py with ForwardReturnsProvider)
-- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`
+- **Last Updated:** 2026-02-09 (P6T12 - Added HealthMonitor to data_pipeline, etl.py redis heartbeat)
+- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`
 - **ADRs:** N/A

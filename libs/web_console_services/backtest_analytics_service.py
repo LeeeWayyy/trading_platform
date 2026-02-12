@@ -5,13 +5,15 @@ backtest artifacts. All Parquet file access from UI pages MUST go
 through this service to ensure proper ownership verification.
 
 P6T10: Quantile & Attribution Analytics
+P6T12: Portfolio returns access for comparison and live overlay
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import polars as pl
 from starlette.concurrency import run_in_threadpool
@@ -271,6 +273,87 @@ class BacktestAnalyticsService:
         )
 
         return result
+
+    async def get_portfolio_returns(
+        self,
+        job_id: str,
+        basis: Literal["net", "gross"] = "net",
+    ) -> tuple[pl.DataFrame | None, Literal["net", "gross"]]:
+        """Load portfolio returns with ownership check and basis fallback.
+
+        Verifies user ownership, then loads the return series for the
+        requested basis.  If ``basis="net"`` and net returns are unavailable,
+        falls back to gross returns so the caller knows a fallback occurred.
+
+        Args:
+            job_id: The backtest job identifier.
+            basis: Preferred return basis (``"net"`` or ``"gross"``).
+
+        Returns:
+            Tuple of ``(DataFrame_with_{date,return}_columns | None,
+            actual_basis_used)``.  ``None`` means no return data is
+            available for this job.
+
+        Raises:
+            PermissionError: If user doesn't own the job (propagated).
+        """
+        await self.verify_job_ownership(job_id)
+
+        from libs.trading.backtest.models import JobNotFound, ResultPathMissing
+
+        try:
+            if basis == "net":
+                df = await run_in_threadpool(
+                    self._storage.load_portfolio_returns, job_id, "net"
+                )
+                if df is not None:
+                    return (df, "net")
+                # Fallback to gross
+
+            # Shared gross-loading path (explicit request or net-unavailable fallback)
+            df = await run_in_threadpool(
+                self._storage.load_portfolio_returns, job_id, "gross"
+            )
+            return (df, "gross")
+        except (JobNotFound, ResultPathMissing) as e:
+            logger.warning(
+                "get_portfolio_returns_unavailable",
+                extra={"job_id": job_id, "error": str(e)},
+            )
+            return (None, basis)
+
+
+    async def get_portfolio_returns_both(
+        self,
+        job_id: str,
+    ) -> tuple[pl.DataFrame | None, pl.DataFrame | None]:
+        """Load both net and gross portfolio returns in one ownership-verified call.
+
+        Single ownership check, then loads both bases.  Avoids the two-pass
+        pattern where the caller first requests net, discovers some jobs
+        lack cost data, and re-fetches as gross.
+
+        Returns:
+            ``(net_df, gross_df)`` — either may be ``None`` if the
+            corresponding Parquet artifact is missing.
+
+        Raises:
+            PermissionError: If user doesn't own the job.
+        """
+        await self.verify_job_ownership(job_id)
+
+        from libs.trading.backtest.models import JobNotFound, ResultPathMissing
+
+        async def _load(basis: str) -> pl.DataFrame | None:
+            try:
+                return await run_in_threadpool(
+                    self._storage.load_portfolio_returns, job_id, basis
+                )
+            except (JobNotFound, ResultPathMissing):
+                return None
+
+        net_df, gross_df = await asyncio.gather(_load("net"), _load("gross"))
+        return (net_df, gross_df)
 
 
 __all__ = ["BacktestAnalyticsService"]

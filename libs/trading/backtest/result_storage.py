@@ -247,6 +247,77 @@ class BacktestResultStorage:
             )
             return None
 
+    def load_portfolio_returns(
+        self, job_id: str, basis: str = "net"
+    ) -> pl.DataFrame | None:
+        """Load only the portfolio return series for a completed backtest.
+
+        Reads ONLY the return Parquet file (not signals/weights) for efficient
+        comparison and overlay use cases.
+
+        Args:
+            job_id: The backtest job ID.
+            basis: ``"net"`` for ``net_portfolio_returns.parquet`` or
+                ``"gross"`` for ``daily_portfolio_returns.parquet``.
+
+        Returns:
+            DataFrame with ``{date, return}`` schema, or ``None`` if the
+            artifact path is unavailable or the Parquet file is missing.
+
+        Raises:
+            JobNotFound: If job_id doesn't exist in the database.
+            ResultPathMissing: If result_path is invalid or outside base_dir.
+        """
+        target_path = self._get_job_artifact_path(job_id)
+        if target_path is None:
+            return None
+
+        if basis == "net":
+            parquet_file = target_path / "net_portfolio_returns.parquet"
+            return_col = "net_return"
+        else:
+            parquet_file = target_path / "daily_portfolio_returns.parquet"
+            return_col = "return"
+
+        if not parquet_file.exists():
+            logger.warning(
+                "portfolio_returns_parquet_missing",
+                job_id=job_id,
+                basis=basis,
+                path=str(parquet_file),
+            )
+            return None
+
+        try:
+            df = pl.read_parquet(parquet_file)
+            # Normalize return column to "return"
+            if return_col != "return" and return_col in df.columns:
+                df = df.select(
+                    pl.col("date"),
+                    pl.col(return_col).alias("return"),
+                )
+            elif "return" in df.columns:
+                df = df.select("date", "return")
+            else:
+                logger.warning(
+                    "portfolio_returns_missing_column",
+                    job_id=job_id,
+                    basis=basis,
+                    columns=df.columns,
+                )
+                return None
+            return df.sort("date")
+        except (pl.exceptions.PolarsError, FileNotFoundError, OSError) as exc:
+            logger.warning(
+                "portfolio_returns_read_failed",
+                job_id=job_id,
+                basis=basis,
+                path=str(parquet_file),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return None
+
     def _get_job_artifact_path(self, job_id: str) -> Path | None:
         """Get validated artifact path for a job.
 

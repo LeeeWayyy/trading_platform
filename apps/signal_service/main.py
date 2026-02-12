@@ -47,6 +47,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, Info, make_asgi_app
 from pydantic import BaseModel, Field, validator
+from redis.exceptions import RedisError
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from libs.core.common.api_auth_dependency import (
@@ -1817,6 +1818,16 @@ async def generate_signals(
                     as_of_date=as_of_date.date().isoformat(),
                 )
             )
+
+        # Record signal heartbeat to Redis (best-effort, P6T12.4)
+        if redis_client is not None and settings.redis_enabled:
+            try:
+                redis_client.set(
+                    f"signal:last_update:{strategy_id}",
+                    datetime.now(UTC).isoformat(),
+                )
+            except (RedisConnectionError, RedisError, OSError):
+                logger.warning("signal_heartbeat_redis_failed", exc_info=True)
 
         # Build response
         return SignalResponse(

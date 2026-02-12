@@ -1,6 +1,6 @@
 {
   "$schema": "./system_map.schema.json",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "Configuration for architecture visualization generation",
 
   "layers": [
@@ -18,7 +18,7 @@
     ],
     "domain": [
       {"id": "data", "label": "Data", "members": ["libs/data", "libs/data/data_pipeline", "libs/data/data_providers", "libs/data/data_quality", "libs/data/market_data", "libs/duckdb_catalog"]},
-      {"id": "ml", "label": "ML & Analytics", "members": ["libs/trading/alpha", "libs/models/factors", "libs/models", "libs/platform/analytics", "libs/trading/backtest"]},
+      {"id": "ml", "label": "ML & Analytics", "members": ["libs/trading/alpha", "libs/models/factors", "libs/models", "libs/platform/analytics", "libs/analytics", "libs/trading/backtest"]},
       {"id": "risk", "label": "Risk & Allocation", "members": ["libs/trading/risk", "libs/trading/risk_management", "libs/trading/allocation", "libs/platform/tax"]},
       {"id": "strategies", "label": "Strategies", "members": ["strategies/alpha_baseline", "strategies/backtest", "strategies/ensemble", "research/strategies/mean_reversion", "research/strategies/momentum"]}
     ],
@@ -68,6 +68,7 @@
     "libs/duckdb_catalog": {"layer": "domain", "spec": "../SPECS/libs/duckdb_catalog.md"},
 
     "libs/platform": {"layer": "infra", "spec": "../SPECS/libs/platform.md"},
+    "libs/analytics": {"layer": "domain", "spec": "../SPECS/libs/analytics.md"},
     "libs/platform/analytics": {"layer": "domain", "spec": "../SPECS/libs/analytics.md"},
     "libs/platform/tax": {"layer": "domain", "spec": "../SPECS/libs/tax.md"},
     "libs/platform/alerts": {"layer": "infra", "spec": "../SPECS/libs/alerts.md"},

@@ -19,6 +19,7 @@ flowchart TB
   end
   subgraph domain["Domain Logic"]
     strat_alpha_baseline["Alpha Baseline"]
+    lib_analytics["Analytics"]
     strat_backtest["Backtest"]
     lib_data["Data"]
     strat_ensemble["Ensemble"]
@@ -61,6 +62,7 @@ flowchart TB
   click svc_orchestrator "../SPECS/services/orchestrator.md"
   click svc_signal_service "../SPECS/services/signal_service.md"
   click svc_web_console_ng "../SPECS/services/web_console_ng.md"
+  click lib_analytics "../SPECS/libs/analytics.md"
   click lib_common "../SPECS/libs/common.md"
   click lib_core "../SPECS/libs/core.md"
   click lib_data "../SPECS/libs/data.md"
