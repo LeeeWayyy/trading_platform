@@ -10,6 +10,7 @@ P6T12: Portfolio returns access for comparison and live overlay
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
 from typing import TYPE_CHECKING, Literal
@@ -308,15 +309,12 @@ class BacktestAnalyticsService:
                 if df is not None:
                     return (df, "net")
                 # Fallback to gross
-                df = await run_in_threadpool(
-                    self._storage.load_portfolio_returns, job_id, "gross"
-                )
-                return (df, "gross")
-            else:
-                df = await run_in_threadpool(
-                    self._storage.load_portfolio_returns, job_id, "gross"
-                )
-                return (df, "gross")
+
+            # Shared gross-loading path (explicit request or net-unavailable fallback)
+            df = await run_in_threadpool(
+                self._storage.load_portfolio_returns, job_id, "gross"
+            )
+            return (df, "gross")
         except (JobNotFound, ResultPathMissing) as e:
             logger.warning(
                 "get_portfolio_returns_unavailable",
@@ -346,23 +344,15 @@ class BacktestAnalyticsService:
 
         from libs.trading.backtest.models import JobNotFound, ResultPathMissing
 
-        net_df: pl.DataFrame | None = None
-        gross_df: pl.DataFrame | None = None
+        async def _load(basis: str) -> pl.DataFrame | None:
+            try:
+                return await run_in_threadpool(
+                    self._storage.load_portfolio_returns, job_id, basis
+                )
+            except (JobNotFound, ResultPathMissing):
+                return None
 
-        try:
-            net_df = await run_in_threadpool(
-                self._storage.load_portfolio_returns, job_id, "net"
-            )
-        except (JobNotFound, ResultPathMissing):
-            pass
-
-        try:
-            gross_df = await run_in_threadpool(
-                self._storage.load_portfolio_returns, job_id, "gross"
-            )
-        except (JobNotFound, ResultPathMissing):
-            pass
-
+        net_df, gross_df = await asyncio.gather(_load("net"), _load("gross"))
         return (net_df, gross_df)
 
 
