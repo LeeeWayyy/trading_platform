@@ -41,6 +41,7 @@ from apps.web_console_ng.components.config_editor import (
 )
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
+from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.helpers import safe_classes
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
@@ -967,7 +968,15 @@ async def _render_backtest_results(
                     ui.notify("Database unavailable for comparison", type="negative")
                     return
 
-                data_access = StrategyScopedDataAccess(async_pool, redis_client, user)
+                # StrategyScopedDataAccess requires an async Redis client for
+                # caching; fall back to None (caching disabled) if unavailable.
+                try:
+                    async_redis = await get_redis_store().get_master()
+                except Exception:  # noqa: BLE001 - best-effort cache
+                    async_redis = None
+                    logger.warning("async_redis_unavailable_for_comparison", exc_info=True)
+
+                data_access = StrategyScopedDataAccess(async_pool, async_redis, user)
                 service = BacktestAnalyticsService(data_access, storage)
 
                 # Load lightweight return series through service layer
@@ -1138,7 +1147,17 @@ async def _render_backtest_results(
                                     ui.notify("Database unavailable", type="negative")
                                     return
 
-                                data_access = StrategyScopedDataAccess(async_pool, redis_client, user)
+                                try:
+                                    async_redis = await get_redis_store().get_master()
+                                except Exception:  # noqa: BLE001 - best-effort cache
+                                    async_redis = None
+                                    logger.warning(
+                                        "async_redis_unavailable_for_result", exc_info=True,
+                                    )
+
+                                data_access = StrategyScopedDataAccess(
+                                    async_pool, async_redis, user,
+                                )
                                 storage = BacktestResultStorage(db_pool)
                                 service = BacktestAnalyticsService(data_access, storage)
                                 result = await service.get_backtest_result(job_id)
