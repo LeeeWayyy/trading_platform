@@ -994,59 +994,44 @@ async def _render_backtest_results(
                         job_labels[j["job_id"]] = base
                     labels.append(job_labels[j["job_id"]])
 
-                # First pass: probe net basis for all via service
-                basis_results: dict[str, tuple[pl.DataFrame | None, str]] = {}
-                any_gross_fallback = False
+                # Single pass: load both net and gross for each job to
+                # determine the uniform basis without re-fetching.
+                both_results: dict[str, tuple[pl.DataFrame | None, pl.DataFrame | None]] = {}
+                any_missing_net = False
 
                 for job in selected_jobs:
                     jid = job["job_id"]
-
                     try:
-                        df, actual_basis = await service.get_portfolio_returns(jid, "net")
+                        net_df, gross_df = await service.get_portfolio_returns_both(jid)
                     except PermissionError:
                         ui.notify("Job not found or access denied", type="negative")
                         return
 
-                    if df is not None:
-                        basis_results[jid] = (df, actual_basis)
-                        if actual_basis == "gross":
-                            any_gross_fallback = True
-                    else:
-                        basis_results[jid] = (None, "net")
+                    both_results[jid] = (net_df, gross_df)
+                    if net_df is None and gross_df is not None:
+                        any_missing_net = True
+                    elif net_df is None and gross_df is None:
                         excluded_jids.add(jid)
 
                 # Determine uniform basis
                 active_basis = "net"
-                if any_gross_fallback:
+                if any_missing_net:
                     active_basis = "gross"
                     ui.notify(
                         "Some backtests lack cost model data; "
                         "showing gross returns for all.",
                         type="warning",
                     )
-                    # Re-fetch only jobs that were on net basis; jobs already
-                    # at gross from the first pass can be kept as-is.
-                    for job in selected_jobs:
-                        jid = job["job_id"]
-                        if jid in excluded_jids:
-                            continue
-                        existing = basis_results.get(jid)
-                        if existing and existing[1] == "gross":
-                            continue  # already gross from first pass
 
-                        try:
-                            df_g, _ = await service.get_portfolio_returns(jid, "gross")
-                        except PermissionError:
-                            df_g = None
-                        if df_g is not None:
-                            basis_results[jid] = (df_g, "gross")
-                        else:
-                            excluded_jids.add(jid)
-
-                # Build returns_map from basis_results (keyed by unique label)
-                for jid, (df, _) in basis_results.items():
-                    if df is not None and jid not in excluded_jids:
+                # Build returns_map from stored results (no re-fetching)
+                for jid, (net_df, gross_df) in both_results.items():
+                    if jid in excluded_jids:
+                        continue
+                    df = net_df if active_basis == "net" else gross_df
+                    if df is not None:
                         returns_map[job_labels[jid]] = df
+                    else:
+                        excluded_jids.add(jid)
 
                 if excluded_jids:
                     excluded_labels = [job_labels[j] for j in list(excluded_jids)[:3]]
@@ -1059,7 +1044,7 @@ async def _render_backtest_results(
                 # Render equity curve overlay
                 if len(returns_map) >= 2:
                     render_comparison_equity_curves(returns_map, active_basis)
-                    if any_gross_fallback:
+                    if any_missing_net:
                         ui.label(
                             "Basis: Gross (fallback) — some backtests lack cost model data"
                         ).classes("text-xs text-amber-600 font-semibold mt-1")

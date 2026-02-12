@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
-from html import escape as _html_escape
 from typing import Any
 
 import plotly.graph_objects as go
@@ -241,19 +240,25 @@ def render_comparison_metrics_diff(
             # Skip color-coding when best and worst are tied
             # (same value → same rank, no meaningful differentiation)
             if best_idx != worst_idx and sorted_vals[0][1] != sorted_vals[-1][1]:
-                row[f"bt_{best_idx}"] = f'<span style="color: #16a34a; font-weight: 600">{_html_escape(str(row[f"bt_{best_idx}"]))}</span>'
-                row[f"bt_{worst_idx}"] = f'<span style="color: #dc2626; font-weight: 600">{_html_escape(str(row[f"bt_{worst_idx}"]))}</span>'
+                row[f"bt_{best_idx}_cls"] = "best"
+                row[f"bt_{worst_idx}_cls"] = "worst"
 
         rows.append(row)
 
-    table = ui.table(columns=columns, rows=rows).classes("w-full")
+    table = ui.table(columns=columns, rows=rows).classes("w-full comparison-metrics")
     table.props('dense flat :rows-per-page-options="[0]"')
-    # Enable HTML rendering in cells
+    # Use CSS classes for best/worst styling instead of v-html to avoid XSS
     for i in range(len(metrics_list)):
         table.add_slot(
             f"body-cell-bt_{i}",
-            '<q-td :props="props"><span v-html="props.value"></span></q-td>',
+            '<q-td :props="props"'
+            f'  :class="props.row.bt_{i}_cls === \'best\' ? \'text-green-700 text-bold\''
+            f'        : props.row.bt_{i}_cls === \'worst\' ? \'text-red-700 text-bold\' : \'\'"'
+            ">{{ props.value }}</q-td>",
         )
+    ui.add_css("""
+        .comparison-metrics .text-bold { font-weight: 600; }
+    """)
 
     ui.label(
         "Metrics reflect each backtest's full period; chart shows overlapping dates only."

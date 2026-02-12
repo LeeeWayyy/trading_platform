@@ -226,25 +226,20 @@ class LiveVsBacktestAnalyzer:
 
         # YELLOW: rolling TE breach for consecutive days
         if n_dates >= cfg.rolling_window_days:
-            diffs = (
-                aligned["live_return"] - aligned["bt_return"]
-            ).to_list()
+            diff_series = aligned["live_return"] - aligned["bt_return"]
+            # Polars rolling_std(ddof=1) returns null for the first
+            # (window_size - 1) positions; annualise by sqrt(252).
+            rolling_te_series = (
+                diff_series.rolling_std(window_size=cfg.rolling_window_days, ddof=1)
+                * math.sqrt(252)
+            )
 
-            # Compute rolling TE series
             consecutive = 0
-            for i in range(cfg.rolling_window_days - 1, len(diffs)):
-                window_data = diffs[i - cfg.rolling_window_days + 1: i + 1]
-                n = len(window_data)
-                if n < 2:
-                    continue
-                mean_d = sum(window_data) / n
-                var_d = sum((d - mean_d) ** 2 for d in window_data) / (n - 1)
-                rolling_te = math.sqrt(var_d) * math.sqrt(252)
+            for te_val in rolling_te_series.to_list():
+                if te_val is None or (isinstance(te_val, float) and math.isnan(te_val)):
+                    continue  # NaN/null skips without resetting streak
 
-                if math.isnan(rolling_te):
-                    continue  # NaN skips without resetting streak
-
-                if rolling_te > cfg.tracking_error_threshold:
+                if te_val > cfg.tracking_error_threshold:
                     consecutive += 1
                     if consecutive >= cfg.consecutive_days_for_yellow:
                         return (

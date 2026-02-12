@@ -325,4 +325,45 @@ class BacktestAnalyticsService:
             return (None, basis)
 
 
+    async def get_portfolio_returns_both(
+        self,
+        job_id: str,
+    ) -> tuple[pl.DataFrame | None, pl.DataFrame | None]:
+        """Load both net and gross portfolio returns in one ownership-verified call.
+
+        Single ownership check, then loads both bases.  Avoids the two-pass
+        pattern where the caller first requests net, discovers some jobs
+        lack cost data, and re-fetches as gross.
+
+        Returns:
+            ``(net_df, gross_df)`` — either may be ``None`` if the
+            corresponding Parquet artifact is missing.
+
+        Raises:
+            PermissionError: If user doesn't own the job.
+        """
+        await self.verify_job_ownership(job_id)
+
+        from libs.trading.backtest.models import JobNotFound, ResultPathMissing
+
+        net_df: pl.DataFrame | None = None
+        gross_df: pl.DataFrame | None = None
+
+        try:
+            net_df = await run_in_threadpool(
+                self._storage.load_portfolio_returns, job_id, "net"
+            )
+        except (JobNotFound, ResultPathMissing):
+            pass
+
+        try:
+            gross_df = await run_in_threadpool(
+                self._storage.load_portfolio_returns, job_id, "gross"
+            )
+        except (JobNotFound, ResultPathMissing):
+            pass
+
+        return (net_df, gross_df)
+
+
 __all__ = ["BacktestAnalyticsService"]
