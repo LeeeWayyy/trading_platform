@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -424,13 +425,16 @@ async def dashboard(client: Client) -> None:
             )
 
         # Signal checks per authorized strategy
+        def _make_signal_checker(s: str) -> Callable[[], Coroutine[Any, Any, datetime | None]]:
+            return lambda: _check_redis_key(f"signal:last_update:{s}")
+
         strategies = get_authorized_strategies(user) if user else []
         for strat in strategies:
             source_name = f"Signal: {strat}"
             if not monitor.has_source(source_name):
                 monitor.register_source(
                     source_name, "signal",
-                    lambda strat=strat: _check_redis_key(f"signal:last_update:{strat}"),
+                    _make_signal_checker(strat),
                 )
 
         # NOTE: Fundamental data source intentionally not registered here.
