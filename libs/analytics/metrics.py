@@ -72,7 +72,7 @@ def compute_tracking_error(
     std_raw = (aligned["return"] - aligned["return_b"]).std()
     # std() on numeric Series always returns float (timedelta only for duration),
     # but the type signature is broad; cast to satisfy mypy.
-    std_diff: float = float(std_raw) if isinstance(std_raw, (int, float)) else 0.0
+    std_diff: float = float(std_raw) if isinstance(std_raw, int | float) else 0.0
     if std_diff == 0.0:
         return 0.0
 
