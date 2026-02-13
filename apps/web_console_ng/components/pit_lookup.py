@@ -101,11 +101,18 @@ def render_pit_results(result: PITLookupResult) -> None:
             f"{result.ticker} as of {result.knowledge_date}"
         ).classes("text-xl font-bold")
 
-        # Status badge
+        # Status badges — show granular risk breakdown
         if result.has_look_ahead_risk:
-            ui.label("Look-ahead risk detected!").classes(
-                "text-red-600 font-bold bg-red-100 px-2 py-1 rounded mt-2"
-            )
+            if result.has_contaminated_historical:
+                ui.label("Contaminated historical data detected!").classes(
+                    "text-red-600 font-bold bg-red-100 px-2 py-1 rounded mt-2"
+                )
+            if result.future_partition_count > 0:
+                ui.label(
+                    f"{result.future_partition_count} future partition(s) exist"
+                ).classes(
+                    "text-amber-600 font-bold bg-amber-100 px-2 py-1 rounded mt-2"
+                )
         else:
             ui.label("No look-ahead bias").classes(
                 "text-green-600 font-bold bg-green-100 px-2 py-1 rounded mt-2"

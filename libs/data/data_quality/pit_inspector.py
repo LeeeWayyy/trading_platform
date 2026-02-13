@@ -62,6 +62,7 @@ class PITLookupResult:
     data_available: list[PITDataPoint]
     data_future: list[PITDataPoint]
     has_look_ahead_risk: bool
+    has_contaminated_historical: bool
     latest_available_date: datetime.date | None
     days_stale: int | None
     total_rows_available: int
@@ -210,6 +211,7 @@ class PITInspector:
             data_available=[],
             data_future=[],
             has_look_ahead_risk=False,
+            has_contaminated_historical=False,
             latest_available_date=None,
             days_stale=None,
             total_rows_available=0,
@@ -251,10 +253,12 @@ class PITInspector:
         all_future_rows: list[PITDataPoint] = []
 
         with DuckDBCatalog() as catalog:
-            # Step 3: Query available partitions
+            # Query available partitions and check for contamination in one pass
             for path, run_dt in available_partitions:
                 table_name = _safe_table_name("avail", run_dt.isoformat())
                 catalog.register_table(table_name, path)
+
+                # Fetch available data within lookback window
                 result_df = catalog.query(
                     f"SELECT *, CAST(date AS DATE) AS market_date "  # noqa: S608
                     f"FROM {table_name} "
@@ -284,18 +288,15 @@ class PITInspector:
                     ):
                         raw_rows[market_date] = point
 
-            # Step 4b: Anomaly detection — future-dated data in historical partitions
-            for path, run_dt in available_partitions:
-                table_name = _safe_table_name("contam", run_dt.isoformat())
-                catalog.register_table(table_name, path)
-                anomaly_df = catalog.query(
-                    f"SELECT COUNT(*) AS cnt FROM {table_name} "  # noqa: S608
-                    f"WHERE CAST(date AS DATE) > ?",
-                    params=[knowledge_iso],
-                )
-                if anomaly_df.row(0)[0] > 0:  # type: ignore[operator]
-                    has_contaminated_historical = True
-                    break
+                # Contamination check: reuse same table (no re-registration)
+                if not has_contaminated_historical:
+                    anomaly_df = catalog.query(
+                        f"SELECT COUNT(*) AS cnt FROM {table_name} "  # noqa: S608
+                        f"WHERE CAST(date AS DATE) > ?",
+                        params=[knowledge_iso],
+                    )
+                    if anomaly_df.row(0)[0] > 0:  # type: ignore[operator]
+                        has_contaminated_historical = True
 
             # Step 4c: Sample future partitions (up to 5)
             for path, run_dt in future_partitions[:5]:
@@ -344,6 +345,7 @@ class PITInspector:
             data_available=all_available,
             data_future=all_future_rows,
             has_look_ahead_risk=has_look_ahead_risk,
+            has_contaminated_historical=has_contaminated_historical,
             latest_available_date=latest_available,
             days_stale=days_stale,
             total_rows_available=len(all_available),

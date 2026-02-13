@@ -170,6 +170,12 @@ class CoverageAnalyzer:
         else:
             effective_start, effective_end = start_date, end_date
 
+        if effective_start > effective_end:
+            raise ValueError(
+                f"start_date ({effective_start}) must be <= end_date "
+                f"({effective_end})"
+            )
+
         # Build target symbol set
         if symbols is None:
             all_symbols = self.get_available_tickers()

@@ -1498,7 +1498,7 @@ async def _load_quarantine_preview(entry: Any) -> None:
     try:
         import duckdb
 
-        conn = duckdb.connect(read_only=True)
+        conn = duckdb.connect()
         try:
             if entry_file.exists():
                 conn.execute(
@@ -1509,26 +1509,16 @@ async def _load_quarantine_preview(entry: Any) -> None:
                     "SELECT * FROM quarantine LIMIT 100"
                 ).fetchdf()
             else:
-                # Try all parquet files but filter by dataset
-                glob_path = str(safe_path / "*.parquet")
-                parquet_files = list(safe_path.glob("*.parquet"))
-                if not parquet_files:
-                    ui.label(
-                        "Preview unavailable — no parquet files in quarantine "
-                        "directory. Full drill-down available when the quality "
-                        "service is DB-backed."
-                    ).classes("text-gray-500 italic")
-                    return
-
-                conn.execute(
-                    "CREATE TABLE quarantine AS SELECT * FROM read_parquet(?)",
-                    [glob_path],
-                )
-                # Bounded preview — path already constrains to the
-                # correct quarantine directory for this dataset.
-                result = conn.execute(
-                    "SELECT * FROM quarantine LIMIT 100",
-                ).fetchdf()
+                # Fail closed: dataset-specific file not found.
+                # Do NOT fall back to globbing all parquets in the directory,
+                # as that could show rows from other datasets.
+                ui.label(
+                    f"Preview unavailable — {entry.dataset}.parquet not found "
+                    f"in quarantine directory. Full drill-down available when "
+                    f"the quality service is DB-backed."
+                ).classes("text-gray-500 italic")
+                conn.close()
+                return
         finally:
             conn.close()
 

@@ -217,6 +217,7 @@ class TestLookupBasic:
         assert result.total_rows_available == 0
         assert result.data_available == []
         assert result.has_look_ahead_risk is False
+        assert result.has_contaminated_historical is False
 
     def test_no_data_directory(self, tmp_path: Path) -> None:
         """No adjusted directory returns empty result."""
@@ -296,6 +297,17 @@ class TestLookAhead:
             "GOOG", datetime.date(2024, 1, 20), lookback_days=30
         )
         assert result.has_look_ahead_risk is True
+        assert result.has_contaminated_historical is True
+
+    def test_future_partitions_not_contaminated(self, inspector: PITInspector) -> None:
+        """Future partitions without contaminated historical are flagged separately."""
+        result = inspector.lookup(
+            "AAPL", datetime.date(2024, 1, 20), lookback_days=30
+        )
+        # Future partition exists but no contamination in historical partitions
+        assert result.has_look_ahead_risk is True
+        assert result.future_partition_count == 1
+        assert result.has_contaminated_historical is False
 
 
 # ============================================================================

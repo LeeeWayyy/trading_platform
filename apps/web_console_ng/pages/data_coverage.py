@@ -85,6 +85,14 @@ async def data_coverage_page() -> None:
             ui.notify("Invalid date format. Use YYYY-MM-DD.", type="negative")
             return
 
+        # Validate date order
+        if start_date and end_date and start_date > end_date:
+            ui.notify(
+                "Start date must be before or equal to end date.",
+                type="negative",
+            )
+            return
+
         # Validate resolution
         if resolution not in ("daily", "weekly", "monthly"):
             resolution = "monthly"

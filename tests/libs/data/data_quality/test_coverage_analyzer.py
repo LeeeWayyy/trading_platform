@@ -263,6 +263,18 @@ class TestEdgeCases:
         result = a.analyze()
         assert result.symbols == []
 
+    def test_inverted_date_range_raises(self, tmp_path: Path) -> None:
+        """start_date > end_date raises ValueError."""
+        adjusted = tmp_path / "adjusted" / "2024-01-15"
+        adjusted.mkdir(parents=True)
+        _create_parquet(adjusted / "TEST.parquet", ["2024-01-15"], [100.0])
+        a = CoverageAnalyzer(data_dir=tmp_path)
+        with pytest.raises(ValueError, match="start_date.*<=.*end_date"):
+            a.analyze(
+                start_date=datetime.date(2024, 2, 1),
+                end_date=datetime.date(2024, 1, 1),
+            )
+
     def test_zero_expected_no_division_error(self, tmp_path: Path) -> None:
         """With no trading days in range, coverage_pct = 0.0 (no ZeroDivisionError)."""
         adjusted = tmp_path / "adjusted" / "2024-01-13"
