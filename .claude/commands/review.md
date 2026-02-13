@@ -38,7 +38,7 @@ git diff --cached --name-only --diff-filter=ACM
 
 ## Step 2: First Reviewer — Gemini (Fresh Start)
 
-Use clink (`mcp__pal__clink` or `mcp__zen__clink`, whichever is available) with these parameters:
+Use `mcp__zen__clink` with these parameters:
 - `cli_name`: `"gemini"`
 - `role`: `"codereviewer"`
 - `absolute_file_paths`: Array of absolute paths for ALL changed files
@@ -148,8 +148,8 @@ Issues:
 2. Fix each issue systematically (read file → apply fix → mark done)
 3. Re-stage fixed files: `git add <fixed-files>`
 4. **Re-review within the SAME iteration** using the **SAME continuation_id**:
-   - Re-run Step 2 (Gemini) with the existing `continuation_id`
-   - Re-run Step 3 (Codex) with the existing `continuation_id`
+   - Request a new review from Gemini using the existing `continuation_id`
+   - Request a new review from Codex with the existing `continuation_id`
    - Repeat until ALL reviewers explicitly approve within this iteration
 
 **After ALL reviewers approve the current iteration:**
@@ -184,8 +184,8 @@ Issues:
 
 ```bash
 # Record reviews with workflow gate
-PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-review gemini approved --continuation-id <final-continuation-id>
-PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-review codex approved --continuation-id <final-continuation-id>
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-review gemini approved --continuation-id "<final-continuation-id>"
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-review codex approved --continuation-id "<final-continuation-id>"
 ```
 
 **Tell user the review is complete:**

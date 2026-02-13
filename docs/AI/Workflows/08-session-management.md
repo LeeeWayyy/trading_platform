@@ -16,7 +16,7 @@
 
 ```bash
 # Check workflow state
-./scripts/workflow_gate.py status
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 
 # Read task details
 TASK_ID=$(jq -r '.current_task.task_id' .ai_workflow/workflow-state.json)
@@ -36,16 +36,16 @@ Use `workflow_gate.py` to track progress:
 
 ```bash
 # Start a new task
-./scripts/workflow_gate.py start-task docs/TASKS/P1T14_TASK.md feature/P1T14-task-branch
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py start-task docs/TASKS/P1T14_TASK.md feature/P1T14-task-branch
 
 # Set current component
-./scripts/workflow_gate.py set-component "Component-Name"
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py set-component "Component-Name"
 
 # Check status
-./scripts/workflow_gate.py status
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 
 # After completing a component, record commit resets to plan for next component
-./scripts/workflow_gate.py record-commit
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-commit --hash $(git rev-parse HEAD)
 ```
 
 ---
@@ -72,7 +72,7 @@ git log --oneline -5
 
 ```bash
 # Check current workflow state
-./scripts/workflow_gate.py status
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 ```
 
 ---
@@ -114,7 +114,7 @@ git commit -m "feat: Component 3 complete"
 # → ready for next component
 
 # Check workflow status
-./scripts/workflow_gate.py status
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 ```
 
 **See Also:**
