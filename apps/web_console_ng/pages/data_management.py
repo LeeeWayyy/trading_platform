@@ -1467,48 +1467,37 @@ async def _render_quarantine_inspector(
 
 async def _load_quarantine_preview(entry: Any) -> None:
     """Load quarantine data preview via DuckDB with path validation."""
-    # Step 1: Validate path
+    # Step 1: Validate path (CPU-only, no filesystem I/O)
     try:
         safe_path = validate_quarantine_path(entry.quarantine_path, _DATA_DIR)
     except ValueError as exc:
         ui.label(f"Path validation failed: {exc}").classes("text-red-600")
         return
 
-    # TOCTOU re-validation at point of use
-    quarantine_root = (_DATA_DIR / "quarantine").resolve()
-    if not safe_path.resolve().is_relative_to(quarantine_root):
-        ui.label("Path validation failed at access time").classes("text-red-600")
-        return
-
-    # Step 2: Sanitize dataset name
+    # Step 2: Sanitize dataset name (CPU-only regex check)
     if not _DATASET_PATTERN.match(entry.dataset):
         ui.label(f"Invalid dataset name: {entry.dataset!r}").classes("text-red-600")
         return
 
-    # Step 3: Check if directory exists
-    if not safe_path.exists():
-        ui.label(
-            "Preview unavailable — quarantine directory does not exist yet. "
-            "Full drill-down available when the quality service is DB-backed."
-        ).classes("text-gray-500 italic")
-        return
+    # Steps 3-4: Filesystem checks + DuckDB query in worker thread
+    def _validate_and_query() -> tuple[str, Any]:
+        """Run filesystem validation and DuckDB query (sync, worker thread).
 
-    # Step 4: Scope to entry's dataset file
-    entry_file = safe_path / f"{entry.dataset}.parquet"
+        Returns (status, result) where status is "ok", "path_escape",
+        "no_dir", "no_file", or "error".
+        """
+        # TOCTOU re-validation at point of use
+        quarantine_root = (_DATA_DIR / "quarantine").resolve()
+        if not safe_path.resolve().is_relative_to(quarantine_root):
+            return ("path_escape", None)
 
-    if not entry_file.exists():
-        # Fail closed: dataset-specific file not found.
-        # Do NOT fall back to globbing all parquets in the directory,
-        # as that could show rows from other datasets.
-        ui.label(
-            f"Preview unavailable — {entry.dataset}.parquet not found "
-            f"in quarantine directory. Full drill-down available when "
-            f"the quality service is DB-backed."
-        ).classes("text-gray-500 italic")
-        return
+        if not safe_path.exists():
+            return ("no_dir", None)
 
-    def _query_quarantine() -> Any:
-        """Run DuckDB query in worker thread (sync)."""
+        entry_file = safe_path / f"{entry.dataset}.parquet"
+        if not entry_file.exists():
+            return ("no_file", None)
+
         import duckdb
 
         conn = duckdb.connect()
@@ -1517,14 +1506,34 @@ async def _load_quarantine_preview(entry: Any) -> None:
                 "CREATE TABLE quarantine AS SELECT * FROM read_parquet(?)",
                 [str(entry_file)],
             )
-            return conn.execute(
+            return ("ok", conn.execute(
                 "SELECT * FROM quarantine LIMIT 100"
-            ).fetchdf()
+            ).fetchdf())
         finally:
             conn.close()
 
     try:
-        result = await asyncio.to_thread(_query_quarantine)
+        status, result = await asyncio.to_thread(_validate_and_query)
+
+        if status == "path_escape":
+            ui.label("Path validation failed at access time").classes(
+                "text-red-600"
+            )
+            return
+        if status == "no_dir":
+            ui.label(
+                "Preview unavailable — quarantine directory does not exist "
+                "yet. Full drill-down available when the quality service is "
+                "DB-backed."
+            ).classes("text-gray-500 italic")
+            return
+        if status == "no_file":
+            ui.label(
+                f"Preview unavailable — {entry.dataset}.parquet not found "
+                f"in quarantine directory. Full drill-down available when "
+                f"the quality service is DB-backed."
+            ).classes("text-gray-500 italic")
+            return
 
         # Display preview table
         if result.empty:

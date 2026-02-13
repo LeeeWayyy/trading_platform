@@ -143,7 +143,7 @@ class CoverageAnalyzer:
             return []
         tickers: set[str] = set()
         for date_dir in self._adjusted_dir.iterdir():
-            if date_dir.is_dir():
+            if date_dir.is_dir() and is_valid_date_partition(date_dir.name):
                 for pq in date_dir.glob("*.parquet"):
                     tickers.add(pq.stem)
         return sorted(tickers)
@@ -212,13 +212,17 @@ class CoverageAnalyzer:
                 f"({effective_end})"
             )
 
-        # Build target symbol set (validate to prevent path traversal)
+        # Build target symbol set (validate + deduplicate to prevent path
+        # traversal and inflated metrics from duplicate symbols)
         if symbols is None:
             all_symbols = self.get_available_tickers()
         else:
-            all_symbols = sorted(
-                s for s in symbols if _SYMBOL_PATTERN.match(s)
-            )
+            seen: set[str] = set()
+            all_symbols = []
+            for s in sorted(symbols):
+                if s not in seen and _SYMBOL_PATTERN.match(s):
+                    all_symbols.append(s)
+                    seen.add(s)
         total_symbol_count = len(all_symbols)
         target_symbols_list = all_symbols[:MAX_SYMBOLS]
         target_symbols = set(target_symbols_list)

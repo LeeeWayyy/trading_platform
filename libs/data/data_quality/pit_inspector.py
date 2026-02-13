@@ -161,7 +161,7 @@ class PITInspector:
             return []
         tickers: set[str] = set()
         for date_dir in self._adjusted_dir.iterdir():
-            if date_dir.is_dir():
+            if date_dir.is_dir() and is_valid_date_partition(date_dir.name):
                 for parquet_file in date_dir.glob("*.parquet"):
                     tickers.add(parquet_file.stem)
         return sorted(tickers)
