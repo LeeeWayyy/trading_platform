@@ -29,6 +29,7 @@ from libs.data.data_quality.coverage_analyzer import (
     _aggregate_monthly,
     _aggregate_status,
     _aggregate_weekly,
+    _coerce_date,
     _find_gaps,
 )
 
@@ -330,6 +331,79 @@ class TestSymbolCap:
             end_date=datetime.date(2024, 1, 12),
         )
         assert result.truncated is False
+
+
+# ============================================================================
+# Symbol Validation (path traversal prevention)
+# ============================================================================
+
+
+class TestSymbolValidation:
+    def test_path_traversal_symbols_rejected(self, tmp_path: Path) -> None:
+        """Crafted symbol names with path separators are silently rejected."""
+        adjusted = tmp_path / "adjusted" / "2024-01-15"
+        adjusted.mkdir(parents=True)
+        _create_parquet(adjusted / "AAPL.parquet", ["2024-01-15"], [100.0])
+        a = CoverageAnalyzer(data_dir=tmp_path)
+        result = a.analyze(
+            symbols=["../../etc/passwd", "AAPL", "../secret"],
+            start_date=datetime.date(2024, 1, 15),
+            end_date=datetime.date(2024, 1, 15),
+        )
+        # Only valid AAPL should remain
+        assert result.symbols == ["AAPL"]
+        assert result.total_symbol_count == 1
+
+    def test_symbols_with_dots_rejected(self, tmp_path: Path) -> None:
+        """Symbols containing dots (e.g., 'BRK.B') are rejected by the regex."""
+        adjusted = tmp_path / "adjusted" / "2024-01-15"
+        adjusted.mkdir(parents=True)
+        _create_parquet(adjusted / "AAPL.parquet", ["2024-01-15"], [100.0])
+        a = CoverageAnalyzer(data_dir=tmp_path)
+        result = a.analyze(
+            symbols=["BRK.B", "AAPL"],
+            start_date=datetime.date(2024, 1, 15),
+            end_date=datetime.date(2024, 1, 15),
+        )
+        assert result.symbols == ["AAPL"]
+
+    def test_empty_and_long_symbols_rejected(self, tmp_path: Path) -> None:
+        adjusted = tmp_path / "adjusted" / "2024-01-15"
+        adjusted.mkdir(parents=True)
+        a = CoverageAnalyzer(data_dir=tmp_path)
+        result = a.analyze(
+            symbols=["", "A" * 11],
+            start_date=datetime.date(2024, 1, 15),
+            end_date=datetime.date(2024, 1, 15),
+        )
+        assert result.symbols == []
+
+
+# ============================================================================
+# _coerce_date (defensive date normalization)
+# ============================================================================
+
+
+class TestCoerceDate:
+    def test_date_passthrough(self) -> None:
+        d = datetime.date(2024, 1, 15)
+        assert _coerce_date(d) == d
+
+    def test_datetime_to_date(self) -> None:
+        dt = datetime.datetime(2024, 1, 15, 12, 0, 0)
+        assert _coerce_date(dt) == datetime.date(2024, 1, 15)
+
+    def test_iso_string(self) -> None:
+        assert _coerce_date("2024-01-15") == datetime.date(2024, 1, 15)
+
+    def test_invalid_string(self) -> None:
+        assert _coerce_date("not-a-date") is None
+
+    def test_none_returns_none(self) -> None:
+        assert _coerce_date(None) is None
+
+    def test_integer_returns_none(self) -> None:
+        assert _coerce_date(20240115) is None
 
 
 # ============================================================================

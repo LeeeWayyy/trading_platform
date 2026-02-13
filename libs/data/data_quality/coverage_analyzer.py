@@ -13,6 +13,13 @@ Key design:
     - 200-symbol cap with truncation indicator for UI.
     - 180-day hard cap for daily resolution (auto-upgrades to weekly).
     - Per-file fault tolerance: corrupt files logged and skipped.
+
+TODO(perf): For production-scale datasets (500+ partitions, 200 symbols),
+    consider scanning partitions in reverse chronological order with a
+    "newest-wins" cache to avoid redundant reads of already-seen (symbol, date)
+    pairs. See also: centralize ExchangeCalendarAdapter usage into a shared
+    utility in ``libs/data/data_quality/`` to prevent logic drift between
+    PITInspector and CoverageAnalyzer.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -33,6 +41,9 @@ logger = logging.getLogger(__name__)
 
 MAX_SYMBOLS = 200
 MAX_DAILY_DAYS = 180
+
+# Symbol validation: alphanumeric, 1-10 chars (matches PIT inspector).
+_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9]{1,10}$")
 
 
 # ============================================================================
@@ -84,6 +95,31 @@ class CoverageMatrix:
     effective_resolution: Literal["daily", "weekly", "monthly"]
     notices: list[str] = field(default_factory=list)
     skipped_file_count: int = 0
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def _coerce_date(raw: object) -> datetime.date | None:
+    """Defensively coerce a Parquet date value to ``datetime.date``.
+
+    Handles ``datetime.datetime``, ``datetime.date``, and ISO-format strings.
+    Returns ``None`` for unrecognized or ``None`` values.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, datetime.datetime):
+        return raw.date()
+    if isinstance(raw, datetime.date):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return datetime.date.fromisoformat(raw)
+        except ValueError:
+            return None
+    return None
 
 
 # ============================================================================
@@ -176,11 +212,13 @@ class CoverageAnalyzer:
                 f"({effective_end})"
             )
 
-        # Build target symbol set
+        # Build target symbol set (validate to prevent path traversal)
         if symbols is None:
             all_symbols = self.get_available_tickers()
         else:
-            all_symbols = sorted(symbols)
+            all_symbols = sorted(
+                s for s in symbols if _SYMBOL_PATTERN.match(s)
+            )
         total_symbol_count = len(all_symbols)
         target_symbols_list = all_symbols[:MAX_SYMBOLS]
         target_symbols = set(target_symbols_list)
@@ -259,9 +297,10 @@ class CoverageAnalyzer:
                         )
                         skipped_files.append(str(pq_file))
                         continue
-                    for market_date in df["date"].unique().to_list():
-                        if hasattr(market_date, "date"):
-                            market_date = market_date.date()
+                    for raw_date in df["date"].unique().to_list():
+                        market_date = _coerce_date(raw_date)
+                        if market_date is None:
+                            continue
                         if effective_start <= market_date <= effective_end:
                             presence_set.add((symbol, market_date))
 
@@ -290,9 +329,10 @@ class CoverageAnalyzer:
                         )
                         skipped_files.append(str(pq_file))
                         continue
-                    for market_date in df["date"].unique().to_list():
-                        if hasattr(market_date, "date"):
-                            market_date = market_date.date()
+                    for raw_date in df["date"].unique().to_list():
+                        market_date = _coerce_date(raw_date)
+                        if market_date is None:
+                            continue
                         if effective_start <= market_date <= effective_end:
                             quarantine_set.add((symbol, market_date))
 

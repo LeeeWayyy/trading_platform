@@ -12,6 +12,11 @@ Key design:
     - Look-ahead detection: checks both future partitions and contaminated
       historical partitions (future-dated market data in past run-date dirs).
     - Staleness in trading days via ``ExchangeCalendarAdapter("XNYS")``.
+
+TODO(perf): For large datasets (1000+ partitions), consider filtering
+    available_partitions to only those within ``lookback_days`` range,
+    or using DuckDB glob patterns instead of per-partition registration.
+    Contamination check can also be scoped to avoid O(N) overhead.
 """
 
 from __future__ import annotations
