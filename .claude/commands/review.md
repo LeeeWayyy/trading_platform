@@ -38,7 +38,7 @@ git diff --cached --name-only --diff-filter=ACM
 
 ## Step 2: First Reviewer — Gemini (Fresh Start)
 
-Use `mcp__pal__clink` with these parameters:
+Use clink (`mcp__pal__clink` or `mcp__zen__clink`, whichever is available) with these parameters:
 - `cli_name`: `"gemini"`
 - `role`: `"codereviewer"`
 - `absolute_file_paths`: Array of absolute paths for ALL changed files
@@ -90,16 +90,18 @@ Review all staged changes with comprehensive analysis:
 Provide comprehensive analysis with issues categorized by severity (CRITICAL/HIGH/MEDIUM/LOW).
 ```
 
-**Save the `continuation_id` from Gemini's response** — this is the iteration's shared context ID.
+**Save the `continuation_id` from the response.**
+
+**Validate `continuation_id` format:** Before using in any subsequent tool call or shell command, verify the returned `continuation_id` matches UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). If it does not match, reject it and ask the reviewer for a valid ID. Never pass unvalidated IDs to shell commands.
 
 ---
 
 ## Step 3: Second Reviewer — Codex (Shared Context)
 
-Use `mcp__pal__clink` with these parameters:
+Use clink with these parameters:
 - `cli_name`: `"codex"`
 - `role`: `"codereviewer"`
-- `continuation_id`: **Use the continuation_id from Step 2**
+- `continuation_id`: **Use the validated continuation_id from Step 2**
 - `absolute_file_paths`: Same file list as Step 2
 
 **Prompt (EXACTLY the same as Step 2 plus one line):**
@@ -137,32 +139,38 @@ Issues:
 
 ---
 
-## Step 5: Apply Zero-Tolerance Rules
+## Step 5: Apply Zero-Tolerance Rules and Re-Review Within Iteration
 
 **ZERO TOLERANCE — ALL issues must be fixed. No exceptions.**
 
-| Scenario | Action |
-|----------|--------|
-| CRITICAL/HIGH/MEDIUM found | Fix ALL → start fresh iteration (Step 6) |
-| Only LOW found | Fix ALL → commit (no fresh iteration needed) |
-| Zero issues, both approved | APPROVED — proceed to Step 7 |
+**If issues found:**
+1. **Ask user:** "Found X issues. Should I fix them all?"
+2. Fix each issue systematically (read file → apply fix → mark done)
+3. Re-stage fixed files: `git add <fixed-files>`
+4. **Re-review within the SAME iteration** using the **SAME continuation_id**:
+   - Re-run Step 2 (Gemini) with the existing `continuation_id`
+   - Re-run Step 3 (Codex) with the existing `continuation_id`
+   - Repeat until ALL reviewers explicitly approve within this iteration
 
-**Ask user:** "Found X issues. Should I fix them all?"
+**After ALL reviewers approve the current iteration:**
 
-**If user approves fixes:**
-1. Fix each issue systematically (read file → apply fix → mark done)
-2. Re-stage fixed files: `git add <fixed-files>`
-3. Proceed to Step 6 (fresh iteration) or Step 7 (if only LOW fixes)
+| What was fixed in this iteration | Next action |
+|----------------------------------|-------------|
+| CRITICAL/HIGH/MEDIUM issues | Start fresh iteration (Step 6) |
+| Only LOW issues | Proceed to commit (Step 7) — no fresh iteration needed |
+| Nothing (zero issues on first try) | APPROVED — proceed to Step 7 |
 
 ---
 
-## Step 6: Fresh Iteration (If Fixes Were Made for MEDIUM+ Issues)
+## Step 6: Fresh Iteration (After MEDIUM+ Fixes AND All Approvals)
+
+**Prerequisites:** ALL reviewers approved the current iteration. Fixes included MEDIUM+ issues.
 
 **Start a completely new iteration:**
 1. Go back to Step 2 with **NO continuation_id** (fresh start)
 2. Use **EXACTLY THE SAME PROMPT** — do NOT mention previous iterations or fixes
 3. This generates a NEW continuation_id
-4. Repeat Steps 2-5 until both reviewers approve with zero issues
+4. Repeat Steps 2-5 until both reviewers approve with zero issues on first try
 
 **CRITICAL:** Never say "review my fixes" or "check what changed". The reviewer must see the code with completely fresh eyes.
 
@@ -172,10 +180,12 @@ Issues:
 
 **When BOTH reviewers approve with zero issues:**
 
+**Validate `continuation_id`:** Confirm the final `continuation_id` matches UUID format before passing to any command.
+
 ```bash
 # Record reviews with workflow gate
-./scripts/workflow_gate.py record-review gemini approved --continuation-id <final-continuation-id>
-./scripts/workflow_gate.py record-review codex approved --continuation-id <final-continuation-id>
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-review gemini approved --continuation-id <final-continuation-id>
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-review codex approved --continuation-id <final-continuation-id>
 ```
 
 **Tell user the review is complete:**
@@ -211,19 +221,25 @@ continuation-id: <final-uuid>
 
 **If only one reviewer available:**
 - Complete review with available reviewer
-- Note the gap to the user
-- Retry the missing reviewer before committing
+- Note the gap to the user and recommend retrying the missing reviewer
+- If retries fail, allow an override with explicit user approval, similar to the clink unavailable policy
+- Document the override in the commit message:
+  ```
+  ZEN_REVIEW_OVERRIDE: [reviewer] unavailable after retries
+  User approved by: [user name]
+  ```
 
 ---
 
 ## Key Rules
 
 1. **Same prompt every iteration** — never bias reviewers with fix context
-2. **Same continuation_id within iteration** — both reviewers share context
+2. **Same continuation_id within iteration** — both reviewers share context; re-review within iteration uses same ID
 3. **Fresh start between iterations** — no continuation_id reuse across iterations
 4. **ALL approvals before new iteration** — never start iteration N+1 until iteration N has all approvals
 5. **Fix ALL issues including LOW** — zero tolerance, no deferral
 6. **Never use --no-verify** — workflow gates are mandatory
+7. **Validate continuation_id** — must match UUID format before use in shell commands
 
 ---
 
