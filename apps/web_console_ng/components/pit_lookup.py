@@ -8,6 +8,7 @@ Provides two render functions:
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC
 from typing import Any
 
 import plotly.graph_objects as go
@@ -44,9 +45,9 @@ def render_pit_lookup_form(
         value=available_tickers[0],
     ).classes("w-48")
 
-    from datetime import date as date_type
+    from datetime import datetime as dt_type
 
-    default_date = max_date or date_type.today().isoformat()
+    default_date = max_date or dt_type.now(UTC).date().isoformat()
     date_input = ui.input(
         label="Knowledge Date (YYYY-MM-DD)",
         value=default_date,

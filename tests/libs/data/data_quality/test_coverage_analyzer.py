@@ -443,6 +443,30 @@ class TestGapDetection:
         assert len(gaps) == 1
         assert gaps[0].gap_days == 2
 
+    def test_gap_end_date_is_trading_day(self) -> None:
+        """Gap end_date must be a trading day, not a weekend preceding closure."""
+        # Missing Fri, Sat+Sun no_expectation, then Mon is COMPLETE (gap closes)
+        dates = [
+            datetime.date(2024, 1, 12),  # Fri — missing
+            datetime.date(2024, 1, 13),  # Sat
+            datetime.date(2024, 1, 14),  # Sun
+            datetime.date(2024, 1, 15),  # Mon — complete (closes gap)
+        ]
+        trading_set = {dates[0], dates[3]}
+        matrix = [
+            [
+                CoverageStatus.MISSING,
+                CoverageStatus.NO_EXPECTATION,
+                CoverageStatus.NO_EXPECTATION,
+                CoverageStatus.COMPLETE,
+            ]
+        ]
+        gaps = _find_gaps(["SYM"], dates, matrix, trading_set)
+        assert len(gaps) == 1
+        # end_date must be Friday (the last missing trading day), not Sunday
+        assert gaps[0].end_date == datetime.date(2024, 1, 12)
+        assert gaps[0].end_date.weekday() == 4  # Friday
+
 
 # ============================================================================
 # Fault tolerance

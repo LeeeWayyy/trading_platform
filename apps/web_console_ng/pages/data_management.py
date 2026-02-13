@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -172,7 +173,7 @@ async def data_management_page() -> None:
 
         if has_quality:
             with ui.tab_panel(tab_quality):
-                alerts_container, scores_container = (
+                alerts_container, scores_container, _load_alerts_fn = (
                     await _render_data_quality_section(user, quality_service)
                 )
 
@@ -203,16 +204,11 @@ async def data_management_page() -> None:
 
     async def refresh_alerts() -> None:
         nonlocal _alerts_refreshing
-        if _alerts_refreshing or alerts_container is None:
+        if _alerts_refreshing or _load_alerts_fn is None:
             return
         _alerts_refreshing = True
         try:
-            raw_alerts = await quality_service.get_anomaly_alerts(
-                user, severity=None, acknowledged=None
-            )
-            alerts_container.clear()
-            with alerts_container:
-                _build_anomaly_alert_cards(raw_alerts, user, quality_service)
+            await _load_alerts_fn()
         except Exception:
             logger.exception(
                 "refresh_alerts_failed",
@@ -920,11 +916,12 @@ def _build_query_results(result: Any) -> None:
 async def _render_data_quality_section(
     user: dict[str, Any],
     quality_service: DataQualityService,
-) -> tuple[ui.column | None, ui.column | None]:
+) -> tuple[ui.column | None, ui.column | None, Callable[[], Any] | None]:
     """Render Data Quality reports section.
 
     Returns:
-        Tuple of (alerts_container, scores_container) for auto-refresh timers.
+        Tuple of (alerts_container, scores_container, load_alerts_fn) for
+        auto-refresh timers. load_alerts_fn respects current filter state.
     """
     ui.label("Data Quality Reports").classes("text-xl font-bold mb-2")
 
@@ -940,13 +937,16 @@ async def _render_data_quality_section(
         tab_quarantine = ui.tab("Quarantine Inspector")
 
     alerts_container: ui.column | None = None
+    load_alerts_fn: Callable[[], Any] | None = None
 
     with ui.tab_panels(quality_tabs, value=tab_validation).classes("w-full"):
         with ui.tab_panel(tab_validation):
             await _render_validation_results(user, quality_service)
 
         with ui.tab_panel(tab_anomalies):
-            alerts_container = await _render_anomaly_alerts(user, quality_service)
+            alerts_container, load_alerts_fn = await _render_anomaly_alerts(
+                user, quality_service
+            )
 
         with ui.tab_panel(tab_trends):
             await _render_quality_trends(user, quality_service)
@@ -954,7 +954,7 @@ async def _render_data_quality_section(
         with ui.tab_panel(tab_quarantine):
             await _render_quarantine_inspector(user, quality_service)
 
-    return alerts_container, scores_container
+    return alerts_container, scores_container, load_alerts_fn
 
 
 async def _build_quality_score_cards(
@@ -1106,8 +1106,13 @@ def _build_validation_table(results: list[Any]) -> None:
 async def _render_anomaly_alerts(
     user: dict[str, Any],
     quality_service: DataQualityService,
-) -> ui.column:
-    """Render anomaly alerts with filters. Returns container for refresh."""
+) -> tuple[ui.column, Callable[[], Any]]:
+    """Render anomaly alerts with filters.
+
+    Returns:
+        Tuple of (alerts_container, load_alerts_callable) so that the timer
+        refresh can reuse the same filter-aware path.
+    """
     ui.label("Anomaly Alerts").classes("font-bold mb-2")
 
     with ui.row().classes("gap-4 mb-4"):
@@ -1154,20 +1159,27 @@ async def _render_anomaly_alerts(
     ack_filter.on_value_change(lambda _: load_alerts())
     await load_alerts()
 
-    return alerts_container
+    return alerts_container, load_alerts
 
 
 def _normalize_and_filter_alerts(
     raw_alerts: list[Any], severity_filter: str
 ) -> list[Any]:
-    """Normalize severity values and apply client-side filter."""
-    for alert in raw_alerts:
-        canonical = _SEVERITY_MAP.get(alert.severity.lower(), alert.severity.lower())
-        alert.severity = canonical
+    """Normalize severity values and apply client-side filter.
 
-    if severity_filter == "all":
-        return raw_alerts
-    return [a for a in raw_alerts if a.severity == severity_filter]
+    Uses a local lookup to avoid mutating incoming DTO objects. The normalized
+    severity is stored as ``_normalized_severity`` on each alert for filtering.
+    """
+    result: list[Any] = []
+    for alert in raw_alerts:
+        normalized = _SEVERITY_MAP.get(
+            alert.severity.lower(), alert.severity.lower()
+        )
+        # Attach normalized value without mutating the original .severity field
+        alert._normalized_severity = normalized  # noqa: SLF001
+        if severity_filter == "all" or normalized == severity_filter:
+            result.append(alert)
+    return result
 
 
 def _build_anomaly_alert_cards(
@@ -1183,12 +1195,13 @@ def _build_anomaly_alert_cards(
         return
 
     for alert in alerts:
+        sev = getattr(alert, "_normalized_severity", alert.severity)
         color_class = _SEVERITY_COLORS.get(
-            alert.severity, "bg-gray-100 border-gray-300 text-gray-700"
+            sev, "bg-gray-100 border-gray-300 text-gray-700"
         )
         with ui.card().classes(f"w-full p-4 mb-2 border-l-4 {color_class}"):
             with ui.row().classes("items-center gap-2"):
-                ui.label(alert.severity.upper()).classes("font-bold")
+                ui.label(sev.upper()).classes("font-bold")
                 ui.label(alert.metric).classes("text-sm")
                 ui.label(_format_datetime(alert.created_at)).classes(
                     "text-sm text-gray-500"

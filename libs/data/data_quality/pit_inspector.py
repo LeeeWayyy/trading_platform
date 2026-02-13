@@ -185,7 +185,7 @@ class PITInspector:
             raise ValueError(
                 f"Invalid ticker: {ticker!r} (must be 1-10 alphanumeric chars)"
             )
-        if knowledge_date > datetime.date.today():
+        if knowledge_date > datetime.datetime.now(datetime.UTC).date():
             raise ValueError(
                 f"knowledge_date {knowledge_date} is in the future"
             )

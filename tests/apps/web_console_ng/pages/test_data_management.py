@@ -83,9 +83,10 @@ async def test_data_quality_section_creates_tabs(
         {"role": "admin"}, quality_service
     )
 
-    # Returns tuple of (alerts_container, scores_container)
+    # Returns tuple of (alerts_container, scores_container, load_alerts_fn)
     assert isinstance(result, tuple)
-    assert len(result) == 2
+    assert len(result) == 3
+    assert callable(result[2])
 
     # Should create tabs
     tab_calls = [str(c) for c in mock_ui.tab.call_args_list]

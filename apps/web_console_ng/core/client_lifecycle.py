@@ -108,7 +108,9 @@ class ClientLifecycleManager:
         await asyncio.gather(*[_cancel_task(task) for task in tasks], return_exceptions=True)
 
         for item in callbacks:
-            # Migration-tolerant: handle both tuple entries and legacy bare callables
+            # Migration-tolerant: handle both tuple entries and legacy bare
+            # callables. TODO: Remove bare-callable path once all callers use
+            # the (callback, owner_key) tuple format.
             cb: Callable[[], Any] = item[0] if isinstance(item, tuple) else item
             try:
                 result = cb()

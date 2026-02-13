@@ -551,6 +551,7 @@ def _find_gaps(
 
     for sym_idx, symbol in enumerate(symbols):
         gap_start: datetime.date | None = None
+        last_missing_trading: datetime.date | None = None
         gap_count = 0
 
         for dt_idx, dt in enumerate(all_dates):
@@ -560,6 +561,7 @@ def _find_gaps(
             if status == CoverageStatus.MISSING:
                 if gap_start is None:
                     gap_start = dt
+                last_missing_trading = dt
                 gap_count += 1
             else:
                 if gap_start is not None and gap_count > 0:
@@ -567,31 +569,21 @@ def _find_gaps(
                         CoverageGap(
                             symbol=symbol,
                             start_date=gap_start,
-                            end_date=all_dates[dt_idx - 1]
-                            if dt_idx > 0
-                            else gap_start,
+                            end_date=last_missing_trading or gap_start,
                             gap_days=gap_count,
                         )
                     )
                 gap_start = None
+                last_missing_trading = None
                 gap_count = 0
 
         # Close any open gap at end
         if gap_start is not None and gap_count > 0:
-            # Find the last trading day that was missing
-            last_missing = gap_start
-            for dt_idx in range(len(all_dates) - 1, -1, -1):
-                if (
-                    all_dates[dt_idx] in trading_days
-                    and daily_matrix[sym_idx][dt_idx] == CoverageStatus.MISSING
-                ):
-                    last_missing = all_dates[dt_idx]
-                    break
             gaps.append(
                 CoverageGap(
                     symbol=symbol,
                     start_date=gap_start,
-                    end_date=last_missing,
+                    end_date=last_missing_trading or gap_start,
                     gap_days=gap_count,
                 )
             )

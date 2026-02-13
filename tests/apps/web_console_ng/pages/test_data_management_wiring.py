@@ -291,8 +291,10 @@ class TestSeverityNormalization:
         alerts = _make_anomaly_alerts()
         result = dm_module._normalize_and_filter_alerts(alerts, "all")
         assert len(result) == 2
-        assert result[0].severity == "medium"  # "warning" -> "medium"
-        assert result[1].severity == "high"
+        # Original .severity is NOT mutated; normalized value on _normalized_severity
+        assert result[0].severity == "warning"  # Original preserved
+        assert result[0]._normalized_severity == "medium"  # "warning" -> "medium"
+        assert result[1]._normalized_severity == "high"
 
     def test_normalize_and_filter_by_canonical(self) -> None:
         alerts = _make_anomaly_alerts()
