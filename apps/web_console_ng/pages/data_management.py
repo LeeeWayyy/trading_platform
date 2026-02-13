@@ -19,6 +19,7 @@ into independent component modules under apps/web_console_ng/components/.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Callable
@@ -1495,32 +1496,35 @@ async def _load_quarantine_preview(entry: Any) -> None:
     # Step 4: Scope to entry's dataset file
     entry_file = safe_path / f"{entry.dataset}.parquet"
 
-    try:
+    if not entry_file.exists():
+        # Fail closed: dataset-specific file not found.
+        # Do NOT fall back to globbing all parquets in the directory,
+        # as that could show rows from other datasets.
+        ui.label(
+            f"Preview unavailable — {entry.dataset}.parquet not found "
+            f"in quarantine directory. Full drill-down available when "
+            f"the quality service is DB-backed."
+        ).classes("text-gray-500 italic")
+        return
+
+    def _query_quarantine() -> Any:
+        """Run DuckDB query in worker thread (sync)."""
         import duckdb
 
         conn = duckdb.connect()
         try:
-            if entry_file.exists():
-                conn.execute(
-                    "CREATE TABLE quarantine AS SELECT * FROM read_parquet(?)",
-                    [str(entry_file)],
-                )
-                result = conn.execute(
-                    "SELECT * FROM quarantine LIMIT 100"
-                ).fetchdf()
-            else:
-                # Fail closed: dataset-specific file not found.
-                # Do NOT fall back to globbing all parquets in the directory,
-                # as that could show rows from other datasets.
-                ui.label(
-                    f"Preview unavailable — {entry.dataset}.parquet not found "
-                    f"in quarantine directory. Full drill-down available when "
-                    f"the quality service is DB-backed."
-                ).classes("text-gray-500 italic")
-                conn.close()
-                return
+            conn.execute(
+                "CREATE TABLE quarantine AS SELECT * FROM read_parquet(?)",
+                [str(entry_file)],
+            )
+            return conn.execute(
+                "SELECT * FROM quarantine LIMIT 100"
+            ).fetchdf()
         finally:
             conn.close()
+
+    try:
+        result = await asyncio.to_thread(_query_quarantine)
 
         # Display preview table
         if result.empty:

@@ -54,7 +54,7 @@ async def data_coverage_page() -> None:
         )
 
     analyzer = CoverageAnalyzer()
-    available_tickers = analyzer.get_available_tickers()
+    available_tickers = await asyncio.to_thread(analyzer.get_available_tickers)
 
     results_container = ui.column().classes("w-full mt-4")
     export_container = ui.column().classes("w-full")

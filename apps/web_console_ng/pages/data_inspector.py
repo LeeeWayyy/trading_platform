@@ -52,8 +52,8 @@ async def data_inspector_page() -> None:
         )
 
     inspector = PITInspector()
-    available_tickers = inspector.get_available_tickers()
-    min_date, max_date = inspector.get_date_range()
+    available_tickers = await asyncio.to_thread(inspector.get_available_tickers)
+    min_date, max_date = await asyncio.to_thread(inspector.get_date_range)
 
     results_container = ui.column().classes("w-full mt-4")
 

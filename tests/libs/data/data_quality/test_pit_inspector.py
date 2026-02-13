@@ -244,15 +244,38 @@ class TestLookupBasic:
 class TestLookupDedup:
     def test_latest_run_date_wins(self, inspector: PITInspector) -> None:
         """When multiple partitions have the same market date, latest run_date wins."""
-        # 2024-01-15 partition has data for Jan 10-12
-        # 2024-01-20 partition has data for Jan 15-18
-        # No overlap in market dates in our fixture, but let's verify dedup logic
         result = inspector.lookup(
             "AAPL", datetime.date(2024, 1, 20), lookback_days=30
         )
         # All market dates should be unique
         market_dates = [p.market_date for p in result.data_available]
         assert len(market_dates) == len(set(market_dates))
+
+    def test_dedup_picks_newest_run_date_values(self, data_dir: Path) -> None:
+        """With overlapping market dates, the row from the LATEST run_date wins."""
+        # Create two partitions with the SAME market date but different close values
+        _create_parquet(
+            data_dir / "adjusted" / "2024-01-10" / "GOOG.parquet",
+            ["2024-01-08"],  # market_date = Jan 8
+            [100.0],  # older close
+        )
+        _create_parquet(
+            data_dir / "adjusted" / "2024-01-12" / "GOOG.parquet",
+            ["2024-01-08"],  # same market_date
+            [105.0],  # newer close (reprocessed)
+        )
+        insp = PITInspector(data_dir=data_dir)
+        result = insp.lookup(
+            "GOOG", datetime.date(2024, 1, 15), lookback_days=30
+        )
+        # Should pick the row from 2024-01-12 partition (newer run_date)
+        jan8_points = [
+            p for p in result.data_available
+            if p.market_date == datetime.date(2024, 1, 8)
+        ]
+        assert len(jan8_points) == 1
+        assert jan8_points[0].run_date == datetime.date(2024, 1, 12)
+        assert jan8_points[0].close == 105.0
 
 
 # ============================================================================
