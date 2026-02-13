@@ -406,9 +406,9 @@ pytest tests/apps/signal_service/test_regression_issue_123.py
 
 ## See Also
 
-- [12-component-cycle.md](./12-component-cycle.md) - 4-step pattern (includes testing)
+- [12-component-cycle.md](./12-component-cycle.md) - 6-step pattern (includes testing)
 - [03-reviews.md](./03-reviews.md) - Zen-mcp review workflow
 - [01-git.md](./01-git.md) - Progressive commits
-- [/do../../STANDARDS/TESTING.md](../../STANDARDS/TESTING.md) - Test requirements
-- [/do../../STANDARDS/DOCUMENTATION_STANDARDS.md](../../STANDARDS/DOCUMENTATION_STANDARDS.md) - Docstring standards
-- [/do../../STANDARDS/CODING_STANDARDS.md](../../STANDARDS/CODING_STANDARDS.md) - Code patterns
+- [TESTING.md](../../STANDARDS/TESTING.md) - Test requirements
+- [DOCUMENTATION_STANDARDS.md](../../STANDARDS/DOCUMENTATION_STANDARDS.md) - Docstring standards
+- [CODING_STANDARDS.md](../../STANDARDS/CODING_STANDARDS.md) - Code patterns

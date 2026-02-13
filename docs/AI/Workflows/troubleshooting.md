@@ -366,7 +366,7 @@ OVERRIDE_TESTS=1 git commit -m "..."
 1. **Workflow guides:** `./*.md`
 2. **Standards:** `/docs/STANDARDS/*.md`
 3. **API specs:** `/docs/API/*.openapi.yaml`
-4. **This guide:** `.claude/TROUBLESHOOTING.md`
+4. **This guide:** `docs/AI/Workflows/troubleshooting.md`
 
 ### Still Stuck?
 

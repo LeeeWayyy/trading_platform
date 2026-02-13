@@ -14,33 +14,6 @@
 
 ---
 
-## Phase 0: Pack Codebase Context (2 min)
-
-**MANDATORY:** Pack relevant directories before starting analysis.
-
-```bash
-# Pack directories related to your task
-/repomix-commands:pack-local ./libs/<relevant> ./apps/<relevant>
-
-# Or use explorer for natural language understanding
-/repomix-explorer:explore-local ./apps "How does <feature> work?"
-```
-
-**Why pack first?**
-- ~70% token reduction through Tree-sitter compression
-- Structured context helps identify patterns and dependencies
-- Prevents missing call sites or related components
-- Enables comprehensive understanding before implementation
-
-**What to pack:**
-- Directories you expect to modify
-- Directories with related functionality
-- Test directories for impacted components
-
-**See [06-repomix.md](./06-repomix.md) for complete guide**
-
----
-
 ## Phase 1: Comprehensive Analysis (30-60 min)
 
 ### 1. Understand the Requirement (5 min)
@@ -202,7 +175,7 @@
   - New error handling needed: _______
   - Impact on tests: _______
 
-- [ ] **Create todos for EVERY call site** (use 4-step pattern per site)
+- [ ] **Create todos for EVERY call site** (use 6-step pattern per site)
 
 **Output:** Complete table of ALL call sites with change requirements
 
@@ -231,11 +204,13 @@
 
 ### 1. Document EVERY Change Needed
 
-- [ ] **Create comprehensive todo list** using 4-step pattern for EACH component:
+- [ ] **Create comprehensive todo list** using 6-step pattern for EACH component:
   ```markdown
+  - [ ] Plan [component] approach
+  - [ ] Request plan review for [component]
   - [ ] Implement [component] logic
   - [ ] Create test cases for [component] (success + failure)
-  - [ ] Request zen-mcp review for [component]
+  - [ ] Request code review for [component]
   - [ ] Commit [component] after review approval
   ```
 
@@ -249,7 +224,7 @@
   - Dependencies between changes?
   - Rollback strategy if issues arise?
 
-**Output:** Complete todo list with 4-step pattern for EACH component
+**Output:** Complete todo list with 6-step pattern for EACH component
 
 ---
 
@@ -299,7 +274,7 @@
   - Breaking changes approved?
 
 - [ ] **Ready to implement:**
-  - Todo list created with 4-step pattern?
+  - Todo list created with 6-step pattern?
   - All impacted areas identified?
   - Review gates confirmed?
 
@@ -331,10 +306,10 @@ This analysis is complete when:
 3. ✅ ALL edge cases documented
 4. ✅ ALL patterns verified
 5. ✅ ALL assumptions validated
-6. ✅ Comprehensive todo list created (4-step pattern per component)
+6. ✅ Comprehensive todo list created (6-step pattern per component)
 7. ✅ Review gates confirmed
 8. ✅ NO uncertainties remaining
 
 **Time saved by thorough analysis:** 3-11 hours (vs. reactive fixing)
 
-**Next Step:** Proceed to implementation using the 4-step pattern per component.
+**Next Step:** Proceed to implementation using the 6-step pattern per component.

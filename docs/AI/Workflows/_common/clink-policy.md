@@ -41,7 +41,7 @@ Tool restriction is **not enforceable at project level** because MCP config is s
 1. STOP immediately
 2. Use `mcp__zen__clink` instead with appropriate cli_name and role
 3. Check `./03-reviews.md` for correct patterns
-4. See `.claude/TROUBLESHOOTING.md` for detailed error resolution
+4. See [troubleshooting.md](../troubleshooting.md) for detailed error resolution
 
 ## See Also
 

@@ -23,23 +23,12 @@ Tier 3: Individual Tasks → PxTy_TASK.md → PxTy_PROGRESS.md → PxTy_DONE.md
 ## 1. Phase Management
 
 **Create new phase:**
-```bash
-./scripts/tasks.py create-phase P2 --source docs/trading_platform_realization_plan.md
-```
-
-Creates `docs/TASKS/P2_PLANNING.md` template.
-
-**Fill in planning details:**
-- Task breakdown with time estimates
-- Success criteria per task
-- Dependencies and risks
-
-**Generate task files:**
-```bash
-./scripts/tasks.py generate-tasks P2
-```
-
-Creates individual `PxTy_TASK.md` files from `P2_PLANNING.md`.
+1. Create `docs/TASKS/Px_PLANNING.md` from template (`docs/TEMPLATES/00-TEMPLATE_PHASE_PLANNING.md`)
+2. Fill in planning details:
+   - Task breakdown with time estimates
+   - Success criteria per task
+   - Dependencies and risks
+3. Create individual `PxTy_TASK.md` files from the planning doc
 
 ---
 
@@ -72,7 +61,7 @@ feature/P1T11-F3-context-monitoring
 | Condition | Action |
 |-----------|--------|
 | Task < 4 hours | Single branch, no subfeatures |
-| Task 4-8 hours | Single branch, use 4-step pattern per component |
+| Task 4-8 hours | Single branch, use 6-step pattern per component |
 | Task > 8 hours | **RECOMMENDED:** Split into PxTy-F1, F2, F3 subfeatures |
 
 **Subfeature branching benefits:**
@@ -204,7 +193,7 @@ mv docs/TASKS/P1T15_PROGRESS.md docs/TASKS/P1T15_DONE.md
    - Gemini: Validated scope, identified edge cases
    - Codex: Approved feasibility, recommended atomic implementation
 4. **Implementation:**
-   - Used 4-step pattern per component (12-component-cycle.md)
+   - Used 6-step pattern per component (12-component-cycle.md)
    - Progressive commits (9 total over 5 components)
 5. **Result:** Clean history, easy to review
 
@@ -214,6 +203,6 @@ mv docs/TASKS/P1T15_PROGRESS.md docs/TASKS/P1T15_DONE.md
 
 ## See Also
 
-- `./12-component-cycle.md` - 4-step pattern for each component
+- `./12-component-cycle.md` - 6-step pattern for each component
 - `./01-git.md` - Git commits & pull requests
 - `./08-session-management.md` - Task state tracking

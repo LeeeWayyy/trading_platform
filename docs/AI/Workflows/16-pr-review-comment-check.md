@@ -112,7 +112,7 @@ gh pr view <PR-number> --web
   - **Fix:** Add all _common/ reference files to index
 
 ### HIGH - Must fix before merge
-- [ ] **File:** ./08-adr-creation.md
+- [ ] **File:** ./05-operations.md
   - **Issue:** Core ADR checklist removed during simplification
   - **Line:** Between steps 6-7
   - **Reviewer:** @gemini-code-assist
@@ -151,7 +151,7 @@ gh pr view <PR-number> --web
 
 ```markdown
 1. Fix P1: Add _common/ files to docs/INDEX.md
-2. Fix HIGH: Restore ADR commit check in 08-adr-creation.md
+2. Fix HIGH: Restore ADR commit check in 05-operations.md
 3. Fix MEDIUM: API contract check in 00-analysis-checklist.md:49
 4. Fix MEDIUM: Error propagation in 00-analysis-checklist.md:214
 5. Fix MEDIUM: PR template ref in 01-git.md:150
@@ -223,7 +223,7 @@ git commit -m "fix(workflows): Address all 7 issues from PR#XX reviewer feedback
 - docs/INDEX.md: Add 5 missing _common/ file entries
 
 **HIGH:**
-- 08-adr-creation.md: Restore Core ADR checklist (enforces commit-before-implementation)
+- 05-operations.md: Restore Core ADR checklist (enforces commit-before-implementation)
 
 **MEDIUM:**
 - 00-analysis-checklist.md:49: Make API contract check explicit (schemas)
@@ -272,22 +272,12 @@ gh pr view <PR-number> --web
 
 ### Should I defer MEDIUM issues?
 
-**Fix MEDIUM if:**
-- Quick (<15 min total for all MEDIUM)
-- Related to current change
-- Improves critical clarity
+**No. MEDIUM issues MUST be fixed — no deferral allowed.** This aligns with the zero-tolerance policy in [03-reviews.md](./03-reviews.md).
 
-**Defer MEDIUM if:**
-- Time-consuming (>30 min)
-- Out of scope
-- Requires separate investigation
-- Reviewer explicitly says "optional"
-
-**Document deferred:**
-```markdown
-## Deferred Issues
-- MEDIUM: [Description] - Reason: [Why deferred] - Follow-up: [Ticket ID]
-```
+- Fix ALL MEDIUM issues before committing
+- Fix ALL LOW issues before committing
+- If MEDIUM/HIGH issues were fixed, start a fresh review iteration
+- If only LOW issues were fixed, commit without a new iteration
 
 ### How do PR feedback fixes follow workflow gates?
 
@@ -454,7 +444,7 @@ gh pr view 46 --comments > review-comments.txt
 **Step 2 - Categorize:**
 ```
 P1: 1 issue (docs/INDEX.md)
-HIGH: 1 issue (08-adr-creation.md)
+HIGH: 1 issue (05-operations.md)
 MEDIUM: 5 issues (various files)
 ```
 

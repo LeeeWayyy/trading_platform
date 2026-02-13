@@ -169,15 +169,19 @@ Top Issues:
 - If user wants to override, require explicit confirmation + document reason
 
 **MEDIUM issues found:**
-- ⚠️ **SHOULD FIX**
-- Tell user: "⚠️ Medium severity issues found. Recommended to fix before committing."
-- List MEDIUM issues
-- Ask user: "Fix now, defer with justification, or override?"
+- ❌ **MUST FIX** — no deferral allowed
+- Tell user: "❌ Medium severity issues found. Must fix before committing."
+- List MEDIUM issues with file:line locations
+- Fix all issues, then start a fresh review iteration
 
-**Only LOW or no issues:**
+**Only LOW issues found:**
+- ⚠️ **MUST FIX** — but no fresh iteration needed
+- Tell user: "⚠️ Low severity issues found. Fix before committing."
+- List LOW issues, fix them, then commit (no new iteration required)
+
+**No issues:**
 - ✅ **SAFE TO COMMIT**
 - Tell user: "✅ Zen-MCP comprehensive review passed! Safe to commit."
-- If LOW issues exist, mention them but don't block
 
 ### Step 5: Fix Issues (if needed)
 
@@ -304,6 +308,5 @@ codex-continuation-id: <final-uuid-from-approved-iteration>
 ---
 
 **See also:**
-- [Zen-MCP Review Process](./zen-review-process.md) - Complete review system details
-- [03-reviews.md](../03-reviews.md) - Full review workflow
+- [03-reviews.md](../03-reviews.md) - Full review workflow (golden source)
 - `/docs/STANDARDS/GIT_WORKFLOW.md` - Pre-commit review requirements

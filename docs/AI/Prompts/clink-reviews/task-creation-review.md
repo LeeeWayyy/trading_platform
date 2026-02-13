@@ -35,7 +35,7 @@ Please review this task document to ensure it's well-scoped and ready for implem
 
 4. **Implementation Approach:**
    - Component breakdown logical?
-   - 4-step pattern applied per component?
+   - 6-step pattern applied per component?
    - Time estimates reasonable?
    - File structure clear?
    - Review checkpoints identified?
@@ -187,7 +187,7 @@ Given the task validation findings above, please synthesize:
    - README updates (if user-facing changes)
 
 5. **Standard Component Structure:**
-   - Each component uses 4-step pattern
+   - Each component uses 6-step pattern
    - Components independent and testable
    - Progressive commits (30-60 min cadence)
    - Review checkpoints explicit
@@ -216,7 +216,7 @@ Given the task validation findings above, please synthesize:
 ✅ **Dependencies:** Identified and verified available
 ✅ **Time Estimates:** Reasonable with component breakdown
 ✅ **Documentation:** ADR/concepts/API updates identified
-✅ **Implementation Approach:** 4-step pattern per component
+✅ **Implementation Approach:** 6-step pattern per component
 
 **Never approve tasks that:**
 - Lack clear success criteria

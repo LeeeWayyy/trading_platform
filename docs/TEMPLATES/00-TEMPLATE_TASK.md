@@ -68,18 +68,22 @@ features: []
 
 ### Logical Components
 
-Break this task into components, each following the 4-step pattern:
+Break this task into components, each following the 6-step pattern:
 
 **Component 1: [Name]**
+- Plan [description] approach
+- Request plan review
 - Implement [description]
 - Create test cases for [description]
-- Request zen-mcp review
+- Request code review
 - Commit after approval
 
 **Component 2: [Name]**
+- Plan [description] approach
+- Request plan review
 - Implement [description]
 - Create test cases for [description]
-- Request zen-mcp review
+- Request code review
 - Commit after approval
 
 ---
@@ -180,7 +184,7 @@ See [`./AI/Workflows/02-planning.md`](.././AI/Workflows/02-planning.md) for work
 - [ ] Functional requirements are comprehensive
 - [ ] Trading safety requirements specified (circuit breakers, idempotency, position limits)
 - [ ] Non-functional requirements documented (performance, security)
-- [ ] Component breakdown follows 4-step pattern
+- [ ] Component breakdown follows 6-step pattern
 - [ ] Time estimates are reasonable
 - [ ] Dependencies and blockers identified
 - [ ] ADR requirement clear for architectural changes

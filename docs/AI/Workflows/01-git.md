@@ -11,20 +11,22 @@
 ```
 Component Cycle → Commit (every 30-60 min) → ... → Deep Review → PR
     ↓
-1. Implement
-2. Test
-3. Review (zen-mcp)
-4. Commit (after approval)
+1. Plan
+2. Plan Review (zen-mcp)
+3. Implement
+4. Test
+5. Code Review (zen-mcp)
+6. Commit (after approval)
 ```
 
-**See:** [12-component-cycle.md](./12-component-cycle.md) for complete 4-step pattern
+**See:** [12-component-cycle.md](./12-component-cycle.md) for complete 6-step pattern
 
 ---
 
 ## Part 1: Progressive Commits
 
 **When:** Every 30-60 minutes after completing a logical component
-**Prerequisites:** Component cycle complete (implement → test → review → ready to commit)
+**Prerequisites:** Component cycle complete (plan → plan-review → implement → test → review → ready to commit)
 
 ###🔒 Workflow Gate Enforcement (AUTOMATIC)
 
@@ -42,8 +44,9 @@ Component Cycle → Commit (every 30-60 min) → ... → Deep Review → PR
 ./scripts/workflow_gate.py advance test
 ./scripts/workflow_gate.py advance review
 
-# Record review approval
-./scripts/workflow_gate.py record-review <continuation_id> APPROVED
+# Record review approval (for each reviewer)
+./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
+./scripts/workflow_gate.py record-review codex approved --continuation-id <id>
 
 # Record CI pass
 make ci-local && ./scripts/workflow_gate.py record-ci true
@@ -310,8 +313,9 @@ gh pr ready
 # Request review now
 "Quick review my staged changes"
 
-# Record approval
-./scripts/workflow_gate.py record-review <id> APPROVED
+# Record approval (for each reviewer)
+./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
+./scripts/workflow_gate.py record-review codex approved --continuation-id <id>
 
 # Retry commit
 git commit -m "message"
@@ -388,7 +392,7 @@ git commit --amend -m "new message"
 
 ## See Also
 
-- [12-component-cycle.md](./12-component-cycle.md) - 4-step pattern (MANDATORY)
+- [12-component-cycle.md](./12-component-cycle.md) - 6-step pattern (MANDATORY)
 - [03-reviews.md](./03-reviews.md) - Quick & deep review workflows
 - [02-planning.md](./02-planning.md) - Task breakdown and subfeatures
 - [16-subagent-delegation.md](./16-subagent-delegation.md) - Context optimization
