@@ -21,6 +21,8 @@ from apps.web_console_ng.pages import (
     circuit_breaker,  # noqa: F401
     compare,  # noqa: F401 - P5T8
     dashboard,  # noqa: F401
+    data_coverage,  # noqa: F401 - P6T13
+    data_inspector,  # noqa: F401 - P6T13
     data_management,  # noqa: F401
     execution_quality,  # noqa: F401 - P6T8
     forgot_password,  # noqa: F401 - Auth page

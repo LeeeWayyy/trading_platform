@@ -10,18 +10,26 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Callback entry: (callable, owner_key). owner_key=None for unkeyed (legacy) callbacks.
+_CallbackEntry = tuple[Callable[[], Any], str | None]
+
 
 class ClientLifecycleManager:
     """Track per-client tasks and cleanup on disconnect.
 
     NOTE: In-memory tracking assumes single-process deployment (workers=1).
+
+    Callbacks support an optional ``owner_key`` for per-module deduplication.
+    When a callback is registered with an ``owner_key``, any existing callback
+    with the same key is atomically replaced (single-assignment). Callbacks
+    without an ``owner_key`` are appended without dedup (legacy behaviour).
     """
 
     _instance: ClientLifecycleManager | None = None
 
     def __init__(self) -> None:
         self.client_tasks: dict[str, list[asyncio.Task[Any]]] = {}
-        self.client_callbacks: dict[str, list[Callable[[], Any]]] = {}
+        self.client_callbacks: dict[str, list[_CallbackEntry]] = {}
         self.active_clients: set[str] = set()
         self._lock = asyncio.Lock()
 
@@ -48,10 +56,34 @@ class ClientLifecycleManager:
         async with self._lock:
             self.client_tasks.setdefault(client_id, []).append(task)
 
-    async def register_cleanup_callback(self, client_id: str, callback: Callable[[], Any]) -> None:
-        """Register a cleanup callback for the client."""
+    async def register_cleanup_callback(
+        self,
+        client_id: str,
+        callback: Callable[[], Any],
+        *,
+        owner_key: str | None = None,
+    ) -> None:
+        """Register a cleanup callback for the client.
+
+        Args:
+            client_id: The client connection ID.
+            callback: Callable invoked on disconnect.
+            owner_key: Optional key for per-module deduplication. When provided,
+                any existing callback with the same key is atomically replaced.
+                When ``None``, the callback is appended without dedup.
+        """
         async with self._lock:
-            self.client_callbacks.setdefault(client_id, []).append(callback)
+            callbacks = self.client_callbacks.setdefault(client_id, [])
+            if owner_key is not None:
+                # Atomic single-assignment: filter + append in one expression
+                filtered = [
+                    item
+                    for item in callbacks
+                    if not isinstance(item, tuple) or item[1] != owner_key
+                ]
+                self.client_callbacks[client_id] = [*filtered, (callback, owner_key)]
+            else:
+                callbacks.append((callback, None))
 
     async def cleanup_client(self, client_id: str) -> None:
         """Cancel tasks and run cleanup callbacks for a client."""
@@ -75,15 +107,17 @@ class ClientLifecycleManager:
 
         await asyncio.gather(*[_cancel_task(task) for task in tasks], return_exceptions=True)
 
-        for callback in callbacks:
+        for item in callbacks:
+            # Migration-tolerant: handle both tuple entries and legacy bare callables
+            cb: Callable[[], Any] = item[0] if isinstance(item, tuple) else item
             try:
-                result = callback()
+                result = cb()
                 if asyncio.iscoroutine(result):
                     await result
-            except (OSError, ConnectionError, ValueError, TypeError) as exc:
-                logger.warning(
+            except Exception:
+                logger.exception(
                     "cleanup_callback_error",
-                    extra={"client_id": client_id, "error": str(exc), "type": type(exc).__name__},
+                    extra={"client_id": client_id},
                 )
 
         logger.info(
