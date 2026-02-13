@@ -121,6 +121,16 @@ def _extract_rows(
     return list(result_df.iter_rows(named=True))  # type: ignore[attr-defined]
 
 
+def _safe_float(val: object, default: float = 0.0) -> float:
+    """Null-safe float conversion for Parquet column values."""
+    return float(val) if val is not None else default  # type: ignore[arg-type]
+
+
+def _safe_int(val: object, default: int = 0) -> int:
+    """Null-safe int conversion for Parquet column values."""
+    return int(val) if val is not None else default  # type: ignore[call-overload]
+
+
 # ============================================================================
 # PITInspector
 # ============================================================================
@@ -260,11 +270,11 @@ class PITInspector:
                     point = PITDataPoint(
                         market_date=market_date,
                         run_date=run_dt,
-                        open=float(row.get("open", 0)),  # type: ignore[arg-type]
-                        high=float(row.get("high", 0)),  # type: ignore[arg-type]
-                        low=float(row.get("low", 0)),  # type: ignore[arg-type]
-                        close=float(row.get("close", 0)),  # type: ignore[arg-type]
-                        volume=int(row.get("volume", 0)),  # type: ignore[call-overload]
+                        open=_safe_float(row.get("open")),
+                        high=_safe_float(row.get("high")),
+                        low=_safe_float(row.get("low")),
+                        close=_safe_float(row.get("close")),
+                        volume=_safe_int(row.get("volume")),
                         source="adjusted",
                     )
                     # Dedup: keep row from LATEST eligible run_date per market date
@@ -307,11 +317,11 @@ class PITInspector:
                         PITDataPoint(
                             market_date=market_date,
                             run_date=run_dt,
-                            open=float(row.get("open", 0)),  # type: ignore[arg-type]
-                            high=float(row.get("high", 0)),  # type: ignore[arg-type]
-                            low=float(row.get("low", 0)),  # type: ignore[arg-type]
-                            close=float(row.get("close", 0)),  # type: ignore[arg-type]
-                            volume=int(row.get("volume", 0)),  # type: ignore[call-overload]
+                            open=_safe_float(row.get("open")),
+                            high=_safe_float(row.get("high")),
+                            low=_safe_float(row.get("low")),
+                            close=_safe_float(row.get("close")),
+                            volume=_safe_int(row.get("volume")),
                             source="adjusted",
                         )
                     )

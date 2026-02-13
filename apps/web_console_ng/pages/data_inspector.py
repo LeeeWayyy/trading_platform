@@ -9,6 +9,7 @@ Permission: ``VIEW_DATA_QUALITY``
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
 
@@ -69,9 +70,11 @@ async def data_inspector_page() -> None:
             ui.notify(f"Invalid date format: {date_str}", type="negative")
             return
 
-        # Look up
+        # Look up — offload to worker thread to avoid blocking event loop
         try:
-            result = inspector.lookup(ticker, knowledge_date, lookback_days)
+            result = await asyncio.to_thread(
+                inspector.lookup, ticker, knowledge_date, lookback_days
+            )
         except ValueError as exc:
             ui.notify(str(exc), type="negative")
             return

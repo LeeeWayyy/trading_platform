@@ -234,9 +234,11 @@ class CoverageAnalyzer:
                     date_dir.name
                 ):
                     continue
-                for pq_file in date_dir.glob("*.parquet"):
-                    symbol = pq_file.stem
-                    if symbol not in target_symbols:
+                # Targeted file checks: iterate over capped symbol set
+                # instead of globbing all parquet files (O(200) vs O(10k+))
+                for symbol in target_symbols:
+                    pq_file = date_dir / f"{symbol}.parquet"
+                    if not pq_file.exists():
                         continue
                     try:
                         df = pl.read_parquet(pq_file, columns=["date"])
@@ -265,9 +267,9 @@ class CoverageAnalyzer:
                     date_dir.name
                 ):
                     continue
-                for pq_file in date_dir.glob("*.parquet"):
-                    symbol = pq_file.stem
-                    if symbol not in target_symbols:
+                for symbol in target_symbols:
+                    pq_file = date_dir / f"{symbol}.parquet"
+                    if not pq_file.exists():
                         continue
                     try:
                         df = pl.read_parquet(pq_file, columns=["date"])

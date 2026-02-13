@@ -9,8 +9,10 @@ Permission: ``VIEW_DATA_QUALITY``
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
+from functools import partial
 
 from nicegui import ui
 
@@ -88,11 +90,16 @@ async def data_coverage_page() -> None:
             resolution = "monthly"
 
         try:
-            matrix = analyzer.analyze(
-                symbols=symbols,
-                start_date=start_date,
-                end_date=end_date,
-                resolution=resolution,  # type: ignore[arg-type]
+            # Offload heavy filesystem scan to worker thread to avoid
+            # blocking the NiceGUI event loop.
+            matrix = await asyncio.to_thread(
+                partial(
+                    analyzer.analyze,
+                    symbols=symbols,
+                    start_date=start_date,
+                    end_date=end_date,
+                    resolution=resolution,  # type: ignore[arg-type]
+                )
             )
         except Exception:
             logger.exception(

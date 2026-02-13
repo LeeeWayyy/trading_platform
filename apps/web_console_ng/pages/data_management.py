@@ -12,6 +12,9 @@ Services:
     - DataSyncService: Sync status, logs, schedule, manual trigger
     - DataExplorerService: Dataset browsing, SQL queries, export
     - DataQualityService: Validation, anomaly alerts, trends, quarantine
+
+TODO: This module has grown large. Refactor Sync, Explorer, and Quality tabs
+into independent component modules under apps/web_console_ng/components/.
 """
 
 from __future__ import annotations
@@ -1521,23 +1524,11 @@ async def _load_quarantine_preview(entry: Any) -> None:
                     "CREATE TABLE quarantine AS SELECT * FROM read_parquet(?)",
                     [glob_path],
                 )
-                # Schema introspection: check for symbol column
-                schema_result = conn.execute(
-                    "SELECT * FROM quarantine LIMIT 0"
+                # Bounded preview — path already constrains to the
+                # correct quarantine directory for this dataset.
+                result = conn.execute(
+                    "SELECT * FROM quarantine LIMIT 100",
                 ).fetchdf()
-                if "symbol" in schema_result.columns:
-                    result = conn.execute(
-                        "SELECT * FROM quarantine WHERE symbol = ? LIMIT 100",
-                        [entry.dataset],
-                    ).fetchdf()
-                else:
-                    # No symbol column — cannot filter safely
-                    ui.label(
-                        "Preview unavailable — dataset does not map to a specific "
-                        "data file. Full drill-down available when the quality "
-                        "service is DB-backed."
-                    ).classes("text-gray-500 italic")
-                    return
         finally:
             conn.close()
 
