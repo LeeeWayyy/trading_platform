@@ -46,8 +46,8 @@ All tasks in this phase follow the standard development workflow with **clink-ba
    - Validates: scope clarity, requirements completeness, safety requirements
    - Duration: ~2-3 minutes
 
-2. **Progressive Implementation** (MANDATORY 4-step pattern per component)
-   - Implement → Test → Quick Review → Commit
+2. **Progressive Implementation** (MANDATORY 6-step pattern per component)
+   - Plan → Plan Review → Implement → Test → Code Review → Commit
    - Quick review tool: clink + codex codereviewer
    - See: `./AI/Workflows/03-reviews.md`
    - Frequency: Every 30-60 minutes per component

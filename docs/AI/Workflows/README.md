@@ -99,13 +99,11 @@ The workflow state has migrated from `.claude/` to `.ai_workflow/`:
 - [03-reviews](./03-reviews.md)
 - [04-development](./04-development.md)
 - [05-operations](./05-operations.md)
-- [06-repomix](./06-repomix.md)
 - [08-session-management](./08-session-management.md)
 - [12-component-cycle](./12-component-cycle.md)
 - [16-pr-review-comment-check](./16-pr-review-comment-check.md)
 - [16-subagent-delegation](./16-subagent-delegation.md)
 - [17-automated-analysis](./17-automated-analysis.md)
-- [session-management](./session-management.md)
 - [troubleshooting](./troubleshooting.md)
 
 See the [main AI Documentation Index](../README.md) for full navigation.

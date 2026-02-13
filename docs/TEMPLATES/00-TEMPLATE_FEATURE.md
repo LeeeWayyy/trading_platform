@@ -187,7 +187,7 @@ command here
 
 ```bash
 # Option 1: Merge back into parent PROGRESS file
-# Copy the completed 4-step implementation to P0T0_PROGRESS.md
+# Copy the completed 6-step implementation to P0T0_PROGRESS.md
 # Delete this file
 
 # Option 2: Keep as DONE record (if significant)

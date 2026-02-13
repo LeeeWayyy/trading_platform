@@ -346,12 +346,13 @@ aggregated_analysis = {
 # 3. What can be independently tested and committed?
 # 4. What dependencies exist between components?
 
-# For EACH component, create 5-step implementation checklist:
+# For EACH component, create 6-step implementation checklist:
+#   - Plan component approach
+#   - Request plan review
 #   - Implement logic
 #   - Create test cases (success + failure)
-#   - Request zen-mcp review (clink + codex)
-#   - Run make ci-local
-#   - Commit after approval
+#   - Request code review (clink + codex)
+#   - Commit after approval + CI pass
 
 # Template for each component:
 """
@@ -367,7 +368,7 @@ aggregated_analysis = {
 # Human review: Validate decomposition strategy (2 min)
 ```
 
-**Output:** Markdown checklist with 5-step checklist per logical component (created in main context)
+**Output:** Markdown checklist with 6-step checklist per logical component (created in main context)
 
 ---
 
@@ -493,7 +494,7 @@ edge_cases = {
 
 ## Proceed with implementation?
 
-[ ] YES - Start implementation with 5-step checklist
+[ ] YES - Start implementation with 6-step checklist
 [ ] NO - Adjust analysis first
 
 **Review checklist:**
@@ -526,18 +527,18 @@ edge_cases = {
 - [ ] **CI gate confirmation:**
   - Will `make ci-local` run BEFORE commit? (MANDATORY: YES)
   - If tests fail, will commit be blocked? (MANDATORY: YES)
-  - CI workflow: See 5-step checklist (step 4)
+  - CI workflow: See 6-step checklist (step 4)
 
 - [ ] **Approval gate confirmation:**
   - Does this require architectural approval? (YES/NO/N/A)
-    - If YES: Create ADR before implementation (`./08-adr-creation.md`)
+    - If YES: Create ADR before implementation (see `./05-operations.md`)
   - Does this introduce breaking changes? (YES/NO/N/A)
     - If YES: Requires user approval before implementation
   - Does this change API contracts? (YES/NO/N/A)
     - If YES: Requires ADR + user approval
 
 - [ ] **Implementation discipline:**
-  - Will 5-step checklist be followed for EACH component? (MANDATORY: YES)
+  - Will 6-step checklist be followed for EACH component? (MANDATORY: YES)
   - Will components be committed separately? (MANDATORY: YES)
   - Will commits be blocked if review/CI fails? (MANDATORY: YES)
 ```
@@ -674,7 +675,7 @@ Automated analysis succeeds when:
 - [ ] Time reduction ≥40% (100 min → 60 min or less) [Achieved: 45% = 100 min → 55 min]
 - [ ] ALL impacted components identified (0% miss rate)
 - [ ] ALL tests identified (existing + new)
-- [ ] Component breakdown complete with 5-step checklist
+- [ ] Component breakdown complete with 6-step checklist
 - [ ] Edge cases comprehensive (normal, failure, concurrency, security)
 - [ ] Human approval obtained before implementation
 
@@ -684,9 +685,10 @@ Automated analysis succeeds when:
 
 - [00-analysis-checklist.md](./00-analysis-checklist.md) - Manual analysis (fallback)
 - [16-subagent-delegation.md](./16-subagent-delegation.md) - Delegation patterns
-- [01-git.md](./01-git.md) - Commit workflow (5-step checklist)
-- [03-reviews.md](./03-reviews.md) - Quick review (step 3 of 4)
+- [01-git.md](./01-git.md) - Commit workflow
+- [12-component-cycle.md](./12-component-cycle.md) - 6-step pattern
+- [03-reviews.md](./03-reviews.md) - Review workflow
 
 ---
 
-**Next Step:** Use component breakdown to start implementation with 5-step checklist
+**Next Step:** Use component breakdown to start implementation with 6-step checklist

@@ -27,11 +27,13 @@ features: []
 
 ## Implementation Log
 
-**Note:** This section tracks the 4-step pattern for EACH logical component:
-1. Implement component
-2. Create test cases
-3. Request zen-mcp review
-4. Commit after approval
+**Note:** This section tracks the 6-step pattern for EACH logical component:
+1. Plan component approach
+2. Request plan review
+3. Implement component
+4. Create test cases
+5. Request code review
+6. Commit after approval
 
 ### YYYY-MM-DD: Component Name (F0)
 
@@ -203,7 +205,7 @@ features: []
 **When completing this task:**
 
 ```bash
-# 1. Ensure all components committed via 4-step pattern
+# 1. Ensure all components committed via 6-step pattern
 # 2. Ensure all tests passing
 # 3. Ensure all documentation updated
 

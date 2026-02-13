@@ -105,7 +105,7 @@ curl http://localhost:8001/health
 pytest tests/e2e/test_smoke.py
 
 # 6. Document incident
-vim do../../INCIDENTS/YYYY-MM-DD-incident.md
+vim docs/INCIDENTS/YYYY-MM-DD-incident.md
 ```
 
 ### Rollback Database Migrations
@@ -126,7 +126,7 @@ pytest tests/integration/test_db_integrity.py
 
 ### Post-Rollback Actions
 
-1. **Create incident report** in `do../../INCIDENTS/`
+1. **Create incident report** in `docs/INCIDENTS/`
 2. **Notify team** of rollback
 3. **Create hotfix branch** to address issue
 4. **Test hotfix thoroughly** before redeployment
@@ -250,7 +250,7 @@ curl http://localhost:8001/health
 pytest tests/e2e/test_smoke.py
 
 # 3. Create incident report
-vim do../../INCIDENTS/2025-11-08-order-placement-failure.md
+vim docs/INCIDENTS/2025-11-08-order-placement-failure.md
 
 # 4. Create hotfix branch
 git checkout -b hotfix/order-placement-bug
@@ -300,7 +300,7 @@ alembic downgrade -1
 pytest tests/integration/test_db_schema.py
 
 # Document migration issue
-vim do../../INCIDENTS/migration-rollback.md
+vim docs/INCIDENTS/migration-rollback.md
 
 # Fix migration script
 vim db/versions/<migration_file>.py
@@ -409,5 +409,5 @@ docker-compose down && docker-compose up -d
 
 - [01-git.md](./01-git.md) - Creating PRs
 - [04-development.md](./04-development.md) - Testing and debugging
-- [/do../../RUNBOOKS/ops.md](../../RUNBOOKS/ops.md) - Operational procedures
-- [/do../../INCIDENTS/](../../INCIDENTS/) - Past incidents for reference
+- [ops.md](../../RUNBOOKS/ops.md) - Operational procedures
+- [INCIDENTS/](../../INCIDENTS/) - Past incidents for reference

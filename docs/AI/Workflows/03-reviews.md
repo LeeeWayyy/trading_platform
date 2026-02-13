@@ -7,12 +7,7 @@
 
 ## ⚠️ CRITICAL: Two Mandatory Requirements
 
-> **1. ALWAYS pack with Repomix BEFORE every review request**
-> - Run `/repomix-commands:pack-local` on all changed directories
-> - This provides ~70% token reduction and enables thorough analysis
-> - **NEVER request a review without packing first**
->
-> **2. ALWAYS get ALL reviewers' approval BEFORE starting a new iteration**
+> **1. ALWAYS get ALL reviewers' approval BEFORE starting a new iteration**
 > - Each iteration MUST end with explicit approval from ALL reviewers
 > - DO NOT start a new iteration until current iteration has all approvals
 > - If ANY reviewer has not approved, continue re-reviewing in the current iteration
@@ -50,30 +45,6 @@
 ---
 
 ## Review Process
-
-### Step 0: Pack Context for Review (⚠️ MANDATORY - NEVER SKIP)
-
-**🚨 CRITICAL: ALWAYS pack with Repomix BEFORE every review request. NO EXCEPTIONS.**
-
-```bash
-# Pack the directories you modified
-/repomix-commands:pack-local ./libs/<changed> ./apps/<changed> ./tests/<changed>
-```
-
-**Why pack before review?**
-- Provides reviewers with structured, compressed context
-- ~70% token reduction enables more thorough analysis
-- Reviewers can understand full component context, not just diffs
-- Catches issues that span multiple files
-
-**What to pack:**
-- All directories with staged changes
-- Related test directories
-- Any dependencies that reviewers should understand
-
-**⚠️ AI agents MUST NOT proceed to Step 1 without completing Step 0.**
-
-**See [06-repomix.md](./06-repomix.md) for complete guide**
 
 ### Step 1: Prepare Changes
 
@@ -235,16 +206,13 @@ continuation-id: ae512f21-f9fe-4c3a-9e7e-bfaa8b07e5fd"
 
 ## Quick Reference
 
-### ⚠️ Two Critical Requirements (NEVER SKIP)
+### ⚠️ Critical Requirement (NEVER SKIP)
 
-1. **Pack with Repomix** → BEFORE every review request
-2. **Get ALL approvals** → BEFORE starting any new iteration
+1. **Get ALL approvals** → BEFORE starting any new iteration
 
 ### Iteration Flow
 
 ```
-⚠️ STEP 0: Pack with Repomix (MANDATORY before any review)
-
 Iteration 1:
   Reviewer 1 (fresh) → generates continuation_id_1
   Reviewer 2 (uses continuation_id_1)
@@ -263,8 +231,6 @@ Iteration 2:
 
 ```
 Start Review
-    ↓
-⚠️ MANDATORY: Pack with Repomix first
     ↓
 First reviewer starts FRESH (no continuation_id)
     ↓
@@ -316,8 +282,7 @@ Look for:
 
 ## Validation Checklist
 
-**🚨 MANDATORY - Verify BOTH critical requirements:**
-- [ ] **⚠️ REPOMIX: Packed ALL relevant directories with repomix BEFORE requesting review**
+**🚨 MANDATORY - Verify critical requirement:**
 - [ ] **⚠️ ALL APPROVALS: Got ALL reviewers' approval for EACH iteration before starting new iteration**
 
 **Standard checklist:**

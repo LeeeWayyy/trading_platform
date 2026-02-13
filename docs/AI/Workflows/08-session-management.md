@@ -15,14 +15,8 @@
 **At session start, check for incomplete tasks:**
 
 ```bash
-# Check task state
-jq '.current_task.state, .progress.completion_percentage' .ai_workflow/workflow-state.json
-
-# If state is "IN_PROGRESS" or "PENDING", load context:
-if [ -L .claude/checkpoints/latest_session_end.json ]; then
-  CHECKPOINT_ID=$(basename $(readlink .claude/checkpoints/latest_session_end.json) .json)
-  ./scripts/context_checkpoint.py restore --id $CHECKPOINT_ID
-fi
+# Check workflow state
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 
 # Read task details
 TASK_ID=$(jq -r '.current_task.task_id' .ai_workflow/workflow-state.json)
@@ -36,64 +30,29 @@ cat docs/TASKS/${TASK_ID}.md
 
 ---
 
-## 📝 Update Task State
+## 📝 Track Task State
 
-Use `scripts/update_task_state.py` to track progress:
-
-### Start New Task
+Use `workflow_gate.py` to track progress:
 
 ```bash
-./scripts/update_task_state.py start \
-  --task P1T13-F4 \
-  --branch feature/P1T13-F4-workflow-intelligence \
-  --components 6
+# Start a new task
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py start-task docs/TASKS/P1T14_TASK.md feature/P1T14-task-branch
+
+# Set current component
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py set-component "Component-Name"
+
+# Check status
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
+
+# After completing a component, record commit resets to plan for next component
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py record-commit --hash $(git rev-parse HEAD)
 ```
-
-Creates `.ai_workflow/workflow-state.json` with initial state.
-
-### Mark Component Complete
-
-```bash
-./scripts/update_task_state.py complete-component \
-  --component 1 \
-  --name "Git utilities foundation"
-```
-
-Updates completion percentage automatically.
-
-### Finish Task
-
-```bash
-./scripts/update_task_state.py finish
-```
-
-Marks task as COMPLETE, archives state.
-
-### Pause Task (Session End)
-
-```bash
-./scripts/update_task_state.py pause
-```
-
-Preserves state for next session (auto-resume).
 
 ---
 
 ## 🔄 Common Scenarios
 
-### Scenario 1: Resume After Context Limit
-
-```bash
-# 1. Check state
-jq '.' .ai_workflow/workflow-state.json
-
-# 2. Restore checkpoint
-./scripts/context_checkpoint.py restore --id <checkpoint_id>
-
-# 3. Continue work from last component
-```
-
-### Scenario 2: Resume After Multi-Day Break
+### Scenario 1: Resume After Multi-Day Break
 
 ```bash
 # 1. Check what was being worked on
@@ -109,14 +68,11 @@ git log --oneline -5
 # 4. Continue from where you left off
 ```
 
-### Scenario 3: Update Progress Mid-Task
+### Scenario 2: Check Progress Mid-Task
 
 ```bash
-# After completing component 3
-./scripts/update_task_state.py complete-component --component 3 --name "DelegationRules"
-
-# Check updated state
-jq '.progress' .ai_workflow/workflow-state.json
+# Check current workflow state
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 ```
 
 ---
@@ -157,11 +113,9 @@ git commit -m "feat: Component 3 complete"
 # → workflow_gate.py auto-resets to 'implement' step
 # → ready for next component
 
-# Update task state to track completion
-./scripts/update_task_state.py complete-component --component 3 --name "DelegationRules"
+# Check workflow status
+PYTHONPATH=scripts:. python3 scripts/admin/workflow_gate.py status
 ```
 
 **See Also:**
-- `./12-component-cycle.md` - 4-step pattern
-- `.claude/checkpoints/README.md` - Context checkpoint details
-- `.claude/AUTO_RESUME.md` - Auto-resume system overview
+- `./12-component-cycle.md` - 6-step pattern

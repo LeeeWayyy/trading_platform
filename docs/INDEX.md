@@ -134,17 +134,14 @@ Step-by-step procedures for development workflows:
 - [CURRENT, 2025-11-21, Workflow] [03-reviews.md](./AI/Workflows/03-reviews.md) - Zen-mcp comprehensive reviews: independent Gemini + Codex reviews for all commits and PRs
 - [CURRENT, 2025-10-21, Workflow] [04-development.md](./AI/Workflows/04-development.md) - Test execution, debugging procedures, and documentation writing
 - [CURRENT, 2025-10-18, Workflow] [05-operations.md](./AI/Workflows/05-operations.md) - Operations: ADRs, deployment, CI triage, environment setup, phase/task management
-- [CURRENT, 2025-12-31, Workflow] [06-repomix.md](./AI/Workflows/06-repomix.md) - Repomix integration for AI-optimized codebase analysis and context generation
 - [CURRENT, 2025-10-29, Workflow] [08-session-management.md](./AI/Workflows/08-session-management.md) - Auto-resume from task state and task state tracking
 - [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](./AI/Workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
 - [CURRENT, 2025-11-15, Workflow] [16-subagent-delegation.md](./AI/Workflows/16-subagent-delegation.md) - Context monitoring and subagent delegation at 70%+ usage
 - [CURRENT, 2025-11-15, Workflow] [17-automated-analysis.md](./AI/Workflows/17-automated-analysis.md) - Automated pre-implementation analysis checklist execution
-- [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](./AI/Workflows/12-component-cycle.md) - 4-step component development cycle
+- [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](./AI/Workflows/12-component-cycle.md) - 6-step component development cycle
 - [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](./AI/Workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
 - [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](./AI/Workflows/_common/git-commands.md) - Git operations and branch naming conventions
 - [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](./AI/Workflows/_common/test-commands.md) - Testing commands and CI workflows
-- [CURRENT, 2025-11-21, Reference] [_common/zen-review-process.md](./AI/Workflows/_common/zen-review-process.md) - Comprehensive independent review system (Gemini + Codex)
-- [DRAFT, 2025-10-18, Template] [02-planning.md](./AI/Workflows/02-planning.md) - Workflow template
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
 
@@ -226,7 +223,6 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 
 **Workflow References:**
 - [CURRENT, 2025-11-21, Reference] [Workflows/_common/zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen review slash command implementation
-- [CURRENT, 2025-11-21, Reference] [Workflows/session-management.md](./AI/Workflows/session-management.md) - Auto-resume and session management
 - [CURRENT, 2025-11-21, Reference] [Workflows/troubleshooting.md](./AI/Workflows/troubleshooting.md) - Workflow troubleshooting guide
 
 **Priority:** 🟡 **HIGH** - Essential for AI assistants; informational for human developers
@@ -668,13 +664,11 @@ Incident reports and post-mortem analysis:
 Configuration files, templates, prompts, and tooling:
 
 **docs/AI/Workflows/ (Session Management):**
-- [CURRENT, 2025-10-31, Guide] [session-management.md](./AI/Workflows/session-management.md) - Auto-resume task state tracking configuration
 - [CURRENT, 2025-10-27, Guide] [troubleshooting.md](./AI/Workflows/troubleshooting.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
 
 **docs/AI/Workflows/_common/ (Tool-Specific Configuration):**
 - [CURRENT, 2025-10-26, Guide] [zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen-mcp review slash command configuration
 - [CURRENT, 2025-10-25, Guide] [state-README.md](./AI/Workflows/_common/state-README.md) - Task state tracking system documentation
-- [CURRENT, 2025-11-15, Guide] [checkpoints-README.md](./AI/Workflows/_common/checkpoints-README.md) - Context checkpointing system for session delegation
 
 **docs/AI/Implementation/ (Implementation Plans):**
 - [CURRENT, 2025-11-15, Plan] [P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan

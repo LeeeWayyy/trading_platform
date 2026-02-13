@@ -180,11 +180,11 @@ pytest tests/test_file.py -v
    - `.clau../Workflows/_common/git-commands.md` - Git command reference (~40 lines)
    - `.clau../Workflows/_common/test-commands.md` - Test command reference (~30 lines)
    - `.clau../Workflows/_common/clink-policy.md` - Clink usage policy (~20 lines)
-   - `.clau../Workflows/_common/zen-review-process.md` - Review process (~150 lines)
+   - ~~`.clau../Workflows/_common/zen-review-process.md`~~ - Removed; review process lives in [03-reviews.md](../Workflows/03-reviews.md)
 
 2. **Replace duplicates with references:**
    - Instead of duplicating git commands → "See [git-commands.md](../Workflows/_common/git-commands.md)"
-   - Instead of duplicating zen review process → "See [zen-review-process.md](../Workflows/_common/zen-review-process.md)"
+   - Instead of duplicating zen review process → "See [03-reviews.md](../Workflows/03-reviews.md)"
 
 **Expected savings:** Additional ~800-1,200 lines
 
@@ -236,12 +236,7 @@ pytest tests/test_file.py -v
    - Why not to use direct zen-mcp tools
    - Correct vs incorrect tool usage examples
 
-4. **zen-review-process.md** (~150 lines)
-   - How to request zen review
-   - How to interpret findings (HIGH/CRITICAL/MEDIUM/LOW)
-   - How to fix issues
-   - How to verify fixes
-   - Common review patterns
+4. ~~**zen-review-process.md**~~ — Removed; consolidated into [03-reviews.md](../Workflows/03-reviews.md) as golden source
 
 **Deliverables:**
 - 4 new shared reference documents (~240 lines total)
@@ -257,7 +252,7 @@ pytest tests/test_file.py -v
 - **Changes:**
   - Remove Decision Points section (redundant with step-by-step)
   - Consolidate Examples to 1 (normal progressive commit)
-  - Replace zen review duplication with link to zen-review-process.md
+  - Replace zen review duplication with link to 03-reviews.md
   - Replace git commands with link to git-commands.md
   - Remove Validation section (success = commit created)
 
@@ -277,7 +272,7 @@ pytest tests/test_file.py -v
 - **Current:** 614 lines
 - **Target:** ~180 lines (71% reduction)
 - **Changes:**
-  - **CRITICAL:** Extract two-phase review process to zen-review-process.md
+  - **CRITICAL:** Review process consolidated in 03-reviews.md (golden source)
   - Replace clink policy section with link to clink-policy.md
   - Consolidate 3 examples into 1 representative example
   - Remove Common Issues section (most are general zen usage, not workflow-specific)
@@ -287,7 +282,7 @@ pytest tests/test_file.py -v
 - **Current:** 793 lines
 - **Target:** ~250 lines (68% reduction)
 - **Changes:**
-  - Same as 03 - extract to zen-review-process.md
+  - Same as 03 - review process lives in 03-reviews.md
   - Deep review is just quick review but for all branch changes
   - Focus on "what makes it deep" not "how to do review" (already in shared doc)
 

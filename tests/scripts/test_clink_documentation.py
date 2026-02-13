@@ -56,7 +56,6 @@ def test_correct_clink_tool_name_in_documentation():
     key_files = [
         PROJECT_ROOT / "CLAUDE.md",
         PROJECT_ROOT / "docs/AI/AI_GUIDE.md",
-        PROJECT_ROOT / "docs/AI/Workflows/_common/zen-review-process.md",
     ]
 
     for doc_file in key_files:

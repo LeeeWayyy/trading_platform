@@ -40,7 +40,7 @@ workflow_gate.py enforces the 6-step pattern automatically:
 | `advance implement` | After plan approval | Move to implementation |
 | `advance test` | After implementing | Move to test step |
 | `advance review` | After testing | Move to code review step |
-| `record-review <id> APPROVED` | After zen-mcp review | Record approval (plan or code) |
+| `record-review <reviewer> approved --continuation-id <id>` | After zen-mcp review | Record approval (plan or code) |
 | `record-ci true` | After `make ci-local` | Record CI pass |
 | `status` | Anytime | Check current state |
 
@@ -90,7 +90,7 @@ plan → plan-review → implement → test → review → (commit) → plan (re
 
 ## Usage Checklist
 
-- Track four todos for each component
+- Track six todos for each component
 - Stage only files related to current component before review
 - Capture review findings immediately while context is fresh
 - For larger refactors, create follow-up component cycle instead of expanding scope
@@ -101,7 +101,7 @@ plan → plan-review → implement → test → review → (commit) → plan (re
 
 | Anti-Pattern | Why It Fails | Fix |
 |--------------|-------------|-----|
-| Single todo "Implement & commit" | Skips tests and review | Expand into 4 explicit todos |
+| Single todo "Implement & commit" | Skips tests and review | Expand into 6 explicit todos |
 | Combining multiple components | Mega commits, confusing reviews | Run cycle separately per component |
 | Deferring review until "the end" | Reviewers lose context, bugs slip in | Review immediately after tests pass |
 | Treating docs as optional | Trading systems rely on clarity | Include docs in implementation step |

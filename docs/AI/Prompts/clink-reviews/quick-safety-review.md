@@ -55,12 +55,14 @@ Please perform a quick safety review of the staged changes for this trading plat
 
 ## 🔔 Workflow Reminder
 
-**After addressing findings, remind the developer to follow the 4-step pattern:**
+**After addressing findings, remind the developer to follow the 6-step pattern:**
 
-1. **4-Step Pattern (MANDATORY):**
+1. **6-Step Pattern (MANDATORY):**
+   - ✅ Plan approach
+   - ✅ Request plan review
    - ✅ Implement logic
    - ✅ Create test cases (TDD)
-   - ✅ Request quick review (you are here!)
+   - ✅ Request code review (you are here!)
    - ❌ Commit changes (NOT YET - wait for approval)
 
 2. **Progressive Commits:**

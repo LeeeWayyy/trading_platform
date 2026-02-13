@@ -119,7 +119,6 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 | Category | Key Files |
 |----------|-----------|
 | **Workflows** | [Workflows/README.md](./Workflows/README.md) (index), [00-analysis-checklist.md](./Workflows/00-analysis-checklist.md), [12-component-cycle.md](./Workflows/12-component-cycle.md), [03-reviews.md](./Workflows/03-reviews.md), [01-git.md](./Workflows/01-git.md) |
-| **Tools** | [06-repomix.md](./Workflows/06-repomix.md) (codebase analysis), [repomix.config.json](../../repomix.config.json) (project config) |
 | **Standards** | [/../STANDARDS/](../STANDARDS/) (CODING, DOCUMENTATION, GIT_WORKFLOW, TESTING, ADR_GUIDE) |
 | **Implementation** | [/../TASKS/](../TASKS/) (tickets), [/../ADRs/](../ADRs/) (architecture decisions), [/../CONCEPTS/](../CONCEPTS/) (trading glossary) |
 | **Navigation** | [/../INDEX.md](../INDEX.md) (canonical index), this file (AI quick-start) |
@@ -242,13 +241,6 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 
 ### Context Management
 ```bash
-# Checkpointing (before delegation/session end)
-./scripts/context_checkpoint.py create --type {delegation|session_end}
-./scripts/context_checkpoint.py list              # Show available checkpoints
-./scripts/context_checkpoint.py restore --id <checkpoint_id>
-./scripts/context_checkpoint.py cleanup --older-than 7d  # Clean old checkpoints
-
-# Context monitoring (auto-delegation at 70%+ usage)
 # Context monitoring is manual - check token usage in status
 ./scripts/workflow_gate.py status                 # Check current workflow state
 ```
@@ -324,7 +316,7 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 # → Request shared-context iteration reviews (see 03-reviews.md)
 ./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
 ./scripts/workflow_gate.py record-review codex approved --continuation-id <id>  # Same ID
-./scripts/workflow_gate.py record-ci passed                # After make ci-local passes
+./scripts/workflow_gate.py record-ci true                # After make ci-local passes
 ./scripts/workflow_gate.py check-commit                    # Verify gates met
 git commit -m "message"                                    # Pre-commit hook enforces gates
 ./scripts/workflow_gate.py record-commit                   # Record completion
@@ -488,4 +480,4 @@ See [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) for full d
 
 **Last Updated:** 2025-12-31
 **Maintained By:** Development Team
-**Version:** 2.2 (Added Repomix integration for AI-optimized codebase analysis)
+**Version:** 2.3
