@@ -248,6 +248,7 @@ class CoverageAnalyzer:
         # Build calendar date axis
         trading_days_set: set[datetime.date] = set()
         try:
+            # Lazy import: exchange_calendars is optional; fallback to weekdays below.
             from libs.data.data_quality.types import ExchangeCalendarAdapter
 
             cal = ExchangeCalendarAdapter("XNYS")

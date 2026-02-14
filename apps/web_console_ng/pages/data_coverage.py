@@ -93,10 +93,6 @@ async def data_coverage_page() -> None:
             )
             return
 
-        # Validate resolution
-        if resolution not in ("daily", "weekly", "monthly"):
-            resolution = "monthly"
-
         try:
             # Offload heavy filesystem scan to worker thread to avoid
             # blocking the NiceGUI event loop.

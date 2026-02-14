@@ -24,8 +24,9 @@ import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
+import duckdb
 import plotly.graph_objects as go
 from nicegui import ui
 
@@ -163,6 +164,7 @@ async def data_management_page() -> None:
     sync_status_container: ui.column | None = None
     alerts_container: ui.column | None = None
     scores_container: ui.column | None = None
+    _load_alerts_fn: Callable[[], Any] | None = None
 
     with ui.tab_panels(tabs, value=default_tab).classes("w-full"):
         if show_sync_tab:
@@ -850,10 +852,13 @@ async def _render_data_explorer_section(
                                         type="warning",
                                     )
                                     return
-                                fmt = export_format["value"]
+                                fmt = cast(
+                                    Literal["csv", "parquet"],
+                                    export_format["value"],
+                                )
                                 try:
                                     job = await explorer_service.export_data(
-                                        user, ds, query_val, fmt  # type: ignore[arg-type]
+                                        user, ds, query_val, fmt
                                     )
                                     ui.notify(
                                         f"Export job {job.id} queued ({fmt})",
@@ -1135,12 +1140,14 @@ async def _render_anomaly_alerts(
 
     async def load_alerts() -> None:
         ack_mapped = _ACK_MAP[str(ack_filter.value)]
+        sev_value = str(severity_filter.value)
+        # Pass severity to backend for initial filtering when possible
+        backend_severity = None if sev_value == "all" else sev_value
         try:
             raw_alerts = await quality_service.get_anomaly_alerts(
-                user, severity=None, acknowledged=ack_mapped
+                user, severity=backend_severity, acknowledged=ack_mapped
             )
-            # Client-side severity normalization and filtering
-            sev_value = str(severity_filter.value)
+            # Client-side normalization handles non-standard severity values
             filtered = _normalize_and_filter_alerts(raw_alerts, sev_value)
 
             alerts_container.clear()
@@ -1497,8 +1504,6 @@ async def _load_quarantine_preview(entry: Any) -> None:
         entry_file = safe_path / f"{entry.dataset}.parquet"
         if not entry_file.exists():
             return ("no_file", None)
-
-        import duckdb
 
         conn = duckdb.connect()
         try:

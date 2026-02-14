@@ -9,12 +9,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC
+from datetime import datetime as dt_type
 from typing import Any
 
 import plotly.graph_objects as go
 from nicegui import ui
 
 from libs.data.data_quality.pit_inspector import PITLookupResult
+
+MAX_TABLE_ROWS = 50
 
 
 def render_pit_lookup_form(
@@ -44,8 +47,6 @@ def render_pit_lookup_form(
         options=available_tickers,
         value=available_tickers[0],
     ).classes("w-48")
-
-    from datetime import datetime as dt_type
 
     default_date = max_date or dt_type.now(UTC).date().isoformat()
     date_input = ui.input(
@@ -149,7 +150,7 @@ def render_pit_results(result: PITLookupResult) -> None:
     # Available data table
     if result.data_available:
         ui.label("Available Data (Known)").classes("font-bold mb-2")
-        show_rows = result.data_available[:50]
+        show_rows = result.data_available[:MAX_TABLE_ROWS]
         columns: list[dict[str, Any]] = [
             {"name": "date", "label": "Date", "field": "date", "sortable": True},
             {"name": "open", "label": "Open", "field": "open"},
@@ -172,9 +173,9 @@ def render_pit_results(result: PITLookupResult) -> None:
             for p in show_rows
         ]
         ui.table(columns=columns, rows=rows).classes("w-full mb-4")
-        if len(result.data_available) > 50:
+        if len(result.data_available) > MAX_TABLE_ROWS:
             ui.label(
-                f"Showing 50 of {len(result.data_available)} rows"
+                f"Showing {MAX_TABLE_ROWS} of {len(result.data_available)} rows"
             ).classes("text-sm text-gray-500")
     else:
         ui.label("No data available before this date").classes(

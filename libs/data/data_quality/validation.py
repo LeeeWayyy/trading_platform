@@ -587,6 +587,7 @@ def validate_quarantine_path(quarantine_path: str, data_dir: Path) -> Path:
 
     # Extract canonical date directory (strict allowlist of accepted formats)
     parts = Path(raw).parts
+    # Max 3 segments: e.g. "dataset", "2024-01-15", or "prefix/2024-01-15/file"
     if len(parts) > 3:
         raise ValueError(
             f"Unexpected quarantine path format (too many segments): {quarantine_path}"

@@ -105,6 +105,7 @@ def _compute_trading_days_stale(
         return 0
 
     try:
+        # Lazy import: exchange_calendars is optional; fallback to calendar days below.
         from libs.data.data_quality.types import ExchangeCalendarAdapter
 
         cal = ExchangeCalendarAdapter("XNYS")

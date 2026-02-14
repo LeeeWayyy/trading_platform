@@ -20,6 +20,14 @@ from libs.data.data_quality.coverage_analyzer import (
     CoverageStatus,
 )
 
+# Display thresholds and limits
+HIGH_COVERAGE_THRESHOLD = 95.0
+MEDIUM_COVERAGE_THRESHOLD = 80.0
+MIN_HEATMAP_HEIGHT = 400
+HEATMAP_ROW_HEIGHT = 20
+HEATMAP_PADDING = 100
+MAX_GAPS_DISPLAYED = 50
+
 
 def render_coverage_controls(
     available_tickers: list[str],
@@ -93,9 +101,9 @@ def render_coverage_heatmap(matrix: CoverageMatrix) -> None:
     # Summary cards
     summary = matrix.summary
     pct = summary.coverage_pct
-    if pct >= 95:
+    if pct >= HIGH_COVERAGE_THRESHOLD:
         pct_color = "text-green-600"
-    elif pct >= 80:
+    elif pct >= MEDIUM_COVERAGE_THRESHOLD:
         pct_color = "text-amber-600"
     else:
         pct_color = "text-red-600"
@@ -172,7 +180,10 @@ def render_coverage_heatmap(matrix: CoverageMatrix) -> None:
             title=f"Data Coverage ({pct:.1f}%) - {matrix.effective_resolution}",
             xaxis_title="Date",
             yaxis_title="Symbol",
-            height=max(400, len(matrix.symbols) * 20 + 100),
+            height=max(
+                MIN_HEATMAP_HEIGHT,
+                len(matrix.symbols) * HEATMAP_ROW_HEIGHT + HEATMAP_PADDING,
+            ),
         )
         ui.plotly(fig).classes("w-full mb-4")
     else:
@@ -196,12 +207,12 @@ def render_coverage_heatmap(matrix: CoverageMatrix) -> None:
                 "end": g.end_date.isoformat(),
                 "days": g.gap_days,
             }
-            for g in summary.gaps[:50]
+            for g in summary.gaps[:MAX_GAPS_DISPLAYED]
         ]
         ui.table(columns=columns, rows=rows).classes("w-full mb-4")
-        if len(summary.gaps) > 50:
+        if len(summary.gaps) > MAX_GAPS_DISPLAYED:
             ui.label(
-                f"Showing 50 of {len(summary.gaps)} gaps"
+                f"Showing {MAX_GAPS_DISPLAYED} of {len(summary.gaps)} gaps"
             ).classes("text-sm text-gray-500")
 
 
