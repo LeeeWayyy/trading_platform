@@ -89,6 +89,13 @@ _SEVERITY_COLORS: dict[str, str] = {
 # Acknowledged filter mapping: UI label -> service parameter
 _ACK_MAP: dict[str, bool | None] = {"all": None, "unacked": False, "acked": True}
 
+# Datasets available for quality trends (mirrors service-side _SUPPORTED_DATASETS)
+_TREND_DATASETS: tuple[str, ...] = ("crsp", "compustat", "taq", "fama_french")
+
+# Quality trend chart threshold lines
+GOOD_QUALITY_THRESHOLD = 90.0
+CRITICAL_QUALITY_THRESHOLD = 70.0
+
 # Timer cleanup owner key (page-scoped, replaces only this page's callback)
 _CLEANUP_OWNER_KEY = "data_management_timers"
 
@@ -1145,13 +1152,14 @@ async def _render_anomaly_alerts(
     async def load_alerts() -> None:
         ack_mapped = _ACK_MAP[str(ack_filter.value)]
         sev_value = str(severity_filter.value)
-        # Pass severity to backend for initial filtering when possible
-        backend_severity = None if sev_value == "all" else sev_value
+        # Always fetch all severities from backend: backend labels (e.g. "warning")
+        # differ from UI canonical labels (e.g. "medium"), so passing the UI value
+        # directly would miss matching alerts. Client-side normalization handles
+        # the mapping and filtering.
         try:
             raw_alerts = await quality_service.get_anomaly_alerts(
-                user, severity=backend_severity, acknowledged=ack_mapped
+                user, severity=None, acknowledged=ack_mapped
             )
-            # Client-side normalization handles non-standard severity values
             filtered, sev_lookup = _normalize_and_filter_alerts(raw_alerts, sev_value)
 
             alerts_container.clear()
@@ -1275,8 +1283,7 @@ async def _render_quality_trends(
     """Render quality trend charts with dataset selector."""
     ui.label("Quality Trends").classes("font-bold mb-2")
 
-    all_datasets = ["crsp", "compustat", "taq", "fama_french"]
-    accessible = [ds for ds in all_datasets if has_dataset_permission(user, ds)]
+    accessible = [ds for ds in _TREND_DATASETS if has_dataset_permission(user, ds)]
     if not accessible:
         ui.label("No accessible datasets for trend analysis.").classes(
             "text-gray-500"
@@ -1341,14 +1348,15 @@ def _build_quality_trend_chart(trend: Any) -> None:
             )
         )
 
-    # Threshold lines at 90 (good) and 70 (critical)
     fig.add_hline(
-        y=90, line_dash="dash", line_color="green",
-        annotation_text="Good (90)", annotation_position="top right",
+        y=GOOD_QUALITY_THRESHOLD, line_dash="dash", line_color="green",
+        annotation_text=f"Good ({GOOD_QUALITY_THRESHOLD:.0f})",
+        annotation_position="top right",
     )
     fig.add_hline(
-        y=70, line_dash="dash", line_color="red",
-        annotation_text="Critical (70)", annotation_position="bottom right",
+        y=CRITICAL_QUALITY_THRESHOLD, line_dash="dash", line_color="red",
+        annotation_text=f"Critical ({CRITICAL_QUALITY_THRESHOLD:.0f})",
+        annotation_position="bottom right",
     )
     fig.update_layout(
         title=f"Quality Trends - {trend.dataset}",
@@ -1524,7 +1532,7 @@ async def _load_quarantine_preview(entry: Any) -> None:
             return ("ok", conn.execute(
                 "SELECT * FROM read_parquet(?) LIMIT 100",
                 [str(entry_file)],
-            ).fetchdf())
+            ).pl())
         finally:
             conn.close()
 
@@ -1551,8 +1559,8 @@ async def _load_quarantine_preview(entry: Any) -> None:
             ).classes("text-gray-500 italic")
             return
 
-        # Display preview table
-        if result.empty:
+        # Display preview table (result is a polars DataFrame)
+        if len(result) == 0:
             ui.label("No matching data for this entry").classes("text-gray-500")
             return
 
@@ -1563,7 +1571,7 @@ async def _load_quarantine_preview(entry: Any) -> None:
             {"name": col, "label": col, "field": col, "sortable": True}
             for col in result.columns
         ]
-        rows = result.to_dict(orient="records")
+        rows = result.to_dicts()
         ui.table(columns=columns, rows=rows).classes("w-full")
 
     except Exception:

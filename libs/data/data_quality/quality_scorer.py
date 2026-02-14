@@ -24,6 +24,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
+# Trend direction thresholds (7d avg vs 30d avg multipliers)
+TREND_IMPROVING_THRESHOLD = 1.02
+TREND_DEGRADING_THRESHOLD = 0.98
+DEGRADATION_ALERT_THRESHOLD = 0.95
+
 # ============================================================================
 # Protocols (decoupled from service DTOs)
 # ============================================================================
@@ -237,15 +242,15 @@ def compute_trend_summary(
     avg_7d = sum(values[-7:]) / 7
 
     # Trend direction
-    if avg_7d > avg_30d * 1.02:
+    if avg_7d > avg_30d * TREND_IMPROVING_THRESHOLD:
         direction = "improving"
-    elif avg_7d < avg_30d * 0.98:
+    elif avg_7d < avg_30d * TREND_DEGRADING_THRESHOLD:
         direction = "degrading"
     else:
         direction = "stable"
 
     # Degradation alert: >5% decline
-    degradation_alert = avg_7d < avg_30d * 0.95
+    degradation_alert = avg_7d < avg_30d * DEGRADATION_ALERT_THRESHOLD
 
     return TrendSummary(
         current_score=current,
@@ -258,8 +263,11 @@ def compute_trend_summary(
 
 __all__ = [
     "AlertLike",
+    "DEGRADATION_ALERT_THRESHOLD",
     "QualityScore",
     "QuarantineLike",
+    "TREND_DEGRADING_THRESHOLD",
+    "TREND_IMPROVING_THRESHOLD",
     "TrendLike",
     "TrendPointLike",
     "TrendSummary",

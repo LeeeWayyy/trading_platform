@@ -138,14 +138,19 @@ class CoverageAnalyzer:
         self._quarantine_dir = data_dir / "quarantine"
 
     def get_available_tickers(self) -> list[str]:
-        """Scan adjusted data directory for all available ticker symbols."""
-        if not self._adjusted_dir.exists():
-            return []
+        """Scan adjusted and quarantine directories for all ticker symbols.
+
+        Includes quarantine-only symbols so the default coverage heatmap
+        surfaces tickers most likely to have quality issues.
+        """
         tickers: set[str] = set()
-        for date_dir in self._adjusted_dir.iterdir():
-            if date_dir.is_dir() and is_valid_date_partition(date_dir.name):
-                for pq in date_dir.glob("*.parquet"):
-                    tickers.add(pq.stem)
+        for base_dir in (self._adjusted_dir, self._quarantine_dir):
+            if not base_dir.exists():
+                continue
+            for date_dir in base_dir.iterdir():
+                if date_dir.is_dir() and is_valid_date_partition(date_dir.name):
+                    for pq in date_dir.glob("*.parquet"):
+                        tickers.add(pq.stem)
         return sorted(tickers)
 
     def _discover_date_range(

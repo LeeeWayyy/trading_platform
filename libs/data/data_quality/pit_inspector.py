@@ -264,11 +264,14 @@ class PITInspector:
                 table_name = _safe_table_name("avail", run_dt.isoformat())
                 catalog.register_table(table_name, path)
 
-                # Fetch available data within lookback window
+                # Fetch available data within lookback window (CTE avoids
+                # repeating CAST(date AS DATE) in SELECT and WHERE)
                 result_df = catalog.query(
-                    f"SELECT *, CAST(date AS DATE) AS market_date "  # noqa: S608
-                    f"FROM {table_name} "
-                    f"WHERE CAST(date AS DATE) >= ? AND CAST(date AS DATE) <= ? "
+                    f"WITH src AS ("  # noqa: S608
+                    f"  SELECT *, CAST(date AS DATE) AS market_date "
+                    f"  FROM {table_name}"
+                    f") SELECT * FROM src "
+                    f"WHERE market_date >= ? AND market_date <= ? "
                     f"ORDER BY market_date DESC",
                     params=[earliest_market, knowledge_iso],
                 )
@@ -294,11 +297,14 @@ class PITInspector:
                     ):
                         raw_rows[market_date] = point
 
-                # Contamination check: reuse same table (no re-registration)
+                # Contamination check: reuse same CTE pattern
                 if not has_contaminated_historical:
                     anomaly_df = catalog.query(
-                        f"SELECT COUNT(*) AS cnt FROM {table_name} "  # noqa: S608
-                        f"WHERE CAST(date AS DATE) > ?",
+                        f"WITH src AS ("  # noqa: S608
+                        f"  SELECT CAST(date AS DATE) AS market_date "
+                        f"  FROM {table_name}"
+                        f") SELECT COUNT(*) AS cnt FROM src "
+                        f"WHERE market_date > ?",
                         params=[knowledge_iso],
                     )
                     if anomaly_df.row(0)[0] > 0:  # type: ignore[operator]
@@ -309,9 +315,11 @@ class PITInspector:
                 table_name = _safe_table_name("future", run_dt.isoformat())
                 catalog.register_table(table_name, path)
                 result_df = catalog.query(
-                    f"SELECT *, CAST(date AS DATE) AS market_date "  # noqa: S608
-                    f"FROM {table_name} "
-                    f"WHERE CAST(date AS DATE) > ? "
+                    f"WITH src AS ("  # noqa: S608
+                    f"  SELECT *, CAST(date AS DATE) AS market_date "
+                    f"  FROM {table_name}"
+                    f") SELECT * FROM src "
+                    f"WHERE market_date > ? "
                     f"ORDER BY market_date ASC LIMIT 20",
                     params=[knowledge_iso],
                 )
