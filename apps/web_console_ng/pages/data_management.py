@@ -40,7 +40,11 @@ from libs.data.data_quality.quality_scorer import (
     normalize_validation_status,
 )
 from libs.data.data_quality.validation import validate_quarantine_path
-from libs.platform.web_console_auth.permissions import Permission, has_permission
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    has_dataset_permission,
+    has_permission,
+)
 from libs.web_console_services.data_explorer_service import DataExplorerService
 from libs.web_console_services.data_explorer_service import (
     RateLimitExceeded as ExplorerRateLimitExceeded,
@@ -1148,11 +1152,11 @@ async def _render_anomaly_alerts(
                 user, severity=backend_severity, acknowledged=ack_mapped
             )
             # Client-side normalization handles non-standard severity values
-            filtered = _normalize_and_filter_alerts(raw_alerts, sev_value)
+            filtered, sev_lookup = _normalize_and_filter_alerts(raw_alerts, sev_value)
 
             alerts_container.clear()
             with alerts_container:
-                _build_anomaly_alert_cards(filtered, user, quality_service)
+                _build_anomaly_alert_cards(filtered, user, quality_service, sev_lookup)
         except PermissionError as e:
             ui.notify(str(e), type="negative")
         except Exception:
@@ -1175,28 +1179,30 @@ async def _render_anomaly_alerts(
 
 def _normalize_and_filter_alerts(
     raw_alerts: list[Any], severity_filter: str
-) -> list[Any]:
+) -> tuple[list[Any], dict[str, str]]:
     """Normalize severity values and apply client-side filter.
 
-    Uses a local lookup to avoid mutating incoming DTO objects. The normalized
-    severity is stored as ``_normalized_severity`` on each alert for filtering.
+    Returns a tuple of (filtered_alerts, severity_lookup) where severity_lookup
+    maps alert.id -> normalized severity string. This avoids mutating Pydantic
+    DTO objects which reject undeclared attribute writes.
     """
     result: list[Any] = []
+    severity_lookup: dict[str, str] = {}
     for alert in raw_alerts:
         normalized = _SEVERITY_MAP.get(
             alert.severity.lower(), alert.severity.lower()
         )
-        # Attach normalized value without mutating the original .severity field
-        alert._normalized_severity = normalized  # noqa: SLF001
+        severity_lookup[alert.id] = normalized
         if severity_filter == "all" or normalized == severity_filter:
             result.append(alert)
-    return result
+    return result, severity_lookup
 
 
 def _build_anomaly_alert_cards(
     alerts: list[Any],
     user: dict[str, Any],
     quality_service: DataQualityService,
+    severity_lookup: dict[str, str],
 ) -> None:
     """Build alert cards from normalized AnomalyAlertDTO list."""
     can_ack = has_permission(user, Permission.ACKNOWLEDGE_ALERTS)
@@ -1206,7 +1212,7 @@ def _build_anomaly_alert_cards(
         return
 
     for alert in alerts:
-        sev = getattr(alert, "_normalized_severity", alert.severity)
+        sev = severity_lookup.get(alert.id, alert.severity)
         color_class = _SEVERITY_COLORS.get(
             sev, "bg-gray-100 border-gray-300 text-gray-700"
         )
@@ -1269,10 +1275,18 @@ async def _render_quality_trends(
     """Render quality trend charts with dataset selector."""
     ui.label("Quality Trends").classes("font-bold mb-2")
 
+    all_datasets = ["crsp", "compustat", "taq", "fama_french"]
+    accessible = [ds for ds in all_datasets if has_dataset_permission(user, ds)]
+    if not accessible:
+        ui.label("No accessible datasets for trend analysis.").classes(
+            "text-gray-500"
+        )
+        return
+
     dataset_select = ui.select(
         label="Dataset",
-        options=["crsp", "compustat", "taq", "fama_french"],
-        value="crsp",
+        options=accessible,
+        value=accessible[0],
     ).classes("w-40 mb-4")
 
     trend_container = ui.column().classes("w-full")
@@ -1507,12 +1521,9 @@ async def _load_quarantine_preview(entry: Any) -> None:
 
         conn = duckdb.connect()
         try:
-            conn.execute(
-                "CREATE TABLE quarantine AS SELECT * FROM read_parquet(?)",
-                [str(entry_file)],
-            )
             return ("ok", conn.execute(
-                "SELECT * FROM quarantine LIMIT 100"
+                "SELECT * FROM read_parquet(?) LIMIT 100",
+                [str(entry_file)],
             ).fetchdf())
         finally:
             conn.close()

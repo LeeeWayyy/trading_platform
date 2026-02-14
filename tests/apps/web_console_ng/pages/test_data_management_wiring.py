@@ -289,23 +289,23 @@ class TestSeverityNormalization:
 
     def test_normalize_and_filter_all(self) -> None:
         alerts = _make_anomaly_alerts()
-        result = dm_module._normalize_and_filter_alerts(alerts, "all")
-        assert len(result) == 2
-        # Original .severity is NOT mutated; normalized value on _normalized_severity
-        assert result[0].severity == "warning"  # Original preserved
-        assert result[0]._normalized_severity == "medium"  # "warning" -> "medium"
-        assert result[1]._normalized_severity == "high"
+        filtered, sev_lookup = dm_module._normalize_and_filter_alerts(alerts, "all")
+        assert len(filtered) == 2
+        # Original .severity is NOT mutated; normalized values in lookup dict
+        assert filtered[0].severity == "warning"  # Original preserved
+        assert sev_lookup["alert-1"] == "medium"  # "warning" -> "medium"
+        assert sev_lookup["alert-2"] == "high"
 
     def test_normalize_and_filter_by_canonical(self) -> None:
         alerts = _make_anomaly_alerts()
-        result = dm_module._normalize_and_filter_alerts(alerts, "medium")
-        assert len(result) == 1
-        assert result[0].id == "alert-1"
+        filtered, _lookup = dm_module._normalize_and_filter_alerts(alerts, "medium")
+        assert len(filtered) == 1
+        assert filtered[0].id == "alert-1"
 
     def test_normalize_and_filter_empty_result(self) -> None:
         alerts = _make_anomaly_alerts()
-        result = dm_module._normalize_and_filter_alerts(alerts, "critical")
-        assert len(result) == 0
+        filtered, _lookup = dm_module._normalize_and_filter_alerts(alerts, "critical")
+        assert len(filtered) == 0
 
 
 # ============================================================================
