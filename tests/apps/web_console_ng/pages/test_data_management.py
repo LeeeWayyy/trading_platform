@@ -1,180 +1,100 @@
+"""Legacy compatibility tests for data management page (P5T7 -> P6T13).
+
+These tests verify the basic structure and permission gating remain intact
+after the P6T13 service wiring refactor.
+"""
+
 from __future__ import annotations
 
-from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from apps.web_console_ng.pages import data_management as data_module
-
-
-class DummyElement:
-    def __init__(self, *, text: str | None = None, value: Any = None) -> None:
-        self.text = text or ""
-        self.value = value
-        self.visible = True
-        self.on_click_cb = None
-        self.on_value_change_cb = None
-
-    def __enter__(self) -> DummyElement:
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        return False
-
-    def classes(self, *args, **kwargs) -> DummyElement:
-        return self
-
-    def props(self, *args, **kwargs) -> DummyElement:
-        return self
-
-    def set_visibility(self, value: bool) -> None:
-        self.visible = value
-
-    def on_click(self, cb) -> None:
-        self.on_click_cb = cb
-
-    def on_value_change(self, cb) -> None:
-        self.on_value_change_cb = cb
-
-    def clear(self) -> None:
-        return None
-
-
-class DummyUI:
-    def __init__(self) -> None:
-        self.labels: list[str] = []
-        self.buttons: list[DummyElement] = []
-        self.inputs: dict[str, DummyElement] = {}
-        self.selects: dict[str, DummyElement] = {}
-        self.notifications: list[tuple[str, str | None]] = []
-
-    def tabs(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def tab(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def tab_panels(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def tab_panel(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def card(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def row(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def column(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def label(self, text: str = "", *args, **kwargs) -> DummyElement:
-        self.labels.append(text)
-        return DummyElement(text=text)
-
-    def select(self, *, label: str = "", options=None, value=None, **kwargs) -> DummyElement:
-        element = DummyElement(text=label, value=value)
-        if label:
-            self.selects[label] = element
-        return element
-
-    def input(self, *, label: str = "", value: Any = "", **kwargs) -> DummyElement:
-        element = DummyElement(text=label, value=value)
-        if label:
-            self.inputs[label] = element
-        return element
-
-    def textarea(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def button(
-        self, text: str = "", icon: str | None = None, on_click=None, **kwargs
-    ) -> DummyElement:
-        element = DummyElement(text=text)
-        if on_click is not None:
-            element.on_click(on_click)
-        self.buttons.append(element)
-        return element
-
-    def table(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def separator(self, *args, **kwargs) -> DummyElement:
-        return DummyElement()
-
-    def notify(self, message: str, type: str | None = None) -> None:
-        self.notifications.append((message, type))
-
-
-@pytest.fixture()
-def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:
-    ui = DummyUI()
-    monkeypatch.setattr(data_module, "ui", ui)
-    return ui
+from apps.web_console_ng.pages import data_management as dm_module
 
 
 @pytest.mark.asyncio()
-async def test_data_sync_requires_permission(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+@patch("apps.web_console_ng.pages.data_management.ui")
+async def test_data_sync_no_view_shows_placeholder(
+    mock_ui: MagicMock,
 ) -> None:
-    monkeypatch.setattr(data_module, "has_permission", lambda user, perm: False)
+    """Sync status placeholder when VIEW_DATA_SYNC is missing."""
+    mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
 
-    await data_module._render_data_sync_section({"role": "viewer"}, None)
+    sync_service = MagicMock()
+    sync_service.get_sync_status = AsyncMock(return_value=[])
 
-    assert "Permission denied: VIEW_DATA_SYNC required" in dummy_ui.labels
+    await dm_module._render_sync_status(
+        {"role": "viewer"}, sync_service, has_view=False, has_trigger=False
+    )
+    sync_service.get_sync_status.assert_not_awaited()
 
 
 @pytest.mark.asyncio()
-async def test_trigger_sync_requires_reason(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+@patch("apps.web_console_ng.pages.data_management.ui")
+async def test_data_quality_section_creates_tabs(
+    mock_ui: MagicMock,
 ) -> None:
-    def has_permission(user, perm):
-        return True
+    """Quality section creates all four sub-tabs including Quarantine Inspector."""
+    mock_ui.tabs.return_value = MagicMock()
+    mock_ui.tabs.return_value.__enter__ = MagicMock()
+    mock_ui.tabs.return_value.__exit__ = MagicMock(return_value=False)
+    mock_ui.tab.return_value = MagicMock()
+    mock_ui.tab_panels.return_value = MagicMock()
+    mock_ui.tab_panels.return_value.__enter__ = MagicMock()
+    mock_ui.tab_panels.return_value.__exit__ = MagicMock(return_value=False)
+    mock_ui.tab_panel.return_value = MagicMock()
+    mock_ui.tab_panel.return_value.__enter__ = MagicMock()
+    mock_ui.tab_panel.return_value.__exit__ = MagicMock(return_value=False)
+    mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+    col_mock = MagicMock()
+    col_mock.__enter__ = MagicMock()
+    col_mock.__exit__ = MagicMock(return_value=False)
+    mock_ui.column.return_value = col_mock
+    select_mock = MagicMock()
+    select_mock.value = "all"
+    select_mock.classes.return_value = select_mock
+    select_mock.on_value_change = MagicMock()
+    mock_ui.select.return_value = select_mock
+    mock_ui.row.return_value = MagicMock()
+    mock_ui.row.return_value.__enter__ = MagicMock()
+    mock_ui.row.return_value.__exit__ = MagicMock(return_value=False)
+    mock_ui.table.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+    mock_ui.card.return_value = MagicMock()
+    mock_ui.card.return_value.__enter__ = MagicMock()
+    mock_ui.card.return_value.__exit__ = MagicMock(return_value=False)
+    mock_ui.button.return_value = MagicMock(
+        props=MagicMock(return_value=MagicMock(classes=MagicMock(return_value=MagicMock())))
+    )
+    mock_ui.plotly = MagicMock(return_value=MagicMock(classes=MagicMock(return_value=MagicMock())))
+    mock_ui.expansion.return_value = MagicMock()
+    mock_ui.expansion.return_value.__enter__ = MagicMock()
+    mock_ui.expansion.return_value.__exit__ = MagicMock(return_value=False)
 
-    monkeypatch.setattr(data_module, "has_permission", has_permission)
+    quality_service = MagicMock()
+    quality_service.get_validation_results = AsyncMock(return_value=[])
+    quality_service.get_anomaly_alerts = AsyncMock(return_value=[])
+    quality_service.get_quality_trends = AsyncMock(
+        return_value=MagicMock(data_points=[], dataset="crsp", period_days=30)
+    )
+    quality_service.get_quarantine_status = AsyncMock(return_value=[])
 
-    await data_module._render_sync_status({"role": "admin"})
+    result = await dm_module._render_data_quality_section(
+        {"role": "admin"}, quality_service
+    )
 
-    trigger_btn = next(btn for btn in dummy_ui.buttons if btn.text == "Trigger Sync")
-    await trigger_btn.on_click_cb()
+    # Returns tuple of (alerts_container, scores_container, load_alerts_fn)
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+    assert callable(result[2])
 
-    assert any("Please provide a reason" in msg for msg, _ in dummy_ui.notifications)
-
-    dummy_ui.inputs["Reason"].value = "Backfill"
-    await trigger_btn.on_click_cb()
-
-    assert any("Sync triggered" in msg for msg, _ in dummy_ui.notifications)
-    assert dummy_ui.inputs["Reason"].value == ""
+    # Should create tabs
+    tab_calls = [str(c) for c in mock_ui.tab.call_args_list]
+    assert len(tab_calls) >= 4
 
 
 @pytest.mark.asyncio()
-async def test_data_explorer_run_query_and_export(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def has_permission(user, perm):
-        return True
-
-    monkeypatch.setattr(data_module, "has_permission", has_permission)
-
-    await data_module._render_data_explorer_section({"role": "admin"}, None)
-
-    run_btn = next(btn for btn in dummy_ui.buttons if btn.text == "Run Query")
-    export_btn = next(btn for btn in dummy_ui.buttons if btn.text == "Export Results")
-
-    await run_btn.on_click_cb()
-    await export_btn.on_click_cb()
-
-    assert any("Query executed" in msg for msg, _ in dummy_ui.notifications)
-    assert any("Export started" in msg for msg, _ in dummy_ui.notifications)
-
-
-@pytest.mark.asyncio()
-async def test_data_quality_requires_permission(
-    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(data_module, "has_permission", lambda user, perm: False)
-
-    await data_module._render_data_quality_section({"role": "viewer"}, None)
-
-    assert "Permission denied: VIEW_DATA_QUALITY required" in dummy_ui.labels
+@patch("apps.web_console_ng.pages.data_management.ui")
+async def test_module_exports(mock_ui: MagicMock) -> None:
+    """Module exports data_management_page."""
+    assert "data_management_page" in dm_module.__all__

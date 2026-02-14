@@ -224,6 +224,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 **Workflow References:**
 - [CURRENT, 2025-11-21, Reference] [Workflows/_common/zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen review slash command implementation
 - [CURRENT, 2025-11-21, Reference] [Workflows/troubleshooting.md](./AI/Workflows/troubleshooting.md) - Workflow troubleshooting guide
+- [CURRENT, 2026-02-12, Command] [.claude/commands/review.md](../.claude/commands/review.md) - Claude Code review slash command (shared-context iteration)
 
 **Priority:** 🟡 **HIGH** - Essential for AI assistants; informational for human developers
 
@@ -272,6 +273,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0026](./ADRs/0026-shadow-mode-model-validation.md) | Shadow mode model validation for safe hot-swap | ✅ Accepted |
 | [0027](./ADRs/0027-liquidity-aware-slicing.md) | Liquidity-aware TWAP slicing with ADV constraints | ✅ Accepted |
 | [0028](./ADRs/0028-market-data-fallback-buffer.md) | Market data fallback buffer for Redis outages | ✅ Accepted |
+| [0029-keyed](./ADRs/0029-keyed-lifecycle-callbacks.md) | Keyed lifecycle callbacks for ClientLifecycleManager | ✅ Accepted |
 | [ADR-0029](./ADRs/ADR-0029-alerting-system.md) | Alerting system architecture (multi-channel delivery, rate limiting) | 🚧 Proposed |
 | [ADR-0030](./ADRs/ADR-0030-reporting-architecture.md) | Reporting architecture for scheduled reports and PDF generation | 🚧 Proposed |
 | [ADR-0031](./ADRs/ADR-0031-nicegui-migration.md) | NiceGUI migration from Streamlit for web console | ✅ Accepted |
