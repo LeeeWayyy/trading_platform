@@ -13,10 +13,11 @@ Key design:
       historical partitions (future-dated market data in past run-date dirs).
     - Staleness in trading days via ``ExchangeCalendarAdapter("XNYS")``.
 
-TODO(perf): For large datasets (1000+ partitions), consider filtering
-    available_partitions to only those within ``lookback_days`` range,
-    or using DuckDB glob patterns instead of per-partition registration.
-    Contamination check can also be scoped to avoid O(N) overhead.
+TODO(perf): For large datasets (1000+ partitions), replace per-partition
+    registration loop with a single ``read_parquet(glob_pattern, filename=true)``
+    call and extract run_date via ``regexp_extract(filename, ...)``. Filter
+    available_partitions to only those within ``lookback_days`` range.
+    Contamination check can also be scoped to the lookback window.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+import polars as pl
 
 from libs.data.data_quality.validation import is_valid_date_partition
 from libs.duckdb_catalog import DuckDBCatalog
@@ -120,11 +123,16 @@ def _compute_trading_days_stale(
 
 
 def _extract_rows(
-    result_df: object,  # polars DataFrame from DuckDB
+    result_df: pl.DataFrame | object,
 ) -> list[dict[str, object]]:
-    """Extract rows as dicts from a Polars DataFrame, handling API variations."""
-    # polars iter_rows(named=True) returns list of dicts
-    return list(result_df.iter_rows(named=True))  # type: ignore[attr-defined]
+    """Extract rows as dicts from a Polars DataFrame.
+
+    Accepts ``object`` union to satisfy mypy with DuckDBCatalog's return type;
+    at runtime, ``return_format="polars"`` (the default) always yields a
+    Polars DataFrame.
+    """
+    assert isinstance(result_df, pl.DataFrame)  # noqa: S101
+    return list(result_df.iter_rows(named=True))
 
 
 def _safe_float(val: object, default: float = 0.0) -> float:

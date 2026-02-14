@@ -26,7 +26,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, cast
 
-import duckdb
 import plotly.graph_objects as go
 from nicegui import ui
 
@@ -40,6 +39,7 @@ from libs.data.data_quality.quality_scorer import (
     normalize_validation_status,
 )
 from libs.data.data_quality.validation import validate_quarantine_path
+from libs.duckdb_catalog import DuckDBCatalog
 from libs.platform.web_console_auth.permissions import (
     Permission,
     has_dataset_permission,
@@ -1520,18 +1520,20 @@ async def _load_quarantine_preview(entry: Any) -> None:
         if not safe_path.exists():
             return ("no_dir", None)
 
-        entry_file = safe_path / f"{entry.dataset}.parquet"
-        if not entry_file.exists():
+        # Quarantine dirs contain symbol-named files ({SYMBOL}.parquet),
+        # not dataset-named files. Glob for any parquet files to preview.
+        parquet_files = sorted(safe_path.glob("*.parquet"))
+        if not parquet_files:
             return ("no_file", None)
 
-        conn = duckdb.connect()
-        try:
-            return ("ok", conn.execute(
+        # Read up to 100 rows across all files in the partition
+        file_paths = [str(f) for f in parquet_files]
+        with DuckDBCatalog() as catalog:
+            result = catalog.query(
                 "SELECT * FROM read_parquet(?) LIMIT 100",
-                [str(entry_file)],
-            ).pl())
-        finally:
-            conn.close()
+                params=[file_paths],
+            )
+            return ("ok", result)
 
     try:
         status, result = await asyncio.to_thread(_validate_and_query)

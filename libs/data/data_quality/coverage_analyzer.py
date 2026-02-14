@@ -15,11 +15,13 @@ Key design:
     - Per-file fault tolerance: corrupt files logged and skipped.
 
 TODO(perf): For production-scale datasets (500+ partitions, 200 symbols),
-    consider scanning partitions in reverse chronological order with a
-    "newest-wins" cache to avoid redundant reads of already-seen (symbol, date)
-    pairs. See also: centralize ExchangeCalendarAdapter usage into a shared
-    utility in ``libs/data/data_quality/`` to prevent logic drift between
-    PITInspector and CoverageAnalyzer.
+    replace per-file ``pl.read_parquet`` with a single DuckDB glob query:
+    ``SELECT filename, date FROM read_parquet('data/adjusted/*/*.parquet',
+    filename=true)`` to scan all partitions in one pass. Extract symbol from
+    ``regexp_extract(filename, ...)``. This reduces O(partitions * symbols)
+    file opens to a single DuckDB scan. See also: centralize
+    ExchangeCalendarAdapter usage into a shared utility to prevent logic
+    drift between PITInspector and CoverageAnalyzer.
 """
 
 from __future__ import annotations
@@ -136,13 +138,18 @@ class CoverageAnalyzer:
     def __init__(self, data_dir: Path = Path("data")) -> None:
         self._adjusted_dir = data_dir / "adjusted"
         self._quarantine_dir = data_dir / "quarantine"
+        self._cached_tickers: list[str] | None = None
 
     def get_available_tickers(self) -> list[str]:
         """Scan adjusted and quarantine directories for all ticker symbols.
 
         Includes quarantine-only symbols so the default coverage heatmap
-        surfaces tickers most likely to have quality issues.
+        surfaces tickers most likely to have quality issues. Result is cached
+        for the lifetime of this analyzer instance to avoid redundant scans
+        when ``analyze()`` is called with ``symbols=None``.
         """
+        if self._cached_tickers is not None:
+            return self._cached_tickers
         tickers: set[str] = set()
         for base_dir in (self._adjusted_dir, self._quarantine_dir):
             if not base_dir.exists():
@@ -151,18 +158,20 @@ class CoverageAnalyzer:
                 if date_dir.is_dir() and is_valid_date_partition(date_dir.name):
                     for pq in date_dir.glob("*.parquet"):
                         tickers.add(pq.stem)
-        return sorted(tickers)
+        self._cached_tickers = sorted(tickers)
+        return self._cached_tickers
 
     def _discover_date_range(
         self,
     ) -> tuple[datetime.date | None, datetime.date | None]:
-        """Scan partition directory names for min/max run dates."""
-        if not self._adjusted_dir.exists():
-            return (None, None)
+        """Scan adjusted and quarantine partition directories for min/max dates."""
         dates: list[datetime.date] = []
-        for d in self._adjusted_dir.iterdir():
-            if d.is_dir() and is_valid_date_partition(d.name):
-                dates.append(datetime.date.fromisoformat(d.name))
+        for base_dir in (self._adjusted_dir, self._quarantine_dir):
+            if not base_dir.exists():
+                continue
+            for d in base_dir.iterdir():
+                if d.is_dir() and is_valid_date_partition(d.name):
+                    dates.append(datetime.date.fromisoformat(d.name))
         return (min(dates), max(dates)) if dates else (None, None)
 
     def analyze(
