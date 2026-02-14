@@ -507,11 +507,6 @@ async def _render_sync_logs(
 
 def _build_sync_logs_table(logs: list[Any]) -> None:
     """Build sync logs table from SyncLogEntry list."""
-    _level_colors: dict[str, str] = {
-        "info": "text-gray-600",
-        "warn": "text-amber-600",
-        "error": "text-red-600",
-    }
     columns: list[dict[str, Any]] = [
         {
             "name": "created_at",
