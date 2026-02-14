@@ -266,7 +266,11 @@ class PITInspector:
         all_future_rows: list[PITDataPoint] = []
 
         with DuckDBCatalog() as catalog:
-            # Query available partitions and check for contamination in one pass
+            # Query available partitions and check for contamination in one pass.
+            # TODO(perf): Replace Python-side dedup with DuckDB window function:
+            #   UNION ALL all partition tables, then
+            #   ROW_NUMBER() OVER (PARTITION BY market_date ORDER BY run_date DESC)
+            #   to select latest run_date per market_date in a single query.
             for path, run_dt in available_partitions:
                 table_name = _safe_table_name("avail", run_dt.isoformat())
                 catalog.register_table(table_name, path)

@@ -466,7 +466,7 @@ async def _render_sync_logs(
     with ui.row().classes("gap-4 mb-4"):
         dataset_filter = ui.select(
             label="Dataset",
-            options=["all"],
+            options=["all", *_TREND_DATASETS],
             value="all",
         ).classes("w-40")
         level_filter = ui.select(
@@ -659,7 +659,7 @@ async def _render_data_explorer_section(
         with ui.card().classes("w-64 p-4"):
             ui.label("Datasets").classes("font-bold mb-2")
 
-            if has_view_datasets:
+            if has_view_datasets or has_query:
                 try:
                     datasets = await explorer_service.list_datasets(user)
                 except PermissionError as e:
@@ -770,7 +770,7 @@ async def _render_data_explorer_section(
                 _show_dataset_info(selected_dataset["value"])
                 await _load_schema(selected_dataset["value"])
             else:
-                ui.label("Dataset listing requires data-sync view permission").classes(
+                ui.label("Dataset listing requires data access permission").classes(
                     "text-gray-400 text-sm"
                 )
 
@@ -895,8 +895,6 @@ async def _render_data_explorer_section(
                             ui.button(
                                 "Export Results", on_click=export_data
                             ).props("flat")
-                        elif has_permission(user, Permission.EXPORT_DATA) is False:
-                            pass  # Export button hidden when no permission
                 else:
                     ui.label("Query execution requires QUERY_DATA permission").classes(
                         "text-gray-400"
@@ -1051,7 +1049,7 @@ async def _render_validation_results(
 
     dataset_filter = ui.select(
         label="Dataset Filter",
-        options=["all"],
+        options=["all", *_TREND_DATASETS],
         value="all",
     ).classes("w-40 mb-4")
 
