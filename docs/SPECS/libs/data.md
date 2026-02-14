@@ -43,13 +43,16 @@ See [libs/data_providers.md](./data_providers.md) for detailed specification.
 ### libs/data/data_quality
 See [libs/data_quality.md](./data_quality.md) for detailed specification.
 
-**Purpose:** Data quality framework for sync manifests, validation, schema drift detection, and dataset versioning.
+**Purpose:** Data quality framework for sync manifests, validation, schema drift detection, dataset versioning, coverage analysis, and point-in-time inspection.
 
 **Key Features:**
 - Sync manifest management
 - Schema validation
 - Data versioning
 - Quality checks
+- Coverage analysis with symbol x date matrix (P6T13)
+- Point-in-time data inspector for look-ahead bias detection (P6T13)
+- Quality scoring (freshness, completeness, consistency, accuracy) (P6T13)
 
 ### libs/data/market_data
 See [libs/market_data.md](./market_data.md) for detailed specification.
@@ -72,5 +75,5 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 
 ## Metadata
 - **Last Updated:** 2026-02-09 (P6T12 - Added HealthMonitor to data_pipeline, etl.py redis heartbeat)
-- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`
+- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`, `libs/data/data_quality/coverage_analyzer.py`, `libs/data/data_quality/pit_inspector.py`, `libs/data/data_quality/quality_scorer.py`
 - **ADRs:** N/A

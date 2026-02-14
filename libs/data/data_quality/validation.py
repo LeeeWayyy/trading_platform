@@ -522,3 +522,114 @@ class DataValidator:
                     )
 
         return alerts
+
+
+# ============================================================================
+# Date Partition Validation (shared by T13.1, T13.2, T13.4)
+# ============================================================================
+
+
+def is_valid_date_partition(s: str) -> bool:
+    """Check if string is a valid YYYY-MM-DD date.
+
+    Used for partition directory name validation across PIT inspection,
+    coverage analysis, and quarantine path validation.
+    """
+    try:
+        datetime.date.fromisoformat(s)
+        return True
+    except ValueError:
+        return False
+
+
+# ============================================================================
+# Quarantine Path Validation (T13.4)
+# ============================================================================
+
+
+def validate_quarantine_path(quarantine_path: str, data_dir: Path) -> Path:
+    """Validate and return resolved quarantine directory path.
+
+    Five-phase security validation:
+    1. Fail-closed: reject absolute paths and traversal markers BEFORE normalization
+    2. Normalize: strip known prefix, extract canonical date component
+    3. Lexical containment: verify path is under quarantine_root
+    4. Symlink check: verify no symlinks in intermediate components
+    5. Post-resolve containment: verify resolved path stays under root
+
+    Args:
+        quarantine_path: Raw path from service (e.g., "data/quarantine/crsp/2024-10-16")
+        data_dir: Base data directory (e.g., Path("data"))
+
+    Returns:
+        Resolved directory path suitable for globbing with ``*.parquet``.
+
+    Raises:
+        ValueError: On any validation failure (absolute path, traversal, symlink, escape).
+    """
+    quarantine_root = data_dir / "quarantine"
+    raw = quarantine_path
+
+    # Phase 0: Fail-closed — reject before ANY normalization
+    if Path(raw).is_absolute():
+        raise ValueError(f"Absolute path rejected: {quarantine_path}")
+    if ".." in Path(raw).parts:
+        raise ValueError(f"Path traversal rejected: {quarantine_path}")
+
+    # Normalize: strip known 'data/quarantine/' prefix
+    known_prefix = "data/quarantine/"
+    if raw.startswith(known_prefix):
+        raw = raw[len(known_prefix):]
+
+    # Re-check after prefix stripping (defense in depth)
+    if ".." in Path(raw).parts:
+        raise ValueError(f"Path traversal after normalization: {quarantine_path}")
+
+    # Extract canonical date directory (strict allowlist of accepted formats)
+    parts = Path(raw).parts
+    # Max 3 segments: e.g. "dataset", "2024-01-15", or "prefix/2024-01-15/file"
+    if len(parts) > 3:
+        raise ValueError(
+            f"Unexpected quarantine path format (too many segments): {quarantine_path}"
+        )
+
+    date_part = None
+    for part in reversed(parts):
+        if is_valid_date_partition(part):
+            date_part = part
+            break
+    if date_part is None:
+        raise ValueError(
+            f"No valid date component in quarantine path: {quarantine_path}"
+        )
+
+    candidate = quarantine_root / date_part
+
+    # Phase 1: Lexical containment
+    try:
+        relative = candidate.relative_to(quarantine_root)
+    except ValueError:
+        raise ValueError(
+            f"Path {quarantine_path} not under quarantine root"
+        ) from None
+    if ".." in relative.parts:
+        raise ValueError(f"Path traversal detected in {quarantine_path}")
+
+    # Phase 2: Symlink check on each component BEFORE resolve
+    check = quarantine_root
+    for part in relative.parts:
+        check = check / part
+        if check.is_symlink():
+            raise ValueError(f"Symlink detected at {check}")
+
+    # Phase 3: Post-resolve containment
+    resolved_root = quarantine_root.resolve()
+    resolved_path = candidate.resolve()
+    if not resolved_path.is_relative_to(resolved_root):
+        raise ValueError(f"Resolved path {resolved_path} escapes quarantine")
+
+    # Phase 4: Directory-only contract
+    if resolved_path.exists() and resolved_path.is_file():
+        raise ValueError(f"Expected directory, got file: {resolved_path}")
+
+    return resolved_path

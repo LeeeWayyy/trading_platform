@@ -293,6 +293,10 @@ The dedicated `/kill-switch` page was removed in P5T10 to consolidate trading co
 
 **Components:**
 - `pages/data_management.py` - Data catalog and sync management page.
+- `pages/data_inspector.py` - Point-in-Time data inspector page (P6T13).
+- `pages/data_coverage.py` - Data coverage analysis page (P6T13).
+- `components/pit_lookup.py` - PIT lookup form and results rendering component (P6T13).
+- `components/coverage_heatmap.py` - Coverage heatmap, controls, and export component (P6T13).
 
 **Access Control:**
 - Requires `VIEW_DATA_CATALOG` permission.
