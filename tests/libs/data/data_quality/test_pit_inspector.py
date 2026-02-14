@@ -176,7 +176,8 @@ class TestInputValidation:
             inspector.lookup("", datetime.date(2024, 1, 20))
 
     def test_future_knowledge_date(self, inspector: PITInspector) -> None:
-        future = datetime.date.today() + datetime.timedelta(days=1)
+        utc_today = datetime.datetime.now(datetime.UTC).date()
+        future = utc_today + datetime.timedelta(days=1)
         with pytest.raises(ValueError, match="in the future"):
             inspector.lookup("AAPL", future)
 
