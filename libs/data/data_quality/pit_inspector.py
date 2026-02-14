@@ -112,10 +112,9 @@ def _compute_trading_days_stale(
         trading_days = cal.trading_days_between(latest_available_date, knowledge_date)
         # Exclude the latest_available_date itself (staleness = gap days)
         return max(0, len(trading_days) - 1)
-    except Exception:
-        logger.warning(
-            "exchange_calendar_unavailable, falling back to calendar days",
-            exc_info=True,
+    except ImportError:
+        logger.info(
+            "exchange_calendars not installed, falling back to calendar days",
         )
         return (knowledge_date - latest_available_date).days
 

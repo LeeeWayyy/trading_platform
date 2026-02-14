@@ -1151,6 +1151,8 @@ async def _render_anomaly_alerts(
         # differ from UI canonical labels (e.g. "medium"), so passing the UI value
         # directly would miss matching alerts. Client-side normalization handles
         # the mapping and filtering.
+        # TODO(perf): Enhance service to accept severity list (e.g. ["warning",
+        # "medium"]) for server-side filtering via reverse _SEVERITY_MAP lookup.
         try:
             raw_alerts = await quality_service.get_anomaly_alerts(
                 user, severity=None, acknowledged=ack_mapped

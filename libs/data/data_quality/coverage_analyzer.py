@@ -261,10 +261,9 @@ class CoverageAnalyzer:
                 effective_start, effective_end
             )
             trading_days_set = set(trading_days_list)
-        except Exception:
-            logger.warning(
-                "exchange_calendar_unavailable, treating all weekdays as trading days",
-                exc_info=True,
+        except ImportError:
+            logger.info(
+                "exchange_calendars not installed, treating all weekdays as trading days",
             )
             d = effective_start
             while d <= effective_end:
