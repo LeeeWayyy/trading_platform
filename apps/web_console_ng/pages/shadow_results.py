@@ -47,7 +47,7 @@ def _pass_rate_class(pass_rate: float) -> str:
 
 def _render_summary_cards(results: list[ShadowResultDTO], container: ui.column) -> None:
     total = len(results)
-    pass_rate = (sum(1 for item in results if item.passed) / total * 100.0) if total else 0.0
+    pass_rate = (sum(item.passed for item in results) / total * 100.0) if total else 0.0
     avg_corr = (sum(item.correlation for item in results) / total) if total else None
     avg_div = (sum(item.mean_abs_diff_ratio for item in results) / total) if total else None
 

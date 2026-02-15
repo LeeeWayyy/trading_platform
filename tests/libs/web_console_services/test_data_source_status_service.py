@@ -404,6 +404,25 @@ async def test_refresh_timeout_releases_lock(operator_user: DummyUser) -> None:
     assert len(redis_client.eval_calls) == 1
 
 
+@pytest.mark.asyncio()
+async def test_refresh_then_list_returns_refreshed_state(operator_user: DummyUser) -> None:
+    """After manual refresh, get_all_sources must return refreshed fields (merge path)."""
+    service = DataSourceStatusService(redis_client_factory=None)
+
+    pre_list = await service.get_all_sources(operator_user)
+    crsp_before = next(s for s in pre_list if s.name == "crsp")
+    assert crsp_before.age_seconds is not None
+    assert crsp_before.age_seconds > 0
+
+    refreshed = await service.refresh_source(operator_user, "crsp")
+    assert refreshed.age_seconds == 0.0
+
+    post_list = await service.get_all_sources(operator_user)
+    crsp_after = next(s for s in post_list if s.name == "crsp")
+    assert crsp_after.age_seconds == 0.0
+    assert crsp_after.last_update == refreshed.last_update
+
+
 def test_invalid_data_mode_raises() -> None:
     with pytest.raises(ValueError, match="Invalid data_mode"):
         DataSourceStatusService(data_mode="invalid")  # type: ignore[arg-type]

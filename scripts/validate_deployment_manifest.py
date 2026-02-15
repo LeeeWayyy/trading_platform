@@ -239,6 +239,7 @@ def _validate_k8s(
 
     workload: dict[str, Any] | None = None
     workload_labels: dict[str, Any] = {}
+    workload_namespace: str = "default"
     workload_container: dict[str, Any] | None = None
 
     for doc in docs:
@@ -251,6 +252,7 @@ def _validate_k8s(
 
         if kind in {"Deployment", "StatefulSet", "DaemonSet", "Pod"}:
             workload = doc
+            workload_namespace = str(metadata.get("namespace", "default"))
             if kind == "Pod":
                 spec = doc.get("spec", {})
                 pod_meta_labels = metadata.get("labels", {})
@@ -324,6 +326,14 @@ def _validate_k8s(
     matched_policies = 0
     for doc in docs:
         if str(doc.get("kind", "")) != "NetworkPolicy":
+            continue
+        # NetworkPolicies are namespace-scoped: only match within workload namespace
+        policy_meta = doc.get("metadata")
+        if isinstance(policy_meta, dict):
+            policy_ns = str(policy_meta.get("namespace", "default"))
+        else:
+            policy_ns = "default"
+        if policy_ns != workload_namespace:
             continue
         spec = doc.get("spec")
         if not isinstance(spec, dict):

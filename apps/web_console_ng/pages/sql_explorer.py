@@ -18,7 +18,6 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 from libs.platform.web_console_auth.rate_limiter import RateLimiter
 from libs.web_console_services.sql_explorer_service import (
     _DATA_ROOT_AVAILABLE,
-    _MAX_CELLS,
     _MAX_ROWS_LIMIT,
     SqlExplorerService,
     can_query_dataset,
@@ -27,6 +26,7 @@ from libs.web_console_services.sql_explorer_service import (
 logger = logging.getLogger(__name__)
 
 _PATH_CACHE_TTL = 120
+_LARGE_RESULT_THRESHOLD = 200_000
 _path_cache: tuple[dict[str, set[str]], list[str]] | None = None
 _path_cache_ts: float = 0.0
 _path_cache_lock = asyncio.Lock()
@@ -240,13 +240,6 @@ async def sql_explorer_page() -> None:
             )
 
             cell_count = len(result.df) * len(result.df.columns)
-            if cell_count > _MAX_CELLS:
-                ui.notify(f"Result too large ({cell_count:,} cells). Add more filters.", type="warning")
-                status_label.text = f"Result too large ({cell_count:,} cells)"
-                _add_history(result.fingerprint, dataset, "too_large", 0)
-                return
-
-            _LARGE_RESULT_THRESHOLD = 200_000
             if cell_count > _LARGE_RESULT_THRESHOLD:
                 ui.notify(
                     f"Large result ({cell_count:,} cells) — browser may be slow. "

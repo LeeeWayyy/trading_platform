@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-14 - P6T14: SQL Explorer, Feature Browser, Data Source Status, Shadow Results pages -->
+<!-- Last reviewed: 2026-02-15 - P6T14: PR feedback fixes for SQL Explorer, Shadow Results pages -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

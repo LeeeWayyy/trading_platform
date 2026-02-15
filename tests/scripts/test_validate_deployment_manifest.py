@@ -465,6 +465,206 @@ spec:
     assert errors == []
 
 
+def test_k8s_cross_namespace_policy_ignored(tmp_path: Path) -> None:
+    """NetworkPolicy in a different namespace must NOT match the workload."""
+    k8s_base_ns = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web_console
+  namespace: production
+spec:
+  template:
+    metadata:
+      labels:
+        app: web-console
+    spec:
+      containers:
+        - name: web_console
+          image: test
+          securityContext:
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+"""
+    manifest = tmp_path / "k8s.yaml"
+    # Policy in "staging" namespace should NOT match workload in "production"
+    manifest.write_text(
+        k8s_base_ns
+        + """---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-console-egress
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app: web-console
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+""",
+        encoding="utf-8",
+    )
+
+    code, errors, _warnings = validate_manifest(manifest, "web_console", "production")
+    assert code == 1
+    assert any("No matching NetworkPolicy" in err for err in errors)
+
+
+def test_k8s_same_namespace_policy_matches(tmp_path: Path) -> None:
+    """NetworkPolicy in the same namespace MUST match the workload."""
+    k8s_base_ns = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web_console
+  namespace: production
+spec:
+  template:
+    metadata:
+      labels:
+        app: web-console
+    spec:
+      containers:
+        - name: web_console
+          image: test
+          securityContext:
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+"""
+    manifest = tmp_path / "k8s.yaml"
+    manifest.write_text(
+        k8s_base_ns
+        + """---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-console-egress
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: web-console
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+""",
+        encoding="utf-8",
+    )
+
+    code, errors, _warnings = validate_manifest(manifest, "web_console", "production")
+    assert code == 0
+    assert errors == []
+
+
+def test_k8s_both_omit_namespace_match_as_default(tmp_path: Path) -> None:
+    """Both workload and policy omitting namespace should match (both default)."""
+    manifest = tmp_path / "k8s.yaml"
+    manifest.write_text(
+        _K8S_BASE
+        + """---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-console-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: web-console
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+""",
+        encoding="utf-8",
+    )
+
+    code, errors, _warnings = validate_manifest(manifest, "web_console", "production")
+    assert code == 0
+    assert errors == []
+
+
+def test_k8s_workload_has_namespace_policy_omits_no_match(tmp_path: Path) -> None:
+    """Workload with explicit namespace vs policy omitting namespace should NOT match."""
+    k8s_base_ns = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web_console
+  namespace: production
+spec:
+  template:
+    metadata:
+      labels:
+        app: web-console
+    spec:
+      containers:
+        - name: web_console
+          image: test
+          securityContext:
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+"""
+    manifest = tmp_path / "k8s.yaml"
+    # Policy omits namespace (defaults to "default"), workload is in "production"
+    manifest.write_text(
+        k8s_base_ns
+        + """---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-console-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: web-console
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+""",
+        encoding="utf-8",
+    )
+
+    code, errors, _warnings = validate_manifest(manifest, "web_console", "production")
+    assert code == 1
+    assert any("No matching NetworkPolicy" in err for err in errors)
+
+
 def test_main_missing_manifest_returns_2(tmp_path: Path) -> None:
     missing = tmp_path / "missing.yml"
     code = main(["--manifest", str(missing), "--service", "web_console", "--env", "production"])

@@ -131,9 +131,14 @@ class DataSourceStatusService:
             for source in all_sources
             if source.dataset_key is None or has_dataset_permission(user, source.dataset_key)
         ]
-        for source in filtered:
+        # Merge refreshed sources so callers see updated timestamps after manual refresh
+        merged = [
+            self._last_refresh_results.get(source.name, source)
+            for source in filtered
+        ]
+        for source in merged:
             self._last_refresh_results.setdefault(source.name, source)
-        return filtered
+        return merged
 
     async def refresh_source(self, user: Any, source_name: str) -> DataSourceStatusDTO:
         """Trigger manual source refresh with per-source lock semantics."""
