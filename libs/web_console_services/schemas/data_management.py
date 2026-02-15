@@ -21,6 +21,23 @@ class SyncStatusDTO(BaseModel):
     schema_version: str | None = None
 
 
+class DataSourceStatusDTO(BaseModel):
+    """Status and metadata for a registered data source/provider."""
+
+    name: str
+    display_name: str
+    provider_type: str
+    dataset_key: str | None = None
+    status: str
+    last_update: AwareDatetime | None = None
+    age_seconds: float | None = None
+    row_count: int | None = None
+    error_rate_pct: float | None = None
+    error_message: str | None = None
+    is_production_ready: bool
+    tables: list[str]
+
+
 class SyncLogEntry(BaseModel):
     """Log entry emitted during a sync run."""
 
