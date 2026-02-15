@@ -99,6 +99,7 @@ class Permission(str, Enum):
 
     # P6T8: Execution Analytics
     VIEW_TCA = "view_tca"  # Transaction Cost Analysis dashboard access
+    VIEW_FEATURES = "view_features"  # P6T14: Feature Store Browser access
 
 
 class DatasetPermission(str, Enum):
@@ -129,6 +130,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_REPORTS,
         Permission.VIEW_TAX_LOTS,
         Permission.VIEW_TAX_REPORTS,
+        Permission.VIEW_FEATURES,
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -161,6 +163,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_TAX_LOTS,
         Permission.VIEW_TCA,  # P6T8: TCA dashboard access
         Permission.VIEW_AUDIT,  # P6T8: Audit trail access
+        Permission.VIEW_FEATURES,
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
