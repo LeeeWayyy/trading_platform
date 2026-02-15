@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2026-02-09
+**Last Updated:** 2026-02-15
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 
@@ -121,6 +121,10 @@ FastAPI-based microservices implementing the trading platform's core functionali
 - Alpha signal explorer and strategy comparison
 - Research notebooks and scheduled reports
 - Admin dashboard with API key management
+- SQL Explorer with DuckDB sandbox (P6T14)
+- Feature Store Browser with Alpha158 catalog (P6T14)
+- Data Source Status monitoring (P6T14)
+- Shadow/Paper Trading results browser (P6T14)
 
 **Key Directories:**
 - `auth/` - Authentication middleware, session store
@@ -284,7 +288,14 @@ libs/
 **Purpose:** WRDS/CRSP/Compustat/Fama-French/yfinance providers with unified fetcher and sync tooling.
 
 #### libs/data/data_quality/
-**Purpose:** Data quality framework for sync manifests, validation, schema drift, and dataset versioning.
+**Purpose:** Data quality framework for sync manifests, validation, schema drift, dataset versioning, coverage analysis, and quality scoring.
+**Key Files (P6T13-P6T14):**
+- `coverage_analyzer.py` - Symbol x date coverage matrix analysis
+- `pit_inspector.py` - Point-in-time data inspector for look-ahead bias detection
+- `quality_scorer.py` - Freshness, completeness, consistency, accuracy scoring
+
+#### libs/data/feature_metadata.py (P6T14)
+**Purpose:** Feature catalog metadata and statistics computation for the Alpha158 feature set.
 
 #### libs/data/market_data/
 **Purpose:** Market data fetching and caching
@@ -378,6 +389,9 @@ libs/
 - `risk_service.py` - Risk analytics and position monitoring
 - `scheduled_reports_service.py` - Report scheduling and generation
 - `sql_validator.py` - SQL query validation and sanitization
+- `sql_explorer_service.py` - Defense-in-depth SQL query execution with DuckDB sandbox (P6T14)
+- `data_source_status_service.py` - Data source freshness monitoring (P6T14)
+- `shadow_results_service.py` - Shadow/paper trading results browser (P6T14)
 
 **Key Directories:**
 - `schemas/` - Pydantic models for service DTOs (data_management.py, health.py, risk.py)
@@ -807,6 +821,6 @@ make kill-switch # Emergency stop
 
 ---
 
-**Document Version:** 2.1 (Web Console Migration Complete)
-**Last Updated:** 2026-02-09
+**Document Version:** 2.2 (P6T14 - Data Infrastructure Pages)
+**Last Updated:** 2026-02-15
 **Maintained By:** Development Team

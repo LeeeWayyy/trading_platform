@@ -13,16 +13,10 @@ DATASET_TABLES: dict[str, list[str]] = {
 }
 
 BLOCKED_FUNCTIONS: list[str] = [
-    # File reading functions (and auto variants)
-    "read_parquet",
-    "read_parquet_*",
-    "read_csv",
-    "read_csv_auto",
-    "read_json",
-    "read_json_auto",
-    "read_text",
-    "read_xlsx",
-    "read_blob",
+    # Comprehensive wildcard: blocks ALL read_* variants including future additions
+    # (read_parquet, read_csv, read_json, read_ndjson, read_json_objects,
+    #  read_text, read_xlsx, read_blob, and any auto variants)
+    "read_*",
     # Scan variants (DuckDB alternatives)
     "parquet_scan",
     "csv_scan",
@@ -41,6 +35,10 @@ BLOCKED_FUNCTIONS: list[str] = [
     "http_*",
     "azure_*",
     "gcs_*",
+    # Query other databases
+    "postgres_*",
+    "mysql_*",
+    "duckdb_*",
 ]
 
 
@@ -51,8 +49,6 @@ class SQLValidator:
         """Validate query is safe for execution against specified dataset."""
         if not query or not query.strip():
             return False, "Query cannot be empty"
-        if ";" in query:
-            return False, "Multi-statement queries are not allowed"
         if allowed_dataset not in DATASET_TABLES:
             return False, f"Unknown dataset: {allowed_dataset}"
 
@@ -62,7 +58,7 @@ class SQLValidator:
             return False, f"Invalid SQL: {exc}"
 
         if len(expressions) != 1:
-            return False, "Only single-statement queries are allowed"
+            return False, "Multi-statement queries are not allowed"
 
         expression = expressions[0]
         if expression is None:

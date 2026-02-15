@@ -79,6 +79,7 @@ flowchart TB
   svc_web_console_ng -.-> lib_trading
   svc_web_console_ng -.-> lib_web_console_data
   svc_web_console_ng -.-> lib_web_console_services
+  svc_web_console_ng -.-> strat_alpha_baseline
 
   %% Click links to documentation
   click svc_alert_worker "../SPECS/services/alert_worker.md"

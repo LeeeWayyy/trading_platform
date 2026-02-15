@@ -1,6 +1,6 @@
 # libs/platform
 
-<!-- Last reviewed: 2026-01-30 - jwt_manager.py/jwks_validator.py type annotations for mypy compatibility -->
+<!-- Last reviewed: 2026-02-14 - P6T14: Added SQL Explorer, Data Source Status, Shadow Results services -->
 
 ## Identity
 - **Type:** Library Group (Platform Services)
@@ -143,6 +143,6 @@ See [libs/web_console_services.md](./web_console_services.md) for detailed speci
 - [../services/web_console_ng.md](../services/web_console_ng.md) - Web console UI
 
 ## Metadata
-- **Last Updated:** 2026-01-28 (web_console_auth/permissions.py: Added MODIFY_ORDER permission)
+- **Last Updated:** 2026-02-14 (P6T14 - SQL Explorer permissions, RESEARCHER dataset access)
 - **Source Files:** `libs/platform/` (group index)
 - **ADRs:** N/A
