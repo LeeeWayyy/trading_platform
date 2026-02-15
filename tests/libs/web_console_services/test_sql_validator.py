@@ -25,6 +25,24 @@ def test_validate_rejects_multi_statement(validator: SQLValidator) -> None:
     assert error == "Multi-statement queries are not allowed"
 
 
+def test_validate_accepts_semicolon_in_string_literal(validator: SQLValidator) -> None:
+    ok, error = validator.validate("SELECT * FROM crsp_daily WHERE symbol = 'AA;PL'", "crsp")
+    assert ok is True
+    assert error is None
+
+
+def test_validate_accepts_semicolon_in_comment(validator: SQLValidator) -> None:
+    ok, error = validator.validate("SELECT * FROM crsp_daily -- comment;", "crsp")
+    assert ok is True
+    assert error is None
+
+
+def test_validate_accepts_trailing_semicolon(validator: SQLValidator) -> None:
+    ok, error = validator.validate("SELECT * FROM crsp_daily;", "crsp")
+    assert ok is True
+    assert error is None
+
+
 def test_validate_rejects_unknown_dataset(validator: SQLValidator) -> None:
     ok, error = validator.validate("SELECT * FROM crsp_daily", "unknown")
     assert ok is False
@@ -39,6 +57,46 @@ def test_validate_rejects_non_select(validator: SQLValidator) -> None:
 
 def test_validate_rejects_blocked_function(validator: SQLValidator) -> None:
     ok, error = validator.validate("SELECT read_csv('file.csv')", "crsp")
+    assert ok is False
+    assert error is not None
+    assert "Blocked function usage detected" in error
+
+
+def test_validate_rejects_blocked_function_in_nested_subquery(validator: SQLValidator) -> None:
+    ok, error = validator.validate(
+        "SELECT * FROM (SELECT read_csv('file.csv') AS x) nested",
+        "crsp",
+    )
+    assert ok is False
+    assert error is not None
+    assert "Blocked function usage detected" in error
+
+
+def test_validate_rejects_blocked_function_in_cte(validator: SQLValidator) -> None:
+    ok, error = validator.validate(
+        "WITH t AS (SELECT read_parquet('/tmp/a.parquet') AS x) SELECT * FROM t",
+        "crsp",
+    )
+    assert ok is False
+    assert error is not None
+    assert "Blocked function usage detected" in error
+
+
+def test_validate_rejects_blocked_function_in_lateral_join(validator: SQLValidator) -> None:
+    ok, error = validator.validate(
+        (
+            "SELECT d.date FROM crsp_daily d, "
+            "LATERAL (SELECT read_csv('/tmp/a.csv') AS x) t"
+        ),
+        "crsp",
+    )
+    assert ok is False
+    assert error is not None
+    assert "Blocked function usage detected" in error
+
+
+def test_validate_rejects_blocked_anonymous_function(validator: SQLValidator) -> None:
+    ok, error = validator.validate("SELECT HTTP_GET('https://example.com')", "crsp")
     assert ok is False
     assert error is not None
     assert "Blocked function usage detected" in error

@@ -51,8 +51,6 @@ class SQLValidator:
         """Validate query is safe for execution against specified dataset."""
         if not query or not query.strip():
             return False, "Query cannot be empty"
-        if ";" in query:
-            return False, "Multi-statement queries are not allowed"
         if allowed_dataset not in DATASET_TABLES:
             return False, f"Unknown dataset: {allowed_dataset}"
 
@@ -62,7 +60,7 @@ class SQLValidator:
             return False, f"Invalid SQL: {exc}"
 
         if len(expressions) != 1:
-            return False, "Only single-statement queries are allowed"
+            return False, "Multi-statement queries are not allowed"
 
         expression = expressions[0]
         if expression is None:

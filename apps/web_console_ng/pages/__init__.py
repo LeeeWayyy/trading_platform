@@ -24,7 +24,9 @@ from apps.web_console_ng.pages import (
     data_coverage,  # noqa: F401 - P6T13
     data_inspector,  # noqa: F401 - P6T13
     data_management,  # noqa: F401
+    data_source_status,  # noqa: F401 - P6T14
     execution_quality,  # noqa: F401 - P6T8
+    feature_browser,  # noqa: F401 - P6T14
     forgot_password,  # noqa: F401 - Auth page
     health,  # noqa: F401
     journal,  # noqa: F401 - P5T8
@@ -36,4 +38,5 @@ from apps.web_console_ng.pages import (
     position_management,  # noqa: F401
     risk,  # noqa: F401
     scheduled_reports,  # noqa: F401 - P5T8
+    sql_explorer,  # noqa: F401 - P6T14
 )
