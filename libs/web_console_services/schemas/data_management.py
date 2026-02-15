@@ -38,6 +38,47 @@ class DataSourceStatusDTO(BaseModel):
     tables: list[str]
 
 
+class ShadowResultDTO(BaseModel):
+    """Shadow mode validation result."""
+
+    id: str
+    model_version: str
+    strategy: str
+    validation_time: AwareDatetime
+    passed: bool
+    correlation: float
+    mean_abs_diff_ratio: float
+    sign_change_rate: float
+    sample_count: int
+    old_range: float
+    new_range: float
+    message: str
+    correlation_threshold: float
+    divergence_threshold: float
+
+
+class ShadowTrendPointDTO(BaseModel):
+    """Single point in shadow validation trend chart."""
+
+    date: AwareDatetime
+    correlation: float
+    mean_abs_diff_ratio: float
+    sign_change_rate: float
+    passed: bool
+
+
+class ShadowTrendDTO(BaseModel):
+    """Aggregated shadow validation trend payload."""
+
+    strategy: str
+    period_days: int
+    data_points: list[ShadowTrendPointDTO]
+    total_validations: int
+    pass_rate: float
+    avg_correlation: float | None
+    avg_divergence: float | None
+
+
 class SyncLogEntry(BaseModel):
     """Log entry emitted during a sync run."""
 

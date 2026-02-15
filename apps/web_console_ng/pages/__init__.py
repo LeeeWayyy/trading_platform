@@ -38,5 +38,6 @@ from apps.web_console_ng.pages import (
     position_management,  # noqa: F401
     risk,  # noqa: F401
     scheduled_reports,  # noqa: F401 - P5T8
+    shadow_results,  # noqa: F401 - P6T14
     sql_explorer,  # noqa: F401 - P6T14
 )
