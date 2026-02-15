@@ -82,7 +82,15 @@ async def sql_explorer_page() -> None:
     except Exception:
         logger.exception("sql_explorer_rate_limiter_init_failed")
 
-    service = SqlExplorerService(rate_limiter=rate_limiter)
+    try:
+        service = SqlExplorerService(rate_limiter=rate_limiter)
+    except (ValueError, RuntimeError) as exc:
+        logger.exception("sql_explorer_service_init_failed")
+        with ui.card().classes("w-full p-4"):
+            ui.label("SQL Explorer unavailable: service initialization failed.").classes(
+                "text-amber-500"
+            )
+        return
 
     available_tables_by_dataset, warnings = await _get_validated_paths()
     for warning in warnings:
@@ -167,12 +175,17 @@ async def sql_explorer_page() -> None:
                         ui.label(
                             f"{item['dataset']} | {item['status']} | {item['rows']} rows"
                         ).classes("text-xs text-gray-400")
-                        ui.button(
-                            "Use in editor",
-                            on_click=lambda fp=item["fingerprint"]: setattr(
-                                query_editor, "value", fp
-                            ),
-                        ).props("flat dense")
+                        def _replay_fingerprint(fp: str = item["fingerprint"]) -> None:
+                            query_editor.value = fp
+                            if "?" in fp:
+                                ui.notify(
+                                    "Query template loaded — replace ? placeholders with actual values",
+                                    type="info",
+                                )
+
+                        ui.button("Use in editor", on_click=_replay_fingerprint).props(
+                            "flat dense"
+                        )
 
         def _add_history(fingerprint: str, dataset: str, status: str, rows: int) -> None:
             history.insert(
@@ -231,6 +244,14 @@ async def sql_explorer_page() -> None:
                 _add_history(result.fingerprint, dataset, "too_large", 0)
                 return
 
+            _LARGE_RESULT_THRESHOLD = 200_000
+            if cell_count > _LARGE_RESULT_THRESHOLD:
+                ui.notify(
+                    f"Large result ({cell_count:,} cells) — browser may be slow. "
+                    "Consider adding filters.",
+                    type="info",
+                )
+
             grid.options["columnDefs"] = [
                 {
                     "field": column,
@@ -260,8 +281,9 @@ async def sql_explorer_page() -> None:
             status_label.text = f"Timeout after {timeout}s"
             _add_history("<timed out>", dataset, "timeout", 0)
         except RuntimeError as exc:
-            ui.notify(str(exc), type="warning")
-            status_label.text = str(exc)
+            logger.warning("sql_query_runtime_error", extra={"dataset": dataset, "error": str(exc)})
+            ui.notify("Query could not be executed. Please try again later.", type="warning")
+            status_label.text = "Service unavailable"
             _add_history("<runtime_error>", dataset, "runtime_error", 0)
         except Exception:
             logger.exception("sql_query_error", extra={"dataset": dataset})
@@ -285,14 +307,16 @@ async def sql_explorer_page() -> None:
             ui.notify(str(exc), type="negative")
             return
         except RuntimeError as exc:
-            ui.notify(str(exc), type="warning")
+            logger.warning("sql_export_runtime_error", extra={"error": str(exc)})
+            ui.notify("Export failed. Please try again later.", type="warning")
             return
 
         ui.download(csv_bytes, filename=f"query_results_{time.time_ns()}.csv")
 
     with ui.row().classes("gap-2 mt-3"):
         ui.button("Run", on_click=run_query, color="primary")
-        ui.button("Export CSV", on_click=export_csv)
+        if has_permission(user, Permission.EXPORT_DATA):
+            ui.button("Export CSV", on_click=export_csv)
         ui.button("History", on_click=history_drawer.toggle).props("flat")
 
 

@@ -13,16 +13,10 @@ DATASET_TABLES: dict[str, list[str]] = {
 }
 
 BLOCKED_FUNCTIONS: list[str] = [
-    # File reading functions (and auto variants)
-    "read_parquet",
-    "read_parquet_*",
-    "read_csv",
-    "read_csv_auto",
-    "read_json",
-    "read_json_auto",
-    "read_text",
-    "read_xlsx",
-    "read_blob",
+    # Comprehensive wildcard: blocks ALL read_* variants including future additions
+    # (read_parquet, read_csv, read_json, read_ndjson, read_json_objects,
+    #  read_text, read_xlsx, read_blob, and any auto variants)
+    "read_*",
     # Scan variants (DuckDB alternatives)
     "parquet_scan",
     "csv_scan",
@@ -41,6 +35,10 @@ BLOCKED_FUNCTIONS: list[str] = [
     "http_*",
     "azure_*",
     "gcs_*",
+    # Query other databases
+    "postgres_*",
+    "mysql_*",
+    "duckdb_*",
 ]
 
 

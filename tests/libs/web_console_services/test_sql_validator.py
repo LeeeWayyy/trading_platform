@@ -102,6 +102,18 @@ def test_validate_rejects_blocked_anonymous_function(validator: SQLValidator) ->
     assert "Blocked function usage detected" in error
 
 
+@pytest.mark.parametrize(
+    "func_name",
+    ["read_ndjson", "read_json_objects", "read_ndjson_auto", "read_parquet", "read_csv", "read_text"],
+)
+def test_validate_rejects_read_star_table_functions(validator: SQLValidator, func_name: str) -> None:
+    """Ensure read_* wildcard blocks ALL DuckDB file-reader table functions."""
+    ok, error = validator.validate(f"SELECT * FROM {func_name}('/tmp/a.dat')", "crsp")
+    assert ok is False
+    assert error is not None
+    assert "Blocked function usage detected" in error
+
+
 def test_validate_rejects_schema_qualified_table(validator: SQLValidator) -> None:
     ok, error = validator.validate("SELECT * FROM other_schema.crsp_daily", "crsp")
     assert ok is False

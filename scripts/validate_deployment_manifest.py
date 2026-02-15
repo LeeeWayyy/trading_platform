@@ -115,6 +115,121 @@ def _labels_match(selector: dict[str, Any], labels: dict[str, Any]) -> bool:
     return True
 
 
+def _match_expression_matches(expression: dict[str, Any], labels: dict[str, Any]) -> bool:
+    """Evaluate a single matchExpressions entry against pod labels."""
+    key = str(expression.get("key", ""))
+    operator = str(expression.get("operator", ""))
+    values = expression.get("values", [])
+    if not isinstance(values, list):
+        values = []
+
+    label_value = labels.get(key)
+    if operator == "In":
+        return label_value is not None and label_value in values
+    elif operator == "NotIn":
+        return label_value is None or label_value not in values
+    elif operator == "Exists":
+        return key in labels
+    elif operator == "DoesNotExist":
+        return key not in labels
+    return False
+
+
+def _pod_selector_matches(pod_selector: dict[str, Any] | None, labels: dict[str, Any]) -> bool:
+    """Evaluate full K8s podSelector (matchLabels + matchExpressions) against labels.
+
+    Per K8s semantics: empty podSelector ({}) matches all pods.
+    """
+    if not isinstance(pod_selector, dict):
+        return False
+
+    # Empty podSelector = match-all (K8s semantics)
+    match_labels = pod_selector.get("matchLabels")
+    match_expressions = pod_selector.get("matchExpressions")
+
+    if not match_labels and not match_expressions:
+        return True  # Empty selector matches all
+
+    # Check matchLabels (all must match)
+    if isinstance(match_labels, dict) and match_labels:
+        if not _labels_match(match_labels, labels):
+            return False
+
+    # Check matchExpressions (all must match)
+    if isinstance(match_expressions, list):
+        for expr in match_expressions:
+            if isinstance(expr, dict) and not _match_expression_matches(expr, labels):
+                return False
+
+    return True
+
+
+def _is_wildcard_peer(peer: Any) -> bool:
+    """Check if an egress peer is a wildcard (matches all destinations).
+
+    Wildcard peers include:
+    - Empty dict {}
+    - Empty podSelector/namespaceSelector ({})
+    - ipBlock with 0.0.0.0/0 or ::/0 CIDR
+    """
+    if not isinstance(peer, dict):
+        return False
+    if not peer:
+        return True  # Empty dict = match all
+
+    # Check for catch-all ipBlock CIDRs
+    ip_block = peer.get("ipBlock")
+    if isinstance(ip_block, dict):
+        cidr = str(ip_block.get("cidr", ""))
+        if cidr in ("0.0.0.0/0", "::/0"):
+            return True
+
+    # Check for wildcard selectors (match all pods in namespace or cluster)
+    pod_sel = peer.get("podSelector")
+    ns_sel = peer.get("namespaceSelector")
+
+    # Empty namespaceSelector ({}) = all namespaces; omitted podSelector = all pods
+    is_ns_wildcard = isinstance(ns_sel, dict) and not ns_sel
+    is_pod_wildcard = (isinstance(pod_sel, dict) and not pod_sel) or pod_sel is None
+
+    if is_ns_wildcard and is_pod_wildcard:
+        return True  # All pods in all namespaces
+
+    # Empty podSelector alone = all pods in local namespace (overly permissive for sandbox)
+    if isinstance(pod_sel, dict) and not pod_sel and ns_sel is None:
+        return True  # All pods in local namespace
+
+    # Empty namespaceSelector alone = all namespaces (cluster-wide)
+    if is_ns_wildcard and pod_sel is None:
+        return True  # All pods (implicit) in all namespaces
+
+    return False
+
+
+def _is_allow_all_egress_rule(rule: Any) -> bool:
+    """Check if an egress rule is permissive (allow-all / wildcard).
+
+    A rule is considered allow-all if:
+    - It's an empty dict (no restrictions)
+    - Its 'to' field is empty list or missing (no destination restrictions)
+    - Its 'to' field contains any wildcard peer
+    """
+    if not isinstance(rule, dict):
+        return False
+    if not rule:
+        return True  # Empty dict = allow-all
+    to_field = rule.get("to")
+    if to_field is None:
+        return True  # Missing 'to' = no destination restriction
+    if isinstance(to_field, list) and not to_field:
+        return True  # Empty 'to' list = no destination restriction
+    # Check individual peers for wildcards
+    if isinstance(to_field, list):
+        if any(_is_wildcard_peer(peer) for peer in to_field):
+            return True
+    return False
+
+
 def _validate_k8s(
     docs: list[dict[str, Any]],
     service: str,
@@ -206,7 +321,7 @@ def _validate_k8s(
     if not has_tmp_volume:
         errors.append("/tmp mount must reference a volume with emptyDir")
 
-    matched_policy = False
+    matched_policies = 0
     for doc in docs:
         if str(doc.get("kind", "")) != "NetworkPolicy":
             continue
@@ -217,12 +332,26 @@ def _validate_k8s(
         if not (isinstance(policy_types, list) and "Egress" in policy_types):
             continue
         pod_selector = spec.get("podSelector")
-        match_labels = pod_selector.get("matchLabels") if isinstance(pod_selector, dict) else None
-        if isinstance(match_labels, dict) and _labels_match(match_labels, workload_labels):
-            matched_policy = True
-            break
+        if _pod_selector_matches(pod_selector, workload_labels):
+            matched_policies += 1
+            # Validate egress rules are restrictive (deny-by-default semantics).
+            # K8s unions allow-rules across ALL matching policies, so every
+            # policy must be restrictive — a permissive policy anywhere opens egress.
+            egress_rules = spec.get("egress")
+            if egress_rules is None:
+                # No egress key = deny-all (K8s default when policyTypes includes Egress)
+                pass
+            elif isinstance(egress_rules, list):
+                if not egress_rules:
+                    # Empty list = deny-all
+                    pass
+                elif any(_is_allow_all_egress_rule(rule) for rule in egress_rules):
+                    errors.append(
+                        "NetworkPolicy has permissive egress rules (empty 'to' or wildcard); "
+                        "must restrict egress to specific internal destinations only"
+                    )
 
-    if not matched_policy:
+    if matched_policies == 0:
         errors.append(
             "No matching NetworkPolicy with policyTypes including Egress for target workload"
         )

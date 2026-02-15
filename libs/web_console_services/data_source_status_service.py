@@ -152,6 +152,10 @@ class DataSourceStatusService:
         self._last_refresh_results.setdefault(source.name, source)
 
         if self._redis_client_factory is None:
+            if self._data_mode == "real":
+                raise RuntimeError(
+                    "Redis client factory required for refresh in real data mode"
+                )
             logger.warning(
                 "redis_lock_disabled_no_factory",
                 extra={"source_name": source.name, "data_mode": self._data_mode},

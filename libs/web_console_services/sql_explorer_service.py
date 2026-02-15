@@ -171,10 +171,14 @@ class QueryResult:
     fingerprint: str
 
 
-def _safe_error_message(status: str, raw_error: str | None) -> str:
-    """Return canonical, non-sensitive error messages only."""
+def _safe_error_message(status: str, _raw_error: str | None = None) -> str:
+    """Return canonical, non-sensitive error messages only.
 
-    del raw_error
+    The _raw_error parameter is intentionally unused — it exists in the
+    signature so callers pass it for documentation/audit purposes, but
+    its value is never included in the returned message to prevent
+    leaking SQL fragments or internal details.
+    """
     return _ERROR_CODES.get(status, "Internal execution error")
 
 
@@ -386,6 +390,10 @@ def _verify_sandbox() -> tuple[bool, list[str]]:
     """Advisory deployment probe for egress/filesystem hardening."""
 
     if _SQL_EXPLORER_SANDBOX_SKIP:
+        if os.getenv("APP_ENV", "").lower() == "production":
+            raise RuntimeError(
+                "SQL_EXPLORER_SANDBOX_SKIP=true is forbidden when APP_ENV=production."
+            )
         logger.warning("sql_explorer_sandbox_skip_dev_mode")
         return True, []
 
@@ -409,14 +417,19 @@ def _verify_sandbox() -> tuple[bool, list[str]]:
         resolved = candidate.resolve() if candidate.is_absolute() else (_PROJECT_ROOT / raw).resolve()
         forbidden_paths.append(resolved)
 
+    probe_suffix = f".sql_explorer_probe_{os.getpid()}"
     for forbidden_dir in forbidden_paths:
-        probe_path = forbidden_dir / ".sql_explorer_probe"
+        probe_path = forbidden_dir / probe_suffix
         try:
             probe_path.write_text("probe", encoding="utf-8")
             probe_path.unlink()
             failures.append(f"filesystem_write_allowed:{forbidden_dir}")
-        except OSError:
-            pass
+        except PermissionError:
+            pass  # Expected: write denied = secure
+        except FileNotFoundError:
+            failures.append(f"filesystem_probe_path_missing:{forbidden_dir}")
+        except OSError as exc:
+            failures.append(f"filesystem_probe_unexpected:{forbidden_dir}:{exc}")
 
     return (len(failures) == 0, failures)
 
@@ -513,6 +526,11 @@ class SqlExplorerService:
 
         safe, failures = _verify_sandbox()
         if not safe:
+            if app_env == "production":
+                raise RuntimeError(
+                    f"SQL Explorer sandbox probe failed in production: {', '.join(failures)}. "
+                    "Ensure network egress is blocked and filesystem is read-only."
+                )
             logger.warning("sql_explorer_sandbox_probe_failed", extra={"failures": failures})
 
     async def execute_query(

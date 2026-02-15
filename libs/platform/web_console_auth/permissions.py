@@ -133,6 +133,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_TAX_REPORTS,
         Permission.VIEW_FEATURES,
         Permission.VIEW_SHADOW_RESULTS,
+        Permission.QUERY_DATA,  # P6T14: SQL Explorer access for alpha research
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -173,7 +174,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 
 ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {
     Role.VIEWER: {DatasetPermission.FAMA_FRENCH_ACCESS},
-    Role.RESEARCHER: {DatasetPermission.FAMA_FRENCH_ACCESS},
+    Role.RESEARCHER: {
+        DatasetPermission.FAMA_FRENCH_ACCESS,
+        DatasetPermission.CRSP_ACCESS,  # P6T14: Academic datasets for alpha research
+        DatasetPermission.COMPUSTAT_ACCESS,
+    },
     Role.OPERATOR: {
         DatasetPermission.FAMA_FRENCH_ACCESS,
         DatasetPermission.CRSP_ACCESS,
