@@ -430,6 +430,41 @@ spec:
     assert any("permissive egress" in err for err in errors)
 
 
+def test_k8s_notin_absent_key_matches(tmp_path: Path) -> None:
+    """NotIn with absent label key MUST match (K8s semantics)."""
+    manifest = tmp_path / "k8s.yaml"
+    # Policy uses NotIn with key "env" that doesn't exist on workload labels.
+    # Per K8s semantics, NotIn SHOULD match when key is absent.
+    manifest.write_text(
+        _K8S_BASE
+        + """---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-console-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: env
+        operator: NotIn
+        values: ["staging"]
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+""",
+        encoding="utf-8",
+    )
+
+    code, errors, _warnings = validate_manifest(manifest, "web_console", "production")
+    assert code == 0
+    assert errors == []
+
+
 def test_main_missing_manifest_returns_2(tmp_path: Path) -> None:
     missing = tmp_path / "missing.yml"
     code = main(["--manifest", str(missing), "--service", "web_console", "--env", "production"])

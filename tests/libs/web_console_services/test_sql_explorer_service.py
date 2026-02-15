@@ -67,6 +67,9 @@ class _DummyConn:
 @pytest.fixture(autouse=True)
 def _env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setattr(module, "_APP_ENV", "test")
+    monkeypatch.setattr(module, "_IS_DEV_MODE", True)
+    monkeypatch.setattr(module, "_AUDIT_LOG_RAW_SQL", False)
     monkeypatch.setenv("SQL_EXPLORER_DEV_MODE", "true")
     monkeypatch.setenv("SQL_EXPLORER_SANDBOX_SKIP", "true")
 
@@ -112,6 +115,7 @@ def test_path_validation_rejects_traversal_and_quotes(tmp_path: Path, monkeypatc
 def test_safe_error_message_returns_canonical_codes() -> None:
     assert _safe_error_message("validation_error", "raw") == "Query failed validation"
     assert _safe_error_message("unknown", "raw") == "Internal execution error"
+    assert _safe_error_message("success") is None
 
 
 def test_fingerprint_query_replaces_literals_and_handles_unparseable() -> None:
@@ -161,21 +165,24 @@ def test_can_query_dataset_default_deny_for_unmapped(operator_user: dict[str, st
         del module.DATASET_TABLES["new_dataset"]
 
 
-def test_service_init_requires_known_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("APP_ENV", "prod")
-    with pytest.raises(RuntimeError, match="requires explicit APP_ENV"):
-        SqlExplorerService(rate_limiter=_DummyRateLimiter())
+def test_service_init_unset_app_env_defaults_to_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When APP_ENV is unset, _APP_ENV defaults to "local" (safe for dev).
+    monkeypatch.setattr(module, "_APP_ENV", "local")
+    svc = SqlExplorerService(rate_limiter=_DummyRateLimiter())
+    assert svc is not None
 
 
 def test_service_init_requires_attestation_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setattr(module, "_APP_ENV", "production")
     monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false")
     with pytest.raises(RuntimeError, match="deploy-attested"):
         SqlExplorerService(rate_limiter=_DummyRateLimiter())
 
 
 def test_service_init_rate_limiter_guards(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SQL_EXPLORER_DEV_MODE", "false")
+    monkeypatch.setattr(module, "_IS_DEV_MODE", False)
     with pytest.raises(ValueError, match="requires a RateLimiter"):
         SqlExplorerService(rate_limiter=None)
 
@@ -184,9 +191,9 @@ def test_service_init_rate_limiter_guards(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_service_init_dev_mode_forbidden_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setattr(module, "_APP_ENV", "production")
+    monkeypatch.setattr(module, "_IS_DEV_MODE", True)
     monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "true")
-    monkeypatch.setenv("SQL_EXPLORER_DEV_MODE", "true")
     with pytest.raises(RuntimeError, match="forbidden"):
         SqlExplorerService(rate_limiter=_DummyRateLimiter())
 

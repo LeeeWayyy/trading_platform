@@ -89,6 +89,22 @@ _AUDIT_RAW_SQL_EMERGENCY_OVERRIDE = (
 
 _SQL_EXPLORER_SANDBOX_SKIP = os.getenv("SQL_EXPLORER_SANDBOX_SKIP", "").lower() == "true"
 
+# Centralized dev-mode and APP_ENV resolution at module level.
+_IS_DEV_MODE = os.getenv("SQL_EXPLORER_DEV_MODE", "").lower() == "true"
+
+# Centralized APP_ENV resolution: default to "local" only when truly unset.
+# Unknown values are rejected (fail-closed) to prevent misconfigured production.
+_raw_app_env = os.getenv("APP_ENV")
+if _raw_app_env is None:
+    _APP_ENV = "local"
+elif _raw_app_env.lower() in _KNOWN_ENVS:
+    _APP_ENV = _raw_app_env.lower()
+else:
+    raise RuntimeError(
+        f"SQL_EXPLORER: APP_ENV='{_raw_app_env}' is not recognized. "
+        f"Must be one of {sorted(_KNOWN_ENVS)} or unset (defaults to 'local')."
+    )
+
 _PROJECT_ROOT_ENV = os.getenv("PROJECT_ROOT")
 if _PROJECT_ROOT_ENV:
     _PROJECT_ROOT = _Path(_PROJECT_ROOT_ENV).resolve()
@@ -104,11 +120,9 @@ else:
     if _found_marker:
         _PROJECT_ROOT = _candidate
     else:
-        _is_dev = os.getenv("SQL_EXPLORER_DEV_MODE", "").lower() == "true"
-        _app_env = os.getenv("APP_ENV", "").lower()
-        if _is_dev and _app_env == "production":
+        if _IS_DEV_MODE and _APP_ENV == "production":
             raise RuntimeError("SQL_EXPLORER_DEV_MODE=true is forbidden when APP_ENV=production.")
-        if _is_dev:
+        if _IS_DEV_MODE:
             _PROJECT_ROOT = _Path.cwd()
             logger.warning(
                 "sql_explorer_project_root_fallback_cwd_dev",
@@ -133,7 +147,7 @@ if not _DATA_ROOT_AVAILABLE:
         extra={"expected": str(_PROJECT_ROOT / "data")},
     )
 
-if _AUDIT_LOG_RAW_SQL and os.getenv("APP_ENV", "").lower() == "production":
+if _AUDIT_LOG_RAW_SQL and _APP_ENV == "production":
     if not _AUDIT_RAW_SQL_EMERGENCY_OVERRIDE:
         raise RuntimeError(
             "SQL_EXPLORER_AUDIT_RAW_SQL=true is forbidden when APP_ENV=production. "
@@ -171,14 +185,17 @@ class QueryResult:
     fingerprint: str
 
 
-def _safe_error_message(status: str, _raw_error: str | None = None) -> str:
+def _safe_error_message(status: str, _raw_error: str | None = None) -> str | None:
     """Return canonical, non-sensitive error messages only.
 
+    Returns None for success status to avoid misleading audit log entries.
     The _raw_error parameter is intentionally unused — it exists in the
     signature so callers pass it for documentation/audit purposes, but
     its value is never included in the returned message to prevent
     leaking SQL fragments or internal details.
     """
+    if status == "success":
+        return None
     return _ERROR_CODES.get(status, "Internal execution error")
 
 
@@ -321,76 +338,75 @@ def _create_query_connection(dataset: str, available_tables: set[str]) -> duckdb
     """Create hardened DuckDB connection scoped to available dataset tables."""
 
     conn = duckdb.connect()
-    conn.execute("SET enable_extension_autoloading = false")
-    conn.execute("SET enable_extension_loading = false")
-
-    _allowed_extensions = frozenset({"core_functions", "icu", "json", "parquet"})
-    _denied_extensions = frozenset(
-        {"httpfs", "postgres_scanner", "sqlite_scanner", "mysql_scanner", "azure", "aws"}
-    )
-    _strict_extensions = (
-        os.getenv("SQL_EXPLORER_STRICT_EXTENSIONS", "true").lower() == "true"
-    )
-    _app_env = os.getenv("APP_ENV", "").lower()
-    if not _strict_extensions and _app_env == "production":
-        conn.close()
-        raise RuntimeError(
-            "SQL_EXPLORER_STRICT_EXTENSIONS=false is forbidden when APP_ENV=production."
-        )
-
-    loaded_extensions = conn.execute(
-        "SELECT extension_name FROM duckdb_extensions() WHERE loaded = true"
-    ).fetchall()
-
-    for (ext_name,) in loaded_extensions:
-        if ext_name in _denied_extensions:
-            conn.close()
-            raise RuntimeError(f"Denied DuckDB extension loaded: {ext_name}")
-        if ext_name not in _allowed_extensions:
-            if _strict_extensions:
-                conn.close()
-                raise RuntimeError(f"Unknown DuckDB extension loaded: {ext_name}")
-            logger.warning("duckdb_unknown_extension_advisory", extra={"extension": ext_name})
-
-    default_memory_mb = 512
-    raw_memory_mb = os.getenv("SQL_EXPLORER_MAX_MEMORY_MB", str(default_memory_mb))
     try:
-        max_memory_mb = max(64, int(raw_memory_mb))
-    except (TypeError, ValueError):
-        logger.warning(
-            "sql_explorer_invalid_max_memory",
-            extra={"raw_value": raw_memory_mb, "fallback": default_memory_mb},
+        conn.execute("SET enable_extension_autoloading = false")
+        conn.execute("SET enable_extension_loading = false")
+
+        _allowed_extensions = frozenset({"core_functions", "icu", "json", "parquet"})
+        _denied_extensions = frozenset(
+            {"httpfs", "postgres_scanner", "sqlite_scanner", "mysql_scanner", "azure", "aws"}
         )
-        max_memory_mb = default_memory_mb
-
-    conn.execute(f"SET max_memory = '{max_memory_mb}MB'")
-    conn.execute("SET threads = 1")
-
-    table_paths = _resolve_table_paths()
-    for table_name in DATASET_TABLES[dataset]:
-        if table_name not in available_tables:
-            continue
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
-            conn.close()
-            raise ValueError(f"Invalid table identifier: {table_name}")
-
-        parquet_path = table_paths.get(table_name)
-        if parquet_path is None:
-            continue
-        _validate_path_safe(parquet_path)
-        conn.execute(
-            f'CREATE OR REPLACE VIEW "{table_name}" AS '
-            f"SELECT * FROM read_parquet('{parquet_path}')"
+        _strict_extensions = (
+            os.getenv("SQL_EXPLORER_STRICT_EXTENSIONS", "true").lower() == "true"
         )
+        if not _strict_extensions and _APP_ENV == "production":
+            raise RuntimeError(
+                "SQL_EXPLORER_STRICT_EXTENSIONS=false is forbidden when APP_ENV=production."
+            )
 
-    return conn
+        loaded_extensions = conn.execute(
+            "SELECT extension_name FROM duckdb_extensions() WHERE loaded = true"
+        ).fetchall()
+
+        for (ext_name,) in loaded_extensions:
+            if ext_name in _denied_extensions:
+                raise RuntimeError(f"Denied DuckDB extension loaded: {ext_name}")
+            if ext_name not in _allowed_extensions:
+                if _strict_extensions:
+                    raise RuntimeError(f"Unknown DuckDB extension loaded: {ext_name}")
+                logger.warning("duckdb_unknown_extension_advisory", extra={"extension": ext_name})
+
+        default_memory_mb = 512
+        raw_memory_mb = os.getenv("SQL_EXPLORER_MAX_MEMORY_MB", str(default_memory_mb))
+        try:
+            max_memory_mb = max(64, int(raw_memory_mb))
+        except (TypeError, ValueError):
+            logger.warning(
+                "sql_explorer_invalid_max_memory",
+                extra={"raw_value": raw_memory_mb, "fallback": default_memory_mb},
+            )
+            max_memory_mb = default_memory_mb
+
+        conn.execute(f"SET max_memory = '{max_memory_mb}MB'")
+        conn.execute("SET threads = 1")
+
+        table_paths = _resolve_table_paths()
+        for table_name in DATASET_TABLES[dataset]:
+            if table_name not in available_tables:
+                continue
+            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
+                raise ValueError(f"Invalid table identifier: {table_name}")
+
+            parquet_path = table_paths.get(table_name)
+            if parquet_path is None:
+                continue
+            _validate_path_safe(parquet_path)
+            conn.execute(
+                f'CREATE OR REPLACE VIEW "{table_name}" AS '
+                f"SELECT * FROM read_parquet('{parquet_path}')"
+            )
+
+        return conn
+    except Exception:
+        conn.close()
+        raise
 
 
 def _verify_sandbox() -> tuple[bool, list[str]]:
     """Advisory deployment probe for egress/filesystem hardening."""
 
     if _SQL_EXPLORER_SANDBOX_SKIP:
-        if os.getenv("APP_ENV", "").lower() == "production":
+        if _APP_ENV == "production":
             raise RuntimeError(
                 "SQL_EXPLORER_SANDBOX_SKIP=true is forbidden when APP_ENV=production."
             )
@@ -495,22 +511,17 @@ class SqlExplorerService:
     """Service encapsulating SQL Explorer security and execution pipeline."""
 
     def __init__(self, rate_limiter: RateLimiter | None = None) -> None:
-        app_env = os.getenv("APP_ENV", "").lower()
-        if app_env not in _KNOWN_ENVS:
-            raise RuntimeError(
-                f"SQL_EXPLORER requires explicit APP_ENV in {_KNOWN_ENVS}, got: '{app_env}'"
-            )
+        app_env = _APP_ENV
 
         if app_env == "production":
             if os.getenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false").lower() != "true":
                 raise RuntimeError("SQL Explorer requires deploy-attested sandbox in production")
 
-        is_dev_mode = os.getenv("SQL_EXPLORER_DEV_MODE", "").lower() == "true"
-        if is_dev_mode and app_env == "production":
+        if _IS_DEV_MODE and app_env == "production":
             raise RuntimeError("SQL_EXPLORER_DEV_MODE=true is forbidden when APP_ENV=production.")
 
         if rate_limiter is None:
-            if not is_dev_mode:
+            if not _IS_DEV_MODE:
                 raise ValueError(
                     "SqlExplorerService requires a RateLimiter in production-like environments. "
                     "Set SQL_EXPLORER_DEV_MODE=true for local development only."

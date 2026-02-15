@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
@@ -32,14 +32,10 @@ _MAX_CACHE_DAYS = 30
 _MAX_CACHE_SYMBOLS = 5
 _MAX_LOOKBACK_DAYS = 60
 _CACHE_TTL_SECONDS = 1800
-_MAX_CACHE_BYTES = 50 * 1024 * 1024
+_MAX_CACHE_BYTES = 10 * 1024 * 1024
 _DEFAULT_SYMBOLS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
 _CLEANUP_OWNER_KEY = "feature_browser_cache"
 _CACHE_KEY = "feature_cache"
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 def _cache_fresh(cached_at: float) -> bool:

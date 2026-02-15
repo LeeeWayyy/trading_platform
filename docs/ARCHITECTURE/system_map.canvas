@@ -266,6 +266,13 @@
       "id": "edge_34",
       "toNode": "lib_web_console_services",
       "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_35",
+      "toNode": "strat_alpha_baseline",
+      "toSide": "top"
     }
   ],
   "nodes": [

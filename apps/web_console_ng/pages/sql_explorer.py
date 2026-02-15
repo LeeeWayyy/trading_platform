@@ -84,7 +84,7 @@ async def sql_explorer_page() -> None:
 
     try:
         service = SqlExplorerService(rate_limiter=rate_limiter)
-    except (ValueError, RuntimeError) as exc:
+    except (ValueError, RuntimeError):
         logger.exception("sql_explorer_service_init_failed")
         with ui.card().classes("w-full p-4"):
             ui.label("SQL Explorer unavailable: service initialization failed.").classes(
@@ -202,9 +202,11 @@ async def sql_explorer_page() -> None:
             _render_history()
 
         with ui.row().classes("gap-2 mt-2"):
-            ui.button("Clear History", on_click=lambda: (history.clear(), _render_history())).props(
-                "flat"
-            )
+            def _clear_history() -> None:
+                history.clear()
+                _render_history()
+
+            ui.button("Clear History", on_click=_clear_history).props("flat")
 
         _render_history()
 

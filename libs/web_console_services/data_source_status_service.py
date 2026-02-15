@@ -200,7 +200,9 @@ class DataSourceStatusService:
         lock_token: str,
     ) -> None:
         try:
-            released = await redis_client.eval(_COMPARE_AND_DELETE_LUA, 1, lock_key, lock_token)
+            released = await redis_client.eval(  # type: ignore[misc]
+                _COMPARE_AND_DELETE_LUA, 1, lock_key, lock_token,
+            )
             if int(released) == 0:
                 logger.warning("redis_lock_release_noop", extra={"lock_key": lock_key})
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as exc:
@@ -267,8 +269,8 @@ class DataSourceStatusService:
         sources: list[DataSourceStatusDTO] = []
         for spec in _DATA_SOURCES:
             minutes_ago = int(spec["minutes_ago"])
-            last_update = now - timedelta(minutes=minutes_ago)
-            age_seconds = float(minutes_ago * 60)
+            last_update: datetime | None = now - timedelta(minutes=minutes_ago)
+            age_seconds: float | None = float(minutes_ago * 60)
             if spec["status"] == "unknown":
                 last_update = None
                 age_seconds = None
