@@ -1,7 +1,7 @@
-"""Time and symbol validation utilities for Order Entry Context.
+"""Shared time and symbol validation utilities for web console pages.
 
-This module provides shared utilities used across OrderTicket, MarketContext,
-PriceChart, Watchlist, and OrderEntryContext components.
+This module provides utilities used across web console components (Order Entry,
+Data Source Status, Shadow Results, Health, etc.).
 
 Key difference from formatters.parse_date_for_sort:
 - parse_date_for_sort: Returns naive datetime (for sorting)
@@ -110,7 +110,26 @@ def validate_and_normalize_symbol(symbol: str) -> str:
     return normalized
 
 
+def format_relative_time(timestamp: datetime | None, *, now: datetime | None = None) -> str:
+    """Format a timestamp as a compact relative string (e.g. '5m ago').
+
+    Handles None timestamps (returns 'unknown') for sources that have never reported.
+    """
+    if timestamp is None:
+        return "unknown"
+    current = now or datetime.now(UTC)
+    delta_seconds = max(0.0, (current - timestamp).total_seconds())
+    if delta_seconds < 60:
+        return f"{delta_seconds:.0f}s ago"
+    if delta_seconds < 3600:
+        return f"{delta_seconds / 60:.0f}m ago"
+    if delta_seconds < 86400:
+        return f"{delta_seconds / 3600:.1f}h ago"
+    return f"{delta_seconds / 86400:.1f}d ago"
+
+
 __all__ = [
+    "format_relative_time",
     "parse_iso_timestamp",
     "validate_and_normalize_symbol",
     "VALID_SYMBOL_PATTERN",

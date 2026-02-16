@@ -65,6 +65,16 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - Symbol universe management
 - Alpaca stream integration
 
+### libs/data/feature_metadata
+
+**Purpose:** Feature catalog metadata and statistics computation for the Alpha158 feature set.
+
+**Key Features:**
+- Feature catalog with name, category, description, formula, lookback window, and input columns
+- Sample value extraction from feature DataFrames
+- Descriptive statistics computation (mean, std, quantiles, null percentage)
+- Used by Feature Store Browser page (P6T14)
+
 ## Dependencies
 - **Internal:** libs/core/common, libs/core/redis_client
 - **External:** Alpaca API, WRDS, yfinance, DuckDB
@@ -74,6 +84,6 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - [../services/market_data_service.md](../services/market_data_service.md) - Market data service
 
 ## Metadata
-- **Last Updated:** 2026-02-09 (P6T12 - Added HealthMonitor to data_pipeline, etl.py redis heartbeat)
-- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`, `libs/data/data_quality/coverage_analyzer.py`, `libs/data/data_quality/pit_inspector.py`, `libs/data/data_quality/quality_scorer.py`
+- **Last Updated:** 2026-02-14 (P6T14 - Added feature_metadata.py for Feature Store Browser)
+- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`, `libs/data/data_quality/coverage_analyzer.py`, `libs/data/data_quality/pit_inspector.py`, `libs/data/data_quality/quality_scorer.py`, `libs/data/feature_metadata.py`
 - **ADRs:** N/A

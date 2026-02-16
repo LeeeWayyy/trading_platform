@@ -99,6 +99,8 @@ class Permission(str, Enum):
 
     # P6T8: Execution Analytics
     VIEW_TCA = "view_tca"  # Transaction Cost Analysis dashboard access
+    VIEW_FEATURES = "view_features"  # P6T14: Feature Store Browser access
+    VIEW_SHADOW_RESULTS = "view_shadow_results"  # P6T14: Shadow results access
 
 
 class DatasetPermission(str, Enum):
@@ -129,6 +131,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_REPORTS,
         Permission.VIEW_TAX_LOTS,
         Permission.VIEW_TAX_REPORTS,
+        Permission.VIEW_FEATURES,
+        Permission.VIEW_SHADOW_RESULTS,
+        Permission.QUERY_DATA,  # P6T14: SQL Explorer access for alpha research
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -161,13 +166,19 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_TAX_LOTS,
         Permission.VIEW_TCA,  # P6T8: TCA dashboard access
         Permission.VIEW_AUDIT,  # P6T8: Audit trail access
+        Permission.VIEW_FEATURES,
+        Permission.VIEW_SHADOW_RESULTS,
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
 
 ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {
     Role.VIEWER: {DatasetPermission.FAMA_FRENCH_ACCESS},
-    Role.RESEARCHER: {DatasetPermission.FAMA_FRENCH_ACCESS},
+    Role.RESEARCHER: {
+        DatasetPermission.FAMA_FRENCH_ACCESS,
+        DatasetPermission.CRSP_ACCESS,  # P6T14: Academic datasets for alpha research
+        DatasetPermission.COMPUSTAT_ACCESS,
+    },
     Role.OPERATOR: {
         DatasetPermission.FAMA_FRENCH_ACCESS,
         DatasetPermission.CRSP_ACCESS,
