@@ -419,7 +419,9 @@ async def test_refresh_then_list_returns_refreshed_state(operator_user: DummyUse
 
     post_list = await service.get_all_sources(operator_user)
     crsp_after = next(s for s in post_list if s.name == "crsp")
-    assert crsp_after.age_seconds == 0.0
+    # age_seconds is recomputed from last_update, so it will be small but not exactly 0
+    assert crsp_after.age_seconds is not None
+    assert crsp_after.age_seconds < 5.0  # Should be near-zero (ms elapsed)
     assert crsp_after.last_update == refreshed.last_update
 
 

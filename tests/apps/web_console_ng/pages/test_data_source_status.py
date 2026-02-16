@@ -230,7 +230,10 @@ async def test_overlap_guard_prevents_concurrent_refresh(monkeypatch: pytest.Mon
 
 
 def test_format_relative_time_variants() -> None:
+    from apps.web_console_ng.utils.time import format_relative_time
+
     now = datetime.now(UTC)
-    assert module._format_relative_time(now - timedelta(seconds=30), now=now).endswith("s ago")
-    assert module._format_relative_time(now - timedelta(minutes=5), now=now).endswith("m ago")
-    assert module._format_relative_time(now - timedelta(hours=2), now=now).endswith("h ago")
+    assert format_relative_time(now - timedelta(seconds=30), now=now).endswith("s ago")
+    assert format_relative_time(now - timedelta(minutes=5), now=now).endswith("m ago")
+    assert format_relative_time(now - timedelta(hours=2), now=now).endswith("h ago")
+    assert format_relative_time(None, now=now) == "unknown"

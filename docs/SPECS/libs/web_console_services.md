@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-02-15 - P6T14: Data source status merge-path fix, SQL explorer service -->
+<!-- Last reviewed: 2026-02-15 - P6T14: Age recomputation, sandbox probe tolerance, service fixes -->
 
 ## Identity
 - **Type:** Library

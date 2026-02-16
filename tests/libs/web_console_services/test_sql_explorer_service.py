@@ -21,6 +21,7 @@ from libs.web_console_services.sql_explorer_service import (
     _fingerprint_query,
     _safe_error_message,
     _validate_path_safe,
+    _verify_sandbox,
     can_query_dataset,
 )
 
@@ -351,6 +352,49 @@ async def test_export_csv_rate_limited(operator_user: dict[str, str]) -> None:
     service = SqlExplorerService(rate_limiter=_DummyRateLimiter(allowed=False))
     with pytest.raises(RateLimitExceededError):
         await service.export_csv(operator_user, "crsp", pl.DataFrame({"a": [1]}))
+
+
+def test_verify_sandbox_missing_dir_not_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """FileNotFoundError from missing probe directory should not count as failure."""
+    import socket as _socket
+
+    # Point forbidden paths to a directory that doesn't exist
+    nonexistent = tmp_path / "does_not_exist"
+    monkeypatch.setattr(module, "_SQL_EXPLORER_SANDBOX_SKIP", False)
+    monkeypatch.setenv("SQL_EXPLORER_FORBIDDEN_WRITE_PATHS", str(nonexistent))
+
+    # Mock network probe to always fail (simulate blocked egress)
+    def _blocked_connect(*_args: object, **_kwargs: object) -> None:
+        raise OSError("blocked")
+
+    monkeypatch.setattr(_socket, "create_connection", _blocked_connect)
+
+    safe, failures = _verify_sandbox()
+    # Missing directory = not writable = should be fully safe
+    assert safe is True
+    assert failures == []
+
+
+def test_verify_sandbox_writable_dir_is_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A writable directory should be reported as a sandbox failure."""
+    import socket as _socket
+
+    monkeypatch.setattr(module, "_SQL_EXPLORER_SANDBOX_SKIP", False)
+    monkeypatch.setenv("SQL_EXPLORER_FORBIDDEN_WRITE_PATHS", str(tmp_path))
+
+    def _blocked_connect(*_args: object, **_kwargs: object) -> None:
+        raise OSError("blocked")
+
+    monkeypatch.setattr(_socket, "create_connection", _blocked_connect)
+
+    safe, failures = _verify_sandbox()
+    assert safe is False
+    assert len(failures) == 1
+    assert "filesystem_write_allowed" in failures[0]
 
 
 def test_log_query_no_raw_sql_by_default(caplog: pytest.LogCaptureFixture) -> None:

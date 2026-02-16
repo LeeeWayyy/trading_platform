@@ -443,7 +443,7 @@ def _verify_sandbox() -> tuple[bool, list[str]]:
         except PermissionError:
             pass  # Expected: write denied = secure
         except FileNotFoundError:
-            failures.append(f"filesystem_probe_path_missing:{forbidden_dir}")
+            pass  # Directory absent = not writable (safe)
         except OSError as exc:
             failures.append(f"filesystem_probe_unexpected:{forbidden_dir}:{exc}")
 

@@ -19,6 +19,8 @@ from libs.platform.web_console_auth.rate_limiter import RateLimiter
 from libs.web_console_services.sql_explorer_service import (
     _DATA_ROOT_AVAILABLE,
     _MAX_ROWS_LIMIT,
+    ConcurrencyLimitError,
+    RateLimitExceededError,
     SqlExplorerService,
     can_query_dataset,
 )
@@ -175,23 +177,29 @@ async def sql_explorer_page() -> None:
                         ui.label(
                             f"{item['dataset']} | {item['status']} | {item['rows']} rows"
                         ).classes("text-xs text-gray-400")
-                        def _replay_fingerprint(fp: str = item["fingerprint"]) -> None:
-                            query_editor.value = fp
-                            if "?" in fp:
+                        def _replay_query(
+                            original: str = item.get("original_sql", ""),
+                            fp: str = item["fingerprint"],
+                        ) -> None:
+                            query_editor.value = original or fp
+                            if not original and "?" in fp:
                                 ui.notify(
                                     "Query template loaded — replace ? placeholders with actual values",
                                     type="info",
                                 )
 
-                        ui.button("Use in editor", on_click=_replay_fingerprint).props(
+                        ui.button("Use in editor", on_click=_replay_query).props(
                             "flat dense"
                         )
 
-        def _add_history(fingerprint: str, dataset: str, status: str, rows: int) -> None:
+        def _add_history(
+            fingerprint: str, dataset: str, status: str, rows: int, *, original_sql: str = "",
+        ) -> None:
             history.insert(
                 0,
                 {
                     "fingerprint": fingerprint,
+                    "original_sql": original_sql,
                     "dataset": dataset,
                     "status": status,
                     "rows": rows,
@@ -261,7 +269,7 @@ async def sql_explorer_page() -> None:
 
             last_result_dataset = dataset
             status_label.text = f"{len(result.df)} rows in {result.execution_ms}ms"
-            _add_history(result.fingerprint, dataset, "success", len(result.df))
+            _add_history(result.fingerprint, dataset, "success", len(result.df), original_sql=query)
 
         except PermissionError as exc:
             ui.notify(str(exc), type="negative")
@@ -275,6 +283,14 @@ async def sql_explorer_page() -> None:
             ui.notify(f"Query timed out after {timeout}s", type="negative")
             status_label.text = f"Timeout after {timeout}s"
             _add_history("<timed out>", dataset, "timeout", 0)
+        except RateLimitExceededError as exc:
+            ui.notify(str(exc), type="warning")
+            status_label.text = "Rate limit exceeded"
+            _add_history("<rate_limited>", dataset, "rate_limited", 0)
+        except ConcurrencyLimitError as exc:
+            ui.notify(str(exc), type="warning")
+            status_label.text = "Too many concurrent queries"
+            _add_history("<concurrency_limited>", dataset, "concurrency_limited", 0)
         except RuntimeError as exc:
             logger.warning("sql_query_runtime_error", extra={"dataset": dataset, "error": str(exc)})
             ui.notify("Query could not be executed. Please try again later.", type="warning")
@@ -300,6 +316,9 @@ async def sql_explorer_page() -> None:
             csv_bytes = await service.export_csv(user=user, dataset=export_dataset, df=df)
         except PermissionError as exc:
             ui.notify(str(exc), type="negative")
+            return
+        except RateLimitExceededError as exc:
+            ui.notify(str(exc), type="warning")
             return
         except RuntimeError as exc:
             logger.warning("sql_export_runtime_error", extra={"error": str(exc)})

@@ -14,6 +14,7 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.utils.session import get_or_create_client_id
+from apps.web_console_ng.utils.time import format_relative_time
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 from libs.web_console_services.data_source_status_service import DataSourceStatusService
@@ -31,21 +32,6 @@ _STATUS_COLORS = {
 _CLEANUP_OWNER_KEY = "data_source_status_timers"
 
 
-def _format_relative_time(timestamp: datetime | None, *, now: datetime | None = None) -> str:
-    """Format source update timestamp as a compact relative string."""
-    if timestamp is None:
-        return "unknown"
-    current = now or datetime.now(UTC)
-    delta_seconds = max(0.0, (current - timestamp).total_seconds())
-    if delta_seconds < 60:
-        return f"{delta_seconds:.0f}s ago"
-    if delta_seconds < 3600:
-        return f"{delta_seconds / 60:.0f}m ago"
-    if delta_seconds < 86400:
-        return f"{delta_seconds / 3600:.1f}h ago"
-    return f"{delta_seconds / 86400:.1f}d ago"
-
-
 def _status_counts(sources: list[DataSourceStatusDTO]) -> dict[str, int]:
     counts = {"ok": 0, "stale": 0, "error": 0, "unknown": 0}
     for source in sources:
@@ -59,7 +45,7 @@ def _status_for_row(source: DataSourceStatusDTO, *, now: datetime) -> dict[str, 
         "display_name": source.display_name,
         "provider_type": source.provider_type,
         "status": source.status,
-        "last_update": _format_relative_time(source.last_update, now=now),
+        "last_update": format_relative_time(source.last_update, now=now),
         "age_seconds": source.age_seconds,
         "age_display": f"{source.age_seconds:.0f}s" if source.age_seconds is not None else "-",
         "row_count": source.row_count,
@@ -280,5 +266,4 @@ __all__ = [
     "data_source_status_page",
     "_CLEANUP_OWNER_KEY",
     "_STATUS_COLORS",
-    "_format_relative_time",
 ]

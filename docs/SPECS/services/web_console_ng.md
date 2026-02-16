@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-15 - P6T14: PR feedback fixes for SQL Explorer, Shadow Results pages -->
+<!-- Last reviewed: 2026-02-15 - P6T14: DRY time util, specific error handling, history replay -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

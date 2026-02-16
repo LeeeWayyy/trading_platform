@@ -15,6 +15,7 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
 from apps.web_console_ng.utils.session import get_or_create_client_id
+from apps.web_console_ng.utils.time import format_relative_time
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 from libs.web_console_services.schemas.data_management import ShadowResultDTO, ShadowTrendDTO
@@ -23,18 +24,6 @@ from libs.web_console_services.shadow_results_service import ShadowResultsServic
 logger = logging.getLogger(__name__)
 
 _CLEANUP_OWNER_KEY = "shadow_results_timers"
-
-
-def _relative_time(timestamp: datetime, *, now: datetime | None = None) -> str:
-    current = now or datetime.now(UTC)
-    delta_seconds = max(0.0, (current - timestamp).total_seconds())
-    if delta_seconds < 60:
-        return f"{delta_seconds:.0f}s ago"
-    if delta_seconds < 3600:
-        return f"{delta_seconds / 60:.0f}m ago"
-    if delta_seconds < 86400:
-        return f"{delta_seconds / 3600:.1f}h ago"
-    return f"{delta_seconds / 86400:.1f}d ago"
 
 
 def _pass_rate_class(pass_rate: float) -> str:
@@ -144,7 +133,7 @@ def _table_rows(results: list[ShadowResultDTO]) -> list[dict[str, Any]]:
     return [
         {
             "id": result.id,
-            "time": _relative_time(result.validation_time, now=now),
+            "time": format_relative_time(result.validation_time, now=now),
             "model_version": result.model_version,
             "status": "passed" if result.passed else "failed",
             "correlation": result.correlation,

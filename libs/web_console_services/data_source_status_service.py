@@ -132,12 +132,16 @@ class DataSourceStatusService:
             if source.dataset_key is None or has_dataset_permission(user, source.dataset_key)
         ]
         # Merge refreshed sources so callers see updated timestamps after manual refresh
+        now = datetime.now(UTC)
         merged = [
             self._last_refresh_results.get(source.name, source)
             for source in filtered
         ]
+        # Recompute age_seconds from last_update so cached DTOs stay accurate
         for source in merged:
             self._last_refresh_results.setdefault(source.name, source)
+            if source.last_update is not None:
+                source.age_seconds = (now - source.last_update).total_seconds()
         return merged
 
     async def refresh_source(self, user: Any, source_name: str) -> DataSourceStatusDTO:
