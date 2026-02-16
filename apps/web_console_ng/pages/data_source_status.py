@@ -236,6 +236,12 @@ async def data_source_status_page() -> None:
             ui.notify(str(exc), type="negative")
         except TimeoutError:
             ui.notify("Refresh timed out", type="warning")
+        except RuntimeError as exc:
+            logger.warning(
+                "data_source_refresh_runtime_error",
+                extra={"source_name": source_name, "user_id": get_user_id(user), "error": str(exc)},
+            )
+            ui.notify(str(exc), type="warning")
         except Exception:
             logger.exception(
                 "data_source_refresh_failed",

@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-02-15 - P6T14: DRY time util, specific error handling, history replay -->
+<!-- Last reviewed: 2026-02-16 - P6T14: RuntimeError refresh handler, cache limit reduction -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)
