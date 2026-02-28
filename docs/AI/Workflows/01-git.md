@@ -1,108 +1,38 @@
 # Git Workflows (Commits & Pull Requests)
 
-**Purpose:** Progressive commits with quality gates + PR creation workflow
-**Tools:** git, gh CLI, workflow_gate.py, zen-mcp reviews
-**Policy:** [Component Cycle](./12-component-cycle.md), [Reviews](./03-reviews.md)
+**Purpose:** Progressive commits with review approval + PR creation workflow
+**Tools:** git, gh CLI, `/review` skill, `/pr-fix` skill
 
 ---
 
 ## Workflow Overview
 
 ```
-Component Cycle → Commit (every 30-60 min) → ... → Deep Review → PR
-    ↓
-1. Plan
-2. Plan Review (zen-mcp)
-3. Implement
-4. Test
-5. Code Review (zen-mcp)
-6. Commit (after approval)
+Implement → Test → /review → Commit → ... → CI → PR
 ```
-
-**See:** [12-component-cycle.md](./12-component-cycle.md) for complete 6-step pattern
 
 ---
 
 ## Part 1: Progressive Commits
 
-**When:** Every 30-60 minutes after completing a logical component
-**Prerequisites:** Component cycle complete (plan → plan-review → implement → test → review → ready to commit)
-
-###🔒 Workflow Gate Enforcement (AUTOMATIC)
-
-**Pre-commit hook blocks commits unless:**
-1. ✅ Current step = `review`
-2. ✅ Zen-MCP review = `APPROVED`
-3. ✅ CI passed (`make ci-local`)
-
-**Workflow commands:**
-```bash
-# Set component
-./scripts/workflow_gate.py set-component "Component Name"
-
-# Advance through steps
-./scripts/workflow_gate.py advance test
-./scripts/workflow_gate.py advance review
-
-# Record review approval (for each reviewer)
-./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
-./scripts/workflow_gate.py record-review codex approved --continuation-id <id>
-
-# Record CI pass
-make ci-local && ./scripts/workflow_gate.py record-ci true
-
-# Check status if blocked
-./scripts/workflow_gate.py status
-```
-
-**⚠️ NEVER use `git commit --no-verify`** — Bypasses quality gates, detected by CI
-
-### Context-Aware Commits
-
-**Check context before commit:**
-```bash
-./scripts/workflow_gate.py check-context
-```
-
-**Thresholds:**
-- **< 70%:** ✅ OK - Continue
-- **70-84%:** ⚠️ Delegation RECOMMENDED
-- **≥ 85%:** 🚨 Delegation MANDATORY
-
-**If ≥70%, delegate non-core work:**
-```bash
-./scripts/workflow_gate.py record-delegation "Task description"
-# Context resets to 0 after delegation
-```
-
-**See:** [16-subagent-delegation.md](./16-subagent-delegation.md)
+**When:** After completing a logical component
+**Prerequisites:** Code written, tests written, `/review` approved
 
 ### Commit Process
 
 ```bash
-# 1. Stage changes for current component only
+# 1. Stage changes
 git add <files-for-this-component>
-git status
 
-# 2. Zen-mcp quick review (if not done via workflow_gate.py)
-# See 03-reviews.md Tier 1
+# 2. Run review (repeat until zero issues on first try)
+/review
 
 # 3. Commit with zen approval markers
-git commit -m "$(cat <<'EOF'
-feat(scope): Add feature
-
-- Implementation details
-- Zen review findings addressed
-
-zen-mcp-review: approved
-continuation-id: abc123-def456
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
+git commit -m "feat(scope): Add feature" -m "zen-mcp-review: approved
+continuation-id: <uuid-from-final-review>"
 ```
+
+**⚠️ NEVER use `git commit --no-verify`** — detected by CI
 
 ### Commit Message Format
 
@@ -112,47 +42,22 @@ EOF
 <body>
 
 zen-mcp-review: approved
-continuation-id: <id>        # Quick review (single continuation)
-OR
-gemini-continuation-id: <id> # Deep review (dual phase)
-codex-continuation-id: <id>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
+continuation-id: <uuid>
 ```
 
 **Types:** feat, fix, docs, refactor, test, chore
 
-**Review Marker Formats:**
-- **Quick Review:** Single `continuation-id` for combined gemini→codex review
-- **Deep Review:** Separate `gemini-continuation-id` + `codex-continuation-id` for dual-phase review
-**Scope:** component, service, or area
+**Docs-only commits** (no `.py/.sh/.js/.ts/.yml/.yaml/.toml/.cfg/.ini`, `Makefile`, `Dockerfile*`, or `.claude/skills/*.md`/`.claude/commands/*.md` files) can skip zen trailers:
+```
+docs: update README
+```
 
 ### Common Scenarios
 
-**Scenario: Commit Blocked**
+**Scenario: Commit Blocked (missing review)**
 ```bash
-$ git commit -m "message"
-# ❌ Blocked: Missing zen-mcp review
-
-# Fix: Check status
-$ ./scripts/workflow_gate.py status
-# Current Step: test (must be 'review')
-# Zen Review: NOT_REQUESTED
-
-# Request review, record approval, commit
-```
-
-**Scenario: Multiple Components**
-```bash
-# Component 1
-./scripts/workflow_gate.py set-component "Component A"
-# ... implement, test, review, commit
-
-# Component 2 (workflow resets automatically after commit)
-./scripts/workflow_gate.py set-component "Component B"
-# ... implement, test, review, commit
+# Run /review, get approval, add trailers to commit message
+/review
 ```
 
 **Scenario: Emergency Hotfix**
@@ -161,8 +66,7 @@ $ ./scripts/workflow_gate.py status
 git commit -m "fix: Critical bug
 
 ZEN_REVIEW_OVERRIDE: Emergency production fix
-Reason: [justification]
-Will request post-commit review ASAP"
+User approved by: [name]"
 ```
 
 ---
@@ -170,7 +74,7 @@ Will request post-commit review ASAP"
 ## Part 2: Pull Requests
 
 **When:** Feature complete, all commits done, tests passing
-**Prerequisites:** All component cycles complete, deep review approved
+**Prerequisites:** All commits done, tests passing, review approved
 
 ### Pre-PR Checklist
 
@@ -181,13 +85,11 @@ git log master..HEAD --oneline
 # 2. Run full test suite
 make ci-local
 
-# 3. Deep review (MANDATORY)
-# See 03-reviews.md Tier 2
-"Review all branch changes with zen-mcp deep review (master..HEAD)"
+# 3. Run branch review
+/review branch
 
-# 4. Get approval
-# Result: ✅ "Approved - Ready for PR"
-# Save continuation_id for PR description
+# 4. Push
+git push -u origin <branch>
 ```
 
 ### PR Creation
@@ -209,29 +111,11 @@ Brief overview of approach
 - Test coverage added
 - All tests passing
 
-## Zen Deep Review
-Status: Approved
-Continuation-id: abc123-def456
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## Review
+zen-mcp-review: approved
+continuation-id: <uuid>
 EOF
 )"
-```
-
-**PR with Deferred Issues:**
-```markdown
-## Summary
-...
-
-## Deferred from Zen Review
-- **MEDIUM:** Optimize query in get_positions()
-- Reason: Requires profiling analysis
-- Follow-up: Task P1T15
-- Continuation-id: xyz789
-
-## Zen Deep Review
-Status: Approved with deferrals
-Continuation-id: abc123-def456
 ```
 
 ### PR Title Conventions
@@ -298,28 +182,9 @@ gh pr ready
 
 ## Common Issues
 
-### Commit blocked by workflow gate
+### Commit blocked (missing review)
 
-**Solution:**
-```bash
-./scripts/workflow_gate.py status  # Shows what's missing
-# Fix prerequisites (review, CI) then retry commit
-```
-
-### Forgot to request zen review
-
-**Solution:**
-```bash
-# Request review now
-"Quick review my staged changes"
-
-# Record approval (for each reviewer)
-./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
-./scripts/workflow_gate.py record-review codex approved --continuation-id <id>
-
-# Retry commit
-git commit -m "message"
-```
+**Solution:** Run `/review`, get approval, include trailers in commit message.
 
 ### PR conflicts with master
 
@@ -344,10 +209,7 @@ git push
 
 ### PR too large (>500 lines)
 
-**Solution:**
-- Split into multiple smaller PRs
-- Or use subfeature branches (P1T13-F1, F2, F3)
-- See [02-planning.md](./02-planning.md#when-to-use-subfeatures)
+**Solution:** Split into multiple smaller PRs or use subfeature branches.
 
 ### Need to amend last commit
 
@@ -373,17 +235,13 @@ git commit --amend -m "new message"
 
 ## Validation Checklists
 
-**Commit succeeded:**
-- [ ] Workflow gate passed (step=review, review=APPROVED, CI=PASSED)
-- [ ] Zen-mcp quick review completed
-- [ ] Commit message includes continuation_id
-- [ ] Only component-specific files staged
-- [ ] Tests passing
+**Commit:**
+- [ ] `/review` approved (zero issues)
+- [ ] Commit message includes `continuation-id`
+- [ ] Tests passing (`make ci-local`)
 
-**PR created:**
-- [ ] Deep review approved
-- [ ] All commits follow progressive pattern
-- [ ] PR description includes zen continuation_id
+**PR:**
+- [ ] All commits have review trailers
 - [ ] CI passing
 - [ ] No merge conflicts
 - [ ] Title follows convention
@@ -392,8 +250,4 @@ git commit --amend -m "new message"
 
 ## See Also
 
-- [12-component-cycle.md](./12-component-cycle.md) - 6-step pattern (MANDATORY)
-- [03-reviews.md](./03-reviews.md) - Quick & deep review workflows
-- [02-planning.md](./02-planning.md) - Task breakdown and subfeatures
-- [16-subagent-delegation.md](./16-subagent-delegation.md) - Context optimization
 - [/docs/STANDARDS/GIT_WORKFLOW.md](../../STANDARDS/GIT_WORKFLOW.md) - Git standards

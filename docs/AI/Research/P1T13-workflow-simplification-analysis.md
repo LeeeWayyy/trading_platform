@@ -180,11 +180,11 @@ pytest tests/test_file.py -v
    - `.clau../Workflows/_common/git-commands.md` - Git command reference (~40 lines)
    - `.clau../Workflows/_common/test-commands.md` - Test command reference (~30 lines)
    - `.clau../Workflows/_common/clink-policy.md` - Clink usage policy (~20 lines)
-   - ~~`.clau../Workflows/_common/zen-review-process.md`~~ - Removed; review process lives in [03-reviews.md](../Workflows/03-reviews.md)
+   - ~~`.clau../Workflows/_common/zen-review-process.md`~~ - Removed; review process lives in `/review` skill
 
 2. **Replace duplicates with references:**
    - Instead of duplicating git commands → "See [git-commands.md](../Workflows/_common/git-commands.md)"
-   - Instead of duplicating zen review process → "See [03-reviews.md](../Workflows/03-reviews.md)"
+   - Instead of duplicating zen review process → "See `/review` skill"
 
 **Expected savings:** Additional ~800-1,200 lines
 
@@ -236,7 +236,7 @@ pytest tests/test_file.py -v
    - Why not to use direct zen-mcp tools
    - Correct vs incorrect tool usage examples
 
-4. ~~**zen-review-process.md**~~ — Removed; consolidated into [03-reviews.md](../Workflows/03-reviews.md) as golden source
+4. ~~**zen-review-process.md**~~ — Removed; consolidated into `/review` skill as golden source
 
 **Deliverables:**
 - 4 new shared reference documents (~240 lines total)

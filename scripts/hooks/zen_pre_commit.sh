@@ -1,11 +1,10 @@
 #!/bin/bash
 # Zen Pre-Commit Orchestrator
-# Version-controlled git hook that enforces workflow quality gates
+# Version-controlled git hook that runs quality checks
 #
-# Quality Gates (Hard Blocks):
+# Quality Gates:
 #   1. Branch naming convention
-#   2. TodoWrite state verification (with warning fallback if jq missing)
-#   3. Tests must pass (mypy, ruff, pytest)
+#   2. Tests must pass (mypy, ruff, pytest)
 #
 # Exit codes:
 #   0 - All gates passed
@@ -122,49 +121,26 @@ fi
 echo ""
 
 # ============================================================================
-# GATE 2: TodoWrite State (Hard Block)
+# GATE 2: Tests Pass (CI Checks)
 # ============================================================================
-echo "📝 Checking TodoWrite state..."
+echo "🧪 Running test verification..."
 GATE_START=$(get_timestamp_ms)
 
-# Temporarily disable set -e to capture exit code without aborting
 set +e
-"$SCRIPT_DIR/verify_todo.sh"
-TODO_EXIT_CODE=$?
+"$SCRIPT_DIR/verify_tests.sh"
+TEST_EXIT_CODE=$?
 set -e
 
 GATE_END=$(get_timestamp_ms)
 DURATION=$((GATE_END - GATE_START))
 
-if [ $TODO_EXIT_CODE -eq 0 ]; then
-    # Success: has active todos
-    log_event "todo_state" "pass" "$DURATION"
-    echo -e "${GREEN}✓${NC} TodoWrite state valid"
-elif [ $TODO_EXIT_CODE -eq 1 ]; then
-    # Warning only: jq not installed or missing todo file
-    log_event "todo_state" "warn" "$DURATION"
-    echo -e "${YELLOW}⚠${NC}  TodoWrite check skipped (see warning above)"
+if [ $TEST_EXIT_CODE -eq 0 ]; then
+    log_event "tests" "pass" "$DURATION"
+    echo -e "${GREEN}✓${NC} Tests passed"
 else
-    # Hard failure (exit code 2): no active todos when file exists
-    log_event "todo_state" "fail" "$DURATION"
-    echo -e "${RED}✗${NC} TodoWrite state invalid"
+    log_event "tests" "fail" "$DURATION"
+    echo -e "${RED}✗${NC} Tests failed"
     FAILED=1
-fi
-echo ""
-
-# ============================================================================
-# GATE 3: Tests Pass (CI Checks)
-# ============================================================================
-# Note: This calls scripts/pre-commit-hook.sh which runs:
-#   - mypy type checking
-#   - ruff linting
-#   - pytest unit tests
-
-if "$SCRIPT_DIR/verify_tests.sh"; then
-    : # Tests passed (logged by pre-commit-hook.sh)
-else
-    FAILED=1
-    # Error message already printed by pre-commit-hook.sh
 fi
 
 # ============================================================================

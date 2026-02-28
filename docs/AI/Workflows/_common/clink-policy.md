@@ -40,11 +40,11 @@ Tool restriction is **not enforceable at project level** because MCP config is s
 
 1. STOP immediately
 2. Use `mcp__zen__clink` instead with appropriate cli_name and role
-3. Check `./03-reviews.md` for correct patterns
+3. Use the `/review` skill for correct patterns
 4. See [troubleshooting.md](../troubleshooting.md) for detailed error resolution
 
 ## See Also
 
 - [CLAUDE.md - Zen-MCP + Clink Integration](../../../../CLAUDE.md#zen-mcp--clink-integration) - Complete policy
-- [Quick Review Workflow](../03-reviews.md) - Clink usage examples
+- `/review` skill — Clink usage examples
 - [Troubleshooting Guide](../troubleshooting.md) - Wrong-tool error fixes

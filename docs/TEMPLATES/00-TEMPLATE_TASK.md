@@ -176,7 +176,7 @@ Break this task into components, each following the 6-step pattern:
 
 **RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
 
-See [`./AI/Workflows/02-planning.md`](.././AI/Workflows/02-planning.md) for workflow details.
+See [AI_GUIDE.md](.././AI/AI_GUIDE.md) for workflow details.
 
 **Review validates:**
 - [ ] Objective is clear and measurable

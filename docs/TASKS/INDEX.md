@@ -381,7 +381,7 @@ grep -l "owner: \"@alice\"" P*_*.md
 **Workflows:**
 - [Git Commit Workflow](.././AI/Workflows/01-git.md)
 - [PR Creation](.././AI/Workflows/01-git.md)
-- [Zen Review](.././AI/Workflows/03-reviews.md)
+- Code Review: `/review` skill
 
 ---
 

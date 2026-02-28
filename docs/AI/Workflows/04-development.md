@@ -122,21 +122,14 @@ async def test_async_function():
 @patch('apps.orchestrator.orchestrator.TradingOrchestrator')  # ✗ Wrong
 ```
 
-### Debug Rescue System (Component 5)
+### Debug Rescue
 
-**Auto-detection of debug loops:**
-```bash
-# Check if stuck in debug loop
-./scripts/workflow_gate.py check-debug-loop
-
-# Request systematic debugging help
-./scripts/workflow_gate.py request-debug-rescue --test tests/path/to/test.py
-```
-
-**Triggers rescue when:**
+**Signs you're stuck in a debug loop:**
 - Same test fails 3+ times
 - Error signature cycling (A → B → A pattern)
 - >30 minutes spent without progress
+
+**When stuck:** Step back, re-read the error, check test fixtures, and consider a different approach.
 
 **Rescue provides:**
 - Systematic debugging steps via zen-mcp codex
@@ -331,8 +324,7 @@ pytest -m "not integration"
 # 2. Fix failures one by one
 pytest tests/specific/test.py::test_func -vv
 
-# 3. If stuck >30 min, request debug rescue
-./scripts/workflow_gate.py request-debug-rescue
+# 3. If stuck >30 min, step back and reconsider approach
 
 # 4. Re-run full suite
 make ci-local
@@ -406,8 +398,7 @@ pytest tests/apps/signal_service/test_regression_issue_123.py
 
 ## See Also
 
-- [12-component-cycle.md](./12-component-cycle.md) - 6-step pattern (includes testing)
-- [03-reviews.md](./03-reviews.md) - Zen-mcp review workflow
+- [01-git.md](./01-git.md) - Commit and PR workflows
 - [01-git.md](./01-git.md) - Progressive commits
 - [TESTING.md](../../STANDARDS/TESTING.md) - Test requirements
 - [DOCUMENTATION_STANDARDS.md](../../STANDARDS/DOCUMENTATION_STANDARDS.md) - Docstring standards

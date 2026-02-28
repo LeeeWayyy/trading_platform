@@ -9,7 +9,6 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_workflow.hash_utils import (
     compute_git_diff_hash,
     is_merge_commit,

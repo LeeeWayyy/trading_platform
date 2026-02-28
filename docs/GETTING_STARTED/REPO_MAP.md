@@ -22,7 +22,7 @@ trading_platform/
 ├── data/              # Market data storage (parquet files, DuckDB catalogs)
 ├── config/            # Configuration files
 ├── .github/           # GitHub configuration (workflows, actions)
-└── .ai_workflow/      # AI workflow state and audit logs
+└── .claude/           # Claude Code skills and commands
 ```
 
 ---
@@ -539,9 +539,7 @@ See `db/README.md` for migration workflow and history.
 
 Automation scripts and operational tools.
 
-### Core Workflow Scripts
-- `workflow_gate.py` - AI workflow gate enforcement (6-step pattern)
-- `context_checkpoint.py` - Context management for AI sessions
+### Core Scripts
 - `tasks.py` - Task lifecycle management
 
 ### Trading Operations
@@ -601,7 +599,6 @@ tests/
 ├── strategies/            # Strategy tests
 │   └── alpha_baseline/
 ├── scripts/               # Script tests
-│   └── test_workflow_gate.py
 └── integration/           # End-to-end tests
     └── test_paper_run.py
 ```
@@ -737,16 +734,13 @@ GitHub Actions workflows and shared action definitions.
 
 ---
 
-## .ai_workflow/ - AI Workflow State (gitignored)
+## .claude/ - Claude Code Configuration
 
-AI workflow automation state and audit logs.
+Claude Code skills and commands for development workflows.
 
-**Files:**
-- `config.json` - Workflow configuration
-- `.workflow-state.lock` - Workflow state lock file
-- `workflow-state.json` - Workflow gate state
-- `workflow-audit.log` - Review audit trail (JSON lines)
-- `plans/` - Plan artifacts
+**Directories:**
+- `commands/` - Slash commands (`/review`, `/pr-fix`, `/analyze`)
+- `skills/` - Skill definitions with detailed instructions
 
 ---
 
@@ -781,10 +775,10 @@ make paper-run   # Execute paper trading for today
 make status      # Check positions, orders, P&L
 make kill-switch # Emergency stop
 
-# Workflow
-./scripts/workflow_gate.py advance plan-review  # Request plan review
-./scripts/workflow_gate.py advance implement    # Start implementation
-./scripts/workflow_gate.py run-ci commit        # Run CI before commit
+# Skills
+/review          # Run code review (Gemini + Codex)
+/pr-fix          # Batch-fix PR comments
+/analyze         # Pre-implementation analysis
 ```
 
 ### Finding Code
