@@ -36,9 +36,6 @@ def get_documentation_files():
     for pattern in ["**/*.md"]:
         files.extend((PROJECT_ROOT / "docs").glob(pattern))
 
-    # Workflow scripts that mention zen-mcp
-    files.append(PROJECT_ROOT / "scripts/workflow_gate.py")
-
     return [f for f in files if f.is_file()]
 
 
@@ -47,11 +44,7 @@ DOC_FILES = get_documentation_files()
 
 
 def test_correct_clink_tool_name_in_documentation():
-    """Verify documentation uses correct clink tool name: mcp__zen__clink."""
-    # NOTE: This test previously had a bug where it was checking for the correct
-    # name and flagging it as wrong (lines 60 and 64 were identical).
-    # The test is now updated to just verify the correct name exists where expected.
-
+    """Verify documentation uses correct clink tool name: mcp__pal__clink."""
     # Verify key files use the correct tool name
     key_files = [
         PROJECT_ROOT / "CLAUDE.md",
@@ -62,14 +55,14 @@ def test_correct_clink_tool_name_in_documentation():
         if not doc_file.exists():
             continue
         content = doc_file.read_text()
-        assert "mcp__zen__clink" in content, f"{doc_file.name} should reference mcp__zen__clink"
+        assert "mcp__pal__clink" in content, f"{doc_file.name} should reference mcp__pal__clink"
 
 
 def test_no_incorrect_clink_tool_name_typo():
-    """Verify documentation doesn't contain the incorrect typo: mcp__zen-mcp__clink (dash instead of underscore)."""
+    """Verify documentation doesn't contain incorrect clink tool name variants."""
     errors = []
     incorrect_pattern = "mcp__zen-mcp__clink"  # Note: dash between zen and mcp (typo)
-    correct_pattern = "mcp__zen__clink"  # Correct: double underscore
+    correct_pattern = "mcp__pal__clink"  # Correct: pal namespace
 
     for doc_file in DOC_FILES:
         if not doc_file.exists():

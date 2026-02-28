@@ -49,11 +49,11 @@ All tasks in this phase follow the standard development workflow with **clink-ba
 2. **Progressive Implementation** (MANDATORY 6-step pattern per component)
    - Plan → Plan Review → Implement → Test → Code Review → Commit
    - Quick review tool: clink + codex codereviewer
-   - See: `./AI/Workflows/03-reviews.md`
+   - Use: `/review` skill
    - Frequency: Every 30-60 minutes per component
 
 3. **Deep Review** (MANDATORY before PR)
-   - Use workflow: `./AI/Workflows/03-reviews.md`
+   - Use: `/review branch`
    - Tool: clink + gemini codereviewer → codex codereviewer
    - Reviews: architecture, safety, scalability, test coverage
    - Duration: ~3-5 minutes

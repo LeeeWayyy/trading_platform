@@ -63,52 +63,52 @@ if [[ "$CURRENT_BRANCH" == feature/* ]] || [[ "$CURRENT_BRANCH" == fix/* ]] || [
     echo "Branch: $CURRENT_BRANCH (requires zen-mcp review)"
     echo ""
 
-    # Check if commit message contains review approval marker
-    if grep -q "zen-mcp-review: approved" "$COMMIT_MSG_FILE"; then
-        echo -e "${GREEN}✓ Zen-mcp review approval found in commit message${NC}"
+    # Docs-only bypass: commits with docs: prefix and no code files can skip zen trailers
+    COMMIT_MSG_FIRST_LINE=$(head -1 "$COMMIT_MSG_FILE")
+    if [[ "$COMMIT_MSG_FIRST_LINE" == docs:* ]] || [[ "$COMMIT_MSG_FIRST_LINE" == docs\(* ]]; then
+        # Check if any code/config files are staged (not just docs)
+        STAGED_CODE=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' '*.sh' '*.js' '*.ts' 'Makefile' 'Dockerfile*' '*.yml' '*.yaml' '*.toml' '*.cfg' '*.ini' '.claude/skills/*.md' '.claude/commands/*.md' 2>/dev/null || true)
+        if [ -z "$STAGED_CODE" ]; then
+            echo -e "${GREEN}✓ Docs-only commit — zen review not required${NC}"
+            echo ""
+            exit 0
+        fi
+    fi
+
+    # Check for review override (requires explicit user approval — see AI_GUIDE.md)
+    if grep -q "ZEN_REVIEW_OVERRIDE:" "$COMMIT_MSG_FILE"; then
+        echo -e "${YELLOW}⚠ ZEN_REVIEW_OVERRIDE detected — ensure user approved${NC}"
         echo ""
         exit 0
+    fi
+
+    # Check if commit message contains review approval marker
+    if grep -q "zen-mcp-review: approved" "$COMMIT_MSG_FILE" || grep -q "zen-mcp-review: pr-fix" "$COMMIT_MSG_FILE"; then
+        # Also verify continuation-id trailer is present
+        if grep -q "continuation-id:" "$COMMIT_MSG_FILE" || grep -q "pr-number:" "$COMMIT_MSG_FILE"; then
+            echo -e "${GREEN}✓ Zen-mcp review approval + tracking ID found${NC}"
+            echo ""
+            exit 0
+        else
+            echo -e "${YELLOW}⚠ Review approval found but missing continuation-id or pr-number trailer${NC}"
+            echo -e "${YELLOW}  Add: continuation-id: <uuid> or pr-number: <N>${NC}"
+            echo ""
+            # Warn but don't block — the review was done
+            exit 0
+        fi
     else
         echo -e "${RED}✗ COMMIT BLOCKED: Missing zen-mcp review approval${NC}"
         echo ""
-        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${RED}⚠️  CRITICAL PROCESS VIOLATION${NC}"
-        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo "Feature branch commits require zen-mcp review approval. (from both codex and gemini)"
-        echo ""
-        echo "Why this matters:"
-        echo "  • Skipping review gates caused 7 fix commits (10-15 hours wasted)"
-        echo "  • This is the PRIMARY root cause of CI failures"
-        echo "  • Review gates are MANDATORY, never skip regardless of urgency"
+        echo "Feature branch commits require zen-mcp review approval."
         echo ""
         echo "Required workflow:"
-        echo "  1. Complete your changes"
-        echo "  2. Run: .claude/workflows/03-reviews.md (MANDATORY)"
-        echo "  3. Fix any issues found in review"
-        echo "  4. Add review approval marker to commit message:"
+        echo "  1. Run /review (repeat until approved with zero issues)"
+        echo "  2. Add trailers to commit message:"
         echo ""
         echo "     zen-mcp-review: approved"
-        echo "     continuation-id: <your-continuation-id>"
+        echo "     continuation-id: <uuid>"
         echo ""
-        echo "  5. Commit after review approval"
-        echo ""
-        echo "Example commit message:"
-        echo ""
-        echo "  Fix position limit validation"
-        echo ""
-        echo "  - Add validation for max position size"
-        echo "  - Update tests for new validation"
-        echo ""
-        echo "  zen-mcp-review: approved"
-        echo "  continuation-id: abc123..."
-        echo ""
-        echo "To proceed:"
-        echo "  1. Amend your commit message to include review approval"
-        echo "  2. Or cancel (Ctrl+C), get review, and commit again"
-        echo ""
-        echo "To bypass (NOT RECOMMENDED):"
-        echo "  git commit --no-verify"
+        echo "  For docs-only commits, use: docs: <description>"
         echo ""
         exit 1
     fi

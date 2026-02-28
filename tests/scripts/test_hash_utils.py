@@ -2,7 +2,7 @@
 Tests for scripts/hash_utils.py
 
 Component A2.1 (P1T13-F5): Server-side Review-Hash validation
-Tests hash computation parity between local (WorkflowGate) and CI (verify_gate_compliance).
+Tests hash computation parity for review hash validation.
 
 Author: Claude Code
 Date: 2025-11-15

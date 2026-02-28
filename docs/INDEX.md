@@ -127,21 +127,21 @@ Centralized, code-adjacent specifications for services, libraries, strategies, a
 
 Step-by-step procedures for development workflows:
 
-- [CURRENT, 2025-10-31, Workflow] [README.md](./AI/Workflows/README.md) - Workflow index and quick reference
-- [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](./AI/Workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
-- [CURRENT, 2025-10-21, Workflow] [01-git.md](./AI/Workflows/01-git.md) - Git workflow: progressive commits and pull request creation
-- [CURRENT, 2025-10-24, Workflow] [02-planning.md](./AI/Workflows/02-planning.md) - Task decomposition, subfeature branching, and task document review
-- [CURRENT, 2025-11-21, Workflow] [03-reviews.md](./AI/Workflows/03-reviews.md) - Zen-mcp comprehensive reviews: independent Gemini + Codex reviews for all commits and PRs
-- [CURRENT, 2025-10-21, Workflow] [04-development.md](./AI/Workflows/04-development.md) - Test execution, debugging procedures, and documentation writing
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](./AI/Workflows/05-operations.md) - Operations: ADRs, deployment, CI triage, environment setup, phase/task management
-- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](./AI/Workflows/08-session-management.md) - Auto-resume from task state and task state tracking
-- [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](./AI/Workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
-- [CURRENT, 2025-11-15, Workflow] [16-subagent-delegation.md](./AI/Workflows/16-subagent-delegation.md) - Context monitoring and subagent delegation at 70%+ usage
-- [CURRENT, 2025-11-15, Workflow] [17-automated-analysis.md](./AI/Workflows/17-automated-analysis.md) - Automated pre-implementation analysis checklist execution
-- [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](./AI/Workflows/12-component-cycle.md) - 6-step component development cycle
-- [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](./AI/Workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
-- [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](./AI/Workflows/_common/git-commands.md) - Git operations and branch naming conventions
+- [CURRENT, 2026-02-26, Workflow] [README.md](./AI/Workflows/README.md) - Workflow index and skill reference
+- [CURRENT, 2026-02-26, Workflow] [01-git.md](./AI/Workflows/01-git.md) - Git workflow: commits and pull requests
+- [CURRENT, 2025-10-21, Workflow] [04-development.md](./AI/Workflows/04-development.md) - Test execution, debugging, TDD
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](./AI/Workflows/05-operations.md) - Operations: ADRs, deployment, CI triage
+- [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](./AI/Workflows/_common/clink-policy.md) - Clink-only tool usage policy
+- [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](./AI/Workflows/_common/git-commands.md) - Git operations and branch naming
 - [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](./AI/Workflows/_common/test-commands.md) - Testing commands and CI workflows
+- [ARCHIVED] Previous workflow docs (00-analysis, 02-planning, 03-reviews, etc.) moved to `docs/ARCHIVE/workflow-gate/`
+
+**Claude Code Skills & Commands:**
+- [CURRENT, 2026-02-27, Skill] [.claude/skills/pr-fix/SKILL.md](../.claude/skills/pr-fix/SKILL.md) - Batch PR comment resolution skill
+- [CURRENT, 2026-02-27, Skill] [.claude/skills/analyze/SKILL.md](../.claude/skills/analyze/SKILL.md) - Pre-implementation analysis skill
+- [CURRENT, 2026-02-27, Command] [.claude/commands/review.md](../.claude/commands/review.md) - Code review command (Gemini + Codex)
+- [CURRENT, 2026-02-27, Command] [.claude/commands/pr-fix.md](../.claude/commands/pr-fix.md) - PR fix command
+- [CURRENT, 2026-02-27, Command] [.claude/commands/analyze.md](../.claude/commands/analyze.md) - Analysis command
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
 
@@ -217,12 +217,12 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-11-21, Research] [Research/automated-coding-research.md](./AI/Research/automated-coding-research.md) - Automated coding workflow research
 - [CURRENT, 2025-11-21, Research] [Research/automated-planning-research.md](./AI/Research/automated-planning-research.md) - Automated planning workflow research
 - [CURRENT, 2025-11-21, Research] [Research/context-optimization-measurement.md](./AI/Research/context-optimization-measurement.md) - Context window optimization research
-- [CURRENT, 2025-11-21, Research] [Research/delegation-decision-tree.md](./AI/Research/delegation-decision-tree.md) - Subagent delegation decision tree
+- [ARCHIVED, 2026-02-27] ~~Research/delegation-decision-tree.md~~ - Moved to `docs/ARCHIVE/workflow-gate/`
 - [CURRENT, 2025-11-21, Research] [Research/P1T13-workflow-simplification-analysis.md](./AI/Research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
 - [CURRENT, 2025-11-21, Research] [Research/subagent-capabilities-research.md](./AI/Research/subagent-capabilities-research.md) - Subagent capabilities research
 
 **Workflow References:**
-- [CURRENT, 2025-11-21, Reference] [Workflows/_common/zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen review slash command implementation
+- [ARCHIVED, 2026-02-27] ~~Workflows/_common/zen-review-command.md~~ - Moved to `docs/ARCHIVE/workflow-gate/`
 - [CURRENT, 2025-11-21, Reference] [Workflows/troubleshooting.md](./AI/Workflows/troubleshooting.md) - Workflow troubleshooting guide
 - [CURRENT, 2026-02-12, Command] [.claude/commands/review.md](../.claude/commands/review.md) - Claude Code review slash command (shared-context iteration)
 
@@ -280,6 +280,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0032](./ADRs/ADR-0032-notification-and-hotkey-system.md) | Notification routing and keyboard hotkey system for web console | ✅ Accepted |
 | [ADR-0033](./ADRs/ADR-0033-order-modification-schema.md) | Order modification database schema with idempotency and audit trail | 🚧 Proposed |
 | [ADR-0034](./ADRs/ADR-0034-cost-model-architecture.md) | Transaction cost model architecture (Almgren-Chriss, capacity analysis) | ✅ Accepted |
+| [ADR-0035](./ADRs/ADR-0035-skills-workflow-simplification.md) | Skills-based workflow simplification (replace workflow_gate.py) | ✅ Accepted |
 | [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**
@@ -548,6 +549,9 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2025-12-28, Plan] [P4T7_C5_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C5_PLAN.md) - P4T7 C5: Tax Lot Core (FIFO/LIFO/SpecID)
 - [CURRENT, 2025-12-28, Plan] [P4T7_C6_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C6_PLAN.md) - P4T7 C6: Tax Lot Advanced (wash sales, 8949)
 
+**Workflow Simplification:**
+- [CURRENT, 2026-02-27, Plan] [skills-workflow-plan/README.md](./TASKS/skills-workflow-plan/README.md) - Skills-based workflow simplification plan
+
 **Checking Current/Next Task:**
 ```bash
 # Show current task in progress
@@ -569,6 +573,15 @@ Completed and legacy planning artifacts preserved for reference:
 
 - [TASKS_HISTORY/](./ARCHIVE/TASKS_HISTORY/) - Completed task documents and historical implementation guides
 - [PLANS/](./ARCHIVE/PLANS/) - Archived implementation plans (historical reference)
+- [workflow-gate/](./ARCHIVE/workflow-gate/) - Archived workflow_gate.py and related workflow docs
+  - [ARCHIVED, 2026-02-27] [workflow_gate.py](./ARCHIVE/workflow-gate/workflow_gate.py) - Legacy workflow state machine
+  - [ARCHIVED, 2026-02-27] [delegation-decision-tree.md](./ARCHIVE/workflow-gate/delegation-decision-tree.md) - Legacy delegation decision tree
+  - [ARCHIVED, 2026-02-27] [workflows/00-analysis-checklist.md](./ARCHIVE/workflow-gate/workflows/00-analysis-checklist.md) - Legacy analysis checklist
+  - [ARCHIVED, 2026-02-27] [workflows/02-planning.md](./ARCHIVE/workflow-gate/workflows/02-planning.md) - Legacy planning workflow
+  - [ARCHIVED, 2026-02-27] [workflows/03-reviews.md](./ARCHIVE/workflow-gate/workflows/03-reviews.md) - Legacy review workflow
+  - [ARCHIVED, 2026-02-27] [workflows/16-pr-review-comment-check.md](./ARCHIVE/workflow-gate/workflows/16-pr-review-comment-check.md) - Legacy PR comment check
+  - [ARCHIVED, 2026-02-27] [workflows/17-automated-analysis.md](./ARCHIVE/workflow-gate/workflows/17-automated-analysis.md) - Legacy automated analysis
+  - [ARCHIVED, 2026-02-27] [workflows/zen-review-command.md](./ARCHIVE/workflow-gate/workflows/zen-review-command.md) - Legacy zen review command
 
 **Priority:** 🟢 **LOW** - Reference when you need historical context
 
@@ -669,8 +682,8 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-10-27, Guide] [troubleshooting.md](./AI/Workflows/troubleshooting.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
 
 **docs/AI/Workflows/_common/ (Tool-Specific Configuration):**
-- [CURRENT, 2025-10-26, Guide] [zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen-mcp review slash command configuration
-- [CURRENT, 2025-10-25, Guide] [state-README.md](./AI/Workflows/_common/state-README.md) - Task state tracking system documentation
+- [ARCHIVED, 2026-02-27] ~~zen-review-command.md~~ - Moved to `docs/ARCHIVE/workflow-gate/`
+- [ARCHIVED, 2026-02-27] ~~state-README.md~~ - Deleted (workflow_gate state tracking)
 
 **docs/AI/Implementation/ (Implementation Plans):**
 - [CURRENT, 2025-11-15, Plan] [P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
@@ -690,7 +703,7 @@ Configuration files, templates, prompts, and tooling:
 **infra/ (Infrastructure Configuration):**
 - [CURRENT, 2025-11-27, Dashboard] [../infra/grafana/dashboards/oauth2-sessions-spec.md](../infra/grafana/dashboards/oauth2-sessions-spec.md) - OAuth2 session monitoring Grafana dashboard specification
 - [CURRENT, 2025-11-15, Research] [research/context-optimization-measurement.md](../docs/AI/Research/context-optimization-measurement.md) - Context optimization and measurement techniques
-- [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../docs/AI/Research/delegation-decision-tree.md) - Subagent delegation decision framework
+- [ARCHIVED, 2026-02-27] ~~research/delegation-decision-tree.md~~ - Moved to `docs/ARCHIVE/workflow-gate/`
 - [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../docs/AI/Research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
 - [CURRENT, 2025-11-15, Research] [research/subagent-capabilities-research.md](../docs/AI/Research/subagent-capabilities-research.md) - Subagent capabilities and limitations
 

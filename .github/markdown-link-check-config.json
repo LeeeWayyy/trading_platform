@@ -233,6 +233,9 @@
     },
     {
       "pattern": "^https://www.iso.org"
+    },
+    {
+      "pattern": "^https://bazel.build"
     }
   ],
   "replacementPatterns": [

@@ -101,7 +101,7 @@ test: ## Run tests
 	PYTHONPATH=. poetry run pytest
 
 test-cov: ## Run tests with coverage report
-	PYTHONPATH=. poetry run pytest --cov=libs --cov=apps --cov=scripts/ai_workflow --cov-report=html --cov-report=term
+	PYTHONPATH=. poetry run pytest --cov=libs --cov=apps --cov-report=html --cov-report=term
 
 perf: ## Run performance tests (requires RUN_PERF_TESTS=1)
 	RUN_PERF_TESTS=1 PYTHONPATH=. poetry run pytest tests/apps/web_console/test_performance.py -v
@@ -109,24 +109,21 @@ perf: ## Run performance tests (requires RUN_PERF_TESTS=1)
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
 
-install-hooks: ## Install git hooks (workflow gate enforcement)
-	@echo "Installing workflow gate hooks..."
-	@chmod +x scripts/admin/workflow_gate.py
-	@chmod +x scripts/hooks/pre-commit-hook.sh
-	@ln -sf ../../scripts/hooks/pre-commit-hook.sh .git/hooks/pre-commit
-	@echo "✓ Pre-commit hook installed successfully!"
+install-hooks: ## Install git hooks (pre-commit quality checks)
+	@echo "Installing git hooks..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit install && \
+		echo "✓ Hooks installed via pre-commit"; \
+	else \
+		echo "⚠ pre-commit not found. Install it first:"; \
+		echo "  pip install pre-commit"; \
+		echo "  pre-commit install"; \
+		exit 1; \
+	fi
 	@echo ""
-	@echo "The hook enforces the workflow pattern:"
-	@echo "  implement → test → review → commit"
-	@echo ""
-	@echo "Prerequisites for commit:"
-	@echo "  1. Zen-MCP review approved"
-	@echo "  2. CI passing (make ci-local)"
-	@echo ""
-	@echo "⚠️  WARNING: DO NOT use 'git commit --no-verify'"
-	@echo "   Bypassing gates defeats quality system and will be detected by CI"
-	@echo ""
-	@echo "To test the hook: make ci-local"
+	@echo "Hooks installed:"
+	@echo "  • zen-pre-commit: branch naming + lint checks"
+	@echo "  • zen-commit-msg: review approval trailers"
 
 check-hooks: ## Verify git hooks are installed
 	@if [ ! -f .git/hooks/pre-commit ]; then \
@@ -160,16 +157,16 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	echo "If this passes, CI should pass too."; \
 	echo ""; \
 	echo "$(SEPARATOR)"; \
-	echo "Step 0/9: Validating local environment matches pyproject.toml"; \
+	echo "Step 0/8: Validating local environment matches pyproject.toml"; \
 	echo "$(SEPARATOR)"
 	@poetry run python scripts/testing/validate_env.py || { $(call ci_error,Environment validation failed!,Your local environment is missing packages. Run: poetry install); }
-	$(call ci_step_header,Step 1/9,Validating documentation index)
+	$(call ci_step_header,Step 1/8,Validating documentation index)
 	@./scripts/dev/validate_doc_index.sh || { $(call ci_error,Documentation index validation failed!,All markdown files must be indexed in docs/INDEX.md. See error output above for missing files.); }
-	$(call ci_step_header,Step 2/9,Checking documentation freshness)
+	$(call ci_step_header,Step 2/8,Checking documentation freshness)
 	@poetry run python scripts/dev/check_doc_freshness.py || { $(call ci_error,Documentation freshness check failed!,Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories.); }
-	$(call ci_step_header,Step 3/9,Checking architecture map is up to date)
+	$(call ci_step_header,Step 3/8,Checking architecture map is up to date)
 	@poetry run python scripts/dev/generate_architecture.py --check || { $(call ci_error,Architecture map is out of date!,Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate.); }
-	$(call ci_step_header,Step 4/9,Checking markdown links (timeout: 1min))
+	$(call ci_step_header,Step 4/8,Checking markdown links (timeout: 1min))
 	@command -v markdown-link-check >/dev/null 2>&1 || { echo "❌ markdown-link-check not found. Installing..."; npm install -g markdown-link-check; }
 	@HANG_TIMEOUT=60 ./scripts/hooks/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
 		EXIT_CODE=$$?; \
@@ -182,13 +179,13 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		fi; \
 		exit 1; \
 	}
-	$(call ci_step_header,Step 5/9,Type checking with mypy --strict)
+	$(call ci_step_header,Step 5/8,Type checking with mypy --strict)
 	poetry run mypy libs/ apps/ strategies/ --strict
-	$(call ci_step_header,Step 6/9,Linting with ruff)
+	$(call ci_step_header,Step 6/8,Linting with ruff)
 	poetry run ruff check .
-	$(call ci_step_header,Step 7/9,Checking layer violations)
+	$(call ci_step_header,Step 7/8,Checking layer violations)
 	@poetry run python scripts/dev/check_layering.py || { $(call ci_error,Layer violation detected!,libs/ should never import from apps/. Use dependency injection or move shared code to libs/.); }
-	$(call ci_step_header,Step 8/9,Running tests (parallel with pytest-xdist; integration/e2e skipped; timeout: 2 min per stall))
+	$(call ci_step_header,Step 8/8,Running tests (parallel with pytest-xdist; integration/e2e skipped; timeout: 2 min per stall))
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
 	# Exclude quarantined tests dynamically from tests/quarantine.txt
 	@DESELECT_ARGS=""; \
@@ -209,8 +206,6 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		fi; \
 		exit $$EXIT_CODE; \
 	}
-	$(call ci_step_header,Step 9/9,Verifying workflow gate compliance (review approval markers))
-	@CI=true PYTHONPATH=. poetry run python scripts/testing/verify_gate_compliance.py || { $(call ci_error,Workflow gate compliance failed!,Commits need zen-mcp-review: approved marker and continuation-id trailers. Request a zen-mcp review before committing.); }
 	@echo ""
 	@echo "$(SEPARATOR)"
 	@echo "✓ All CI checks passed!"

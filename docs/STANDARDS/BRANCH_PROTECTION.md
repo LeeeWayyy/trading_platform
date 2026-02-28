@@ -246,7 +246,7 @@ This branch protection rule is one layer of a multi-layered security approach:
 A: **No.** The workflow gates exist precisely to prevent unreviewed code. For urgent fixes:
 1. Create a feature branch
 2. Implement the fix
-3. Request expedited review via `./scripts/workflow_gate.py request-review commit`
+3. Run `/review` for expedited review
 4. Run `make ci-local` locally (2-3 minutes)
 5. Merge the PR normally
 

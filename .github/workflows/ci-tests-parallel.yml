@@ -331,7 +331,7 @@ jobs:
           - name: strategies
             paths: "tests/strategies/ tests/research/"
           - name: root-and-misc
-            paths: "tests/test_*.py tests/regression/ tests/workflows/ tests/fixtures/ tests/infra/ tests/load/"
+            paths: "tests/test_*.py tests/regression/ tests/fixtures/ tests/infra/ tests/load/"
 
     services:
       redis:
@@ -534,3 +534,58 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
         continue-on-error: true
+
+  # ============================================================================
+  # Stage 4: Required status check rollups (match Branch Protection names)
+  # ============================================================================
+  # GitHub Branch Protection requires exact check name matches.
+  # Matrix jobs report as "Unit Tests (libs-core)" etc., not "unit-tests".
+  # These rollup jobs bridge the gap.
+
+  ci-lint-and-typecheck:
+    name: lint-and-typecheck
+    needs: [lint-and-typecheck]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ needs.lint-and-typecheck.result }}" != "success" ]; then
+            echo "lint-and-typecheck failed"
+            exit 1
+          fi
+
+  ci-unit-tests:
+    name: unit-tests
+    needs: [unit-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ needs.unit-tests.result }}" != "success" ]; then
+            echo "unit-tests failed"
+            exit 1
+          fi
+
+  ci-integration-tests:
+    name: integration-tests
+    needs: [integration-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ needs.integration-tests.result }}" != "success" ]; then
+            echo "integration-tests failed"
+            exit 1
+          fi
+
+  ci-coverage-report:
+    name: coverage-report
+    needs: [coverage-report]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ needs.coverage-report.result }}" != "success" ]; then
+            echo "coverage-report failed"
+            exit 1
+          fi

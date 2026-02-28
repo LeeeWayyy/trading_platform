@@ -3,7 +3,7 @@
 - [automated-coding-research](./automated-coding-research.md)
 - [automated-planning-research](./automated-planning-research.md)
 - [context-optimization-measurement](./context-optimization-measurement.md)
-- [delegation-decision-tree](./delegation-decision-tree.md)
+- ~~delegation-decision-tree~~ (archived to `docs/ARCHIVE/workflow-gate/`)
 - [P1T13-workflow-simplification-analysis](./P1T13-workflow-simplification-analysis.md)
 - [subagent-capabilities-research](./subagent-capabilities-research.md)
 

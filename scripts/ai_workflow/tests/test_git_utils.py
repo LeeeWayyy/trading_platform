@@ -7,7 +7,6 @@ Tests GitHub URL parsing, owner/repo detection, and gh API helpers.
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_workflow.git_utils import (
     _parse_github_url,
     _validate_github_name,
