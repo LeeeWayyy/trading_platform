@@ -282,6 +282,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0034](./ADRs/ADR-0034-cost-model-architecture.md) | Transaction cost model architecture (Almgren-Chriss, capacity analysis) | ✅ Accepted |
 | [ADR-0035](./ADRs/ADR-0035-skills-workflow-simplification.md) | Skills-based workflow simplification (replace workflow_gate.py) | ✅ Accepted |
 | [ADR-0036](./ADRs/ADR-0036-ai-context-architecture.md) | AI context architecture — shared skills, nested context, cross-platform | ✅ Accepted |
+| [ADR-0037](./ADRs/ADR-0037-file-based-universe-persistence.md) | File-based universe persistence for custom universe definitions | ✅ Accepted |
 | [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**

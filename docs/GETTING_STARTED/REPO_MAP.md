@@ -24,7 +24,8 @@ trading_platform/
 ├── .github/           # GitHub configuration (workflows, actions)
 ├── .claude/           # Claude Code skills, commands, agents
 ├── .gemini/           # Gemini CLI skills and agents
-└── .agents/           # Generic agent context (no skills — conflicts with .gemini)
+├── .agents/           # Generic agent context (no skills — conflicts with .gemini)
+└── .ai_workflow/      # AI workflow state and audit logs
 ```
 
 ---
@@ -299,6 +300,12 @@ libs/
 #### libs/data/feature_metadata.py (P6T14)
 **Purpose:** Feature catalog metadata and statistics computation for the Alpha158 feature set.
 
+#### libs/data/schemas/ (P6T15)
+**Purpose:** Pydantic data-transfer schemas for the data layer (universe definitions, filter criteria).
+
+#### libs/data/sql/ (P6T15)
+**Purpose:** Shared SQL query templates for strategy-to-symbol mapping, used by both the execution gateway and web console exposure adapter.
+
 #### libs/data/market_data/
 **Purpose:** Market data fetching and caching
 **Key Features:**
@@ -374,6 +381,7 @@ libs/
 
 **Key Files:**
 - `strategy_scoped_queries.py` - Strategy-scoped database queries
+- `exposure_queries.py` - Fail-closed strategy-to-position mapping for exposure (P6T15)
 
 ### libs/web_console_services/ - Web Console Services
 
@@ -394,6 +402,7 @@ libs/
 - `sql_explorer_service.py` - Defense-in-depth SQL query execution with DuckDB sandbox (P6T14)
 - `data_source_status_service.py` - Data source freshness monitoring (P6T14)
 - `shadow_results_service.py` - Shadow/paper trading results browser (P6T14)
+- `exposure_service.py` - Strategy net exposure aggregation with mock fallback (P6T15)
 
 **Key Directories:**
 - `schemas/` - Pydantic models for service DTOs (data_management.py, health.py, risk.py)
@@ -790,6 +799,13 @@ Gemini CLI skills and custom agents.
 
 Reserved for agents that don't have their own CLI config directory.
 Note: Skills are NOT symlinked here — Gemini CLI reads `.agents/` and conflicts with `.gemini/skills/`.
+
+## .ai_workflow/ - AI Workflow State
+
+Stores workflow state and audit logs for AI-assisted development sessions.
+**Key Files:**
+- `workflow-state.json` - Current workflow state
+- `workflow-audit.log` - Audit trail of workflow transitions
 
 ## Cross-Platform AI Context
 

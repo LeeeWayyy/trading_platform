@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-02-15 - P6T14: Age recomputation, sandbox probe tolerance, service fixes -->
+<!-- Last reviewed: 2026-02-27 - P6T15/T15.2: Added analytics and comparison methods to UniverseService -->
 
 ## Identity
 - **Type:** Library
@@ -30,6 +30,8 @@
 | `SqlExplorerService` | rate_limiter | service | Defense-in-depth SQL query execution with DuckDB sandbox, AST validation, sensitive table blocking, and audit logging (P6T14). |
 | `DataSourceStatusService` | redis_client_factory, db_pool_factory | service | Data source freshness monitoring with Redis-backed refresh locking and distributed status aggregation (P6T14). |
 | `ShadowResultsService` | data_root | service | Shadow/paper trading results browser with Parquet file discovery and comparison metrics (P6T14). |
+| `ExposureService` | - | service | Strategy net exposure aggregation with mock fallback, bias warnings, and partial data detection (P6T15). |
+| `UniverseService` | manager | service | Async, permission-aware universe management wrapping synchronous UniverseManager. List, detail, preview, create, delete universes; analytics (summary stats, distributions, mock sector/factor data) and side-by-side comparison with overlap metrics. RBAC (P6T15). |
 
 ## Behavioral Contracts
 ### CircuitBreakerService
@@ -173,6 +175,6 @@ stress_results = await risk_service.run_stress_test(strategy_id="alpha_baseline"
 | Runtime import | LOW | scheduled_reports_service has runtime import of apps.web_console_ng (inside try/except) | Migration cleanup |
 
 ## Metadata
-- **Last Updated:** 2026-02-14 (P6T14 - Added SqlExplorerService, DataSourceStatusService, ShadowResultsService)
-- **Source Files:** `libs/web_console_services/__init__.py`, `libs/web_console_services/alert_service.py`, `libs/web_console_services/alpha_explorer_service.py`, `libs/web_console_services/attribution_service.py`, `libs/web_console_services/backtest_analytics_service.py`, `libs/web_console_services/cb_metrics.py`, `libs/web_console_services/cb_rate_limiter.py`, `libs/web_console_services/cb_service.py`, `libs/web_console_services/comparison_service.py`, `libs/web_console_services/config.py`, `libs/web_console_services/data_explorer_service.py`, `libs/web_console_services/data_quality_service.py`, `libs/web_console_services/data_source_status_service.py`, `libs/web_console_services/data_sync_service.py`, `libs/web_console_services/duckdb_connection.py`, `libs/web_console_services/health_service.py`, `libs/web_console_services/notebook_launcher_service.py`, `libs/web_console_services/risk_service.py`, `libs/web_console_services/scheduled_reports_service.py`, `libs/web_console_services/shadow_results_service.py`, `libs/web_console_services/sql_explorer_service.py`, `libs/web_console_services/sql_validator.py`, `libs/web_console_services/tax_lot_service.py`, `libs/web_console_services/user_management.py`, `libs/web_console_services/schemas/`
+- **Last Updated:** 2026-02-27 (P6T15/T15.2 - Added analytics and comparison methods to UniverseService)
+- **Source Files:** `libs/web_console_services/__init__.py`, `libs/web_console_services/alert_service.py`, `libs/web_console_services/alpha_explorer_service.py`, `libs/web_console_services/attribution_service.py`, `libs/web_console_services/backtest_analytics_service.py`, `libs/web_console_services/cb_metrics.py`, `libs/web_console_services/cb_rate_limiter.py`, `libs/web_console_services/cb_service.py`, `libs/web_console_services/comparison_service.py`, `libs/web_console_services/config.py`, `libs/web_console_services/data_explorer_service.py`, `libs/web_console_services/data_quality_service.py`, `libs/web_console_services/data_source_status_service.py`, `libs/web_console_services/data_sync_service.py`, `libs/web_console_services/duckdb_connection.py`, `libs/web_console_services/exposure_service.py`, `libs/web_console_services/health_service.py`, `libs/web_console_services/notebook_launcher_service.py`, `libs/web_console_services/risk_service.py`, `libs/web_console_services/scheduled_reports_service.py`, `libs/web_console_services/shadow_results_service.py`, `libs/web_console_services/sql_explorer_service.py`, `libs/web_console_services/sql_validator.py`, `libs/web_console_services/tax_lot_service.py`, `libs/web_console_services/universe_service.py`, `libs/web_console_services/user_management.py`, `libs/web_console_services/schemas/`, `libs/web_console_services/schemas/universe.py`
 - **ADRs:** N/A

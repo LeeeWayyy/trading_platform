@@ -291,8 +291,15 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
     monkeypatch.setattr(layout_module, "ConnectionMonitor", _DummyConnectionMonitor)
 
     class _DummyClient:
-        async def fetch_kill_switch_status(self, _user_id: str) -> dict[str, str]:
+        async def fetch_kill_switch_status(
+            self, _user_id: str, **_kwargs: Any,
+        ) -> dict[str, str]:
             return {"state": "ACTIVE"}
+
+        async def fetch_circuit_breaker_status(
+            self, _user_id: str, **_kwargs: Any,
+        ) -> dict[str, str]:
+            return {"state": "OPEN"}
 
     monkeypatch.setattr(
         layout_module.AsyncTradingClient,
@@ -317,6 +324,8 @@ def test_navigation_item_structure() -> None:
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
         ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
+        ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
+        ("Universes", "/research/universes", "category", None),  # P6T15
         ("Alpha Explorer", "/alpha-explorer", "insights", None),
         ("Compare", "/compare", "compare_arrows", None),
         ("Journal", "/journal", "book", None),
@@ -341,3 +350,294 @@ async def test_active_state_class_logic(monkeypatch: pytest.MonkeyPatch) -> None
     inactive_link = link_by_target["/"]
     assert inactive_link.classes_value is not None
     assert "hover:bg-slate-200" in inactive_link.classes_value
+
+
+@pytest.mark.asyncio()
+async def test_exposure_link_hidden_without_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exposure nav item is hidden when user lacks VIEW_STRATEGY_EXPOSURE."""
+    fake_ui = _FakeUI()
+    storage = SimpleNamespace(
+        user={},
+        client={},
+        request=SimpleNamespace(url=SimpleNamespace(path="/")),
+    )
+    fake_app = SimpleNamespace(storage=storage)
+
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+    monkeypatch.setattr(layout_module, "app", fake_app)
+    monkeypatch.setattr(
+        layout_module,
+        "get_current_user",
+        lambda: {"role": "viewer", "username": "Viewer", "user_id": "v-1"},
+    )
+
+    # Deny only VIEW_STRATEGY_EXPOSURE; grant everything else
+    def mock_has_permission(
+        _user: dict[str, Any], perm: Permission,
+    ) -> bool:
+        return perm != Permission.VIEW_STRATEGY_EXPOSURE
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+    monkeypatch.setattr(layout_module, "enable_dark_mode", lambda: None)
+    monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
+
+    class _DummyMarketClock:
+        def __init__(self, exchanges: list[str] | None = None) -> None:
+            pass
+
+        def update(self, *, force: bool = False) -> None:
+            pass
+
+    class _DummyStatusBar:
+        def __init__(self) -> None:
+            pass
+
+        def update_state(self, state: str) -> None:
+            pass
+
+    class _DummyHeaderMetrics:
+        def __init__(self) -> None:
+            pass
+
+        async def update(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def is_stale(self) -> bool:
+            return False
+
+        def mark_stale(self) -> None:
+            pass
+
+    class _DummyLatencyMonitor:
+        def __init__(self) -> None:
+            pass
+
+        async def measure(self) -> float | None:
+            return 50.0
+
+        def format_display(self) -> str:
+            return "50ms"
+
+        def format_tooltip(self) -> str:
+            return "API Latency: 50ms"
+
+        def get_status_color_class(self) -> str:
+            return "bg-green-600 text-white"
+
+        async def close(self) -> None:
+            pass
+
+    class _DummyConnectionMonitor:
+        def __init__(self) -> None:
+            pass
+
+        def should_attempt(self) -> bool:
+            return True
+
+        def start_reconnect(self) -> None:
+            pass
+
+        def record_success(self) -> None:
+            pass
+
+        def record_failure(self) -> None:
+            pass
+
+        def record_latency(self, latency_ms: float) -> None:
+            pass
+
+        def get_connection_state(self) -> Any:
+            from enum import Enum
+
+            class _FakeState(Enum):
+                CONNECTED = "connected"
+
+            return _FakeState.CONNECTED
+
+        def is_read_only(self) -> bool:
+            return False
+
+        def get_badge_text(self) -> str:
+            return "Connected"
+
+        def get_badge_class(self) -> str:
+            return "bg-green-500 text-white"
+
+    monkeypatch.setattr(layout_module, "MarketClock", _DummyMarketClock)
+    monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
+    monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
+    monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _DummyConnectionMonitor)
+
+    class _DummyClient:
+        async def fetch_kill_switch_status(
+            self, _user_id: str, **_kwargs: Any,
+        ) -> dict[str, str]:
+            return {"state": "ACTIVE"}
+
+        async def fetch_circuit_breaker_status(
+            self, _user_id: str, **_kwargs: Any,
+        ) -> dict[str, str]:
+            return {"state": "OPEN"}
+
+    monkeypatch.setattr(
+        layout_module.AsyncTradingClient,
+        "get",
+        classmethod(lambda cls: _DummyClient()),
+    )
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/risk/exposure" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_universes_link_hidden_without_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Universes nav item is hidden when user lacks VIEW_UNIVERSES."""
+    fake_ui = _FakeUI()
+    storage = SimpleNamespace(
+        user={},
+        client={},
+        request=SimpleNamespace(url=SimpleNamespace(path="/")),
+    )
+    fake_app = SimpleNamespace(storage=storage)
+
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+    monkeypatch.setattr(layout_module, "app", fake_app)
+    monkeypatch.setattr(
+        layout_module,
+        "get_current_user",
+        lambda: {"role": "viewer", "username": "Viewer", "user_id": "v-1"},
+    )
+
+    def mock_has_permission(
+        _user: dict[str, Any], perm: Permission,
+    ) -> bool:
+        return perm != Permission.VIEW_UNIVERSES
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+    monkeypatch.setattr(layout_module, "enable_dark_mode", lambda: None)
+    monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
+
+    class _DummyMarketClock:
+        def __init__(self, exchanges: list[str] | None = None) -> None:
+            pass
+
+        def update(self, *, force: bool = False) -> None:
+            pass
+
+    class _DummyStatusBar:
+        def __init__(self) -> None:
+            pass
+
+        def update_state(self, state: str) -> None:
+            pass
+
+    class _DummyHeaderMetrics:
+        def __init__(self) -> None:
+            pass
+
+        async def update(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def is_stale(self) -> bool:
+            return False
+
+        def mark_stale(self) -> None:
+            pass
+
+    class _DummyLatencyMonitor:
+        def __init__(self) -> None:
+            pass
+
+        async def measure(self) -> float | None:
+            return 50.0
+
+        def format_display(self) -> str:
+            return "50ms"
+
+        def format_tooltip(self) -> str:
+            return "API Latency: 50ms"
+
+        def get_status_color_class(self) -> str:
+            return "bg-green-600 text-white"
+
+        async def close(self) -> None:
+            pass
+
+    class _DummyConnectionMonitor:
+        def __init__(self) -> None:
+            pass
+
+        def should_attempt(self) -> bool:
+            return True
+
+        def start_reconnect(self) -> None:
+            pass
+
+        def record_success(self) -> None:
+            pass
+
+        def record_failure(self) -> None:
+            pass
+
+        def record_latency(self, latency_ms: float) -> None:
+            pass
+
+        def get_connection_state(self) -> Any:
+            from enum import Enum
+
+            class _FakeState(Enum):
+                CONNECTED = "connected"
+
+            return _FakeState.CONNECTED
+
+        def is_read_only(self) -> bool:
+            return False
+
+        def get_badge_text(self) -> str:
+            return "Connected"
+
+        def get_badge_class(self) -> str:
+            return "bg-green-500 text-white"
+
+    monkeypatch.setattr(layout_module, "MarketClock", _DummyMarketClock)
+    monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
+    monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
+    monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _DummyConnectionMonitor)
+
+    class _DummyClient:
+        async def fetch_kill_switch_status(
+            self, _user_id: str, **_kwargs: Any,
+        ) -> dict[str, str]:
+            return {"state": "ACTIVE"}
+
+        async def fetch_circuit_breaker_status(
+            self, _user_id: str, **_kwargs: Any,
+        ) -> dict[str, str]:
+            return {"state": "OPEN"}
+
+    monkeypatch.setattr(
+        layout_module.AsyncTradingClient,
+        "get",
+        classmethod(lambda cls: _DummyClient()),
+    )
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research/universes" not in targets

@@ -1416,3 +1416,115 @@ class TestAuthorizationDenial:
             )
 
         assert response.status_code == 403
+
+    def test_analysis_view_all_empty_strategies_allowed(
+        self, test_client: TestClient, mock_db: MagicMock
+    ) -> None:
+        """VIEW_ALL_STRATEGIES user with empty provisioned list is not denied."""
+        today = date.today()
+        start = today - timedelta(days=7)
+        mock_db.get_trades_for_tca.return_value = create_sample_trades()
+
+        with (
+            patch(
+                "apps.execution_gateway.routes.tca.get_authorized_strategies",
+                return_value=[],
+            ),
+            patch(
+                "apps.execution_gateway.routes.tca.has_permission",
+                return_value=True,
+            ),
+        ):
+            response = test_client.get(
+                "/api/v1/tca/analysis",
+                params={
+                    "start_date": str(start),
+                    "end_date": str(today),
+                },
+            )
+
+        assert response.status_code == 200
+        # strategy_ids=None passed to DB (all strategies)
+        mock_db.get_trades_for_tca.assert_called_once()
+        assert mock_db.get_trades_for_tca.call_args.kwargs["strategy_ids"] is None
+
+    def test_order_tca_view_all_empty_strategies_allowed(
+        self, test_client: TestClient, mock_db: MagicMock
+    ) -> None:
+        """VIEW_ALL user with empty strategies can access order TCA."""
+        trades = create_sample_trades()
+        mock_db.get_trades_for_tca.return_value = trades
+
+        with (
+            patch(
+                "apps.execution_gateway.routes.tca.get_authorized_strategies",
+                return_value=[],
+            ),
+            patch(
+                "apps.execution_gateway.routes.tca.has_permission",
+                return_value=True,
+            ),
+        ):
+            response = test_client.get("/api/v1/tca/analysis/order-123")
+
+        assert response.status_code == 200
+        assert mock_db.get_trades_for_tca.call_args.kwargs["strategy_ids"] is None
+
+    def test_analysis_view_all_nonempty_provisioned_still_unscoped(
+        self, test_client: TestClient, mock_db: MagicMock
+    ) -> None:
+        """VIEW_ALL user with non-empty provisioned list still gets unscoped (None).
+
+        Provisioned list may be stale; VIEW_ALL always means all strategies.
+        """
+        today = date.today()
+        start = today - timedelta(days=7)
+        mock_db.get_trades_for_tca.return_value = create_sample_trades()
+
+        with (
+            patch(
+                "apps.execution_gateway.routes.tca.get_authorized_strategies",
+                return_value=["alpha", "beta"],
+            ),
+            patch(
+                "apps.execution_gateway.routes.tca.has_permission",
+                return_value=True,
+            ),
+        ):
+            response = test_client.get(
+                "/api/v1/tca/analysis",
+                params={
+                    "start_date": str(start),
+                    "end_date": str(today),
+                },
+            )
+
+        assert response.status_code == 200
+        # VIEW_ALL always gets None, not the provisioned list
+        mock_db.get_trades_for_tca.assert_called_once()
+        assert mock_db.get_trades_for_tca.call_args.kwargs["strategy_ids"] is None
+
+    def test_benchmarks_view_all_empty_strategies_allowed(
+        self, test_client: TestClient, mock_db: MagicMock
+    ) -> None:
+        """VIEW_ALL user with empty strategies can access benchmarks."""
+        trades = create_sample_trades()
+        mock_db.get_trades_for_tca.return_value = trades
+
+        with (
+            patch(
+                "apps.execution_gateway.routes.tca.get_authorized_strategies",
+                return_value=[],
+            ),
+            patch(
+                "apps.execution_gateway.routes.tca.has_permission",
+                return_value=True,
+            ),
+        ):
+            response = test_client.get(
+                "/api/v1/tca/benchmarks",
+                params={"client_order_id": "order-123"},
+            )
+
+        assert response.status_code == 200
+        assert mock_db.get_trades_for_tca.call_args.kwargs["strategy_ids"] is None

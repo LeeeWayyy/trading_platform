@@ -220,7 +220,7 @@ OrderRequest -> Auth/RL -> Risk Checks -> DB Write -> Alpaca Submit (if DRY_RUN=
 - **Auth Required:** Yes for trading and control endpoints
 - **Auth Method:** `libs.common.api_auth_dependency` + RBAC permissions
 - **Data Sensitivity:** Confidential (orders, positions)
-- **RBAC Roles:** `SUBMIT_ORDER`, `CANCEL_ORDER`, `VIEW_POSITIONS`, `VIEW_PNL`, `MANAGE_STRATEGIES`, `MANAGE_RECONCILIATION`
+- **RBAC Roles:** `SUBMIT_ORDER`, `CANCEL_ORDER`, `VIEW_POSITIONS`, `VIEW_PNL`, `MANAGE_STRATEGIES`, `MANAGE_RECONCILIATION`, `VIEW_ALL_STRATEGIES`
 - **Webhook Security:** HMAC SHA256 signature via `X-Alpaca-Signature` when `WEBHOOK_SECRET` is set
 
 ## Testing
@@ -262,7 +262,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-31 (P6T8 Execution Analytics - TCA routes, export routes)
+- **Last Updated:** 2026-03-08 (P6T15 Universe & Exposure - VIEW_ALL_STRATEGIES support in TCA routes, shared strategy mapping SQL)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`

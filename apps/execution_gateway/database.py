@@ -1542,7 +1542,7 @@ class DatabaseClient:
         self,
         start_date: date,
         end_date: date,
-        strategy_ids: list[str],
+        strategy_ids: list[str] | None,
         *,
         symbol: str | None = None,
         side: str | None = None,
@@ -1556,7 +1556,8 @@ class DatabaseClient:
         Args:
             start_date: Start date (inclusive)
             end_date: End date (inclusive)
-            strategy_ids: List of authorized strategy IDs (fail-closed when empty)
+            strategy_ids: List of authorized strategy IDs (fail-closed when
+                empty list).  ``None`` means all strategies (VIEW_ALL users).
             symbol: Optional symbol filter
             side: Optional side filter ("buy" or "sell")
             client_order_id: Optional specific order filter
@@ -1568,11 +1569,10 @@ class DatabaseClient:
             - symbol, side, qty, price, executed_at, fee (from metadata)
             - order_submitted_at, order_qty (from orders table)
         """
-        if not strategy_ids:
+        if strategy_ids is not None and not strategy_ids:
             return []
 
         filters = [
-            "t.strategy_id = ANY(%s)",
             "t.executed_at >= %s",
             "t.executed_at < %s",
             "COALESCE(t.superseded, FALSE) = FALSE",
@@ -1581,7 +1581,11 @@ class DatabaseClient:
         end_date_exclusive = end_date + timedelta(days=1)
         start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
         end_dt = datetime(end_date_exclusive.year, end_date_exclusive.month, end_date_exclusive.day, tzinfo=UTC)
-        params: list[Any] = [strategy_ids, start_dt, end_dt]
+        params: list[Any] = [start_dt, end_dt]
+
+        if strategy_ids is not None:
+            filters.insert(0, "t.strategy_id = ANY(%s)")
+            params.insert(0, strategy_ids)
 
         if symbol:
             filters.append("t.symbol = %s")
@@ -3108,48 +3112,28 @@ class DatabaseClient:
         Return positions limited to the provided strategies.
 
         NOTE: The positions table is symbol-scoped and does not store strategy_id.
-        Without a reliable symbol-to-strategy mapping, the safest fail-closed
-        approach is to return an empty list when strategy scoping is requested.
-        This prevents leaking portfolio-wide positions to users without
-        VIEW_ALL_STRATEGIES permission. Upstream callers should provide a
-        strategy-aware position source when available.
+        Ownership is inferred via the orders table: a symbol maps to a strategy
+        only when exactly one strategy has ever traded it (fail-closed).  Symbols
+        traded by multiple strategies are excluded to prevent cross-strategy data
+        leakage.
 
-        DESIGN DECISION: Fail-closed returns empty list rather than raising exception.
-        This ensures users without VIEW_ALL_STRATEGIES see "no positions" rather than
-        an error, preserving UX while maintaining security. Symbols traded by multiple
-        strategies are excluded to prevent cross-strategy data leakage. Long-term fix
-        is adding strategy_id column to positions table.
+        Uses shared SQL from ``strategy_mapping_sql`` to maintain parity with the
+        exposure adapter (``libs/web_console_data/exposure_queries.py``).  Returns
+        only positions whose symbol has a unique strategy mapping within the
+        requested strategy list.  Long-term fix is adding a strategy_id column
+        to the positions table.
         """
         if not strategies:
             return []
 
-        # Attempt a best-effort, fail-closed mapping from position symbols to strategies by
-        # inspecting historical orders. We only return a position when exactly one strategy
-        # has traded the symbol to avoid leaking cross-strategy positions.
-        # Filtering is done in SQL using HAVING and ANY for efficiency.
+        # Best-effort, fail-closed mapping from position symbols to strategies via
+        # historical orders. Uses shared SQL from strategy_mapping_sql to maintain
+        # parity with the exposure adapter (libs/web_console_data/exposure_queries.py).
+        from libs.data.sql.strategy_mapping_sql import MAPPED_POSITIONS_QUERY
+
         def _execute(conn: psycopg.Connection) -> list[Position]:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    WITH symbol_strategy AS (
-                        SELECT
-                            symbol,
-                            (ARRAY_AGG(DISTINCT strategy_id))[1] AS strategy
-                        FROM orders
-                        WHERE strategy_id IS NOT NULL
-                          AND symbol IN (SELECT symbol FROM positions WHERE qty != 0)
-                        GROUP BY symbol
-                        HAVING COUNT(DISTINCT strategy_id) = 1
-                    )
-                    SELECT p.*
-                    FROM positions p
-                    JOIN symbol_strategy ss ON p.symbol = ss.symbol
-                    WHERE p.qty != 0
-                      AND ss.strategy = ANY(%s)
-                    ORDER BY p.symbol
-                    """,
-                    (strategies,),
-                )
+                cur.execute(MAPPED_POSITIONS_QUERY, (strategies,))
                 return [Position(**row) for row in cur.fetchall()]
 
         return self._execute_with_conn(None, _execute)

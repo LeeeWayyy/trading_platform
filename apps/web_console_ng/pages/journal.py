@@ -76,9 +76,10 @@ async def trade_journal_page() -> None:
         )
         return
 
-    # Get authorized strategies
+    # Get authorized strategies — VIEW_ALL users may have empty provisioned
+    # lists but should not be denied (they see all strategies globally).
     authorized_strategies = get_authorized_strategies(user)
-    if not authorized_strategies:
+    if not authorized_strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         with ui.card().classes("w-full p-6"):
             ui.label("You don't have access to any strategies. Contact administrator.").classes(
                 "text-amber-600 text-center"
@@ -263,6 +264,14 @@ async def _render_trade_journal(
             stats_container.clear()
             with stats_container:
                 _render_trade_stats(stats)
+        except PermissionError as exc:
+            logger.warning(
+                "trade_stats_permission_denied",
+                extra={"user_id": user.get("user_id"), "error": str(exc)},
+            )
+            stats_container.clear()
+            with stats_container:
+                ui.label("Access denied: no strategy access").classes("text-red-500 p-2")
         except (ConnectionError, OSError) as exc:
             logger.error(
                 "trade_stats_db_connection_failed",
@@ -333,6 +342,14 @@ async def _render_trade_journal(
                     on_click=lambda: next_page(),
                 ).props(f"{'disable' if len(trades) < page_size else ''}")
 
+        except PermissionError as exc:
+            logger.warning(
+                "trades_permission_denied",
+                extra={"user_id": user.get("user_id"), "error": str(exc)},
+            )
+            trades_container.clear()
+            with trades_container:
+                ui.label("Access denied: no strategy access").classes("text-red-500 p-4")
         except (ConnectionError, OSError) as exc:
             logger.error(
                 "trades_db_connection_failed",
@@ -396,16 +413,28 @@ async def _render_trade_journal(
 
 
 def _render_trade_stats(stats: dict[str, Any]) -> None:
-    """Render trade statistics cards."""
+    """Render trade statistics cards.
+
+    Keys align with ``StrategyScopedDataAccess.get_trade_stats()`` output:
+    total_trades, winning_trades, losing_trades, total_realized_pnl,
+    gross_profit, gross_loss, avg_win, avg_loss, largest_win, largest_loss.
+    """
+    total = int(stats.get("total_trades", 0))
+    winning = int(stats.get("winning_trades", 0))
+    win_rate = winning / total if total > 0 else 0.0
+    pnl = float(stats.get("total_realized_pnl", 0))
+    gross_profit = float(stats.get("gross_profit", 0))
+    gross_loss = float(stats.get("gross_loss", 0))
+
     with ui.card().classes("w-full p-4"):
         ui.label("Trade Statistics").classes("text-lg font-bold mb-2")
 
         with ui.row().classes("gap-4 flex-wrap"):
-            _stat_card("Total Trades", str(stats.get("trade_count", 0)))
-            _stat_card("Total Volume", f"${stats.get('total_volume', 0):,.2f}")
-            _stat_card("Realized P&L", f"${stats.get('total_pnl', 0):,.2f}")
-            _stat_card("Win Rate", f"{stats.get('win_rate', 0):.1%}")
-            _stat_card("Avg Trade Size", f"${stats.get('avg_trade_size', 0):,.2f}")
+            _stat_card("Total Trades", str(total))
+            _stat_card("Realized P&L", f"${pnl:,.2f}")
+            _stat_card("Win Rate", f"{win_rate:.1%}")
+            _stat_card("Gross Profit", f"${gross_profit:,.2f}")
+            _stat_card("Gross Loss", f"${gross_loss:,.2f}")
 
 
 def _stat_card(label: str, value: str) -> None:
