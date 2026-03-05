@@ -1,0 +1,1 @@
+../../../docs/AI/skills/architecture-overview/SKILL.md

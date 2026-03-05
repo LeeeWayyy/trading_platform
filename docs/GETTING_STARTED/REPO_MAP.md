@@ -22,7 +22,9 @@ trading_platform/
 ├── data/              # Market data storage (parquet files, DuckDB catalogs)
 ├── config/            # Configuration files
 ├── .github/           # GitHub configuration (workflows, actions)
-└── .claude/           # Claude Code skills and commands
+├── .claude/           # Claude Code skills, commands, agents
+├── .gemini/           # Gemini CLI skills and agents
+└── .agents/           # Generic agent context (no skills — conflicts with .gemini)
 ```
 
 ---
@@ -448,6 +450,38 @@ libs/
 
 ---
 
+## tools/ - Development Tools
+
+### tools/kb/ - Knowledge Base
+
+**Purpose:** Local SQLite knowledge base that captures signals from git commits, code reviews, tests, and sessions to help future AI sessions find impacted files precisely.
+
+**Key Files:**
+- `db.py` - SQLite connection, 9-table schema, PRAGMAs, retry logic
+- `models.py` - Pydantic models for all tables + query outputs
+- `parsers.py` - Review JSON, JUnit XML, git log parsers + rule classifier
+- `taxonomy.yaml` - Canonical rule_id registry (12 trading-platform rules)
+- `ingest.py` - 7-subcommand CLI for ingesting development signals
+- `query.py` - 3-mode CLI: implementation-brief, troubleshoot, pre-commit-check
+- `decay.py` - Freshness decay, soft expiry, hard prune
+- `promote.py` - Pattern promotion to `.claude/kb/hints/*.md`
+
+**Storage:** `.claude/kb/graph.db` (SQLite, gitignored — local per-developer knowledge)
+
+**Usage:**
+```bash
+# Ingest commit co-change signals
+python3 -m tools.kb.ingest_cli commit --sha HEAD
+
+# Backfill from git history
+python3 -m tools.kb.ingest_cli backfill --since "6 months ago"
+
+# Query for implementation context
+python3 -m tools.kb.query implementation-brief --changed-files "libs/trading/execution/gateway.py"
+```
+
+---
+
 ## infra/ - Infrastructure
 
 Infrastructure configuration for local development and deployment.
@@ -736,11 +770,47 @@ GitHub Actions workflows and shared action definitions.
 
 ## .claude/ - Claude Code Configuration
 
-Claude Code skills and commands for development workflows.
+Claude Code skills, commands, and custom subagents.
 
 **Directories:**
 - `commands/` - Slash commands (`/review`, `/pr-fix`, `/analyze`)
-- `skills/` - Skill definitions with detailed instructions
+- `skills/` - Skill definitions (symlinks → `docs/AI/skills/`)
+- `agents/` - Custom subagent definitions (codebase-navigator, reconciler-debugger, security-reviewer, test-writer)
+
+## .gemini/ - Gemini CLI Configuration
+
+Gemini CLI skills and custom agents.
+
+**Directories:**
+- `skills/` - Skill definitions (symlinks → `docs/AI/skills/`)
+- `agents/` - Custom agent definitions for Gemini
+- `settings.json` - Gemini CLI settings
+
+## .agents/ - Generic Agent Configuration
+
+Reserved for agents that don't have their own CLI config directory.
+Note: Skills are NOT symlinked here — Gemini CLI reads `.agents/` and conflicts with `.gemini/skills/`.
+
+## Cross-Platform AI Context
+
+All three CLIs share the same context via symlinks:
+
+**Root context files:**
+- `CLAUDE.md`, `GEMINI.md`, `AGENTS.md` → `docs/AI/AI_GUIDE.md`
+
+**Nested context (directory-scoped):**
+- `apps/CLAUDE.md`, `apps/GEMINI.md`, `apps/AGENTS.md` → `docs/AI/nested/apps.md`
+- `libs/CLAUDE.md`, `libs/GEMINI.md`, `libs/AGENTS.md` → `docs/AI/nested/libs.md`
+- `tests/CLAUDE.md`, `tests/GEMINI.md`, `tests/AGENTS.md` → `docs/AI/nested/tests.md`
+- `research/CLAUDE.md`, `research/GEMINI.md`, `research/AGENTS.md` → `docs/AI/nested/research.md`
+
+**Shared skills (`docs/AI/skills/`):**
+- `analyze/` - Pre-implementation analysis
+- `pr-fix/` - Batch PR comment resolution
+- `review/` - Cross-platform review workflow
+- `architecture-overview/` - Platform architecture reference
+- `operational-guardrails/` - Trading safety rules
+- `trading-glossary/` - Domain terminology
 
 ---
 
@@ -754,7 +824,7 @@ Claude Code skills and commands for development workflows.
 - `.env` - Local environment variables (gitignored)
 - `.gitignore` - Git ignore rules
 - `Makefile` - Common development commands
-- `CLAUDE.md`, `AGENTS.md` - Symlinks to docs/AI/AI_GUIDE.md
+- `CLAUDE.md`, `GEMINI.md`, `AGENTS.md` - Symlinks to docs/AI/AI_GUIDE.md
 
 ---
 
@@ -815,6 +885,6 @@ make kill-switch # Emergency stop
 
 ---
 
-**Document Version:** 2.2 (P6T14 - Data Infrastructure Pages)
-**Last Updated:** 2026-02-15
+**Document Version:** 2.3 (AI Context Optimization — cross-platform skills & context)
+**Last Updated:** 2026-03-02
 **Maintained By:** Development Team

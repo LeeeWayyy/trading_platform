@@ -1,0 +1,1 @@
+../../../docs/AI/skills/trading-glossary/SKILL.md

@@ -66,8 +66,17 @@ if [[ "$CURRENT_BRANCH" == feature/* ]] || [[ "$CURRENT_BRANCH" == fix/* ]] || [
     # Docs-only bypass: commits with docs: prefix and no code files can skip zen trailers
     COMMIT_MSG_FIRST_LINE=$(head -1 "$COMMIT_MSG_FILE")
     if [[ "$COMMIT_MSG_FIRST_LINE" == docs:* ]] || [[ "$COMMIT_MSG_FIRST_LINE" == docs\(* ]]; then
-        # Check if any code/config files are staged (not just docs)
-        STAGED_CODE=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' '*.sh' '*.js' '*.ts' 'Makefile' 'Dockerfile*' '*.yml' '*.yaml' '*.toml' '*.cfg' '*.ini' '.claude/skills/*.md' '.claude/commands/*.md' 2>/dev/null || true)
+        # Check if any code/config/AI-context files are staged (not just docs)
+        STAGED_CODE=$(git diff --cached --name-only --diff-filter=ACMDRT -- \
+            '*.py' '*.sh' '*.js' '*.ts' '*.json' 'Makefile' 'Dockerfile*' \
+            '*.yml' '*.yaml' '*.toml' '*.cfg' '*.ini' \
+            '.claude/skills/**' '.claude/commands/*.md' \
+            'docs/AI/**' \
+            '.gemini/skills/**' '.agents/skills/**' \
+            'CLAUDE.md' 'AGENTS.md' 'GEMINI.md' \
+            '**/CLAUDE.md' '**/GEMINI.md' '**/AGENTS.md' \
+            '.claude/agents/*.md' '.gemini/agents/*.md' '.codex/agents/*.toml' \
+            2>/dev/null || true)
         if [ -z "$STAGED_CODE" ]; then
             echo -e "${GREEN}✓ Docs-only commit — zen review not required${NC}"
             echo ""

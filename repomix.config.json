@@ -39,7 +39,24 @@
       "*.pem",
       "*.key",
       "credentials.json",
-      "secrets.json"
+      "secrets.json",
+      "CLAUDE.md",
+      "AGENTS.md",
+      "GEMINI.md",
+      "apps/CLAUDE.md",
+      "apps/GEMINI.md",
+      "apps/AGENTS.md",
+      "libs/CLAUDE.md",
+      "libs/GEMINI.md",
+      "libs/AGENTS.md",
+      "tests/CLAUDE.md",
+      "tests/GEMINI.md",
+      "tests/AGENTS.md",
+      "research/CLAUDE.md",
+      "research/GEMINI.md",
+      "research/AGENTS.md",
+      ".claude/skills/**",
+      ".gemini/skills/**"
     ]
   },
   "security": {

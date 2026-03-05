@@ -1,0 +1,95 @@
+# Canonical rule_id registry for the trading platform knowledge base.
+# Each rule has a stable ID used across reviews, issue patterns, and hint files.
+# The extractor rejects unregistered IDs to prevent taxonomy drift.
+
+rules:
+  - id: UTC_NAIVE_DATETIME
+    description: "Naive datetime without timezone (use datetime.now(timezone.utc))"
+    patterns:
+      - "datetime\\.now\\(\\)"
+      - "naive.*datetime"
+      - "timezone.*aware"
+
+  - id: MISSING_CB_CHECK
+    description: "Missing circuit breaker state check before order submission"
+    patterns:
+      - "circuit.?breaker"
+      - "cb.*check"
+      - "missing.*circuit"
+
+  - id: MISSING_IDEMPOTENCY_KEY
+    description: "Missing client_order_id or idempotency key"
+    patterns:
+      - "idempoten"
+      - "client_order_id"
+      - "dedup.*key"
+
+  - id: SWALLOWED_EXCEPTION
+    description: "Exception caught but not logged or re-raised"
+    patterns:
+      - "swallow.*exception"
+      - "bare.*except"
+      - "except.*pass"
+      - "caught.*not.*logged"
+      - "caught.*not.*re.?raised"
+
+  - id: MISSING_TYPE_HINTS
+    description: "Missing type annotations on function signatures"
+    patterns:
+      - "type.*hint"
+      - "missing.*annotation"
+      - "untyped.*def"
+
+  - id: SQL_INJECTION_RISK
+    description: "String concatenation or f-string in SQL queries"
+    patterns:
+      - "sql.*inject"
+      - "f.string.*sql"
+      - "format.*query"
+      - "string.*concat.*sql"
+
+  - id: MISSING_POSITION_LIMIT
+    description: "Missing position limit check before order"
+    patterns:
+      - "position.*limit"
+      - "max_pos"
+      - "missing.*limit.*check"
+
+  - id: HARDCODED_CREDENTIAL
+    description: "Hardcoded API key, password, or secret"
+    patterns:
+      - "hardcod.*cred"
+      - "hardcod.*secret"
+      - "hardcod.*password"
+      - "api.?key.*="
+
+  - id: MISSING_STRUCTURED_LOG_CONTEXT
+    description: "Log statement missing structured context fields"
+    patterns:
+      - "structured.*log"
+      - "missing.*context.*log"
+      - "log.*without.*context"
+      - "log.*missing.*context"
+
+  - id: FEATURE_PARITY_VIOLATION
+    description: "Duplicate logic between research and production code"
+    patterns:
+      - "feature.*parity"
+      - "duplicat.*logic"
+      - "research.*production.*drift"
+
+  - id: NON_ATOMIC_READ_MODIFY_WRITE
+    description: "Read-modify-write without proper locking or transaction"
+    patterns:
+      - "race.*condition"
+      - "non.?atomic"
+      - "read.*modify.*write"
+      - "toctou"
+
+  - id: MISSING_TEST_MARKER
+    description: "Test missing @pytest.mark marker"
+    patterns:
+      - "missing.*pytest.*marker"
+      - "missing.*test.*marker"
+      - "pytest\\.mark"
+      - "unmarked.*test"

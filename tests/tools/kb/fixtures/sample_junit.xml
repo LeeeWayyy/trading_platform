@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" errors="0" failures="1" skipped="1" tests="4" time="2.345">
+    <testcase classname="tests.test_signal_service" name="test_signal_generation" time="0.123">
+    </testcase>
+    <testcase classname="tests.test_signal_service" name="test_signal_validation" time="0.456">
+      <failure message="AssertionError: expected UTC timezone">
+Traceback (most recent call last):
+  File "tests/test_signal_service.py", line 42, in test_signal_validation
+    assert signal.timestamp.tzinfo is not None
+AssertionError: expected UTC timezone
+      </failure>
+    </testcase>
+    <testcase classname="tests.test_risk_manager" name="test_position_limit" time="0.789">
+    </testcase>
+    <testcase classname="tests.test_risk_manager" name="test_skipped_feature" time="0.001">
+      <skipped message="reason: not implemented yet"/>
+    </testcase>
+  </testsuite>
+</testsuites>

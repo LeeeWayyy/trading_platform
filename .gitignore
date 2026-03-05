@@ -104,6 +104,10 @@ Thumbs.db
 # Zen-MCP temporary files
 zen_precommit.changeset
 
+# Knowledge Base (local, per-developer)
+.claude/kb/
+.pytest_results.xml
+
 # Claude Code runtime state
 .claude/state/current-todo.json
 .claude/session-state.md

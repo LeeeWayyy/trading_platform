@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Test to validate clink tool name consistency in documentation.
+Test to validate AI reviewer invocation consistency in documentation.
 
-Ensures all documentation uses the correct MCP tool name: mcp__zen__clink
-(not the incorrect mcp__zen__clink typo).
+Ensures documentation references direct CLI invocations (gemini, codex)
+rather than deprecated mcp__pal__clink or incorrect mcp__zen-mcp__clink.
 
 Author: Claude Code
 Date: 2025-11-08
+Updated: 2026-03-02 (C9: migrated from clink to direct CLI)
 """
 
 from pathlib import Path
@@ -18,7 +19,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 def get_documentation_files():
     """
-    Get all documentation and code files that should use correct clink tool name.
+    Get all documentation and code files to check for reviewer references.
 
     Returns:
         List of Path objects for all relevant files.
@@ -43,26 +44,46 @@ def get_documentation_files():
 DOC_FILES = get_documentation_files()
 
 
-def test_correct_clink_tool_name_in_documentation():
-    """Verify documentation uses correct clink tool name: mcp__pal__clink."""
-    # Verify key files use the correct tool name
-    key_files = [
-        PROJECT_ROOT / "CLAUDE.md",
-        PROJECT_ROOT / "docs/AI/AI_GUIDE.md",
-    ]
+def test_review_uses_direct_cli():
+    """Verify review command uses direct CLI invocation, not deprecated clink."""
+    review_file = PROJECT_ROOT / ".claude/commands/review.md"
+    assert review_file.exists(), "review.md command must exist"
+    content = review_file.read_text()
 
-    for doc_file in key_files:
-        if not doc_file.exists():
+    # Should NOT reference clink
+    assert "mcp__pal__clink" not in content, (
+        "review.md should use direct CLI (gemini/codex), not deprecated mcp__pal__clink"
+    )
+
+    # Should reference direct CLI invocation patterns
+    assert "gemini" in content.lower(), "review.md should reference gemini CLI"
+    assert "codex" in content.lower(), "review.md should reference codex CLI"
+
+
+def test_no_clink_in_commands():
+    """Verify no .claude/commands/ files reference deprecated mcp__pal__clink."""
+    commands_dir = PROJECT_ROOT / ".claude/commands"
+    if not commands_dir.exists():
+        pytest.skip("No commands directory")
+
+    errors = []
+    for cmd_file in commands_dir.glob("*.md"):
+        if not cmd_file.is_file():
             continue
-        content = doc_file.read_text()
-        assert "mcp__pal__clink" in content, f"{doc_file.name} should reference mcp__pal__clink"
+        content = cmd_file.read_text()
+        if "mcp__pal__clink" in content:
+            errors.append(
+                f"{cmd_file.relative_to(PROJECT_ROOT)}: Still references deprecated mcp__pal__clink"
+            )
+
+    if errors:
+        pytest.fail("\n".join(["❌ Deprecated clink references in commands:"] + errors))
 
 
 def test_no_incorrect_clink_tool_name_typo():
     """Verify documentation doesn't contain incorrect clink tool name variants."""
     errors = []
     incorrect_pattern = "mcp__zen-mcp__clink"  # Note: dash between zen and mcp (typo)
-    correct_pattern = "mcp__pal__clink"  # Correct: pal namespace
 
     for doc_file in DOC_FILES:
         if not doc_file.exists():
@@ -73,7 +94,7 @@ def test_no_incorrect_clink_tool_name_typo():
         if incorrect_pattern in content:
             count = content.count(incorrect_pattern)
             errors.append(
-                f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect '{incorrect_pattern}' (should be '{correct_pattern}')"
+                f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect '{incorrect_pattern}'"
             )
 
     if errors:
@@ -133,7 +154,7 @@ def test_no_direct_zen_mcp_tool_references():
                         if not any(keyword in context.lower() for keyword in warning_keywords):
                             rel_path = doc_file.relative_to(PROJECT_ROOT)
                             errors.append(
-                                f"{rel_path}: Found forbidden direct tool '{pattern}' outside warning context (use mcp__zen__clink instead)"
+                                f"{rel_path}: Found forbidden direct tool '{pattern}' outside warning context"
                             )
 
     if errors:

@@ -1,0 +1,25 @@
+{
+  "findings": [
+    {
+      "file_path": "apps/signal_service/main.py",
+      "line": 42,
+      "severity": "HIGH",
+      "summary": "datetime.now() used without timezone — naive datetime risk",
+      "confidence": 0.95
+    },
+    {
+      "file_path": "libs/trading/risk_management/circuit_breaker.py",
+      "line": 88,
+      "severity": "MEDIUM",
+      "summary": "Missing circuit breaker check before order submission",
+      "confidence": 0.85
+    },
+    {
+      "file_path": "apps/signal_service/main.py",
+      "line": 105,
+      "severity": "LOW",
+      "summary": "Log statement missing structured context fields",
+      "confidence": 0.70
+    }
+  ]
+}

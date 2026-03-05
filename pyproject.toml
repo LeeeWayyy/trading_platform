@@ -8,6 +8,7 @@ packages = [
     { include = "libs" },
     { include = "apps" },
     { include = "strategies" },
+    { include = "tools" },
 ]
 
 [tool.poetry.dependencies]
@@ -69,6 +70,8 @@ jinja2 = "^3.1.6"
 nicegui = ">=2.0,<3.0"
 pyotp = "^2.9.0"  # TOTP for MFA
 croniter = "^2.0.0"  # Cron expression parsing for scheduled reports
+pyyaml = "^6.0"  # YAML parsing for KB taxonomy
+defusedxml = "^0.7.0"  # Safe XML parsing for JUnit artifacts
 
 [tool.poetry.group.dev.dependencies]
 # Testing
@@ -92,6 +95,8 @@ types-requests = "^2.31.0"
 # Pre-commit
 pre-commit = "^3.6.0"
 respx = "^0.22.0"
+types-PyYAML = "^6.0"  # Type stubs for PyYAML
+types-defusedxml = "^0.7.0"  # Type stubs for defusedxml
 
 
 [tool.poetry.group.web-console-ng.dependencies]
@@ -210,7 +215,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov=libs --cov=apps --cov=strategies --cov-report=term-missing --cov-report=html"
+addopts = "-v --cov=libs --cov=apps --cov=strategies --cov=tools --cov-report=term-missing --cov-report=html --junitxml=.pytest_results.xml"
 # Register custom markers (enforced by ruff PT rules)
 markers = [
     "unit: Unit tests (pure functions, no external dependencies)",
