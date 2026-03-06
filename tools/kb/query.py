@@ -32,11 +32,6 @@ DEFAULT_TOP_PITFALLS = 5
 MIN_SUPPORT_COUNT = 2
 
 
-def _escape_like(s: str) -> str:
-    """Escape SQL LIKE metacharacters (%, _, \\) for safe use in LIKE patterns."""
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 def _get_related_files(
     conn: sqlite3.Connection,
     changed_files: list[str],

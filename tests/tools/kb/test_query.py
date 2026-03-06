@@ -11,7 +11,6 @@ import pytest
 
 from tools.kb.db import get_connection, init_schema
 from tools.kb.query import (
-    _escape_like,
     compute_freshness,
     main,
     query_implementation_brief,
@@ -152,38 +151,6 @@ class TestImplementationBrief:
         brief = query_implementation_brief(seeded_conn, ["apps/main.py"])
         assert len(brief.known_pitfalls) >= 1
         assert brief.known_pitfalls[0].rule_id == "UTC_NAIVE_DATETIME"
-
-    def test_like_wildcards_escaped_in_pitfall_scope(
-        self, conn: sqlite3.Connection
-    ) -> None:
-        """Test that _escape_like prevents LIKE metacharacters from acting as wildcards."""
-        # Verify the escape function itself
-        assert _escape_like("apps/signal_service/") == "apps/signal\\_service/"
-        assert _escape_like("path_with%both") == "path\\_with\\%both"
-        assert _escape_like("clean/path/") == "clean/path/"
-
-        # Verify escaped pattern works correctly in SQLite LIKE
-        conn.execute(
-            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
-            "VALUES ('RULE_A', 'libs/signal_service/sub/', 3, ?)",
-            (json.dumps([]),),
-        )
-        conn.execute(
-            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
-            "VALUES ('RULE_B', 'libs/signalXservice/sub/', 3, ?)",
-            (json.dumps([]),),
-        )
-        conn.commit()
-
-        # With _ escaped, only the literal match should succeed
-        escaped = _escape_like("libs/signal_service/sub/")
-        rows = conn.execute(
-            "SELECT rule_id FROM issue_patterns WHERE scope_path LIKE ? ESCAPE '\\'",
-            (f"{escaped}%",),
-        ).fetchall()
-        rule_ids = [r["rule_id"] for r in rows]
-        assert "RULE_A" in rule_ids
-        assert "RULE_B" not in rule_ids
 
     def test_deduplicates_recommended_tests(self, seeded_conn: sqlite3.Connection) -> None:
         """Test that recommended tests are deduplicated across changed files."""
