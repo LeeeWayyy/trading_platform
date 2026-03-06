@@ -98,6 +98,9 @@ def _load_taxonomy() -> dict[str, list[re.Pattern[str]]]:
         return _TAXONOMY
     with open(_TAXONOMY_PATH) as f:
         data: Any = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        logger.warning("Taxonomy YAML at %s is not a mapping; rule classification disabled", _TAXONOMY_PATH)
+        return _TAXONOMY
     for rule in data.get("rules", []):
         rule_id: str = rule["id"]
         patterns = [re.compile(p, re.IGNORECASE) for p in rule.get("patterns", [])]
@@ -147,6 +150,20 @@ def parse_review_artifact(
     findings: list[Finding] = []
     if not path.exists():
         logger.warning("Review artifact not found: %s", path)
+        return findings
+
+    # Guard against oversized artifacts to prevent OOM
+    max_bytes = int(os.environ.get("KB_MAX_ARTIFACT_BYTES", str(50 * 1024 * 1024)))
+    try:
+        size = path.stat().st_size
+    except OSError:
+        logger.warning("Cannot stat review artifact: %s", path)
+        return findings
+    if size > max_bytes:
+        logger.warning(
+            "Review artifact %s is %d MB — exceeds %d MB limit, skipping",
+            path, size // 1024 // 1024, max_bytes // 1024 // 1024,
+        )
         return findings
 
     content = path.read_text()

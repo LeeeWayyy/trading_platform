@@ -637,3 +637,51 @@ class TestDefaultTaxonomyPath:
             finally:
                 if env is not None:
                     os.environ["KB_TAXONOMY_PATH"] = env
+
+
+class TestTaxonomyMalformed:
+    """Tests for _load_taxonomy with malformed YAML files."""
+
+    def test_empty_taxonomy_file_returns_empty(self, tmp_path: Path) -> None:
+        """Test that an empty taxonomy file (yaml.safe_load returns None) doesn't crash."""
+        import tools.kb.parsers as parsers_mod
+
+        empty_file = tmp_path / "empty.yaml"
+        empty_file.write_text("")
+
+        # Save and clear module-level state
+        orig_path = parsers_mod._TAXONOMY_PATH
+        orig_taxonomy = dict(parsers_mod._TAXONOMY)
+        parsers_mod._TAXONOMY.clear()
+        parsers_mod._TAXONOMY_PATH = empty_file
+        try:
+            result = classify_rule_id("naive datetime")
+            assert result is None  # Should not crash, just return None
+        finally:
+            parsers_mod._TAXONOMY_PATH = orig_path
+            parsers_mod._TAXONOMY.clear()
+            parsers_mod._TAXONOMY.update(orig_taxonomy)
+
+
+class TestReviewArtifactSizeGuard:
+    """Tests for parse_review_artifact size check."""
+
+    def test_oversized_artifact_skipped(self, tmp_path: Path) -> None:
+        """Test that artifacts exceeding the size limit are skipped."""
+        large_file = tmp_path / "huge.json"
+        large_file.write_text('[{"file_path": "a.py", "severity": "HIGH", "summary": "x"}]')
+
+        # Set a tiny limit to trigger the guard
+        with patch.dict("os.environ", {"KB_MAX_ARTIFACT_BYTES": "10"}):
+            findings = parse_review_artifact(large_file, "gemini", "run1")
+        assert findings == []
+
+    def test_normal_artifact_not_skipped(self, tmp_path: Path) -> None:
+        """Test that normal-sized artifacts are parsed correctly."""
+        artifact = tmp_path / "review.json"
+        artifact.write_text('[{"file_path": "a.py", "severity": "HIGH", "summary": "x"}]')
+
+        # Set a generous limit
+        with patch.dict("os.environ", {"KB_MAX_ARTIFACT_BYTES": str(50 * 1024 * 1024)}):
+            findings = parse_review_artifact(artifact, "gemini", "run1")
+        assert len(findings) == 1
