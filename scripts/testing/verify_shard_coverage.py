@@ -31,6 +31,7 @@ SHARD_DEFINITIONS = {
         "tests/fixtures/**",
         "tests/infra/**",
         "tests/load/**",
+        "tests/tools/**",
     ],
 }
 

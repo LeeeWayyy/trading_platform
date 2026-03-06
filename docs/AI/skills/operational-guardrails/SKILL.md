@@ -84,7 +84,7 @@ make down         # Stop infrastructure
 
 ## Runbook Reference
 
-See [ops.md](../../RUNBOOKS/ops.md) for the full operational runbook including:
+See [ops.md](../../../RUNBOOKS/ops.md) for the full operational runbook including:
 - Daily checklist
 - Incident response procedures
 - System health monitoring

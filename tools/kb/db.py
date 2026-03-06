@@ -283,31 +283,27 @@ def write_deferred(
         str((_get_repo_root() / db_path).resolve()) if db_path else str(DEFAULT_DB_PATH.resolve())
     )
     payload = {**payload, "db": resolved_db}
-    if fcntl is not None:
-        lock_path = path.parent / "deferred_ingest.lock"
-        lock_fd = open(lock_path, "w")  # noqa: SIM115
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            with open(path, "a") as f:
-                f.write(json.dumps(payload) + "\n")
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
-    else:
-        # Windows fallback: use msvcrt for file locking via separate lock file
-        # (matching the fcntl approach — locking the data file directly causes
-        # byte-offset mismatches between lock and unlock in append mode)
-        import msvcrt
+    lock_path = path.parent / "deferred_ingest.lock"
+    with open(lock_path, "w") as lock_fd:
+        if fcntl is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                with open(path, "a") as f:
+                    f.write(json.dumps(payload) + "\n")
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        else:
+            # Windows fallback: use msvcrt for file locking via separate lock file
+            # (matching the fcntl approach — locking the data file directly causes
+            # byte-offset mismatches between lock and unlock in append mode)
+            import msvcrt
 
-        lock_path = path.parent / "deferred_ingest.lock"
-        lock_fd = open(lock_path, "w")  # noqa: SIM115
-        try:
-            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_LOCK, 1)
-            with open(path, "a") as f:
-                f.write(json.dumps(payload) + "\n")
-        finally:
-            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
-            lock_fd.close()
+            try:
+                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_LOCK, 1)
+                with open(path, "a") as f:
+                    f.write(json.dumps(payload) + "\n")
+            finally:
+                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
     logger.info("Wrote deferred ingest payload to %s", path)
 
 

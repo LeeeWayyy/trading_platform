@@ -51,6 +51,7 @@ git diff --cached --name-only --diff-filter=ACM
 ```bash
 # Write diff to a temp file for reviewer consumption (portable across GNU/BSD mktemp)
 DIFF_FILE=$(mktemp "${TMPDIR:-/tmp}/review-diff-XXXXXX")
+trap 'rm -f "${DIFF_FILE:-}" "${PROMPT_FILE:-}"' EXIT
 ```
 
 If branch mode:
@@ -247,7 +248,7 @@ Run /review again for a fresh iteration to confirm.
 
 **If zero issues on first try** (no fixes needed), the code is fully approved.
 
-**Clean up temp files:**
+**Clean up temp files** (also handled by the EXIT trap set in Step 2):
 ```bash
 rm -f "$DIFF_FILE" "$PROMPT_FILE"
 ```

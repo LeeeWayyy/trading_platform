@@ -5,7 +5,7 @@ description: Trading and ML terminology definitions for the platform. Trigger on
 
 # Trading Glossary
 
-Quick reference for trading platform terminology. See [GLOSSARY.md](../../GETTING_STARTED/GLOSSARY.md) for the full glossary with all categories.
+Quick reference for trading platform terminology. See [GLOSSARY.md](../../../GETTING_STARTED/GLOSSARY.md) for the full glossary with all categories.
 
 ## Core Trading Concepts
 
