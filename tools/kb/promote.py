@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import sqlite3
@@ -82,16 +83,24 @@ description: {description}
     return hint_path
 
 
-def _get_rule_description(rule_id: str) -> str:
-    """Load rule description from taxonomy.yaml."""
+@functools.lru_cache(maxsize=1)
+def _load_taxonomy() -> dict[str, str]:
+    """Load taxonomy.yaml once and cache the rule_id → description mapping."""
     try:
         taxonomy_path = Path(__file__).parent / "taxonomy.yaml"
         if taxonomy_path.exists():
             with open(taxonomy_path) as f:
                 data = yaml.safe_load(f)
-            for rule in data.get("rules", []):
-                if rule["id"] == rule_id:
-                    return str(rule.get("description", rule_id))
+            return {
+                rule["id"]: str(rule.get("description", rule["id"]))
+                for rule in data.get("rules", [])
+                if "id" in rule
+            }
     except Exception:
-        logger.debug("Failed to load taxonomy for rule %s", rule_id, exc_info=True)
-    return rule_id
+        logger.debug("Failed to load taxonomy", exc_info=True)
+    return {}
+
+
+def _get_rule_description(rule_id: str) -> str:
+    """Get rule description from cached taxonomy."""
+    return _load_taxonomy().get(rule_id, rule_id)

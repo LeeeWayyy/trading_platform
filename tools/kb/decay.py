@@ -40,34 +40,33 @@ def soft_expire(conn: sqlite3.Connection) -> int:
     - weight < SOFT_EXPIRY_THRESHOLD
     - OR support_count == 1 AND oldest evidence > SOFT_EXPIRY_SINGLE_DAYS
     """
-    # Query all edges and check freshness
-    rows = conn.execute(
-        "SELECT src_file, dst_file, relation, weight, support_count " "FROM file_edges"
+    expired_count = 0
+
+    # 1. Expire low-weight edges purely in SQL (no Python loop needed)
+    cursor = conn.execute(
+        "UPDATE file_edges SET weight = 0.0 "
+        "WHERE weight > 0.0 AND weight < ?",
+        (SOFT_EXPIRY_THRESHOLD,),
+    )
+    expired_count += cursor.rowcount
+
+    # 2. For single-evidence edges, check staleness via evidence timestamps.
+    # Only fetch the subset that needs date checking (support_count=1, still active).
+    single_rows = conn.execute(
+        "SELECT fe.src_file, fe.dst_file, fe.relation, "
+        "  MIN(ee.observed_at) AS oldest_at "
+        "FROM file_edges fe "
+        "JOIN edge_evidence ee "
+        "  ON ee.src_file = fe.src_file AND ee.dst_file = fe.dst_file "
+        "  AND ee.relation = fe.relation "
+        "WHERE fe.support_count = 1 AND fe.weight > 0.0 "
+        "GROUP BY fe.src_file, fe.dst_file, fe.relation"
     ).fetchall()
 
-    expired_count = 0
-    for row in rows:
-        should_expire = False
-
-        # Low weight check
-        if row["weight"] < SOFT_EXPIRY_THRESHOLD:
-            should_expire = True
-
-        # Single evidence + old check
-        if row["support_count"] == 1:
-            ev = conn.execute(
-                "SELECT observed_at FROM edge_evidence "
-                "WHERE src_file = ? AND dst_file = ? AND relation = ? "
-                "ORDER BY observed_at ASC LIMIT 1",
-                (row["src_file"], row["dst_file"], row["relation"]),
-            ).fetchone()
-            if ev:
-                freshness = compute_freshness(ev["observed_at"])
-                days = -HALF_LIFE_DAYS * math.log(max(freshness, 1e-10))
-                if days > SOFT_EXPIRY_SINGLE_DAYS:
-                    should_expire = True
-
-        if should_expire:
+    for row in single_rows:
+        freshness = compute_freshness(row["oldest_at"])
+        days = -HALF_LIFE_DAYS * math.log(max(freshness, 1e-10))
+        if days > SOFT_EXPIRY_SINGLE_DAYS:
             conn.execute(
                 "UPDATE file_edges SET weight = 0.0 "
                 "WHERE src_file = ? AND dst_file = ? AND relation = ?",

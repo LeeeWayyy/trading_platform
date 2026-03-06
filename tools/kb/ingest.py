@@ -202,8 +202,13 @@ def _snapshot_artifact(original_path: str, db_path: str | None = None) -> str:
         )
         return str(src)
 
-    content = src.read_bytes()
-    content_hash = hashlib.sha256(content).hexdigest()[:12]
+    # Hash the file without loading it entirely into memory (stream in chunks)
+    hasher = hashlib.sha256()
+    with open(src, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            hasher.update(chunk)
+    content_hash = hasher.hexdigest()[:12]
+
     # Resolve to absolute so deferred payloads work from any working directory.
     # Anchor relative db_path to repo root, matching get_connection/write_deferred.
     if db_path:
@@ -216,7 +221,9 @@ def _snapshot_artifact(original_path: str, db_path: str | None = None) -> str:
     ext = src.suffix or ".xml"
     snapshot = snapshot_dir / f"{content_hash}{ext}"
     if not snapshot.exists():
-        snapshot.write_bytes(content)
+        import shutil
+
+        shutil.copy2(src, snapshot)
     return str(snapshot)
 
 

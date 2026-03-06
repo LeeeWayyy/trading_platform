@@ -62,7 +62,39 @@ def _get_related_files(
         (*changed_files, MIN_SUPPORT_COUNT, *changed_files, MIN_SUPPORT_COUNT),
     ).fetchall()
 
-    # Score each edge individually using freshness from its exact evidence pair
+    # Batch-fetch latest evidence timestamps for all edge pairs (avoids N+1 queries).
+    # Build a lookup: (src, dst, relation) -> latest observed_at
+    freshness_lookup: dict[tuple[str, str, str], str] = {}
+    if rows:
+        # Collect unique edge triples
+        triples: set[tuple[str, str, str]] = set()
+        for row in rows:
+            triples.add((row["edge_src"], row["path"], row["relation"]))
+        # Query all at once using a temp table approach with UNION
+        if triples:
+            union_parts = []
+            union_params: list[Any] = []
+            for src, dst, rel in triples:
+                union_parts.append(
+                    "SELECT ? AS q_src, ? AS q_dst, ? AS q_rel"
+                )
+                union_params.extend([src, dst, rel])
+            batch_sql = (
+                f"SELECT q.q_src, q.q_dst, q.q_rel, MAX(ee.observed_at) AS latest "
+                f"FROM ({' UNION ALL '.join(union_parts)}) q "
+                f"LEFT JOIN edge_evidence ee "
+                f"ON ((ee.src_file = q.q_src AND ee.dst_file = q.q_dst) "
+                f"    OR (ee.src_file = q.q_dst AND ee.dst_file = q.q_src)) "
+                f"AND ee.relation = q.q_rel "
+                f"GROUP BY q.q_src, q.q_dst, q.q_rel"
+            )
+            for ev_row in conn.execute(batch_sql, tuple(union_params)).fetchall():
+                if ev_row["latest"]:
+                    freshness_lookup[
+                        (ev_row["q_src"], ev_row["q_dst"], ev_row["q_rel"])
+                    ] = ev_row["latest"]
+
+    # Score each edge using pre-fetched freshness data
     seen: dict[str, ImpactedFile] = {}
     changed_set = set(changed_files)
     for row in rows:
@@ -70,18 +102,10 @@ def _get_related_files(
         if path in changed_set:
             continue  # Skip files already in the change set
 
-        # Get latest evidence for the exact edge pair (edge_src ↔ path)
         edge_src = row["edge_src"]
         relation = row["relation"]
-        latest_ev = conn.execute(
-            "SELECT observed_at FROM edge_evidence "
-            "WHERE ((src_file = ? AND dst_file = ?) OR (src_file = ? AND dst_file = ?)) "
-            "AND relation = ? "
-            "ORDER BY observed_at DESC LIMIT 1",
-            (edge_src, path, path, edge_src, relation),
-        ).fetchone()
-
-        freshness = compute_freshness(latest_ev["observed_at"]) if latest_ev else 0.5
+        latest_at = freshness_lookup.get((edge_src, path, relation))
+        freshness = compute_freshness(latest_at) if latest_at else 0.5
         score = row["weight"] * freshness
 
         reason = f"{relation} (support={row['support_count']}, weight={row['weight']:.1f})"
