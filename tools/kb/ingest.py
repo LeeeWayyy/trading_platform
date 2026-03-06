@@ -335,8 +335,9 @@ def _ingest_review(
         )
 
     # Create CO_CHANGE edges between files in findings
+    # Cap to avoid combinatorial explosion (e.g., 100 files → 4950 edges)
     file_paths = [f.file_path for f in findings if f.file_path]
-    unique_files = sorted(set(file_paths))  # canonical order for consistent edge direction
+    unique_files = sorted(set(file_paths))[:MAX_FILES_FOR_COMMIT]
     reaggregate_triples: set[tuple[str, str, str]] = set()
     for src, dst in itertools.combinations(unique_files, 2):
         _insert_evidence(
@@ -741,7 +742,8 @@ def _ingest_analyze(conn: sqlite3.Connection, artifact_path: str) -> int:
                     pass  # Outside repo — keep as-is
             file_paths.append(raw_path)
     reaggregate_triples: set[tuple[str, str, str]] = set()
-    for src, dst in itertools.combinations(sorted(set(file_paths)), 2):
+    # Cap to avoid combinatorial explosion with large analyze outputs
+    for src, dst in itertools.combinations(sorted(set(file_paths))[:MAX_FILES_FOR_COMMIT], 2):
         _insert_evidence(
             conn,
             src,
@@ -804,9 +806,10 @@ def _ingest_session_finalize(
     reaggregate_triples: set[tuple[str, str, str]] = set()
 
     # Edit co-occurrence edges (only if committed)
+    # Cap to avoid combinatorial explosion with large sessions
     if edited_files and session_outcome == SessionOutcome.COMMITTED:
         weight = 0.4
-        unique_files = sorted(set(edited_files))
+        unique_files = sorted(set(edited_files))[:MAX_FILES_FOR_COMMIT]
         for src, dst in itertools.combinations(unique_files, 2):
             _insert_evidence(
                 conn,

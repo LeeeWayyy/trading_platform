@@ -261,6 +261,10 @@ class TestIsLockError:
         """Test that SQLITE_LOCKED message is detected."""
         assert is_lock_error(sqlite3.OperationalError("database table is locked"))
 
+    def test_database_schema_is_locked(self) -> None:
+        """Test that schema-lock variant is detected as transient."""
+        assert is_lock_error(sqlite3.OperationalError("database schema is locked: main"))
+
     def test_non_lock_error(self) -> None:
         """Test that non-lock errors return False."""
         assert not is_lock_error(sqlite3.OperationalError("near syntax error"))

@@ -46,21 +46,30 @@ def _get_related_files(
     if not changed_files:
         return []
 
-    placeholders = ",".join("?" for _ in changed_files)
+    # Use a temp table to avoid SQLite's variable limit (999) for large changed_files lists
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS _q_changed (path TEXT)"
+    )
+    conn.execute("DELETE FROM _q_changed")
+    conn.executemany(
+        "INSERT INTO _q_changed (path) VALUES (?)",
+        [(f,) for f in changed_files],
+    )
     # Include the edge source (the changed file) so we can look up exact evidence pairs
     rows = conn.execute(
-        f"SELECT src_file AS edge_src, dst_file AS path, relation, weight, support_count "
-        f"FROM file_edges "
-        f"WHERE src_file IN ({placeholders}) AND support_count >= ? "
-        f"AND relation IN ('CO_CHANGE', 'REFERENCES') AND weight > 0 "
-        f"UNION ALL "
-        f"SELECT dst_file AS edge_src, src_file AS path, relation, weight, support_count "
-        f"FROM file_edges "
-        f"WHERE dst_file IN ({placeholders}) AND support_count >= ? "
-        f"AND relation IN ('CO_CHANGE', 'REFERENCES') AND weight > 0 "
-        f"ORDER BY weight DESC",
-        (*changed_files, MIN_SUPPORT_COUNT, *changed_files, MIN_SUPPORT_COUNT),
+        "SELECT src_file AS edge_src, dst_file AS path, relation, weight, support_count "
+        "FROM file_edges "
+        "WHERE src_file IN (SELECT path FROM _q_changed) AND support_count >= ? "
+        "AND relation IN ('CO_CHANGE', 'REFERENCES') AND weight > 0 "
+        "UNION ALL "
+        "SELECT dst_file AS edge_src, src_file AS path, relation, weight, support_count "
+        "FROM file_edges "
+        "WHERE dst_file IN (SELECT path FROM _q_changed) AND support_count >= ? "
+        "AND relation IN ('CO_CHANGE', 'REFERENCES') AND weight > 0 "
+        "ORDER BY weight DESC",
+        (MIN_SUPPORT_COUNT, MIN_SUPPORT_COUNT),
     ).fetchall()
+    conn.execute("DROP TABLE IF EXISTS _q_changed")
 
     # Batch-fetch latest evidence timestamps for all edge pairs (avoids N+1 queries).
     # Uses a temp table to avoid SQLite's compound-SELECT term limit (500).
@@ -129,15 +138,24 @@ def _get_recommended_tests(
     if not changed_files:
         return []
 
-    placeholders = ",".join("?" for _ in changed_files)
+    # Use a temp table to avoid SQLite's variable limit (999) for large changed_files lists
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS _q_test_changed (path TEXT)"
+    )
+    conn.execute("DELETE FROM _q_test_changed")
+    conn.executemany(
+        "INSERT INTO _q_test_changed (path) VALUES (?)",
+        [(f,) for f in changed_files],
+    )
     rows = conn.execute(
-        f"SELECT src_file AS test_path, MAX(weight) AS weight, MAX(support_count) AS support_count "
-        f"FROM file_edges "
-        f"WHERE dst_file IN ({placeholders}) AND relation = 'TESTS' AND weight > 0 "
-        f"GROUP BY src_file "
-        f"ORDER BY weight DESC LIMIT ?",
-        (*changed_files, top_n),
+        "SELECT src_file AS test_path, MAX(weight) AS weight, MAX(support_count) AS support_count "
+        "FROM file_edges "
+        "WHERE dst_file IN (SELECT path FROM _q_test_changed) AND relation = 'TESTS' AND weight > 0 "
+        "GROUP BY src_file "
+        "ORDER BY weight DESC LIMIT ?",
+        (top_n,),
     ).fetchall()
+    conn.execute("DROP TABLE IF EXISTS _q_test_changed")
 
     return [
         RecommendedTest(path=row["test_path"], confidence=round(min(row["weight"], 1.0), 2))
@@ -309,20 +327,28 @@ def query_pre_commit_check(
     if not staged_files:
         return PreCommitCheckResult()
 
-    placeholders = ",".join("?" for _ in staged_files)
+    # Use a temp table to avoid SQLite's variable limit (999) for large staged file lists
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS _q_staged (path TEXT)"
+    )
+    conn.execute("DELETE FROM _q_staged")
+    conn.executemany(
+        "INSERT INTO _q_staged (path) VALUES (?)",
+        [(f,) for f in staged_files],
+    )
     rows = conn.execute(
-        f"SELECT dst_file AS path, weight, support_count "
-        f"FROM file_edges "
-        f"WHERE src_file IN ({placeholders}) AND relation = 'CO_CHANGE' "
+        "SELECT dst_file AS path, weight, support_count "
+        "FROM file_edges "
+        "WHERE src_file IN (SELECT path FROM _q_staged) AND relation = 'CO_CHANGE' "
         f"AND support_count >= {MIN_SUPPORT_COUNT} AND weight > 0 "
-        f"UNION "
-        f"SELECT src_file AS path, weight, support_count "
-        f"FROM file_edges "
-        f"WHERE dst_file IN ({placeholders}) AND relation = 'CO_CHANGE' "
+        "UNION "
+        "SELECT src_file AS path, weight, support_count "
+        "FROM file_edges "
+        "WHERE dst_file IN (SELECT path FROM _q_staged) AND relation = 'CO_CHANGE' "
         f"AND support_count >= {MIN_SUPPORT_COUNT} AND weight > 0 "
-        f"ORDER BY weight DESC",
-        (*staged_files, *staged_files),
+        "ORDER BY weight DESC",
     ).fetchall()
+    conn.execute("DROP TABLE IF EXISTS _q_staged")
 
     missing: list[ImpactedFile] = []
     staged_set = set(staged_files)
@@ -337,7 +363,7 @@ def query_pre_commit_check(
             ImpactedFile(
                 path=path,
                 score=round(row["weight"], 2),
-                reason=f"Changed together in {row['support_count']} commits",
+                reason=f"Co-changed {row['support_count']} times (commits, reviews, sessions)",
             )
         )
 

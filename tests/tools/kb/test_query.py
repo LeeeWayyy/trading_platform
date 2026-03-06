@@ -469,6 +469,14 @@ class TestPreCommitCheck:
         result = query_pre_commit_check(seeded_conn, ["a.py"])
         assert "historically coupled" in result.advisory
 
+    def test_reason_text_mentions_mixed_sources(self, seeded_conn: sqlite3.Connection) -> None:
+        """Test that reason text accurately reflects mixed evidence sources."""
+        result = query_pre_commit_check(seeded_conn, ["a.py"])
+        for f in result.missing_co_changes:
+            # Should NOT say "commits" (inaccurate), should mention mixed sources
+            assert "Co-changed" in f.reason
+            assert "commits" not in f.reason or "reviews" in f.reason
+
     def test_excludes_soft_expired_edges(self, conn: sqlite3.Connection) -> None:
         """Test that soft-expired edges (weight=0) are excluded from pre-commit check."""
         conn.execute(

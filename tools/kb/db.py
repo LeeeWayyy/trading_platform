@@ -184,7 +184,11 @@ RETRY_BACKOFFS = [1.0, 2.0, 4.0]
 def is_lock_error(exc: sqlite3.OperationalError) -> bool:
     """Check if an OperationalError is a transient SQLite lock (BUSY or LOCKED)."""
     msg = str(exc).lower()
-    return "database is locked" in msg or "database table is locked" in msg
+    return (
+        "database is locked" in msg
+        or "database table is locked" in msg
+        or "database schema is locked" in msg
+    )
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
