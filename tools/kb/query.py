@@ -170,7 +170,8 @@ def _get_known_pitfalls(
         return []
 
     # Use a temp table to avoid SQLite expression-tree depth limits with many scopes.
-    # Escape LIKE metacharacters (_, %) in scope values for literal matching.
+    # Match pitfalls whose scope_path is an ancestor of (or equal to) the changed-file scope.
+    # Uses SUBSTR prefix matching to avoid LIKE metacharacter issues entirely.
     scope_list = sorted(scopes)
     conn.execute(
         "CREATE TEMP TABLE IF NOT EXISTS _q_scopes (scope TEXT)"
@@ -178,14 +179,14 @@ def _get_known_pitfalls(
     conn.execute("DELETE FROM _q_scopes")
     conn.executemany(
         "INSERT INTO _q_scopes (scope) VALUES (?)",
-        [(_escape_like(s),) for s in scope_list],
+        [(s,) for s in scope_list],
     )
     rows = conn.execute(
         "SELECT ip.rule_id, ip.scope_path, ip.count, ip.examples_json "
         "FROM issue_patterns ip "
         "WHERE EXISTS ("
         "  SELECT 1 FROM _q_scopes qs "
-        "  WHERE ip.scope_path LIKE (qs.scope || '%') ESCAPE '\\'"
+        "  WHERE SUBSTR(qs.scope, 1, LENGTH(ip.scope_path)) = ip.scope_path"
         ") "
         "ORDER BY ip.count DESC LIMIT ?",
         (top_n,),
@@ -267,14 +268,19 @@ def query_troubleshoot(
     ).fetchall()
 
     for row in rows:
-        if not any(f.path == row["dst_file"] for f in likely_files):
+        new_score = round(row["weight"], 2)
+        existing = next((f for f in likely_files if f.path == row["dst_file"]), None)
+        if existing is None:
             likely_files.append(
                 ImpactedFile(
                     path=row["dst_file"],
-                    score=round(row["weight"], 2),
+                    score=new_score,
                     reason=f"ERROR_FIX edge (support={row['support_count']})",
                 )
             )
+        elif new_score > existing.score:
+            existing.score = new_score
+            existing.reason = f"ERROR_FIX edge (support={row['support_count']})"
 
     # Boost scores for files in changed_files (currently being edited)
     if changed_files:

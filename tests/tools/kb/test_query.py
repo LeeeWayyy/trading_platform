@@ -254,6 +254,31 @@ class TestImplementationBrief:
         assert "RULE_A" in rule_ids
         assert "RULE_B" not in rule_ids  # '_' should not match 'X'
 
+    def test_pitfall_excludes_sibling_scopes(self, conn: sqlite3.Connection) -> None:
+        """Test that pitfalls from sibling directories are excluded.
+
+        Changing apps/signal_service/main.py should surface pitfalls from apps/
+        (parent) and apps/signal_service/ (exact), but NOT apps/orders/ (sibling).
+        """
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('PARENT_RULE', 'apps/', 5, '[]')"
+        )
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('EXACT_RULE', 'apps/signal_service/', 3, '[]')"
+        )
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('SIBLING_RULE', 'apps/orders/', 4, '[]')"
+        )
+        conn.commit()
+        brief = query_implementation_brief(conn, ["apps/signal_service/main.py"])
+        rule_ids = [p.rule_id for p in brief.known_pitfalls]
+        assert "PARENT_RULE" in rule_ids  # Parent scope applies
+        assert "EXACT_RULE" in rule_ids  # Exact scope applies
+        assert "SIBLING_RULE" not in rule_ids  # Sibling scope excluded
+
     def test_empty_db(self, conn: sqlite3.Connection) -> None:
         """Test graceful handling of empty database."""
         brief = query_implementation_brief(conn, ["a.py"])
@@ -364,6 +389,31 @@ class TestTroubleshoot:
         assert a_file.score > b_file.score
         assert "[currently changed]" in a_file.reason
 
+
+    def test_error_fix_edge_upgrades_lower_confidence(self, conn: sqlite3.Connection) -> None:
+        """Test that ERROR_FIX edge with higher weight upgrades a lower-confidence fix entry."""
+        conn.execute(
+            "INSERT INTO implementation_sessions (session_id, started_at, outcome) "
+            "VALUES (?, ?, ?)",
+            ("s1", "2024-01-01T00:00:00Z", "COMMITTED"),
+        )
+        # error_fixes gives a.py confidence=0.5
+        conn.execute(
+            "INSERT INTO error_fixes (fix_id, session_id, error_signature, "
+            "fixed_files_json, confidence) VALUES (?, ?, ?, ?, ?)",
+            ("f1", "s1", "sig", json.dumps(["a.py"]), 0.5),
+        )
+        # file_edges gives a.py weight=1.8 (aggregated from multiple fixes)
+        conn.execute(
+            "INSERT INTO file_edges "
+            "(src_file, dst_file, relation, weight, support_count, last_seen_sha) "
+            "VALUES ('sig', 'a.py', 'ERROR_FIX', 1.8, 3, 'sha1')"
+        )
+        conn.commit()
+        result = query_troubleshoot(conn, "sig")
+        a_file = next(f for f in result.likely_fix_files if f.path == "a.py")
+        # Score should be upgraded to 1.8, not stuck at 0.5
+        assert a_file.score == 1.8
 
     def test_excludes_soft_expired_error_fix_edges(self, conn: sqlite3.Connection) -> None:
         """Test that soft-expired ERROR_FIX edges (weight=0) are excluded."""
