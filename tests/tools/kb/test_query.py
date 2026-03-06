@@ -237,6 +237,23 @@ class TestImplementationBrief:
         assert len(brief.known_pitfalls) == 1
         assert brief.known_pitfalls[0].rule_id == "MISSING_TYPE_HINTS"
 
+    def test_pitfall_scope_underscore_not_wildcard(self, conn: sqlite3.Connection) -> None:
+        """Test that '_' in scope paths is matched literally, not as SQL wildcard."""
+        # Use top-level directory scopes to avoid broader parent scope matching both
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('RULE_A', 'signal_service/', 3, '[]')"
+        )
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('RULE_B', 'signalXservice/', 3, '[]')"
+        )
+        conn.commit()
+        brief = query_implementation_brief(conn, ["signal_service/foo.py"])
+        rule_ids = [p.rule_id for p in brief.known_pitfalls]
+        assert "RULE_A" in rule_ids
+        assert "RULE_B" not in rule_ids  # '_' should not match 'X'
+
     def test_empty_db(self, conn: sqlite3.Connection) -> None:
         """Test graceful handling of empty database."""
         brief = query_implementation_brief(conn, ["a.py"])

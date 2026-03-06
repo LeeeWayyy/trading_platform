@@ -170,6 +170,7 @@ def _get_known_pitfalls(
         return []
 
     # Use a temp table to avoid SQLite expression-tree depth limits with many scopes.
+    # Escape LIKE metacharacters (_, %) in scope values for literal matching.
     scope_list = sorted(scopes)
     conn.execute(
         "CREATE TEMP TABLE IF NOT EXISTS _q_scopes (scope TEXT)"
@@ -177,7 +178,7 @@ def _get_known_pitfalls(
     conn.execute("DELETE FROM _q_scopes")
     conn.executemany(
         "INSERT INTO _q_scopes (scope) VALUES (?)",
-        [(s,) for s in scope_list],
+        [(_escape_like(s),) for s in scope_list],
     )
     rows = conn.execute(
         "SELECT ip.rule_id, ip.scope_path, ip.count, ip.examples_json "
