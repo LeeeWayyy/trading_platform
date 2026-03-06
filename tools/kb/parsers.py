@@ -195,6 +195,12 @@ def parse_review_artifact(
                 if prio_val is None:
                     match = re.search(r"\[P(\d)\]", title)
                     prio_val = int(match.group(1)) if match else None
+                # Coerce string priorities (e.g., "1") to int for dict lookup
+                if isinstance(prio_val, str):
+                    try:
+                        prio_val = int(prio_val)
+                    except (ValueError, TypeError):
+                        prio_val = None
                 _prio_to_sev = {0: "CRITICAL", 1: "HIGH", 2: "MEDIUM", 3: "LOW"}
                 severity_str = _prio_to_sev.get(prio_val, "") if prio_val is not None else ""
         severity = Severity(severity_str) if severity_str in Severity.__members__ else None

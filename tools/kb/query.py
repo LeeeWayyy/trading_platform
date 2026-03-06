@@ -130,13 +130,17 @@ def _get_known_pitfalls(
     if not changed_files:
         return []
 
-    # Extract directory scopes from changed files (skip root-level to avoid matching all)
+    # Extract directory scopes from changed files.
+    # Root-level files (e.g., pyproject.toml, Makefile) use "./" scope,
+    # matching how _ingest_review records root-file findings.
     scopes = set()
     for f in changed_files:
         parts = Path(f).parts
         if len(parts) >= 2:
             scopes.add(parts[0] + "/")
             scopes.add("/".join(parts[:2]) + "/")
+        elif len(parts) == 1:
+            scopes.add("./")
 
     if not scopes:
         return []

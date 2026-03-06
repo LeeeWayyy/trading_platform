@@ -226,6 +226,17 @@ class TestImplementationBrief:
         y_file = next(f for f in brief.likely_impacted_files if f.path == "y.py")
         assert "REFERENCES" in y_file.reason
 
+    def test_root_level_file_pitfalls(self, conn: sqlite3.Connection) -> None:
+        """Test that root-level files (e.g., pyproject.toml) surface pitfalls under './' scope."""
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('MISSING_TYPE_HINTS', './', 5, '[]')"
+        )
+        conn.commit()
+        brief = query_implementation_brief(conn, ["pyproject.toml"])
+        assert len(brief.known_pitfalls) == 1
+        assert brief.known_pitfalls[0].rule_id == "MISSING_TYPE_HINTS"
+
     def test_empty_db(self, conn: sqlite3.Connection) -> None:
         """Test graceful handling of empty database."""
         brief = query_implementation_brief(conn, ["a.py"])

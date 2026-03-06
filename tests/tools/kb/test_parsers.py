@@ -199,6 +199,23 @@ class TestParseReviewArtifact:
         assert findings[2].severity == Severity.MEDIUM
         assert findings[3].severity == Severity.LOW
 
+    def test_maps_string_priority_to_severity(self, tmp_path: Path) -> None:
+        """Test that string priority values (e.g., '1') are coerced to int for mapping."""
+        data = [
+            {"file_path": "a.py", "priority": "0", "summary": "P0 string"},
+            {"file_path": "b.py", "priority": "1", "summary": "P1 string"},
+            {"file_path": "c.py", "priority": "2", "summary": "P2 string"},
+            {"file_path": "d.py", "priority": "3", "summary": "P3 string"},
+        ]
+        artifact = tmp_path / "review.json"
+        artifact.write_text(json.dumps(data))
+        findings = parse_review_artifact(artifact, "codex", "run1")
+        assert len(findings) == 4
+        assert findings[0].severity == Severity.CRITICAL
+        assert findings[1].severity == Severity.HIGH
+        assert findings[2].severity == Severity.MEDIUM
+        assert findings[3].severity == Severity.LOW
+
     def test_maps_priority_from_title_bracket(self, tmp_path: Path) -> None:
         """Test that [P1] in title maps to severity when no priority field exists."""
         data = [{"title": "[P1] Missing check", "body": "desc", "file_path": "a.py"}]
