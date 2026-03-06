@@ -58,7 +58,8 @@ def generate_hint_file(
     """
     HINTS_DIR.mkdir(parents=True, exist_ok=True)
     # Include scope in filename to avoid overwriting across different scopes
-    scope_slug = scope_path.strip("/").replace("/", "_") if scope_path.strip("/") else "root"
+    stripped = scope_path.strip("/")
+    scope_slug = stripped.replace("/", "_") if stripped and stripped != "." else "root"
     hint_path = HINTS_DIR / f"{rule_id.lower()}_{scope_slug}.md"
 
     examples = json.loads(examples_json) if examples_json else []

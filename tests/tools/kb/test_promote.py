@@ -101,6 +101,14 @@ class TestGenerateHintFile:
         assert path is not None
         assert path.name == "missing_cb_check_libs.md"
 
+    def test_root_scope_slug(self, tmp_path: Path) -> None:
+        """Test that root scope './' produces 'root' slug, not '.' in filename."""
+        with patch("tools.kb.promote.HINTS_DIR", tmp_path / "hints"):
+            path = generate_hint_file("UTC_NAIVE_DATETIME", "./", 3)
+        assert path is not None
+        assert path.name == "utc_naive_datetime_root.md"
+        assert ".." not in path.name  # No double dots from '.' scope
+
     def test_creates_directory(self, tmp_path: Path) -> None:
         """Test that hints directory is created if it doesn't exist."""
         hints_dir = tmp_path / "new" / "hints"
