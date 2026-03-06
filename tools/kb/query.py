@@ -63,36 +63,36 @@ def _get_related_files(
     ).fetchall()
 
     # Batch-fetch latest evidence timestamps for all edge pairs (avoids N+1 queries).
-    # Build a lookup: (src, dst, relation) -> latest observed_at
+    # Uses a temp table to avoid SQLite's compound-SELECT term limit (500).
     freshness_lookup: dict[tuple[str, str, str], str] = {}
     if rows:
-        # Collect unique edge triples
         triples: set[tuple[str, str, str]] = set()
         for row in rows:
             triples.add((row["edge_src"], row["path"], row["relation"]))
-        # Query all at once using a temp table approach with UNION
         if triples:
-            union_parts = []
-            union_params: list[Any] = []
-            for src, dst, rel in triples:
-                union_parts.append(
-                    "SELECT ? AS q_src, ? AS q_dst, ? AS q_rel"
-                )
-                union_params.extend([src, dst, rel])
-            batch_sql = (
-                f"SELECT q.q_src, q.q_dst, q.q_rel, MAX(ee.observed_at) AS latest "
-                f"FROM ({' UNION ALL '.join(union_parts)}) q "
-                f"LEFT JOIN edge_evidence ee "
-                f"ON ((ee.src_file = q.q_src AND ee.dst_file = q.q_dst) "
-                f"    OR (ee.src_file = q.q_dst AND ee.dst_file = q.q_src)) "
-                f"AND ee.relation = q.q_rel "
-                f"GROUP BY q.q_src, q.q_dst, q.q_rel"
+            conn.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS _q_triples "
+                "(q_src TEXT, q_dst TEXT, q_rel TEXT)"
             )
-            for ev_row in conn.execute(batch_sql, tuple(union_params)).fetchall():
+            conn.execute("DELETE FROM _q_triples")
+            conn.executemany(
+                "INSERT INTO _q_triples (q_src, q_dst, q_rel) VALUES (?, ?, ?)",
+                list(triples),
+            )
+            for ev_row in conn.execute(
+                "SELECT q.q_src, q.q_dst, q.q_rel, MAX(ee.observed_at) AS latest "
+                "FROM _q_triples q "
+                "LEFT JOIN edge_evidence ee "
+                "ON ((ee.src_file = q.q_src AND ee.dst_file = q.q_dst) "
+                "    OR (ee.src_file = q.q_dst AND ee.dst_file = q.q_src)) "
+                "AND ee.relation = q.q_rel "
+                "GROUP BY q.q_src, q.q_dst, q.q_rel"
+            ).fetchall():
                 if ev_row["latest"]:
                     freshness_lookup[
                         (ev_row["q_src"], ev_row["q_dst"], ev_row["q_rel"])
                     ] = ev_row["latest"]
+            conn.execute("DROP TABLE IF EXISTS _q_triples")
 
     # Score each edge using pre-fetched freshness data
     seen: dict[str, ImpactedFile] = {}
@@ -169,16 +169,27 @@ def _get_known_pitfalls(
     if not scopes:
         return []
 
-    conditions = " OR ".join("scope_path LIKE ? ESCAPE '\\'" for _ in scopes)
-    params: list[Any] = [f"{_escape_like(s)}%" for s in scopes]
-
+    # Use a temp table to avoid SQLite expression-tree depth limits with many scopes.
+    scope_list = sorted(scopes)
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS _q_scopes (scope TEXT)"
+    )
+    conn.execute("DELETE FROM _q_scopes")
+    conn.executemany(
+        "INSERT INTO _q_scopes (scope) VALUES (?)",
+        [(s,) for s in scope_list],
+    )
     rows = conn.execute(
-        f"SELECT rule_id, scope_path, count, examples_json "
-        f"FROM issue_patterns "
-        f"WHERE ({conditions}) "
-        f"ORDER BY count DESC LIMIT ?",
-        (*params, top_n),
+        "SELECT ip.rule_id, ip.scope_path, ip.count, ip.examples_json "
+        "FROM issue_patterns ip "
+        "WHERE EXISTS ("
+        "  SELECT 1 FROM _q_scopes qs "
+        "  WHERE ip.scope_path LIKE (qs.scope || '%') ESCAPE '\\'"
+        ") "
+        "ORDER BY ip.count DESC LIMIT ?",
+        (top_n,),
     ).fetchall()
+    conn.execute("DROP TABLE IF EXISTS _q_scopes")
 
     pitfalls: list[KnownPitfall] = []
     for row in rows:
