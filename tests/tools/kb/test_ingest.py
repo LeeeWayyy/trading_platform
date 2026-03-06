@@ -1399,6 +1399,28 @@ class TestReplayDeferred:
         payload = json.loads(remaining[0])
         assert payload["func"] == "_future_ingest_func"
 
+    def test_replay_skips_when_db_locked_during_init(self, tmp_path: Path) -> None:
+        """Test that deferred replay returns 0 (fail-open) if DB is locked during init."""
+        queue = tmp_path / "deferred.jsonl"
+        queue.write_text(
+            json.dumps({"func": "_ingest_commit", "args": ["abc123"]}) + "\n"
+        )
+        db_path = str(tmp_path / "test.db")
+
+        with (
+            patch("tools.kb.ingest.DEFERRED_QUEUE_PATH", queue),
+            patch(
+                "tools.kb.ingest.init_schema",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+        ):
+            count = replay_deferred(db_path)
+
+        assert count == 0
+        # Queue should be untouched — entries preserved for next attempt
+        assert queue.exists()
+        assert len(queue.read_text().strip().splitlines()) == 1
+
     def test_replays_deferred_test_with_preserved_timestamp(self, tmp_path: Path) -> None:
         """Test that deferred test ingests use ingested_at instead of replay time."""
         queue = tmp_path / "deferred.jsonl"

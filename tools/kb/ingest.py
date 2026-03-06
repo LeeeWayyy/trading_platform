@@ -941,8 +941,14 @@ def _replay_deferred_locked(queue_path: Path, db_path: str | None) -> int:
         "_ingest_session_finalize": _ingest_session_finalize,
     }
 
-    conn = get_connection(db_path)
-    init_schema(conn)
+    try:
+        conn = get_connection(db_path)
+        init_schema(conn)
+    except sqlite3.OperationalError as exc:
+        if is_lock_error(exc):
+            logger.warning("DB locked during deferred replay init, skipping replay")
+            return 0
+        raise
     replayed = 0
     remaining: list[str] = []
     snapshots_to_clean: list[Path] = []
