@@ -154,15 +154,17 @@ def _get_known_pitfalls(
     if not changed_files:
         return []
 
-    # Extract directory scopes from changed files.
+    # Extract all ancestor directory scopes from changed files.
     # Root-level files (e.g., pyproject.toml, Makefile) use "./" scope,
     # matching how _ingest_review records root-file findings.
     scopes = set()
     for f in changed_files:
         parts = Path(f).parts
         if len(parts) >= 2:
-            scopes.add(parts[0] + "/")
-            scopes.add("/".join(parts[:2]) + "/")
+            # Generate all ancestor directory scopes (not just top 2 levels)
+            # e.g., apps/gw/recon/worker.py → apps/, apps/gw/, apps/gw/recon/
+            for depth in range(1, len(parts)):
+                scopes.add("/".join(parts[:depth]) + "/")
         elif len(parts) == 1:
             scopes.add("./")
 

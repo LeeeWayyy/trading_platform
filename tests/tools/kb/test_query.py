@@ -279,6 +279,20 @@ class TestImplementationBrief:
         assert "EXACT_RULE" in rule_ids  # Exact scope applies
         assert "SIBLING_RULE" not in rule_ids  # Sibling scope excluded
 
+    def test_pitfall_deep_scope_matched(self, conn: sqlite3.Connection) -> None:
+        """Test that pitfalls at deep directory scopes are matched for nested files.
+
+        Changing apps/gw/recon/worker.py should match pitfalls at apps/gw/recon/.
+        """
+        conn.execute(
+            "INSERT INTO issue_patterns (rule_id, scope_path, count, examples_json) "
+            "VALUES ('DEEP_RULE', 'apps/gw/recon/', 3, '[]')"
+        )
+        conn.commit()
+        brief = query_implementation_brief(conn, ["apps/gw/recon/worker.py"])
+        rule_ids = [p.rule_id for p in brief.known_pitfalls]
+        assert "DEEP_RULE" in rule_ids
+
     def test_empty_db(self, conn: sqlite3.Connection) -> None:
         """Test graceful handling of empty database."""
         brief = query_implementation_brief(conn, ["a.py"])
