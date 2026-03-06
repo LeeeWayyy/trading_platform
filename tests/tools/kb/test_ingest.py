@@ -168,6 +168,20 @@ class TestIngestReview:
         findings = conn.execute("SELECT COUNT(*) FROM findings").fetchone()
         assert findings[0] == 3  # Not duplicated
 
+    def test_pathless_finding_skips_issue_pattern(
+        self, conn: sqlite3.Connection, tmp_path: Path
+    ) -> None:
+        """Test that findings without file_path don't create empty-scope issue patterns."""
+        data = [{"summary": "Missing circuit breaker check", "rule_id": "MISSING_CB_CHECK"}]
+        artifact = tmp_path / "review.json"
+        artifact.write_text(json.dumps(data))
+        conn.execute("BEGIN IMMEDIATE")
+        _ingest_review(conn, str(artifact), "gemini", "run1")
+        conn.commit()
+
+        patterns = conn.execute("SELECT COUNT(*) FROM issue_patterns").fetchone()
+        assert patterns[0] == 0  # No patterns with empty scope
+
     def test_idempotent_issue_patterns(self, conn: sqlite3.Connection) -> None:
         """Test that re-ingesting same review doesn't inflate issue_patterns count."""
         conn.execute("BEGIN IMMEDIATE")

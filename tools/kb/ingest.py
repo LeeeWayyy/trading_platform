@@ -299,9 +299,10 @@ def _ingest_review(
         )
         was_inserted = cursor.rowcount > 0
 
-        # Collect issue_pattern updates, deduped by (rule_id, scope) per run
-        if f.rule_id and was_inserted:
-            scope = str(Path(f.file_path).parent) + "/" if f.file_path else ""
+        # Collect issue_pattern updates, deduped by (rule_id, scope) per run.
+        # Skip findings without file_path — empty scope would match all queries.
+        if f.rule_id and f.file_path and was_inserted:
+            scope = str(Path(f.file_path).parent) + "/"
             example = f"{f.file_path}:{f.line}" if f.file_path and f.line else f.file_path
             key = (f.rule_id, scope)
             if key not in pattern_updates:
