@@ -354,7 +354,7 @@ def parse_git_show(sha: str) -> list[str]:
     """
     try:
         result = subprocess.run(
-            ["git", "show", "--name-only", "--diff-filter=ACMR", "--format=", sha],
+            ["git", "show", "--name-only", "--diff-filter=ACMR", "--format=", "--", sha],
             capture_output=True,
             text=True,
             check=True,
@@ -375,7 +375,7 @@ def parse_git_commit_date(sha: str) -> str | None:
     """
     try:
         result = subprocess.run(
-            ["git", "show", "-s", "--format=%cI", sha],
+            ["git", "show", "-s", "--format=%cI", "--", sha],
             capture_output=True,
             text=True,
             check=True,

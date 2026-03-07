@@ -177,7 +177,7 @@ Docs-only commits (no code, config, AI skills/commands/agents, or context files 
 - NEVER `git commit --no-verify` (detected by CI)
 - No skipping `/review` before commit
 - No skipping `make ci-local` before PR or after fixes
-- NEVER create documents outside of `docs/` folder
+- NEVER create documents outside of `docs/` (exception: AI context files per ADR-0036)
 
 **Code Quality:**
 - No duplicate feature logic (share research/production code)

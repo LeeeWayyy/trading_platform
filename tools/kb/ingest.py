@@ -96,7 +96,7 @@ def _resolve_sha(sha: str) -> str:
     """Resolve symbolic refs (HEAD, branch names) to concrete SHA hashes."""
     try:
         result = subprocess.run(
-            ["git", "rev-parse", sha],
+            ["git", "rev-parse", "--", sha],
             capture_output=True,
             text=True,
             check=True,
