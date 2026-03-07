@@ -51,6 +51,7 @@ git diff --cached --name-only --diff-filter=ACM
 ```bash
 # Write diff to a temp file for reviewer consumption (portable across GNU/BSD mktemp)
 DIFF_FILE=$(mktemp "${TMPDIR:-/tmp}/review-diff-XXXXXX")
+PROMPT_FILE=""
 trap 'rm -f "${DIFF_FILE:-}" "${PROMPT_FILE:-}"' EXIT
 ```
 

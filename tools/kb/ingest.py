@@ -552,13 +552,17 @@ def _ingest_test(
         else:
             parts = classname_part.split(".")
             # Keep only module parts (class names start with uppercase by convention).
-            # Guard: if all parts are uppercase-initial (e.g., "TestModule.TestClass"),
-            # fall back to the full dotted path to avoid producing an empty result.
-            module_parts = [p for p in parts if p and not p[0].isupper()]
-            if module_parts:
-                test_file = "/".join(module_parts) + ".py"
-            else:
-                test_file = "/".join(parts) + ".py"
+            # Use a prefix-based approach: take the longest leading sequence of
+            # lowercase-initial parts as the module path. This handles projects
+            # with uppercase package names (e.g., "MyProject.tests.test_foo")
+            # by only stripping trailing class names, not package prefixes.
+            split_idx = len(parts)
+            for idx in range(len(parts)):
+                if parts[idx] and parts[idx][0].isupper():
+                    split_idx = idx
+                    break
+            module_parts = parts[:split_idx] if split_idx > 0 else parts
+            test_file = "/".join(module_parts) + ".py"
         for changed_file in changed_files:
             _insert_evidence(
                 conn,
