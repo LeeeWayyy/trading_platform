@@ -29,6 +29,13 @@ ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./.pytest_cache/*" \
     -not -path "./.claude/analysis/*" \
     -not -path "./.claude/plans/*" \
+    -not -path "./.claude/agents/*" \
+    -not -path "./.claude/skills/*" \
+    -not -path "./.gemini/agents/*" \
+    -not -path "./.gemini/skills/*" \
+    -not -path "./.agents/*" \
+    -not -path "./docs/AI/nested/*" \
+    -not -path "./docs/AI/skills/*" \
     -not -path "./.ai_workflow/*" \
     -not -path "./qlib/*" \
     -not -path "./docs/SPECS/services/*" \
@@ -36,6 +43,7 @@ ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./docs/SPECS/strategies/*" \
     -not -path "./docs/SPECS/infrastructure/*" \
     -not -path "./docs/ARCHIVE/TASKS_HISTORY/*" \
+    -not -path "./tools/*" \
     2>/dev/null)
 
 # Transform paths to be relative to docs/INDEX.md

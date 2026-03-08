@@ -104,7 +104,7 @@ trading_platform/
 
 ### Getting Started
 - **[docs/GETTING_STARTED/SETUP.md](./docs/GETTING_STARTED/SETUP.md)** - Environment setup and installation guide
-- [CLAUDE.md](./CLAUDE.md) - Main guide for Claude Code
+- [CLAUDE.md](./CLAUDE.md) / [GEMINI.md](./GEMINI.md) / [AGENTS.md](./AGENTS.md) - AI assistant guide (all symlink to same source)
 - **[docs/GETTING_STARTED/TESTING_SETUP.md](./docs/GETTING_STARTED/TESTING_SETUP.md)** - Testing environment setup
 
 ### Development Guidelines

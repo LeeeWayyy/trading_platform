@@ -281,6 +281,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0033](./ADRs/ADR-0033-order-modification-schema.md) | Order modification database schema with idempotency and audit trail | 🚧 Proposed |
 | [ADR-0034](./ADRs/ADR-0034-cost-model-architecture.md) | Transaction cost model architecture (Almgren-Chriss, capacity analysis) | ✅ Accepted |
 | [ADR-0035](./ADRs/ADR-0035-skills-workflow-simplification.md) | Skills-based workflow simplification (replace workflow_gate.py) | ✅ Accepted |
+| [ADR-0036](./ADRs/ADR-0036-ai-context-architecture.md) | AI context architecture — shared skills, nested context, cross-platform | ✅ Accepted |
 | [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**
@@ -426,6 +427,9 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [ARCHIVED, 2025-12-31, Planning] [P5_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P5_PLANNING_DONE.md) - P5 NiceGUI Migration phase planning
 - [CURRENT, 2025-10-18, Planning] [INDEX.md](./TASKS/INDEX.md) - Task index and status tracker
 - [CURRENT, 2025-10-18, Planning] [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) - Original master plan (reference)
+
+**AI Infrastructure:**
+- [CURRENT, 2026-03-01, Planning] [AI_CONTEXT_OPTIMIZATION_PLAN.md](./TASKS/AI_CONTEXT_OPTIMIZATION_PLAN.md) - AI context optimization plan (cross-platform skills, slimmed instructions)
 
 **Repository Cleanup & Maintenance:**
 - [CURRENT, 2026-01-14, Planning] [REPO_CLEANUP_PLAN.md](./TASKS/REPO_CLEANUP_PLAN.md) - Repository cleanup and organization plan (scripts reorganization, research directory, libs grouping)

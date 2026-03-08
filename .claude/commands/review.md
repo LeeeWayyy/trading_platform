@@ -1,5 +1,5 @@
 ---
-description: Run one complete review iteration (review + fix + re-review) with Gemini + Codex via clink. Each invocation is a fresh iteration.
+description: Run one complete review iteration (review + fix + re-review) with Gemini + Codex via direct CLI. Each invocation is a fresh iteration.
 ---
 
 # Review Command
@@ -44,15 +44,28 @@ git diff --cached --name-only --diff-filter=ACM
 
 ---
 
-## Step 2: First Reviewer (Fresh Start)
+## Step 2: Prepare Review Context
 
-Use `mcp__pal__clink` with these parameters:
-- `cli_name`: first reviewer name (default: `"gemini"`)
-- `role`: `"codereviewer"`
-- `absolute_file_paths`: Array of absolute paths for ALL changed files
-- **No `continuation_id`** (fresh start — generates this iteration's continuation_id)
+**Generate the diff for reviewers:**
 
-**Prompt (use EXACTLY this — same prompt every time):**
+```bash
+# Write diff to a temp file for reviewer consumption (portable across GNU/BSD mktemp)
+DIFF_FILE=$(mktemp "${TMPDIR:-/tmp}/review-diff-XXXXXX")
+PROMPT_FILE=""
+trap 'rm -f "${DIFF_FILE:-}" "${PROMPT_FILE:-}"' EXIT
+```
+
+If branch mode:
+```bash
+git diff origin/master...HEAD > "$DIFF_FILE"
+```
+
+Otherwise:
+```bash
+git diff --cached > "$DIFF_FILE"
+```
+
+**Build the review prompt:**
 
 ```
 Review all staged changes with comprehensive analysis:
@@ -98,33 +111,72 @@ Review all staged changes with comprehensive analysis:
 Provide comprehensive analysis with issues categorized by severity (CRITICAL/HIGH/MEDIUM/LOW).
 ```
 
-**Save the `continuation_id` from the response.**
+---
 
-**Validate `continuation_id` format:** Must match UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). If not, reject and ask the reviewer for a valid ID. Never pass unvalidated IDs to shell commands.
+## Step 3: First Reviewer (Direct CLI)
+
+Invoke the first reviewer directly via CLI. Which CLI to use depends on the reviewer list from Step 1 (default first reviewer: Gemini).
+
+Write the review prompt to a temp file to avoid heredoc delimiter issues:
+
+```bash
+PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/review-prompt-XXXXXX")
+cat > "$PROMPT_FILE" <<'ENDPROMPT'
+[REVIEW PROMPT FROM STEP 2]
+
+Here is the diff to review:
+ENDPROMPT
+cat "$DIFF_FILE" >> "$PROMPT_FILE"
+```
+
+**Dispatch based on first reviewer from Step 1:**
+
+If first reviewer is **Gemini**:
+```bash
+cat "$PROMPT_FILE" | gemini -p "Review the code diff provided on stdin."
+```
+
+If first reviewer is **Codex** (e.g., `/review --reviewer codex`):
+```bash
+# Branch mode:
+codex review --base origin/master
+# Staged/uncommitted mode:
+codex review --uncommitted
+```
+
+**Shell safety rules:**
+- Always use single-quoted heredocs (`<<'ENDPROMPT'`) to prevent shell expansion
+- Pass diffs via temp files, never inline as arguments
+- Validate any output before parsing
+
+**Save the reviewer's response. If the CLI returns a session ID, save it for re-reviews.**
 
 ---
 
-## Step 3: Second Reviewer (Shared Context)
+## Step 4: Second Reviewer
 
 **Skip if only one reviewer was requested.**
 
-Use clink with these parameters:
-- `cli_name`: second reviewer name (default: `"codex"`)
-- `role`: `"codereviewer"`
-- `continuation_id`: **Use the validated continuation_id from Step 2**
-- `absolute_file_paths`: Same file list as Step 2
+**Dispatch based on second reviewer from Step 1 (default second reviewer: Codex):**
 
-**Prompt (EXACTLY the same as Step 2 plus one line):**
-
+If second reviewer is **Codex**:
+```bash
+# Branch mode:
+codex review --base origin/master
+# Staged/uncommitted mode:
+codex review --uncommitted
 ```
-[SAME REVIEW PROMPT AS STEP 2]
 
-Build upon the shared context by adding your own independent findings.
+**Note:** Codex's `--uncommitted` reviews staged, unstaged, and untracked changes (broader than staged-only). This is a known Codex CLI limitation — there is no staged-only flag. Use `--base origin/master` for branch mode (preferred for precise scope). Codex uses its own built-in review rubric.
+
+If second reviewer is **Gemini** (e.g., `/review --reviewer codex gemini`):
+```bash
+cat "$PROMPT_FILE" | gemini -p "Review the code diff provided on stdin."
 ```
 
 ---
 
-## Step 4: Summarize Findings
+## Step 5: Summarize Findings
 
 **Parse ALL responses and create a combined issue list:**
 
@@ -147,44 +199,46 @@ Issues:
 
 **Display this summary to the user.**
 
-**If zero issues → go to Step 6 (APPROVED).**
+**If zero issues → go to Step 7 (APPROVED).**
 
 ---
 
-## Step 5: Fix Issues & Re-Review (Same Continuation ID)
+## Step 6: Fix Issues & Re-Review
 
 **ZERO TOLERANCE — ALL issues must be fixed. No exceptions.**
 
 1. **Ask user:** "Found X issues. Should I fix them all?"
 2. Fix each issue systematically (read file → apply fix → mark done)
 3. Re-stage fixed files: `git add <fixed-files>`
-4. **Re-review using the SAME continuation_id:**
-   - Send to first reviewer with existing `continuation_id`
-   - Send to second reviewer with existing `continuation_id`
-   - Use each reviewer's original prompt (Step 2 prompt for first reviewer, Step 3 prompt for second reviewer — never mention fixes or previous rounds)
+4. **Re-review using the same prompt (fresh invocation):**
+   - Re-generate diff to temp file
+   - Send to first reviewer (same prompt — never mention fixes or previous rounds)
+   - Send to second reviewer (same prompt)
+   - Note: Each re-review is a fresh CLI invocation; session resumption is not supported by current CLIs
 5. Summarize new findings
 6. **If new issues found → repeat from step 1**
-7. **If ALL reviewers approve → go to Step 6**
+7. **If ALL reviewers approve → go to Step 7**
 
 **Critical:** Continue this loop until ALL reviewers explicitly approve within this iteration. Do NOT stop early.
 
 ---
 
-## Step 6: Report Result
+## Step 7: Report Result
 
 **When ALL reviewers approve with zero issues:**
 
 ```
 Review APPROVED
 ━━━━━━━━━━━━━━
-continuation_id: <uuid>
 Reviewers: [list of reviewers who approved]
 
 Ready to commit. Include in commit message:
 
 zen-mcp-review: approved
-continuation-id: <final-uuid>
+continuation-id: <generated-uuid>
 ```
+
+Generate the continuation-id with `uuidgen` (or equivalent). This provides a unique audit trail per review iteration, independent of CLI session support.
 
 **If fixes were made during this iteration**, tell the user:
 
@@ -195,12 +249,17 @@ Run /review again for a fresh iteration to confirm.
 
 **If zero issues on first try** (no fixes needed), the code is fully approved.
 
+**Clean up temp files** (also handled by the EXIT trap set in Step 2):
+```bash
+rm -f "$DIFF_FILE" "$PROMPT_FILE"
+```
+
 ---
 
 ## Error Handling
 
-**If clink is unavailable:**
-1. Tell user: "Zen-MCP unavailable: [error]"
+**If a reviewer CLI is unavailable:**
+1. Tell user: "Reviewer unavailable: [error]"
 2. Offer options:
    - **Wait and retry** (recommended)
    - **Override** (requires explicit user approval — see CLAUDE.md policy)
@@ -225,8 +284,9 @@ Run /review again for a fresh iteration to confirm.
 ## Key Rules
 
 1. **Same prompt every time** — never bias reviewers with fix context
-2. **Same continuation_id within this invocation** — all reviewers share context; re-reviews use same ID
-3. **Fresh start between /review invocations** — each `/review` call generates a new continuation_id
+2. **Same prompt within this invocation** — re-reviews use same prompt, fresh CLI invocations
+3. **Fresh start between /review invocations** — each `/review` call starts fresh
 4. **ALL approvals before completing** — don't report APPROVED until every reviewer approves
 5. **Fix ALL issues including LOW** — zero tolerance, no deferral
-6. **Validate continuation_id** — must match UUID format before use in any tool call or shell command
+6. **Single-quoted heredocs** — prevent shell injection in reviewer prompts
+7. **Temp files for diffs** — never pass large diffs inline to CLI
