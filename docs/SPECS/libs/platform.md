@@ -1,6 +1,6 @@
 # libs/platform
 
-<!-- Last reviewed: 2026-02-26 - P6T15: Added VIEW_STRATEGY_EXPOSURE, VIEW_UNIVERSES, MANAGE_UNIVERSES permissions -->
+<!-- Last reviewed: 2026-03-10 - P6T15: Fix require_permission __globals__ merging for FastAPI annotation resolution -->
 
 ## Identity
 - **Type:** Library Group (Platform Services)
@@ -143,6 +143,6 @@ See [libs/web_console_services.md](./web_console_services.md) for detailed speci
 - [../services/web_console_ng.md](../services/web_console_ng.md) - Web console UI
 
 ## Metadata
-- **Last Updated:** 2026-02-26 (P6T15 - VIEW_STRATEGY_EXPOSURE, VIEW_UNIVERSES, MANAGE_UNIVERSES permissions)
+- **Last Updated:** 2026-03-10 (P6T15 PR fix - restore require_permission __globals__ merging)
 - **Source Files:** `libs/platform/` (group index)
 - **ADRs:** N/A

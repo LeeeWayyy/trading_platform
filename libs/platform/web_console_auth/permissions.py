@@ -362,11 +362,15 @@ def require_permission(
             resolved_annotations = None
 
         wrapper = async_wrapper if is_coroutine else sync_wrapper
-        # Resolved annotations already contain fully-evaluated types from the
-        # original module namespace. Setting __annotations__ is sufficient for
-        # framework signature inspection (e.g. FastAPI). Do NOT merge func's
-        # __globals__ into wrapper's — that can overwrite this module's symbols
-        # (e.g. Permission) and corrupt authorization checks at runtime.
+        # Merge the original function's globals into the wrapper so that
+        # FastAPI can resolve string annotations (from `from __future__
+        # import annotations`) via the wrapper's __globals__.  Use
+        # dict-merge order so the wrapper's own symbols (e.g. Permission,
+        # has_permission) take precedence and are never overwritten.
+        wrapper_globals = getattr(wrapper, "__globals__", None)
+        if isinstance(wrapper_globals, dict):
+            merged = {**func.__globals__, **wrapper_globals}
+            wrapper_globals.update(merged)
         if resolved_annotations is not None:
             wrapper.__annotations__ = resolved_annotations
 
