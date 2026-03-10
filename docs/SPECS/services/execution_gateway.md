@@ -262,7 +262,7 @@ curl -s -X POST http://localhost:8002/api/v1/orders   -H 'Content-Type: applicat
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-03-08 (P6T15 Universe & Exposure - VIEW_ALL_STRATEGIES support in TCA routes, shared strategy mapping SQL)
+- **Last Updated:** 2026-03-10 (P6T15 PR fix - simplified effective_strategy_ids in TCA routes)
 - **Source Files:**
   - `apps/execution_gateway/main.py`
   - `apps/execution_gateway/app_factory.py`

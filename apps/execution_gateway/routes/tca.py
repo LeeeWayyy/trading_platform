@@ -951,7 +951,7 @@ def get_order_tca(
     start_date = today - timedelta(days=ORDER_LOOKBACK_DAYS)
 
     # VIEW_ALL always means unscoped — provisioned list may be stale.
-    effective_strategy_ids = None if view_all else (list(authorized_strategies) if authorized_strategies else [])
+    effective_strategy_ids = None if view_all else list(authorized_strategies)
     trades = ctx.db.get_trades_for_tca(
         start_date=start_date,
         end_date=today,
@@ -1064,7 +1064,7 @@ def get_benchmarks(
     start_date = today - timedelta(days=ORDER_LOOKBACK_DAYS)
 
     # VIEW_ALL always means unscoped — provisioned list may be stale.
-    effective_strategy_ids = None if view_all else (list(authorized_strategies) if authorized_strategies else [])
+    effective_strategy_ids = None if view_all else list(authorized_strategies)
     trades = ctx.db.get_trades_for_tca(
         start_date=start_date,
         end_date=today,
