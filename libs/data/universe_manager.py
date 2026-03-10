@@ -138,9 +138,13 @@ class UniverseManager:
         self._universe_provider = universe_provider
         self._crsp_provider = crsp_provider
 
-        # In-memory cache: (universe_id, as_of_date) -> (df, timestamp_ns)
+        # In-memory cache: (universe_id, as_of_date) ->
+        #   (df, wall_clock_ns, source_mtime_ns)
+        # wall_clock_ns is used for TTL expiry; source_mtime_ns is the
+        # file's st_mtime_ns captured BEFORE compute, used for cross-process
+        # invalidation (prevents missing updates during _compute_enriched).
         self._enriched_cache: dict[
-            tuple[str, date], tuple[pl.DataFrame, int]
+            tuple[str, date], tuple[pl.DataFrame, int, int]
         ] = {}
         self._cache_lock = threading.Lock()
         # Per-key locks to prevent cache stampede (concurrent enrichment)
@@ -192,6 +196,19 @@ class UniverseManager:
             return True
         except OSError:
             return False
+
+    def _get_source_mtime_ns(self, universe_id: str) -> int:
+        """Snapshot the custom universe file's mtime (nanoseconds).
+
+        Returns 0 for built-in universes or if the file doesn't exist.
+        """
+        if universe_id in _BUILT_IN_IDS:
+            return 0
+        path = self._universes_dir / f"{universe_id}.json"
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
 
     # ------------------------------------------------------------------
     # Listing
@@ -312,10 +329,10 @@ class UniverseManager:
         with self._cache_lock:
             cached = self._enriched_cache.get(cache_key)
             if cached is not None:
-                df, ts = cached
+                df, wall_ts, src_mtime = cached
                 if (
-                    time.time_ns() - ts < _CACHE_TTL_NS
-                    and not self._is_custom_modified_since(universe_id, ts)
+                    time.time_ns() - wall_ts < _CACHE_TTL_NS
+                    and not self._is_custom_modified_since(universe_id, src_mtime)
                 ):
                     return df.clone()
             # Get or create per-key lock to prevent cache stampede
@@ -333,10 +350,10 @@ class UniverseManager:
                 with self._cache_lock:
                     cached = self._enriched_cache.get(cache_key)
                     if cached is not None:
-                        df, ts = cached
+                        df, wall_ts, src_mtime = cached
                         if (
-                            time.time_ns() - ts < _CACHE_TTL_NS
-                            and not self._is_custom_modified_since(universe_id, ts)
+                            time.time_ns() - wall_ts < _CACHE_TTL_NS
+                            and not self._is_custom_modified_since(universe_id, src_mtime)
                         ):
                             return df.clone()
                     # Capture generation before compute; stale results are discarded
@@ -348,6 +365,9 @@ class UniverseManager:
                 _MAX_GEN_RETRIES = 2
                 gen_stable = False
                 for _attempt in range(_MAX_GEN_RETRIES + 1):
+                    # Snapshot file mtime BEFORE compute so cross-process
+                    # updates during _compute_enriched() are detected.
+                    pre_mtime = self._get_source_mtime_ns(universe_id)
                     result = self._compute_enriched(universe_id, as_of_date)
 
                     with self._cache_lock:
@@ -369,7 +389,9 @@ class UniverseManager:
 
                 with self._cache_lock:
                     if gen_stable:
-                        self._enriched_cache[cache_key] = (result, time.time_ns())
+                        self._enriched_cache[cache_key] = (
+                            result, time.time_ns(), pre_mtime,
+                        )
                     else:
                         # Retries exhausted — fail closed.  Do NOT return
                         # potentially stale data in a trading context.

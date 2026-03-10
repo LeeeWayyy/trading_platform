@@ -106,6 +106,6 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - [../services/market_data_service.md](../services/market_data_service.md) - Market data service
 
 ## Metadata
-- **Last Updated:** 2026-02-28 (P6T15 - Aligned built-in universe scope)
+- **Last Updated:** 2026-03-10 (P6T15 - Cache mtime fix for cross-process invalidation)
 - **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`, `libs/data/data_quality/coverage_analyzer.py`, `libs/data/data_quality/pit_inspector.py`, `libs/data/data_quality/quality_scorer.py`, `libs/data/feature_metadata.py`, `libs/data/schemas/__init__.py`, `libs/data/schemas/universe.py`, `libs/data/universe_manager.py`
 - **ADRs:** N/A

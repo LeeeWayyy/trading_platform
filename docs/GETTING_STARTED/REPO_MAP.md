@@ -24,8 +24,7 @@ trading_platform/
 ├── .github/           # GitHub configuration (workflows, actions)
 ├── .claude/           # Claude Code skills, commands, agents
 ├── .gemini/           # Gemini CLI skills and agents
-├── .agents/           # Generic agent context (no skills — conflicts with .gemini)
-└── .ai_workflow/      # AI workflow state and audit logs
+└── .agents/           # Generic agent context (no skills — conflicts with .gemini)
 ```
 
 ---
@@ -799,13 +798,6 @@ Gemini CLI skills and custom agents.
 
 Reserved for agents that don't have their own CLI config directory.
 Note: Skills are NOT symlinked here — Gemini CLI reads `.agents/` and conflicts with `.gemini/skills/`.
-
-## .ai_workflow/ - AI Workflow State
-
-Stores workflow state and audit logs for AI-assisted development sessions.
-**Key Files:**
-- `workflow-state.json` - Current workflow state
-- `workflow-audit.log` - Audit trail of workflow transitions
 
 ## Cross-Platform AI Context
 

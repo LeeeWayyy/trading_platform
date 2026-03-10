@@ -1,4 +1,4 @@
-# ADR 0036: File-Based Universe Persistence
+# ADR 0037: File-Based Universe Persistence
 
 - Status: Accepted
 - Date: 2026-03-01
