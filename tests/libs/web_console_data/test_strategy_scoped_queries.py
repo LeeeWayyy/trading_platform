@@ -351,6 +351,133 @@ class TestStrategyFilterAndPermissions:
             access._get_strategy_filter()
 
 
+class TestViewAllScopingContract:
+    """VIEW_ALL_STRATEGIES always means unscoped regardless of provisioned list.
+
+    Ensures consistent semantics across all modules: VIEW_ALL → None (no filter),
+    even when the user's provisioned strategy list is non-empty.
+    """
+
+    @patch("libs.web_console_data.strategy_scoped_queries.has_permission")
+    @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
+    @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
+    def test_view_all_with_nonempty_provisioned_returns_none(
+        self,
+        mock_get_key: Mock,
+        mock_get_strategies: Mock,
+        mock_has_perm: Mock,
+        mock_db_pool: AsyncMock,
+        mock_redis_client: AsyncMock,
+        mock_user: dict[str, Any],
+    ) -> None:
+        """VIEW_ALL user with provisioned strategies still gets unscoped (None)."""
+        mock_get_strategies.return_value = ["strategy-alpha", "strategy-beta"]
+        mock_has_perm.return_value = True
+        mock_get_key.return_value = None
+
+        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+
+        assert access._get_strategy_filter() is None
+
+    @patch("libs.web_console_data.strategy_scoped_queries.has_permission")
+    @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
+    @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
+    def test_view_all_with_empty_provisioned_returns_none(
+        self,
+        mock_get_key: Mock,
+        mock_get_strategies: Mock,
+        mock_has_perm: Mock,
+        mock_db_pool: AsyncMock,
+        mock_redis_client: AsyncMock,
+        mock_user: dict[str, Any],
+    ) -> None:
+        """VIEW_ALL user with empty provisioned list gets unscoped (None)."""
+        mock_get_strategies.return_value = []
+        mock_has_perm.return_value = True
+        mock_get_key.return_value = None
+
+        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+
+        assert access._get_strategy_filter() is None
+
+    @patch("libs.web_console_data.strategy_scoped_queries.has_permission")
+    @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
+    @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
+    def test_strategy_clause_view_all_returns_true(
+        self,
+        mock_get_key: Mock,
+        mock_get_strategies: Mock,
+        mock_has_perm: Mock,
+        mock_db_pool: AsyncMock,
+        mock_redis_client: AsyncMock,
+        mock_user: dict[str, Any],
+    ) -> None:
+        """_strategy_clause returns ("TRUE", []) for VIEW_ALL users."""
+        mock_get_strategies.return_value = ["strategy-alpha"]
+        mock_has_perm.return_value = True
+        mock_get_key.return_value = None
+
+        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+        clause, params = access._strategy_clause()
+
+        assert clause == "TRUE"
+        assert params == []
+
+    @patch("libs.web_console_data.strategy_scoped_queries.has_permission")
+    @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
+    @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
+    def test_non_view_all_with_strategies_returns_list(
+        self,
+        mock_get_key: Mock,
+        mock_get_strategies: Mock,
+        mock_has_perm: Mock,
+        mock_db_pool: AsyncMock,
+        mock_redis_client: AsyncMock,
+        mock_user: dict[str, Any],
+    ) -> None:
+        """Non-VIEW_ALL user with provisioned strategies gets scoped list."""
+        strategies = ["strategy-alpha", "strategy-beta"]
+        mock_get_strategies.return_value = strategies
+        mock_has_perm.return_value = False
+        mock_get_key.return_value = None
+
+        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+
+        assert access._get_strategy_filter() == strategies
+
+    @patch("libs.web_console_data.strategy_scoped_queries.has_permission")
+    @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
+    @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
+    def test_cache_key_differs_by_scope_mode(
+        self,
+        mock_get_key: Mock,
+        mock_get_strategies: Mock,
+        mock_has_perm: Mock,
+        mock_db_pool: AsyncMock,
+        mock_redis_client: AsyncMock,
+        mock_user: dict[str, Any],
+    ) -> None:
+        """Cache prefix must differ between VIEW_ALL and scoped for same user/strategies.
+
+        Prevents stale data leaking across scope modes after role changes.
+        """
+        strategies = ["strategy-alpha", "strategy-beta"]
+        mock_get_strategies.return_value = strategies
+        mock_get_key.return_value = None
+
+        # VIEW_ALL user
+        mock_has_perm.return_value = True
+        access_all = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+
+        # Scoped user (same strategies/user)
+        mock_has_perm.return_value = False
+        access_scoped = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+
+        assert access_all._cache_prefix != access_scoped._cache_prefix
+        assert ":all:" in access_all._cache_prefix
+        assert ":scoped:" in access_scoped._cache_prefix
+
+
 class TestCacheMethods:
     """Tests for cache get/set operations."""
 

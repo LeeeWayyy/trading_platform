@@ -85,9 +85,10 @@ async def risk_dashboard(client: Client) -> None:
         ui.notify("Access denied. Please contact an administrator.", type="negative")
         return
 
-    # Strategy access check
+    # Strategy access check — VIEW_ALL users may have empty provisioned
+    # lists but should not be denied (they see all strategies globally).
     authorized_strategies = get_authorized_strategies(user)
-    if not authorized_strategies:
+    if not authorized_strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         with ui.card().classes("w-full max-w-2xl mx-auto p-6"):
             ui.label("No Strategy Access").classes("text-xl font-bold text-yellow-600")
             ui.label(

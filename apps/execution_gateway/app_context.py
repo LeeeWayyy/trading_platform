@@ -315,7 +315,7 @@ class DatabaseClientProtocol(Protocol):
         self,
         start_date: date,
         end_date: date,
-        strategy_ids: list[str],
+        strategy_ids: list[str] | None,
         *,
         symbol: str | None = None,
         side: str | None = None,

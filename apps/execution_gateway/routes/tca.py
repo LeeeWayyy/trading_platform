@@ -52,7 +52,11 @@ from libs.platform.analytics.execution_quality import (
     Fill,
     FillBatch,
 )
-from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    has_permission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -642,7 +646,7 @@ def _result_to_order_detail(
 
 def _analyze_trades_for_tca(
     trades: list[dict[str, Any]],
-    strategy_ids: list[str],
+    strategy_ids: list[str] | None,
 ) -> tuple[list[TCAOrderDetail], list[str]]:
     """Analyze trades and return TCA order details.
 
@@ -706,7 +710,8 @@ def _analyze_trades_for_tca(
 
         # Get strategy from first trade (validated as consistent above)
         strategy_id = order_trades[0].get("strategy_id", "unknown")
-        if strategy_id not in strategy_ids:
+        # strategy_ids=None means all strategies (VIEW_ALL user)
+        if strategy_ids is not None and strategy_id not in strategy_ids:
             skipped_unauthorized += 1
             continue  # Skip unauthorized strategies
 
@@ -796,15 +801,17 @@ def get_tca_analysis(
     user_obj = user.get("user")
     user_id = user.get("user_id", "unknown")
     authorized = get_authorized_strategies(user_obj)
+    view_all = has_permission(user_obj, Permission.VIEW_ALL_STRATEGIES)
 
-    # Block users with no authorized strategies
-    if not authorized:
+    # Block users with no authorized strategies (VIEW_ALL users may have
+    # empty provisioned lists but should not be denied).
+    if not authorized and not view_all:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No authorized strategies - contact administrator",
         )
 
-    if strategy_id and strategy_id not in authorized:
+    if strategy_id and not view_all and strategy_id not in authorized:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Not authorized for strategy: {strategy_id}",
@@ -821,8 +828,16 @@ def get_tca_analysis(
         },
     )
 
-    # When no strategy_id specified, filter to user's authorized strategies
-    effective_strategies = [strategy_id] if strategy_id else list(authorized)
+    # When no strategy_id specified, filter to user's authorized strategies.
+    # VIEW_ALL always means unscoped — provisioned list may be stale.
+    if strategy_id:
+        effective_strategies: list[str] | None = [strategy_id]
+    elif view_all:
+        effective_strategies = None  # All strategies
+    elif authorized:
+        effective_strategies = list(authorized)
+    else:
+        effective_strategies = []  # Should not reach here (403 above)
 
     # Fetch trades from database with higher limit for analysis
     # Request limit+1 to detect if there are more trades (avoids false positives)
@@ -914,8 +929,9 @@ def get_order_tca(
     user_id = user.get("user_id", "unknown")
     user_obj = user.get("user")
     authorized_strategies = get_authorized_strategies(user_obj)
+    view_all = has_permission(user_obj, Permission.VIEW_ALL_STRATEGIES)
 
-    if not authorized_strategies:
+    if not authorized_strategies and not view_all:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No authorized strategies - contact administrator",
@@ -934,10 +950,12 @@ def get_order_tca(
     today = datetime.now(UTC).date()
     start_date = today - timedelta(days=ORDER_LOOKBACK_DAYS)
 
+    # VIEW_ALL always means unscoped — provisioned list may be stale.
+    effective_strategy_ids = None if view_all else list(authorized_strategies)
     trades = ctx.db.get_trades_for_tca(
         start_date=start_date,
         end_date=today,
-        strategy_ids=list(authorized_strategies),
+        strategy_ids=effective_strategy_ids,
         client_order_id=client_order_id,
     )
 
@@ -963,8 +981,9 @@ def get_order_tca(
         )
 
     # Verify user has access to this order's strategy
+    # VIEW_ALL users may access any strategy.
     strategy_id = trades[0].get("strategy_id", "unknown")
-    if strategy_id not in authorized_strategies:
+    if not view_all and strategy_id not in authorized_strategies:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Not authorized for order's strategy: {strategy_id}",
@@ -1023,8 +1042,9 @@ def get_benchmarks(
     user_id = user.get("user_id", "unknown")
     user_obj = user.get("user")
     authorized_strategies = get_authorized_strategies(user_obj)
+    view_all = has_permission(user_obj, Permission.VIEW_ALL_STRATEGIES)
 
-    if not authorized_strategies:
+    if not authorized_strategies and not view_all:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No authorized strategies - contact administrator",
@@ -1043,10 +1063,12 @@ def get_benchmarks(
     today = datetime.now(UTC).date()
     start_date = today - timedelta(days=ORDER_LOOKBACK_DAYS)
 
+    # VIEW_ALL always means unscoped — provisioned list may be stale.
+    effective_strategy_ids = None if view_all else list(authorized_strategies)
     trades = ctx.db.get_trades_for_tca(
         start_date=start_date,
         end_date=today,
-        strategy_ids=list(authorized_strategies),
+        strategy_ids=effective_strategy_ids,
         client_order_id=client_order_id,
     )
 
@@ -1072,8 +1094,9 @@ def get_benchmarks(
         )
 
     # Verify user has access to this order's strategy
+    # VIEW_ALL users may access any strategy.
     strategy_id = trades[0].get("strategy_id", "unknown")
-    if strategy_id not in authorized_strategies:
+    if not view_all and strategy_id not in authorized_strategies:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Not authorized for order's strategy: {strategy_id}",

@@ -33,6 +33,7 @@ from apps.web_console_ng.core.realtime import (
 )
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.utils.time import parse_iso_timestamp
+from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 STOP_PRICE_STALE_THRESHOLD_S = 60
@@ -644,8 +645,23 @@ async def manual_order_page(client: Client) -> None:
         if order_data is None:
             return
 
-        if not authorized_strategies:
+        if not authorized_strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
             twap_preview_errors = ["No authorized strategies available for preview"]
+            if twap_config:
+                twap_config.set_preview_errors(twap_preview_errors)
+            return
+
+        # VIEW_ALL users with empty provisioned lists cannot TWAP preview
+        # without an explicit strategy selection (preview requires a single
+        # strategy_id for slice attribution).  The submit flow also calls
+        # this preview guard, so submission is equally blocked.  The backend
+        # API is intentionally more permissive (accepts strategy_id from
+        # external callers); UI alignment happens here.
+        if not authorized_strategies:
+            twap_preview_errors = [
+                "TWAP preview requires provisioned strategies. "
+                "Contact your administrator to assign strategies."
+            ]
             if twap_config:
                 twap_config.set_preview_errors(twap_preview_errors)
             return

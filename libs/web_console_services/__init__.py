@@ -28,6 +28,7 @@ from libs.web_console_services.config import (
 from libs.web_console_services.data_explorer_service import DataExplorerService
 from libs.web_console_services.data_quality_service import DataQualityService
 from libs.web_console_services.data_sync_service import DataSyncService
+from libs.web_console_services.exposure_service import ExposureService
 from libs.web_console_services.health_service import HealthMonitorService
 from libs.web_console_services.notebook_launcher_service import NotebookLauncherService
 from libs.web_console_services.risk_service import RiskService
@@ -43,6 +44,7 @@ __all__ = [
     "ComparisonService",
     "DataExplorerService",
     "DataQualityService",
+    "ExposureService",
     "DataSyncService",
     "HealthMonitorService",
     "NotebookLauncherService",

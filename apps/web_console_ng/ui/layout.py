@@ -161,6 +161,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
                     ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
+                    ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
+                    ("Universes", "/research/universes", "category", None),  # P6T15
                     ("Alpha Explorer", "/alpha-explorer", "insights", None),  # P5T8
                     ("Compare", "/compare", "compare_arrows", None),  # P5T8
                     ("Journal", "/journal", "book", None),  # P5T8
@@ -185,6 +187,18 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             Permission.MANAGE_SYSTEM_CONFIG,
                             Permission.VIEW_AUDIT,
                         )
+                    ):
+                        continue
+
+                    # Exposure link requires VIEW_STRATEGY_EXPOSURE
+                    if path == "/risk/exposure" and not has_permission(
+                        user, Permission.VIEW_STRATEGY_EXPOSURE
+                    ):
+                        continue
+
+                    # Universes link requires VIEW_UNIVERSES
+                    if path == "/research/universes" and not has_permission(
+                        user, Permission.VIEW_UNIVERSES
                     ):
                         continue
 

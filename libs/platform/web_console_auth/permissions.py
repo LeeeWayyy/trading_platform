@@ -10,7 +10,7 @@ import asyncio
 import functools
 import logging
 import typing
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
@@ -102,6 +102,11 @@ class Permission(str, Enum):
     VIEW_FEATURES = "view_features"  # P6T14: Feature Store Browser access
     VIEW_SHADOW_RESULTS = "view_shadow_results"  # P6T14: Shadow results access
 
+    # T15: Universe & Exposure
+    VIEW_UNIVERSES = "view_universes"  # T15.1/T15.2: Universe browser/analytics
+    MANAGE_UNIVERSES = "manage_universes"  # T15.1: Create/edit/delete custom universes
+    VIEW_STRATEGY_EXPOSURE = "view_strategy_exposure"  # T15.3: Strategy exposure dashboard
+
 
 class DatasetPermission(str, Enum):
     """Per-dataset access permissions for licensing compliance."""
@@ -134,6 +139,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_FEATURES,
         Permission.VIEW_SHADOW_RESULTS,
         Permission.QUERY_DATA,  # P6T14: SQL Explorer access for alpha research
+        Permission.VIEW_UNIVERSES,  # T15.1/T15.2: Browse universes for research
+        Permission.VIEW_STRATEGY_EXPOSURE,  # T15.3: View exposure for research
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -168,6 +175,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_AUDIT,  # P6T8: Audit trail access
         Permission.VIEW_FEATURES,
         Permission.VIEW_SHADOW_RESULTS,
+        Permission.VIEW_UNIVERSES,  # T15.1/T15.2: Browse universes
+        Permission.MANAGE_UNIVERSES,  # T15.1: Operators manage custom universes
+        Permission.VIEW_STRATEGY_EXPOSURE,  # T15.3: Strategy exposure dashboard
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
@@ -291,7 +301,9 @@ def require_permission(
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            subject = kwargs.get("user") or kwargs.get("session")
+            # Use key-presence checks, not truthiness: user={} (falsy)
+            # must not fall through to session or positional args.
+            subject = kwargs.get("user") if "user" in kwargs else kwargs.get("session") if "session" in kwargs else None
             if subject is None and args:
                 first_arg = args[0]
                 # Common pattern: FastAPI/Starlette Request exposes .user
@@ -318,7 +330,7 @@ def require_permission(
 
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            subject = kwargs.get("user") or kwargs.get("session")
+            subject = kwargs.get("user") if "user" in kwargs else kwargs.get("session") if "session" in kwargs else None
             if subject is None and args:
                 first_arg = args[0]
                 subject = getattr(first_arg, "user", None)
@@ -350,10 +362,15 @@ def require_permission(
             resolved_annotations = None
 
         wrapper = async_wrapper if is_coroutine else sync_wrapper
-        # Ensure wrapper can resolve forward references from the original module.
+        # Merge the original function's globals into the wrapper so that
+        # FastAPI can resolve string annotations (from `from __future__
+        # import annotations`) via the wrapper's __globals__.  Use
+        # dict-merge order so the wrapper's own symbols (e.g. Permission,
+        # has_permission) take precedence and are never overwritten.
         wrapper_globals = getattr(wrapper, "__globals__", None)
         if isinstance(wrapper_globals, dict):
-            wrapper_globals.update(func.__globals__)
+            merged = {**func.__globals__, **wrapper_globals}
+            wrapper_globals.update(merged)
         if resolved_annotations is not None:
             wrapper.__annotations__ = resolved_annotations
 
@@ -380,29 +397,50 @@ def is_admin(user_or_role: Any) -> bool:
 
 
 def get_authorized_strategies(user: Any | None) -> list[str]:
-    """Return list of strategies user may access (default‑deny).
+    """Return list of strategies user may access (default-deny).
 
     Admins (with VIEW_ALL_STRATEGIES) are expected to receive the full list of
     strategy IDs from provisioning. Callers without VIEW_ALL_STRATEGIES get
     only their explicitly assigned strategies. Unknown roles or missing
     strategies return an empty list to fail closed.
+
+    .. warning::
+
+        An empty return value does NOT always mean "no access". Admins with
+        ``VIEW_ALL_STRATEGIES`` may have an empty provisioned list. Callers
+        MUST check ``has_permission(user, Permission.VIEW_ALL_STRATEGIES)``
+        separately before denying access based on an empty strategy list.
     """
 
     if not user:
         return []
 
     role = _extract_role(user)
-    strategies: Iterable[str]
+    raw_strategies: Any
     if isinstance(user, dict):
-        strategies = user.get("strategies", [])
+        raw_strategies = user.get("strategies", [])
     else:
         # Support ORM/user objects that expose a ``strategies`` attribute
-        strategies = getattr(user, "strategies", []) or []
+        raw_strategies = getattr(user, "strategies", []) or []
 
     if role is None:
         return []
 
-    strategies_list = list(strategies)
+    # Fail closed: reject non-list/tuple containers (e.g. bare str would
+    # iterate characters, which is almost certainly a bug).
+    if not isinstance(raw_strategies, list | tuple):
+        return []
+
+    # Sanitize: keep only non-empty strings, deduplicate, preserve order.
+    seen: set[str] = set()
+    strategies_list: list[str] = []
+    for s in raw_strategies:
+        if not isinstance(s, str):
+            continue
+        s = s.strip()
+        if s and s not in seen:
+            seen.add(s)
+            strategies_list.append(s)
 
     if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         # Fail closed: only return explicitly assigned strategies

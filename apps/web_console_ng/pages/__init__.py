@@ -26,6 +26,7 @@ from apps.web_console_ng.pages import (
     data_management,  # noqa: F401
     data_source_status,  # noqa: F401 - P6T14
     execution_quality,  # noqa: F401 - P6T8
+    exposure,  # noqa: F401 - P6T15
     feature_browser,  # noqa: F401 - P6T14
     forgot_password,  # noqa: F401 - Auth page
     health,  # noqa: F401
@@ -40,4 +41,5 @@ from apps.web_console_ng.pages import (
     scheduled_reports,  # noqa: F401 - P5T8
     shadow_results,  # noqa: F401 - P6T14
     sql_explorer,  # noqa: F401 - P6T14
+    universes,  # noqa: F401 - P6T15
 )

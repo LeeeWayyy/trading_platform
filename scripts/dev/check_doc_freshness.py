@@ -41,6 +41,7 @@ EXCLUDED_DIRS = {
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
+    ".ai_workflow",
     "node_modules",
 }
 
@@ -160,7 +161,6 @@ def get_source_directories() -> dict[str, list[str]]:
             "docs/",
             "strategies/",
             "migrations/",
-            ".ai_workflow/",
             ".github/",
         ],
         # Architecture config tracks component additions/changes

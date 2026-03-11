@@ -68,9 +68,10 @@ async def performance_dashboard_page() -> None:
             ui.label("Permission denied: VIEW_PNL required.").classes("text-red-500 text-center")
         return
 
-    # Get authorized strategies
+    # Get authorized strategies — VIEW_ALL users may have empty provisioned
+    # lists but should not be denied (they see all strategies globally).
     authorized_strategies = get_authorized_strategies(user)
-    if not authorized_strategies:
+    if not authorized_strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         with ui.card().classes("w-full p-6"):
             ui.label("You don't have access to any strategies. Contact administrator.").classes(
                 "text-amber-600 text-center"

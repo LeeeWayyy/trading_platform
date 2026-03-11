@@ -167,9 +167,82 @@ def test_get_authorized_strategies_admin_with_view_all(monkeypatch):
     # Admin with VIEW_ALL_STRATEGIES still returns provided list
     assert perms.get_authorized_strategies(admin) == ["s1", "s2"]
 
-    # Without strategies, should return empty list, not None
+    # Without strategies, still returns empty list (backwards compatible)
     admin_empty = {"role": "admin", "strategies": []}
     assert perms.get_authorized_strategies(admin_empty) == []
+
+
+
+def test_get_authorized_strategies_sanitizes_malformed_payloads():
+    """Malformed strategy claim values are filtered out."""
+    # Non-string entries dropped
+    user = {"role": "operator", "strategies": ["s1", 123, None, "s2"]}
+    assert perms.get_authorized_strategies(user) == ["s1", "s2"]
+
+    # Blank and whitespace-only entries dropped
+    user2 = {"role": "operator", "strategies": ["s1", "", "  ", "s2"]}
+    assert perms.get_authorized_strategies(user2) == ["s1", "s2"]
+
+    # Duplicates removed (first occurrence kept)
+    user3 = {"role": "operator", "strategies": ["s1", "s2", "s1"]}
+    assert perms.get_authorized_strategies(user3) == ["s1", "s2"]
+
+    # Whitespace trimmed
+    user4 = {"role": "operator", "strategies": [" s1 ", "s2"]}
+    assert perms.get_authorized_strategies(user4) == ["s1", "s2"]
+
+    # Bare string rejected (would iterate characters without guard)
+    user5 = {"role": "operator", "strategies": "alpha1"}
+    assert perms.get_authorized_strategies(user5) == []
+
+    # Dict rejected
+    user6 = {"role": "operator", "strategies": {"s1": True}}
+    assert perms.get_authorized_strategies(user6) == []
+
+    # Scalar rejected
+    user7 = {"role": "operator", "strategies": 42}
+    assert perms.get_authorized_strategies(user7) == []
+
+
+def test_require_permission_does_not_corrupt_module_globals():
+    """Decorating a function whose module has a colliding 'Permission' global
+    must NOT overwrite perms.Permission with the foreign value."""
+    from types import ModuleType
+
+    # Simulate a module with a colliding global
+    fake_mod = ModuleType("fake_mod")
+    fake_mod.__dict__["Permission"] = "COLLISION"
+
+    def fake_func(user=None):
+        return True
+
+    fake_func.__module__ = "fake_mod"
+    fake_func.__globals__["Permission"] = "COLLISION"
+
+    decorated = perms.require_permission(perms.Permission.VIEW_PNL)(fake_func)
+
+    # Permission enum must still be intact
+    assert isinstance(perms.Permission.VIEW_PNL, perms.Permission)
+    assert perms.Permission.VIEW_PNL.value == "view_pnl"
+
+    # Decorated function should still work
+    assert decorated(user={"role": "viewer"}) is True
+
+
+def test_require_permission_respects_falsy_user_kwarg():
+    """user={} (falsy but explicitly passed) must not fall through to session."""
+
+    @perms.require_permission(perms.Permission.VIEW_PNL)
+    def handler(user=None, session=None):
+        return "ok"
+
+    # Empty dict is falsy but explicitly passed as user — should use it,
+    # NOT fall through to session. Empty dict has no role → denied.
+    with pytest.raises(PermissionError):
+        handler(user={}, session={"role": "viewer"})
+
+    # Explicit user with role should work
+    assert handler(user={"role": "viewer"}) == "ok"
 
 
 def test_require_permission_prefers_session_kwarg():

@@ -45,6 +45,7 @@ flowchart TB
   lib_trading -.-> lib_data
   lib_trading -.-> lib_models
   lib_web_console_data -.-> lib_core
+  lib_web_console_data -.-> lib_data
   lib_web_console_data -.-> lib_platform
   lib_web_console_services -.-> lib_core
   lib_web_console_services -.-> lib_data

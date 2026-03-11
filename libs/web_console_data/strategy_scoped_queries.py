@@ -16,7 +16,11 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.rows import dict_row
 
 from libs.core.common.db import acquire_connection
-from libs.platform.web_console_auth.permissions import get_authorized_strategies
+from libs.platform.web_console_auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    has_permission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,11 +124,15 @@ class StrategyScopedDataAccess:
 
         # Primary source of truth: RBAC helper.
         self.authorized_strategies = get_authorized_strategies(user)
+        self._view_all = has_permission(user, Permission.VIEW_ALL_STRATEGIES)
         strategy_hash = hashlib.sha256(
             ",".join(sorted(self.authorized_strategies)).encode()
         ).hexdigest()[:12]
         session_version = user.get("session_version", 1)
-        self._cache_prefix = f"scoped_data:{self.user_id}:{strategy_hash}:v{session_version}"
+        # Scope mode must be part of cache key: VIEW_ALL queries differ from
+        # scoped queries even when the provisioned strategy list is identical.
+        scope_tag = "all" if self._view_all else "scoped"
+        self._cache_prefix = f"scoped_data:{self.user_id}:{strategy_hash}:{scope_tag}:v{session_version}"
 
         # Initialize encryption for cache data
         encryption_key = _get_cache_encryption_key()
@@ -224,10 +232,32 @@ class StrategyScopedDataAccess:
         digest = hashlib.sha256(digest_input.encode()).hexdigest()[:12]
         return f":{digest}"
 
-    def _get_strategy_filter(self) -> list[str]:
-        if not self.authorized_strategies:
-            raise PermissionError("No strategy access")
-        return self.authorized_strategies
+    def _get_strategy_filter(self) -> list[str] | None:
+        """Return strategy IDs for SQL ``ANY(%s)`` filter.
+
+        Returns ``None`` for all VIEW_ALL_STRATEGIES users — provisioned
+        lists may be stale/incomplete and must never narrow an admin's
+        view.  Callers must skip the ``strategy_id = ANY(%s)`` clause.
+        """
+        # VIEW_ALL_STRATEGIES always means unscoped — provisioned list may be
+        # stale/incomplete and must never narrow an admin's view.
+        if self._view_all:
+            return None  # No filter — caller must omit strategy clause
+        if self.authorized_strategies:
+            return self.authorized_strategies
+        raise PermissionError("No strategy access")
+
+    def _strategy_clause(self, col: str = "strategy_id") -> tuple[str, list[Any]]:
+        """Build a SQL WHERE clause fragment for strategy scoping.
+
+        Returns (clause, params) where clause is either
+        ``"<col> = ANY(%s)"`` with params or ``"TRUE"`` with no params
+        (all VIEW_ALL users — provisioned list never narrows scope).
+        """
+        strategies = self._get_strategy_filter()
+        if strategies is not None:
+            return f"{col} = ANY(%s)", [strategies]
+        return "TRUE", []
 
     async def _get_cached(self, key: str) -> list[dict[str, Any]] | None:
         if not self.redis:
@@ -322,16 +352,16 @@ class StrategyScopedDataAccess:
             if cached is not None:
                 return cached
 
-        strategies = self._get_strategy_filter()
+        strat_clause, strat_params = self._strategy_clause()
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
         query = f"""
             SELECT * FROM positions
-            WHERE strategy_id = ANY(%s)
+            WHERE {strat_clause}
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
             ORDER BY updated_at DESC
             LIMIT %s OFFSET %s
         """
-        exec_params = [strategies, *params, limit, offset]
+        exec_params = [*strat_params, *params, limit, offset]
         async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
             data = [dict(row) for row in rows]
@@ -343,17 +373,17 @@ class StrategyScopedDataAccess:
         self, limit: int = DEFAULT_LIMIT, offset: int = 0, **filters: Any
     ) -> list[dict[str, Any]]:
         limit = self._limit(limit)
-        strategies = self._get_strategy_filter()
+        strat_clause, strat_params = self._strategy_clause()
         allowed_filters = {"symbol": "symbol", "side": "side", "status": "status"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
         query = f"""
             SELECT * FROM orders
-            WHERE strategy_id = ANY(%s)
+            WHERE {strat_clause}
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
         """
-        exec_params = [strategies, *params, limit, offset]
+        exec_params = [*strat_params, *params, limit, offset]
         async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
@@ -366,15 +396,15 @@ class StrategyScopedDataAccess:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         limit = self._limit(limit)
-        strategies = self._get_strategy_filter()
-        query = """
+        strat_clause, strat_params = self._strategy_clause()
+        query = f"""
             SELECT * FROM pnl_daily
-            WHERE strategy_id = ANY(%s)
+            WHERE {strat_clause}
               AND trade_date BETWEEN %s AND %s
             ORDER BY trade_date DESC
             LIMIT %s OFFSET %s
         """
-        params = (strategies, date_from, date_to, limit, offset)
+        params = (*strat_params, date_from, date_to, limit, offset)
         async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, params)
         return [dict(row) for row in rows]
@@ -388,7 +418,7 @@ class StrategyScopedDataAccess:
         **filters: Any,
     ) -> list[dict[str, Any]]:
         limit = self._limit(limit)
-        strategies = self._get_strategy_filter()
+        strat_clause, strat_params = self._strategy_clause()
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
 
@@ -396,13 +426,13 @@ class StrategyScopedDataAccess:
 
         query = f"""
             SELECT * FROM trades
-            WHERE strategy_id = ANY(%s)
+            WHERE {strat_clause}
               AND COALESCE(superseded, FALSE) = FALSE
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
             ORDER BY executed_at DESC
             LIMIT %s OFFSET %s
         """
-        exec_params = [strategies, *params, limit, offset]
+        exec_params = [*strat_params, *params, limit, offset]
         async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
@@ -415,7 +445,7 @@ class StrategyScopedDataAccess:
     ) -> dict[str, Any]:
         """Aggregate trade statistics using SQL for accuracy."""
 
-        strategies = self._get_strategy_filter()
+        strat_clause, strat_params = self._strategy_clause()
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
 
@@ -441,11 +471,11 @@ class StrategyScopedDataAccess:
                 MAX(realized_pnl) AS largest_win,
                 MIN(realized_pnl) AS largest_loss
             FROM trades
-            WHERE strategy_id = ANY(%s)
+            WHERE {strat_clause}
               AND COALESCE(superseded, FALSE) = FALSE
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
         """
-        exec_params = [strategies, *params]
+        exec_params = [*strat_params, *params]
         async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
             # Convert Row to dict to support .get() access (psycopg3 Row doesn't have .get)
@@ -471,7 +501,7 @@ class StrategyScopedDataAccess:
         date_to: date | None = None,
         **filters: Any,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        strategies = self._get_strategy_filter()
+        strat_clause, strat_params = self._strategy_clause()
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
 
@@ -479,12 +509,12 @@ class StrategyScopedDataAccess:
 
         query = f"""
             SELECT * FROM trades
-            WHERE strategy_id = ANY(%s)
+            WHERE {strat_clause}
               AND COALESCE(superseded, FALSE) = FALSE
             {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
             ORDER BY executed_at DESC
         """
-        exec_params = [strategies, *params]
+        exec_params = [*strat_params, *params]
         async with acquire_connection(self.db_pool) as conn:
             async with conn.transaction():
                 cursor = await conn.execute(query, tuple(exec_params))
@@ -503,8 +533,8 @@ class StrategyScopedDataAccess:
         Returns list of {date, daily_return} dicts.
         Computes returns from pnl_daily using daily_pnl / (nav - daily_pnl).
         """
-        # Verify strategy authorization
-        if strategy_id not in self.authorized_strategies:
+        # Verify strategy authorization (VIEW_ALL users bypass)
+        if not self._view_all and strategy_id not in self.authorized_strategies:
             raise PermissionError(f"Not authorized for strategy: {strategy_id}")
 
         # Query daily P&L and NAV to compute returns

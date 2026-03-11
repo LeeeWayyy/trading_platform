@@ -187,31 +187,34 @@ class TestRenderTradeStats:
     """Tests for _render_trade_stats helper."""
 
     def test_render_trade_stats_with_data(self, mock_ui):
-        """Test rendering trade statistics with valid data."""
+        """Test rendering trade statistics with valid data.
+
+        Keys align with StrategyScopedDataAccess.get_trade_stats() output.
+        """
         stats = {
-            "trade_count": 100,
-            "total_volume": 250000.50,
-            "total_pnl": 5432.10,
-            "win_rate": 0.542,
-            "avg_trade_size": 2500.00,
+            "total_trades": 100,
+            "winning_trades": 54,
+            "total_realized_pnl": 5432.10,
+            "gross_profit": 12000.50,
+            "gross_loss": -6568.40,
         }
 
         journal_module._render_trade_stats(stats)
 
         # Check that stats were rendered
         assert any("100" in label for label in mock_ui.labels)
-        assert any("250,000.50" in label for label in mock_ui.labels)
         assert any("5,432.10" in label for label in mock_ui.labels)
-        assert any("54.2%" in label for label in mock_ui.labels)
+        assert any("54.0%" in label for label in mock_ui.labels)
+        assert any("12,000.50" in label for label in mock_ui.labels)
 
     def test_render_trade_stats_with_zero_values(self, mock_ui):
         """Test rendering with zero/missing values."""
         stats = {
-            "trade_count": 0,
-            "total_volume": 0,
-            "total_pnl": 0,
-            "win_rate": 0,
-            "avg_trade_size": 0,
+            "total_trades": 0,
+            "winning_trades": 0,
+            "total_realized_pnl": 0,
+            "gross_profit": 0,
+            "gross_loss": 0,
         }
 
         journal_module._render_trade_stats(stats)

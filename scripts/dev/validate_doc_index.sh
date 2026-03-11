@@ -31,6 +31,7 @@ ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./.claude/plans/*" \
     -not -path "./.claude/agents/*" \
     -not -path "./.claude/skills/*" \
+    -not -path "./.claude/worktrees/*" \
     -not -path "./.gemini/agents/*" \
     -not -path "./.gemini/skills/*" \
     -not -path "./.agents/*" \

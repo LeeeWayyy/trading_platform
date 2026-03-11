@@ -1,6 +1,6 @@
 # libs/data
 
-<!-- Last reviewed: 2026-02-09 - P6T12: Added HealthMonitor to data_pipeline, etl.py redis heartbeat -->
+<!-- Last reviewed: 2026-02-28 - P6T15: Aligned built-in universe scope (SP500, R1000) -->
 
 ## Identity
 - **Type:** Library Group (Data Pipeline and Providers)
@@ -65,6 +65,28 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - Symbol universe management
 - Alpaca stream integration
 
+### libs/data/universe_manager
+
+**Purpose:** Synchronous universe management: list, create, delete, enrich, and filter CRSP-based universes. Manages both built-in (SP500, R1000) and custom JSON-defined universes.
+
+**Key Features:**
+- Built-in and custom universe listing with metadata
+- Constituent enrichment with market cap and ADV from CRSP
+- Filter application (market_cap, adv_20d with gt/lt/gte/lte operators)
+- Custom universe CRUD with JSON persistence
+- Ticker resolution and unresolved ticker detection
+- Generation-gated caching with nanosecond mtime precision
+- Ticker format validation and canonicalization
+- Corruption detection with graceful error propagation
+
+### libs/data/schemas
+
+**Purpose:** Neutral domain models shared across layers (data and service).
+
+**Key Features:**
+- `UniverseMetadata` Pydantic model for universe definitions
+- Used by both UniverseManager and UniverseService
+
 ### libs/data/feature_metadata
 
 **Purpose:** Feature catalog metadata and statistics computation for the Alpha158 feature set.
@@ -84,6 +106,6 @@ See [libs/market_data.md](./market_data.md) for detailed specification.
 - [../services/market_data_service.md](../services/market_data_service.md) - Market data service
 
 ## Metadata
-- **Last Updated:** 2026-02-14 (P6T14 - Added feature_metadata.py for Feature Store Browser)
-- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`, `libs/data/data_quality/coverage_analyzer.py`, `libs/data/data_quality/pit_inspector.py`, `libs/data/data_quality/quality_scorer.py`, `libs/data/feature_metadata.py`
+- **Last Updated:** 2026-03-10 (P6T15 - Cache mtime fix for cross-process invalidation)
+- **Source Files:** `libs/data/` (group index), `libs/data/data_providers/universe.py`, `libs/data/data_pipeline/health_monitor.py`, `libs/data/data_quality/coverage_analyzer.py`, `libs/data/data_quality/pit_inspector.py`, `libs/data/data_quality/quality_scorer.py`, `libs/data/feature_metadata.py`, `libs/data/schemas/__init__.py`, `libs/data/schemas/universe.py`, `libs/data/universe_manager.py`
 - **ADRs:** N/A

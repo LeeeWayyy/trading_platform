@@ -67,14 +67,25 @@ async def attribution_page(client: Client) -> None:
         ui.notify("Access denied. Please contact an administrator.", type="negative")
         return
 
-    # Strategy access check
+    # Strategy access check — VIEW_ALL users may have empty provisioned
+    # lists but should not be denied (they see all strategies globally).
     authorized_strategies = get_authorized_strategies(user)
     if not authorized_strategies:
+        if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
+            with ui.card().classes("w-full max-w-2xl mx-auto p-6"):
+                ui.label("No Strategy Access").classes("text-xl font-bold text-yellow-600")
+                ui.label(
+                    "You don't have access to any strategies. "
+                    "Contact your administrator to be assigned."
+                ).classes("text-gray-600")
+            return
+        # VIEW_ALL user but no provisioned strategies — attribution needs
+        # a specific strategy selection to run.
         with ui.card().classes("w-full max-w-2xl mx-auto p-6"):
-            ui.label("No Strategy Access").classes("text-xl font-bold text-yellow-600")
+            ui.label("No Strategies Provisioned").classes("text-xl font-bold text-yellow-600")
             ui.label(
-                "You don't have access to any strategies. "
-                "Contact your administrator to be assigned."
+                "You have global strategy access but no strategies are provisioned. "
+                "Contact your administrator to assign strategies."
             ).classes("text-gray-600")
         return
 
