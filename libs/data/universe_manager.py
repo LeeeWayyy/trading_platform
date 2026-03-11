@@ -147,6 +147,10 @@ class UniverseManager:
             tuple[str, date], tuple[pl.DataFrame, int, int]
         ] = {}
         self._cache_lock = threading.Lock()
+        # Separate lock for file write operations (non-POSIX fallback).
+        # Using _cache_lock for both would risk deadlock if a file-op
+        # caller later needs _cache_lock inside the same scope.
+        self._file_op_lock = threading.Lock()
         # Per-key locks to prevent cache stampede (concurrent enrichment)
         self._compute_locks: dict[tuple[str, date], threading.Lock] = {}
         # Track unresolved tickers from manual list resolution.
@@ -1112,8 +1116,10 @@ class UniverseManager:
                 finally:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         else:
-            # Non-POSIX fallback: thread-level lock only
-            with self._cache_lock:
+            # Non-POSIX fallback: thread-level lock only.
+            # Uses dedicated _file_op_lock (not _cache_lock) to avoid
+            # deadlock when callers later acquire _cache_lock.
+            with self._file_op_lock:
                 yield
 
 
