@@ -10,6 +10,7 @@ Run one complete shared-context review iteration. Each `/review` invocation hand
 
 - `/review` — Review staged changes (default reviewers: gemini + codex)
 - `/review branch` — Review all branch changes vs origin/master
+- `/review path/to/file.py` — Review a single file only
 - `/review --reviewer gemini` — Single reviewer only
 - `/review --reviewer codex` — Single reviewer only
 - `/review --reviewer gemini codex` — Explicit both (same as default)
@@ -20,6 +21,7 @@ Run one complete shared-context review iteration. Each `/review` invocation hand
 
 **Parse `$ARGUMENTS`:**
 - If contains `branch` → branch mode
+- If contains a file path (e.g., `path/to/file.py`) → single-file mode
 - If contains `--reviewer <name>` → use specified reviewer(s). Valid: `gemini`, `codex`
 - Default reviewers: `gemini` then `codex`
 
@@ -44,31 +46,34 @@ git diff --cached --name-only --diff-filter=ACM
 
 ---
 
-## Step 2: Prepare Review Context
+## Step 2: Build Review Prompt
 
-**Generate the diff for reviewers:**
+**IMPORTANT: Do NOT pass diff content to reviewers.** Large diffs cause OOM crashes in reviewer CLIs. Instead, instruct reviewers to use git commands to discover and read changes themselves.
 
-```bash
-# Write diff to a temp file for reviewer consumption (portable across GNU/BSD mktemp)
-DIFF_FILE=$(mktemp "${TMPDIR:-/tmp}/review-diff-XXXXXX")
-PROMPT_FILE=""
-trap 'rm -f "${DIFF_FILE:-}" "${PROMPT_FILE:-}"' EXIT
-```
+For branch mode, set:
+- `GIT_SCOPE_CMD` = `git diff origin/master...HEAD`
+- `GIT_FILES_CMD` = `git diff origin/master...HEAD --name-only --diff-filter=ACM`
 
-If branch mode:
-```bash
-git diff origin/master...HEAD > "$DIFF_FILE"
-```
+For staged mode, set:
+- `GIT_SCOPE_CMD` = `git diff --cached`
+- `GIT_FILES_CMD` = `git diff --cached --name-only --diff-filter=ACM`
 
-Otherwise:
-```bash
-git diff --cached > "$DIFF_FILE"
-```
+For single-file mode (e.g., `/review path/to/file.py`), tell the reviewer to read and review that specific file:
+- Replace the "To discover what changed" block in the prompt with: `Review the file at: <relative-path>. Read it with: cat <relative-path>`
+- Skip the git commands — the reviewer reads the file directly
 
-**Build the review prompt:**
+**The prompt template (substitute GIT_SCOPE_CMD/GIT_FILES_CMD):**
 
 ```
-Review all staged changes with comprehensive analysis:
+You are reviewing code changes in a git repository. Do NOT expect the diff on stdin.
+
+To discover what changed, run these git commands yourself:
+- List changed files: <GIT_FILES_CMD>
+- View the full diff: <GIT_SCOPE_CMD>
+- View diff for a specific file: <GIT_SCOPE_CMD> -- <file>
+- Read a file directly: cat <file>
+
+Review all changes with comprehensive analysis:
 
 **Architecture & Design (HIGH):**
 - Design patterns and maintainability standards followed?
@@ -117,23 +122,21 @@ Provide comprehensive analysis with issues categorized by severity (CRITICAL/HIG
 
 Invoke the first reviewer directly via CLI. Which CLI to use depends on the reviewer list from Step 1 (default first reviewer: Gemini).
 
-Write the review prompt to a temp file to avoid heredoc delimiter issues:
+Write the review prompt to a temp file:
 
 ```bash
 PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/review-prompt-XXXXXX")
+trap 'rm -f "${PROMPT_FILE:-}"' EXIT
 cat > "$PROMPT_FILE" <<'ENDPROMPT'
-[REVIEW PROMPT FROM STEP 2]
-
-Here is the diff to review:
+[REVIEW PROMPT FROM STEP 2 — with GIT_SCOPE_CMD/GIT_FILES_CMD substituted]
 ENDPROMPT
-cat "$DIFF_FILE" >> "$PROMPT_FILE"
 ```
 
 **Dispatch based on first reviewer from Step 1:**
 
 If first reviewer is **Gemini**:
 ```bash
-cat "$PROMPT_FILE" | gemini -p "Review the code diff provided on stdin."
+cat "$PROMPT_FILE" | gemini
 ```
 
 If first reviewer is **Codex** (e.g., `/review --reviewer codex`):
@@ -146,7 +149,7 @@ codex review --uncommitted
 
 **Shell safety rules:**
 - Always use single-quoted heredocs (`<<'ENDPROMPT'`) to prevent shell expansion
-- Pass diffs via temp files, never inline as arguments
+- Never pass large diffs inline — reviewers discover changes via git commands
 - Validate any output before parsing
 
 **Save the reviewer's response. If the CLI returns a session ID, save it for re-reviews.**
@@ -171,7 +174,7 @@ codex review --uncommitted
 
 If second reviewer is **Gemini** (e.g., `/review --reviewer codex gemini`):
 ```bash
-cat "$PROMPT_FILE" | gemini -p "Review the code diff provided on stdin."
+cat "$PROMPT_FILE" | gemini
 ```
 
 ---
@@ -211,10 +214,9 @@ Issues:
 2. Fix each issue systematically (read file → apply fix → mark done)
 3. Re-stage fixed files: `git add <fixed-files>`
 4. **Re-review using the same prompt (fresh invocation):**
-   - Re-generate diff to temp file
    - Send to first reviewer (same prompt — never mention fixes or previous rounds)
    - Send to second reviewer (same prompt)
-   - Note: Each re-review is a fresh CLI invocation; session resumption is not supported by current CLIs
+   - Note: Each re-review is a fresh CLI invocation; reviewers use git to discover changes
 5. Summarize new findings
 6. **If new issues found → repeat from step 1**
 7. **If ALL reviewers approve → go to Step 7**
@@ -249,9 +251,9 @@ Run /review again for a fresh iteration to confirm.
 
 **If zero issues on first try** (no fixes needed), the code is fully approved.
 
-**Clean up temp files** (also handled by the EXIT trap set in Step 2):
+**Clean up temp files** (also handled by the EXIT trap set in Step 3):
 ```bash
-rm -f "$DIFF_FILE" "$PROMPT_FILE"
+rm -f "$PROMPT_FILE"
 ```
 
 ---
@@ -289,4 +291,4 @@ rm -f "$DIFF_FILE" "$PROMPT_FILE"
 4. **ALL approvals before completing** — don't report APPROVED until every reviewer approves
 5. **Fix ALL issues including LOW** — zero tolerance, no deferral
 6. **Single-quoted heredocs** — prevent shell injection in reviewer prompts
-7. **Temp files for diffs** — never pass large diffs inline to CLI
+7. **Never pass diff content to reviewers** — reviewers use git commands to discover changes themselves (prevents OOM on large diffs)
