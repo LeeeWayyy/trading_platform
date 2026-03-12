@@ -401,6 +401,32 @@ class TestRenderStrategyModels:
         dummy = _UI()
         monkeypatch.setattr(models_module, "ui", dummy)
 
+        class FakeModelServiceWithDbError(FakeModelRegistryBrowserService):
+            async def get_models_for_strategy(
+                self, strategy_name: str, user: dict[str, Any]
+            ) -> list[dict[str, Any]]:
+                import psycopg
+
+                raise psycopg.OperationalError("connection refused")
+
+        service = FakeModelServiceWithDbError()
+        await models_module._render_strategy_models(
+            service, "alpha_baseline", admin_user, can_manage=True
+        )
+
+        label_texts = [el.label for el in dummy.labels]
+        assert any("error" in t.lower() for t in label_texts)
+
+    @pytest.mark.asyncio()
+    async def test_permission_error_shows_denied_label(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        admin_user: dict[str, Any],
+    ) -> None:
+        """PermissionError from service shows access denied label."""
+        dummy = _UI()
+        monkeypatch.setattr(models_module, "ui", dummy)
+
         service = FakeModelServiceWithPermissionError()
         await models_module._render_strategy_models(
             service, "alpha_baseline", admin_user, can_manage=True

@@ -604,6 +604,30 @@ class TestGenerateSignalsStrategyActiveCheck:
         assert response.status_code == 503
         assert "Cannot verify strategy" in response.json()["detail"]
 
+    def test_generate_signals_strategy_missing_returns_503(
+        self,
+        client: TestClient,
+        mock_auth_context: Mock,
+    ) -> None:
+        """Missing strategy (not in DB) returns 503 — config/deployment issue."""
+        mock_generator = Mock()
+        mock_registry = Mock()
+        mock_registry.is_loaded = True
+
+        with patch("apps.signal_service.main.signal_generator", mock_generator):
+            with patch("apps.signal_service.main.model_registry", mock_registry):
+                with patch(
+                    "apps.signal_service.main._check_strategy_active",
+                    return_value="missing",
+                ):
+                    response = client.post(
+                        "/api/v1/signals/generate",
+                        json={"symbols": ["AAPL"]},
+                    )
+
+        assert response.status_code == 503
+        assert "not found" in response.json()["detail"]
+
     def test_generate_signals_strategy_active_proceeds(
         self,
         client: TestClient,

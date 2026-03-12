@@ -131,7 +131,8 @@ def _check_strategy_active(strategy_id: str) -> str:
 
     Returns:
         "active" — strategy exists and active=TRUE
-        "inactive" — strategy exists but active=FALSE, or row is missing
+        "inactive" — strategy exists but active=FALSE (admin-disabled)
+        "missing" — strategy not found in DB (config/deployment issue)
         "error" — DB connection or query failure
 
     This is a safety-critical check: if we cannot determine strategy status,
@@ -187,7 +188,7 @@ def _check_strategy_active(strategy_id: str) -> str:
                             "strategy_not_found_fail_closed",
                             extra={"strategy_id": strategy_id},
                         )
-                        result = "inactive"
+                        result = "missing"
                     else:
                         result = "active" if row[0] else "inactive"
             _strategy_active_cache[strategy_id] = (result, time.time())
@@ -1632,8 +1633,9 @@ async def health_check() -> HealthResponse:
 
     # P6T17: Probe strategy status DB to detect dependency failures.
     # If generate_signals would 503 for all requests, readiness should report degraded.
+    # "error" = DB unreachable, "missing" = strategy not in DB (config mismatch).
     strategy_status = await asyncio.to_thread(_check_strategy_active, settings.default_strategy)
-    if strategy_status == "error":
+    if strategy_status in ("error", "missing"):
         health_status = "degraded"
 
     return HealthResponse(
@@ -1787,6 +1789,11 @@ async def generate_signals(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Cannot verify strategy '{strategy_id}' status. Signal generation blocked.",
+            )
+        if strategy_status == "missing":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Strategy '{strategy_id}' not found in database. Check deployment configuration.",
             )
         if strategy_status == "inactive":
             raise HTTPException(

@@ -31,6 +31,22 @@ from sklearn.datasets import make_regression  # type: ignore[import-untyped]
 from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
 
 # ============================================================================
+# P6T17: Auto-stub strategy active check to prevent DB dependency in all tests.
+# Tests that need the real path override via monkeypatch in-test:
+#   - test_main.py::TestCheckStrategyActive (unit tests for the function itself)
+#   - test_main_endpoints.py::TestGenerateSignalsStrategyActiveCheck (endpoint 403/503)
+# ============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _stub_strategy_active_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default all signal-service tests to active strategy (no real DB needed)."""
+    from apps.signal_service import main as signal_main
+
+    monkeypatch.setattr(signal_main, "_check_strategy_active", lambda _sid: "active")
+
+
+# ============================================================================
 # Directory and File Fixtures
 # ============================================================================
 
@@ -469,11 +485,7 @@ def client(monkeypatch, mock_settings, mock_model_registry, mock_signal_generato
     monkeypatch.setattr(main, "event_publisher", None)
     monkeypatch.setattr(main, "fallback_buffer", None)
     monkeypatch.setattr(main, "shadow_validator", None)
-    # P6T17: Bypass strategy active check so endpoint tests don't need a real DB.
-    # The real fail-closed path is exercised in:
-    #   - test_main.py::TestCheckStrategyActive (unit tests for _check_strategy_active)
-    #   - test_main_endpoints.py::TestGenerateSignalsStrategyActiveCheck (endpoint-level 403/503)
-    monkeypatch.setattr(main, "_check_strategy_active", lambda _sid: "active")
+    # _check_strategy_active is auto-stubbed by the autouse fixture above.
 
     return TestClient(main.app, raise_server_exceptions=False)
 

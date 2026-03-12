@@ -1154,8 +1154,8 @@ class TestCheckStrategyActive:
             result = _check_strategy_active("alpha_baseline")
         assert result == "inactive"
 
-    def test_returns_inactive_when_strategy_missing(self) -> None:
-        """Missing strategy returns 'inactive'."""
+    def test_returns_missing_when_strategy_not_found(self) -> None:
+        """Missing strategy returns 'missing' (distinct from admin-disabled 'inactive')."""
         mock_conn = self._make_mock_conn(None)
         mock_settings = Mock()
         mock_settings.database_url = "postgresql://test:test@localhost/test"
@@ -1165,7 +1165,7 @@ class TestCheckStrategyActive:
         ):
             mock_psycopg.connect.return_value = mock_conn
             result = _check_strategy_active("nonexistent")
-        assert result == "inactive"
+        assert result == "missing"
 
     def test_returns_error_on_db_failure(self) -> None:
         """DB connection error returns 'error'."""
