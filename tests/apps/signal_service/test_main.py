@@ -37,6 +37,7 @@ from fastapi.testclient import TestClient
 from apps.signal_service.main import (
     _MAX_GENERATOR_CACHE_SIZE,
     PrecomputeRequest,
+    _check_strategy_active,
     app,
     lifespan,
 )
@@ -1103,6 +1104,53 @@ class TestSignalEventPublishing:
         assert published_event.strategy_id == "alpha_baseline"
         assert set(published_event.symbols) == {"AAPL", "MSFT"}
         assert published_event.num_signals == 2
+
+
+class TestCheckStrategyActive:
+    """Tests for _check_strategy_active tri-state function."""
+
+    def _make_mock_conn(self, fetchone_result: tuple | None) -> Mock:
+        """Create mock psycopg connection context manager."""
+        mock_cursor = Mock()
+        mock_cursor.fetchone.return_value = fetchone_result
+        mock_cursor.__enter__ = Mock(return_value=mock_cursor)
+        mock_cursor.__exit__ = Mock(return_value=False)
+        mock_conn = Mock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=False)
+        return mock_conn
+
+    def test_returns_active_when_strategy_active(self) -> None:
+        """Active strategy returns 'active'."""
+        mock_conn = self._make_mock_conn((True,))
+        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+            mock_psycopg.connect.return_value = mock_conn
+            result = _check_strategy_active(Mock(), "alpha_baseline")
+        assert result == "active"
+
+    def test_returns_inactive_when_strategy_inactive(self) -> None:
+        """Inactive strategy returns 'inactive'."""
+        mock_conn = self._make_mock_conn((False,))
+        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+            mock_psycopg.connect.return_value = mock_conn
+            result = _check_strategy_active(Mock(), "alpha_baseline")
+        assert result == "inactive"
+
+    def test_returns_inactive_when_strategy_missing(self) -> None:
+        """Missing strategy returns 'inactive'."""
+        mock_conn = self._make_mock_conn(None)
+        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+            mock_psycopg.connect.return_value = mock_conn
+            result = _check_strategy_active(Mock(), "nonexistent")
+        assert result == "inactive"
+
+    def test_returns_error_on_db_failure(self) -> None:
+        """DB connection error returns 'error'."""
+        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+            mock_psycopg.connect.side_effect = Exception("connection refused")
+            result = _check_strategy_active(Mock(), "alpha_baseline")
+        assert result == "error"
 
 
 if __name__ == "__main__":

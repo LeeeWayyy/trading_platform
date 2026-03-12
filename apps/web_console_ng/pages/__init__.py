@@ -34,6 +34,7 @@ from apps.web_console_ng.pages import (
     login,  # noqa: F401 - Auth page
     manual_order,  # noqa: F401
     mfa_verify,  # noqa: F401 - Auth page
+    models,  # noqa: F401 - P6T17
     notebook_launcher,  # noqa: F401 - P5T8
     performance,  # noqa: F401 - P5T8
     position_management,  # noqa: F401
@@ -41,5 +42,6 @@ from apps.web_console_ng.pages import (
     scheduled_reports,  # noqa: F401 - P5T8
     shadow_results,  # noqa: F401 - P6T14
     sql_explorer,  # noqa: F401 - P6T14
+    strategies,  # noqa: F401 - P6T17
     universes,  # noqa: F401 - P6T15
 )

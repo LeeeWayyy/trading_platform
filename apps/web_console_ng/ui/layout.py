@@ -170,6 +170,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Performance", "/performance", "show_chart", None),  # P5T8
                     ("Reports", "/reports", "summarize", None),  # P5T8
                     ("Backtest", "/backtest", "science", None),
+                    ("Strategies", "/strategies", "model_training", None),  # P6T17
+                    ("Models", "/models", "hub", None),  # P6T17
+                    ("Alerts", "/alerts", "notifications", None),  # P5T7
                     (
                         "Admin",
                         "/admin",
@@ -200,6 +203,20 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path == "/research/universes" and not has_permission(
                         user, Permission.VIEW_UNIVERSES
                     ):
+                        continue
+
+                    # Strategies link requires MANAGE_STRATEGIES
+                    if path == "/strategies" and not has_permission(
+                        user, Permission.MANAGE_STRATEGIES
+                    ):
+                        continue
+
+                    # Models link requires VIEW_MODELS
+                    if path == "/models" and not has_permission(user, Permission.VIEW_MODELS):
+                        continue
+
+                    # Alerts link requires VIEW_ALERTS
+                    if path == "/alerts" and not has_permission(user, Permission.VIEW_ALERTS):
                         continue
 
                     is_active = current_path == path

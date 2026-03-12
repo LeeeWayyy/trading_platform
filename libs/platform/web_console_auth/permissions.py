@@ -107,6 +107,9 @@ class Permission(str, Enum):
     MANAGE_UNIVERSES = "manage_universes"  # T15.1: Create/edit/delete custom universes
     VIEW_STRATEGY_EXPOSURE = "view_strategy_exposure"  # T15.3: Strategy exposure dashboard
 
+    # P6T17: Model Registry Browser
+    VIEW_MODELS = "view_models"  # View model registry page
+
 
 class DatasetPermission(str, Enum):
     """Per-dataset access permissions for licensing compliance."""
@@ -178,6 +181,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_UNIVERSES,  # T15.1/T15.2: Browse universes
         Permission.MANAGE_UNIVERSES,  # T15.1: Operators manage custom universes
         Permission.VIEW_STRATEGY_EXPOSURE,  # T15.3: Strategy exposure dashboard
+        Permission.VIEW_MODELS,  # P6T17: Model registry browser access
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
@@ -303,7 +307,13 @@ def require_permission(
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             # Use key-presence checks, not truthiness: user={} (falsy)
             # must not fall through to session or positional args.
-            subject = kwargs.get("user") if "user" in kwargs else kwargs.get("session") if "session" in kwargs else None
+            subject = (
+                kwargs.get("user")
+                if "user" in kwargs
+                else kwargs.get("session")
+                if "session" in kwargs
+                else None
+            )
             if subject is None and args:
                 first_arg = args[0]
                 # Common pattern: FastAPI/Starlette Request exposes .user
@@ -330,7 +340,13 @@ def require_permission(
 
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            subject = kwargs.get("user") if "user" in kwargs else kwargs.get("session") if "session" in kwargs else None
+            subject = (
+                kwargs.get("user")
+                if "user" in kwargs
+                else kwargs.get("session")
+                if "session" in kwargs
+                else None
+            )
             if subject is None and args:
                 first_arg = args[0]
                 subject = getattr(first_arg, "user", None)

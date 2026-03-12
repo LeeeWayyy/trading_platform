@@ -445,6 +445,10 @@ FEATURE_PERFORMANCE_DASHBOARD = _get_bool_env("FEATURE_PERFORMANCE_DASHBOARD")
 # P6T8: Execution Analytics feature flags
 FEATURE_TCA_DASHBOARD = _get_bool_env("FEATURE_TCA_DASHBOARD")
 
+# P6T17: Strategy & Model Management
+FEATURE_STRATEGY_MANAGEMENT = _get_bool_env("FEATURE_STRATEGY_MANAGEMENT")
+FEATURE_MODEL_REGISTRY = _get_bool_env("FEATURE_MODEL_REGISTRY")
+
 # =============================================================================
 # Auto-refresh and UI settings (P5T7)
 # =============================================================================

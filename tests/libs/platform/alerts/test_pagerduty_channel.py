@@ -1,0 +1,214 @@
+"""Unit tests for PagerDuty channel implementation.
+
+Tests cover:
+- Events API v2 payload format
+- PII masking for routing keys
+- Error handling (timeout, request error)
+- DeliveryResult fields
+- Metadata severity override
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, Mock, patch
+
+import httpx
+import pytest
+
+from libs.platform.alerts.channels.pagerduty import PagerDutyChannel
+
+
+@pytest.fixture()
+def channel() -> PagerDutyChannel:
+    return PagerDutyChannel()
+
+
+class TestPagerDutyChannelType:
+    def test_channel_type(self, channel: PagerDutyChannel) -> None:
+        assert channel.channel_type == "pagerduty"
+
+    def test_events_api_url(self, channel: PagerDutyChannel) -> None:
+        assert channel.EVENTS_API_URL == "https://events.pagerduty.com/v2/enqueue"
+
+
+class TestPagerDutySend:
+    @pytest.mark.asyncio()
+    async def test_successful_delivery(self, channel: PagerDutyChannel) -> None:
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.status_code = 202
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"dedup_key": "abc123"}
+
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_httpx.RequestError = httpx.RequestError
+
+            result = await channel.send(
+                recipient="routing-key-12345",
+                subject="Test Alert",
+                body="Something happened",
+            )
+
+        assert result.success is True
+        assert result.message_id == "abc123"
+        assert result.error is None
+
+        # Verify payload format
+        call_args = mock_client.post.call_args
+        payload = call_args.kwargs["json"]
+        assert payload["routing_key"] == "routing-key-12345"
+        assert payload["event_action"] == "trigger"
+        assert payload["payload"]["summary"] == "Test Alert"
+        assert payload["payload"]["source"] == "trading-platform"
+        assert payload["payload"]["severity"] == "warning"  # default
+        assert payload["payload"]["custom_details"]["description"] == "Something happened"
+
+    @pytest.mark.asyncio()
+    async def test_severity_override_via_metadata(self, channel: PagerDutyChannel) -> None:
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.status_code = 202
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"dedup_key": "abc123"}
+
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_httpx.RequestError = httpx.RequestError
+
+            await channel.send(
+                recipient="key",
+                subject="Critical",
+                body="Down",
+                metadata={"severity": "critical", "rule_name": "test"},
+            )
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["payload"]["severity"] == "critical"
+        assert payload["payload"]["custom_details"]["rule_name"] == "test"
+        # severity should NOT be in custom_details (popped)
+        assert "severity" not in payload["payload"]["custom_details"]
+
+    @pytest.mark.asyncio()
+    async def test_timeout_returns_retryable(self, channel: PagerDutyChannel) -> None:
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+
+            result = await channel.send("key", "subject", "body")
+
+        assert result.success is False
+        assert result.error == "timeout"
+        assert result.retryable is True
+
+    @pytest.mark.asyncio()
+    async def test_request_error_returns_retryable(self, channel: PagerDutyChannel) -> None:
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(side_effect=httpx.RequestError("connection failed"))
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.RequestError = httpx.RequestError
+            mock_httpx.TimeoutException = httpx.TimeoutException
+
+            result = await channel.send("my-routing-key", "subject", "body")
+
+        assert result.success is False
+        assert result.retryable is True
+        # Routing key should be masked in error
+        assert "my-routing-key" not in (result.error or "")
+
+    @pytest.mark.asyncio()
+    async def test_api_error_retryable_for_500(self, channel: PagerDutyChannel) -> None:
+        mock_response = AsyncMock()
+        mock_response.is_success = False
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+        mock_response.headers = {}
+
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_httpx.RequestError = httpx.RequestError
+
+            result = await channel.send("key", "subject", "body")
+
+        assert result.success is False
+        assert result.retryable is True
+
+    @pytest.mark.asyncio()
+    async def test_api_error_not_retryable_for_400(self, channel: PagerDutyChannel) -> None:
+        mock_response = AsyncMock()
+        mock_response.is_success = False
+        mock_response.status_code = 400
+        mock_response.text = "Bad Request"
+        mock_response.headers = {}
+
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_httpx.RequestError = httpx.RequestError
+
+            result = await channel.send("key", "subject", "body")
+
+        assert result.success is False
+        assert result.retryable is False
+
+    @pytest.mark.asyncio()
+    async def test_rate_limit_retryable(self, channel: PagerDutyChannel) -> None:
+        mock_response = AsyncMock()
+        mock_response.is_success = False
+        mock_response.status_code = 429
+        mock_response.text = "Rate limited"
+        mock_response.headers = {}
+
+        with patch("libs.platform.alerts.channels.pagerduty.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_httpx.RequestError = httpx.RequestError
+
+            result = await channel.send("key", "subject", "body")
+
+        assert result.retryable is True
+
+
+class TestPagerDutyPIIMasking:
+    def test_routing_key_masked(self) -> None:
+        """PagerDuty routing keys use last-4-chars convention."""
+        from libs.platform.alerts.pii import mask_recipient
+
+        masked = mask_recipient("abcdef1234567890", "pagerduty")
+        assert masked == "***7890"
+
+    def test_short_routing_key_masked(self) -> None:
+        from libs.platform.alerts.pii import mask_recipient
+
+        masked = mask_recipient("ab", "pagerduty")
+        assert masked == "***"

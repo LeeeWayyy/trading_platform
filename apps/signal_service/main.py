@@ -41,6 +41,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+import psycopg
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,6 +117,44 @@ hydration_complete = True
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
 _generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
+
+
+def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
+    """Check if strategy is active in the strategies table (fail-closed).
+
+    Returns:
+        "active" — strategy exists and active=TRUE
+        "inactive" — strategy exists but active=FALSE, or row is missing
+        "error" — DB connection or query failure
+
+    This is a safety-critical check: if we cannot determine strategy status,
+    we block signal generation rather than allowing it through.
+
+    Uses settings.database_url directly to avoid coupling to ModelRegistry
+    internals.
+    """
+    try:
+        db_url = get_settings().database_url
+        with psycopg.connect(db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT active FROM strategies WHERE strategy_id = %s",
+                    (strategy_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    logger.warning(
+                        "strategy_not_found_fail_closed",
+                        extra={"strategy_id": strategy_id},
+                    )
+                    return "inactive"
+                return "active" if row[0] else "inactive"
+    except Exception as exc:
+        logger.error(
+            "strategy_active_check_failed_fail_closed",
+            extra={"strategy_id": strategy_id, "error": str(exc)},
+        )
+        return "error"
 
 
 # ==============================================================================
@@ -1654,6 +1693,23 @@ async def generate_signals(
         if not model_registry.is_loaded:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
+            )
+
+        # P6T17: Fail-closed strategy active check
+        # Block signal generation if strategy is inactive or missing from strategies table
+        strategy_id = settings.default_strategy
+        strategy_status = await asyncio.to_thread(
+            _check_strategy_active, model_registry, strategy_id
+        )
+        if strategy_status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Cannot verify strategy '{strategy_id}' status. Signal generation blocked.",
+            )
+        if strategy_status == "inactive":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Strategy '{strategy_id}' is not active. Signal generation blocked.",
             )
 
         # Parse date

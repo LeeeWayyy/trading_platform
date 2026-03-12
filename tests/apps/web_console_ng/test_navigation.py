@@ -292,12 +292,16 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
 
     class _DummyClient:
         async def fetch_kill_switch_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "ACTIVE"}
 
         async def fetch_circuit_breaker_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "OPEN"}
 
@@ -333,6 +337,9 @@ def test_navigation_item_structure() -> None:
         ("Performance", "/performance", "show_chart", None),
         ("Reports", "/reports", "summarize", None),
         ("Backtest", "/backtest", "science", None),
+        ("Strategies", "/strategies", "model_training", None),  # P6T17
+        ("Models", "/models", "hub", None),  # P6T17
+        ("Alerts", "/alerts", "notifications", None),  # P5T7/P6T17
         ("Admin", "/admin", "settings", None),
     ]
 
@@ -375,7 +382,8 @@ async def test_exposure_link_hidden_without_permission(
 
     # Deny only VIEW_STRATEGY_EXPOSURE; grant everything else
     def mock_has_permission(
-        _user: dict[str, Any], perm: Permission,
+        _user: dict[str, Any],
+        perm: Permission,
     ) -> bool:
         return perm != Permission.VIEW_STRATEGY_EXPOSURE
 
@@ -473,12 +481,16 @@ async def test_exposure_link_hidden_without_permission(
 
     class _DummyClient:
         async def fetch_kill_switch_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "ACTIVE"}
 
         async def fetch_circuit_breaker_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "OPEN"}
 
@@ -520,7 +532,8 @@ async def test_universes_link_hidden_without_permission(
     )
 
     def mock_has_permission(
-        _user: dict[str, Any], perm: Permission,
+        _user: dict[str, Any],
+        perm: Permission,
     ) -> bool:
         return perm != Permission.VIEW_UNIVERSES
 
@@ -618,12 +631,16 @@ async def test_universes_link_hidden_without_permission(
 
     class _DummyClient:
         async def fetch_kill_switch_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "ACTIVE"}
 
         async def fetch_circuit_breaker_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "OPEN"}
 

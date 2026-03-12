@@ -22,8 +22,8 @@ rate_limit_redis_errors_total = Counter(
 )
 
 ALERT_RATE_LIMITS: dict[str, Any] = {
-    "channel": {"email": 100, "slack": 50, "sms": 10},  # per minute
-    "recipient": {"email": 5, "slack": 10, "sms": 3},  # per hour
+    "channel": {"email": 100, "slack": 50, "sms": 10, "pagerduty": 30},  # per minute
+    "recipient": {"email": 5, "slack": 10, "sms": 3, "pagerduty": 10},  # per hour
     "global": 500,  # per minute
 }
 
@@ -223,10 +223,10 @@ class RateLimiter:
             return allowed
 
     async def check_channel_rate_limit(self, channel: str) -> bool:
-        """Check per-channel rate limit (email 100/min, slack 50/min, sms 10/min).
+        """Check per-channel rate limit (email 100/min, slack 50/min, sms 10/min, pagerduty 30/min).
 
         Raises:
-            ValueError: If channel is not a known type (email, slack, sms)
+            ValueError: If channel is not a known type
         """
         if channel not in ALERT_RATE_LIMITS["channel"]:
             raise ValueError(f"Unknown channel type: {channel}")
@@ -237,10 +237,10 @@ class RateLimiter:
         return await self.check_alert_rate_limit(key, limit, ALERT_RATE_LIMIT_TTL["channel"])
 
     async def check_recipient_rate_limit(self, recipient_hash: str, channel: str) -> bool:
-        """Check per-recipient rate limit (email 5/hr, slack 10/hr, sms 3/hr).
+        """Check per-recipient rate limit (email 5/hr, slack 10/hr, sms 3/hr, pagerduty 10/hr).
 
         Raises:
-            ValueError: If channel is not a known type (email, slack, sms)
+            ValueError: If channel is not a known type
         """
         if channel not in ALERT_RATE_LIMITS["recipient"]:
             raise ValueError(f"Unknown channel type for recipient limit: {channel}")

@@ -208,7 +208,7 @@ def setup_model_registry_table(db_connection):
                 cur.execute("SELECT * FROM model_registry")
     """
     # Read migration SQL
-    migration_path = Path("migrations/001_create_model_registry.sql")
+    migration_path = Path("db/legacy/migrations_pre_alembic/001_create_model_registry.sql")
     if not migration_path.exists():
         pytest.skip("Migration file not found")
 
@@ -469,6 +469,8 @@ def client(monkeypatch, mock_settings, mock_model_registry, mock_signal_generato
     monkeypatch.setattr(main, "event_publisher", None)
     monkeypatch.setattr(main, "fallback_buffer", None)
     monkeypatch.setattr(main, "shadow_validator", None)
+    # P6T17: Default strategy active check to "active" so existing tests pass
+    monkeypatch.setattr(main, "_check_strategy_active", lambda _reg, _sid: "active")
 
     return TestClient(main.app, raise_server_exceptions=False)
 

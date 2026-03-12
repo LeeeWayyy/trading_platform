@@ -17,7 +17,7 @@
 
 **Preconditions:**
 - `REDIS_URL` and `DATABASE_URL` are set.
-- `channel` is one of `email`, `slack`, `sms` (validated by `ChannelType`).
+- `channel` is one of `email`, `slack`, `sms`, `pagerduty` (validated by `ChannelType`).
 
 **Postconditions:**
 - Delivery result is returned as a dict suitable for RQ serialization.
@@ -53,7 +53,7 @@
 RQ job (alerts queue)
   -> execute_delivery_job
     -> DeliveryExecutor
-      -> Channel (Email/Slack/SMS)
+      -> Channel (Email/Slack/SMS/PagerDuty)
       -> DB writes (delivery status, poison queue)
       -> Redis (rate limiting, queue depth)
       -> Optional retry scheduling (enqueue_in)
@@ -61,7 +61,7 @@ RQ job (alerts queue)
 
 ## Dependencies
 - **Internal:** `libs.alerts.*`, `libs.web_console_auth.rate_limiter`, `libs.common.exceptions`
-- **External:** Redis, Postgres (psycopg/psycopg_pool), RQ, Twilio (SMS channel), Slack/email providers
+- **External:** Redis, Postgres (psycopg/psycopg_pool), RQ, Twilio (SMS channel), Slack/email providers, PagerDuty Events API v2
 
 ## Configuration
 | Variable | Required | Default | Description |
@@ -115,7 +115,7 @@ queue.enqueue(
 | Scenario | Input | Expected Behavior |
 |----------|-------|-------------------|
 | Missing env vars | `REDIS_URL` or `DATABASE_URL` unset | Worker exits before processing jobs. |
-| Invalid channel | `channel="pager"` | `ValueError` raised; job fails. |
+| Invalid channel | `channel="unknown"` | `ValueError` raised; job fails. |
 | Redis unavailable | Connection failure on startup | Worker fails fast; logs error. |
 
 ## Known Issues & TODO
@@ -129,6 +129,6 @@ queue.enqueue(
 - `docs/SPECS/libs/redis_client.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-14
+- **Last Updated:** 2026-03-12 (P6T17 - Added PagerDutyChannel to channel handlers)
 - **Source Files:** `apps/alert_worker/entrypoint.py`
 - **ADRs:** N/A

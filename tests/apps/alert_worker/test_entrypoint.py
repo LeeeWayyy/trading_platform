@@ -246,26 +246,31 @@ class TestCloseAsyncResources:
 class TestGetChannels:
     """Test _get_channels function."""
 
-    def test_get_channels_creates_email_and_slack(self):
-        """Test _get_channels creates EMAIL and SLACK channels."""
+    def test_get_channels_creates_email_slack_and_pagerduty(self):
+        """Test _get_channels creates EMAIL, SLACK, and PAGERDUTY channels."""
         with (
             patch("apps.alert_worker.entrypoint._CHANNELS", None),
             patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
             patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
             patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+            patch("apps.alert_worker.entrypoint.PagerDutyChannel") as mock_pd,
         ):
             mock_email_instance = Mock()
             mock_slack_instance = Mock()
+            mock_pd_instance = Mock()
             mock_email.return_value = mock_email_instance
             mock_slack.return_value = mock_slack_instance
+            mock_pd.return_value = mock_pd_instance
             mock_sms.side_effect = ConfigurationError("Twilio not configured")
 
             channels = _get_channels()
 
             assert ChannelType.EMAIL in channels
             assert ChannelType.SLACK in channels
+            assert ChannelType.PAGERDUTY in channels
             assert channels[ChannelType.EMAIL] == mock_email_instance
             assert channels[ChannelType.SLACK] == mock_slack_instance
+            assert channels[ChannelType.PAGERDUTY] == mock_pd_instance
 
     def test_get_channels_skips_sms_when_not_configured(self):
         """Test _get_channels skips SMS when Twilio credentials are missing."""
@@ -274,6 +279,7 @@ class TestGetChannels:
             patch("apps.alert_worker.entrypoint.EmailChannel"),
             patch("apps.alert_worker.entrypoint.SlackChannel"),
             patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+            patch("apps.alert_worker.entrypoint.PagerDutyChannel"),
         ):
             mock_sms.side_effect = ConfigurationError("Twilio credentials missing")
 
@@ -288,6 +294,7 @@ class TestGetChannels:
             patch("apps.alert_worker.entrypoint.EmailChannel"),
             patch("apps.alert_worker.entrypoint.SlackChannel"),
             patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+            patch("apps.alert_worker.entrypoint.PagerDutyChannel"),
         ):
             mock_sms_instance = Mock()
             mock_sms.return_value = mock_sms_instance
@@ -303,6 +310,7 @@ class TestGetChannels:
             patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
             patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
             patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+            patch("apps.alert_worker.entrypoint.PagerDutyChannel"),
         ):
             mock_sms.side_effect = ConfigurationError("Twilio not configured")
 
