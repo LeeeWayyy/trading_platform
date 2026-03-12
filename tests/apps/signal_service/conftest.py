@@ -469,7 +469,10 @@ def client(monkeypatch, mock_settings, mock_model_registry, mock_signal_generato
     monkeypatch.setattr(main, "event_publisher", None)
     monkeypatch.setattr(main, "fallback_buffer", None)
     monkeypatch.setattr(main, "shadow_validator", None)
-    # P6T17: Default strategy active check to "active" so existing tests pass
+    # P6T17: Bypass strategy active check so endpoint tests don't need a real DB.
+    # The real fail-closed path is exercised in:
+    #   - test_main.py::TestCheckStrategyActive (unit tests for _check_strategy_active)
+    #   - test_main_endpoints.py::TestGenerateSignalsStrategyActiveCheck (endpoint-level 403/503)
     monkeypatch.setattr(main, "_check_strategy_active", lambda _sid: "active")
 
     return TestClient(main.app, raise_server_exceptions=False)

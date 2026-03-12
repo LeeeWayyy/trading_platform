@@ -5,6 +5,11 @@ Tests use fake services (not real NiceGUI rendering) to verify:
 - Permission checks (VIEW_MODELS for page access)
 - Admin-only action visibility (activate/deactivate buttons)
 - Service method invocation and error handling
+
+NiceGUI limitation: NiceGUI does not provide a test client for rendering pages,
+so we cannot test actual rendered controls, dialogs, or button callbacks.
+The fake-service pattern validates the service contract and RBAC gating logic.
+Page wiring/rendering is covered by manual QA and E2E tests.
 """
 
 from __future__ import annotations

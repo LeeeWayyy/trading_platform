@@ -151,6 +151,10 @@ def _check_strategy_active(strategy_id: str) -> str:
     intentionally covers the DB call: the first request on cache-miss pays
     the connect_timeout while subsequent requests wait on the lock and then
     hit the freshly-cached result (either success or error).
+
+    Timeout budget: connect_timeout=2s + statement_timeout=2s = max ~4s under
+    the lock. The statement_timeout caps query execution so the lock cannot be
+    held indefinitely by a stalled query (e.g. table lock contention).
     """
     with _strategy_cache_lock:
         now = time.time()
@@ -167,7 +171,11 @@ def _check_strategy_active(strategy_id: str) -> str:
 
         try:
             db_url = get_settings().database_url
-            with psycopg.connect(db_url, connect_timeout=2) as conn:
+            with psycopg.connect(
+                db_url,
+                connect_timeout=2,
+                options="-c statement_timeout=2000",
+            ) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT active FROM strategies WHERE strategy_id = %s",
@@ -630,6 +638,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _format_database_url_for_logging(settings.database_url),
         )
         model_registry = ModelRegistry(settings.database_url)
+
+        # Step 1.5: Ensure configured default_strategy exists in strategies table.
+        # Migration 0028 seeds 'alpha_baseline', but settings.default_strategy is
+        # configurable. Bootstrap here to prevent fail-closed blocking on envs
+        # that use a different default strategy.
+        try:
+            with psycopg.connect(
+                settings.database_url,
+                connect_timeout=2,
+                options="-c statement_timeout=2000",
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO strategies (strategy_id, name, description) "
+                        "VALUES (%s, %s, %s) ON CONFLICT (strategy_id) DO NOTHING",
+                        (
+                            settings.default_strategy,
+                            settings.default_strategy,
+                            "Auto-seeded by signal service startup",
+                        ),
+                    )
+                    conn.commit()
+            logger.info(
+                "strategy_bootstrap_ok",
+                extra={"strategy_id": settings.default_strategy},
+            )
+        except Exception:
+            logger.warning(
+                "strategy_bootstrap_failed",
+                extra={"strategy_id": settings.default_strategy},
+            )
 
         # Step 2: Load active model
         logger.info(f"Loading model: {settings.default_strategy}")
