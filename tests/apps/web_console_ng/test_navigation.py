@@ -658,3 +658,38 @@ async def test_universes_link_hidden_without_permission(
 
     targets = {link.target for link in fake_ui.links}
     assert "/research/universes" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_p6t17_links_hidden_when_feature_flags_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategies, Models, and Alerts nav links are hidden when feature flags are False."""
+    # Disable all P6T17 feature flags
+    monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", False)
+
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/strategies" not in targets
+    assert "/models" not in targets
+    assert "/alerts" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_p6t17_links_visible_when_feature_flags_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategies, Models, and Alerts nav links are visible when feature flags are True."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
+
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/strategies" in targets
+    assert "/models" in targets
+    assert "/alerts" in targets

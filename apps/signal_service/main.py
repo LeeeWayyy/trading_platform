@@ -165,9 +165,11 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
         _strategy_active_cache[strategy_id] = (result, now)
         return result
     except Exception as exc:
+        # Redact connection details from driver errors to prevent credential leaks
+        error_type = type(exc).__name__
         logger.error(
             "strategy_active_check_failed_fail_closed",
-            extra={"strategy_id": strategy_id, "error": str(exc)},
+            extra={"strategy_id": strategy_id, "error_type": error_type},
         )
         return "error"
 

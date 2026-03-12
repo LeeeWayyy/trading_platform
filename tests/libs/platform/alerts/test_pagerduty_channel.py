@@ -25,7 +25,7 @@ def channel() -> PagerDutyChannel:
     return PagerDutyChannel()
 
 
-def _mock_client_post(mock_response: Mock) -> AsyncMock:
+def _mock_client_post(mock_response: Mock) -> tuple[AsyncMock, AsyncMock]:
     """Create a mock httpx.AsyncClient context manager that returns mock_response on post."""
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)

@@ -335,3 +335,6 @@ class TestValidateModel:
             result = await service.validate_model("alpha_baseline", "v1.0.0", admin_user)
 
         assert result is None
+        # Verify per-send client lifecycle (context manager was used)
+        mock_client.__aenter__.assert_called_once()
+        mock_client.__aexit__.assert_called_once()

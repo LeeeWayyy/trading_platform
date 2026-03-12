@@ -45,7 +45,7 @@ class ModelRegistryBrowserService:
         self.audit_logger = audit_logger
         self._model_registry_url = model_registry_url
         # Private, scoped by naming convention — must only be read by
-        # _validate_model(), never passed to any other method or used for
+        # validate_model(), never passed to any other method or used for
         # any other API call.
         self._validate_token = validate_token
 
