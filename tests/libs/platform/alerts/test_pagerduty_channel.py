@@ -192,6 +192,26 @@ class TestPagerDutySend:
         assert result.retryable is True
 
     @pytest.mark.asyncio()
+    async def test_error_response_masks_routing_key(self, channel: PagerDutyChannel) -> None:
+        """Routing key echoed in error response body must be masked."""
+        routing_key = "my-secret-routing-key-12345"
+        mock_response = Mock()
+        mock_response.is_success = False
+        mock_response.status_code = 400
+        mock_response.text = f"Invalid routing key: {routing_key}"
+        mock_response.headers = {}
+
+        mock_cm, mock_client = _mock_client_post(mock_response)
+
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send(routing_key, "subject", "body")
+
+        assert result.success is False
+        assert routing_key not in (result.error or "")
+
+    @pytest.mark.asyncio()
     async def test_json_decode_error_returns_success_without_message_id(
         self, channel: PagerDutyChannel
     ) -> None:

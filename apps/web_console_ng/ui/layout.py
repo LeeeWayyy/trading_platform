@@ -220,8 +220,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ):
                         continue
 
-                    # Alerts link requires VIEW_ALERTS
-                    if path == "/alerts" and not has_permission(user, Permission.VIEW_ALERTS):
+                    # Alerts link requires feature flag + VIEW_ALERTS
+                    if path == "/alerts" and (
+                        not config.FEATURE_ALERTS
+                        or not has_permission(user, Permission.VIEW_ALERTS)
+                    ):
                         continue
 
                     is_active = current_path == path

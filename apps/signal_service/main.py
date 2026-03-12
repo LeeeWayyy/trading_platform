@@ -134,7 +134,7 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
     This is a safety-critical check: if we cannot determine strategy status,
     we block signal generation rather than allowing it through.
 
-    Uses a TTL cache (30s) to avoid opening a new DB connection on every
+    Uses a TTL cache (5s) to avoid opening a new DB connection on every
     request.  Uses settings.database_url directly to avoid coupling to
     ModelRegistry internals.
     """

@@ -77,7 +77,9 @@ class PagerDutyChannel(BaseChannel):
             return DeliveryResult(
                 success=resp.is_success,
                 message_id=message_id,
-                error=_sanitize_error_for_log(resp.text) if not resp.is_success else None,
+                error=_sanitize_error_for_log(resp.text).replace(recipient, masked)
+                if not resp.is_success
+                else None,
                 retryable=resp.status_code == 429 or resp.status_code >= 500,
             )
         except httpx.TimeoutException:

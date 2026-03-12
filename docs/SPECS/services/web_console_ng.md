@@ -1013,8 +1013,8 @@ Risk Analytics Flow (P5T6):
 | `FEATURE_PERFORMANCE_DASHBOARD` | No | `true` | Enable/disable performance dashboard (P5T8).
 | `RISK_BUDGET_VAR_LIMIT` | No | `0.05` | Maximum VaR limit for risk budget gauge (5%).
 | `RISK_BUDGET_WARNING_THRESHOLD` | No | `0.8` | Warning threshold for risk utilization (80%).
-| `FEATURE_STRATEGY_MANAGEMENT` | No | `true` | Enable/disable strategy management page (P6T17).
-| `FEATURE_MODEL_REGISTRY` | No | `true` | Enable/disable model registry browser page (P6T17).
+| `FEATURE_STRATEGY_MANAGEMENT` | No | `false` | Enable/disable strategy management page (P6T17).
+| `FEATURE_MODEL_REGISTRY` | No | `false` | Enable/disable model registry browser page (P6T17).
 
 ## Observability
 - **Health:** `GET /healthz` (liveness), `GET /readyz` (readiness).
