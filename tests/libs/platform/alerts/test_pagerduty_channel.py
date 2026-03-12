@@ -222,6 +222,56 @@ class TestPagerDutySend:
         assert routing_key not in (result.error or "")
 
     @pytest.mark.asyncio()
+    async def test_dedup_key_from_metadata(self, channel: PagerDutyChannel) -> None:
+        """delivery_id in metadata becomes PagerDuty dedup_key for retry deduplication."""
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.status_code = 202
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"dedup_key": "abc123"}
+
+        mock_cm, mock_client = _mock_client_post(mock_response)
+
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send(
+                recipient="key",
+                subject="Alert",
+                body="Body",
+                metadata={"delivery_id": "dlv-42"},
+            )
+
+        assert result.success is True
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["dedup_key"] == "dlv-42"
+        # delivery_id should NOT leak into custom_details
+        assert "delivery_id" not in payload["payload"]["custom_details"]
+
+    @pytest.mark.asyncio()
+    async def test_no_dedup_key_without_delivery_id(self, channel: PagerDutyChannel) -> None:
+        """Without delivery_id in metadata, no dedup_key in payload."""
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.status_code = 202
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {"dedup_key": "abc123"}
+
+        mock_cm, mock_client = _mock_client_post(mock_response)
+
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            await channel.send(
+                recipient="key",
+                subject="Alert",
+                body="Body",
+            )
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert "dedup_key" not in payload
+
+    @pytest.mark.asyncio()
     async def test_json_decode_error_returns_success_without_message_id(
         self, channel: PagerDutyChannel
     ) -> None:

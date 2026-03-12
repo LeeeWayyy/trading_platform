@@ -1630,6 +1630,12 @@ async def health_check() -> HealthResponse:
     if _should_hydrate_features() and not hydration_complete:
         health_status = "degraded"
 
+    # P6T17: Probe strategy status DB to detect dependency failures.
+    # If generate_signals would 503 for all requests, readiness should report degraded.
+    strategy_status = await asyncio.to_thread(_check_strategy_active, settings.default_strategy)
+    if strategy_status == "error":
+        health_status = "degraded"
+
     return HealthResponse(
         status=health_status,
         model_loaded=True,

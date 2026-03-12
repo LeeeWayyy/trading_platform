@@ -1,23 +1,113 @@
 """Unit tests for apps.web_console_ng.pages.strategies.
 
-Tests use fake services (not real NiceGUI rendering) to verify:
+Tests cover:
 - Feature flag gating (FEATURE_STRATEGY_MANAGEMENT)
 - Permission checks (MANAGE_STRATEGIES for page access, admin-only for toggle)
 - Toggle button visibility (admin-only per ADR)
 - Service method invocation and error handling
-
-NiceGUI limitation: NiceGUI does not provide a test client for rendering pages,
-so we cannot test actual rendered controls, dialogs, or button callbacks.
-The fake-service pattern validates the service contract and RBAC gating logic.
-Page wiring/rendering is covered by manual QA and E2E tests.
+- Real page render functions via DummyUI (NiceGUI has no test client)
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from apps.web_console_ng.pages import strategies as strat_module
+
+# ---------------------------------------------------------------------------
+# Compact DummyUI for testing real page render functions
+# ---------------------------------------------------------------------------
+
+
+class _El:
+    """Chainable dummy element supporting context manager and NiceGUI methods."""
+
+    def __init__(self, ui: _UI, kind: str, **kw: Any) -> None:
+        self.ui = ui
+        self.kind = kind
+        self.kw = kw
+        self.label = kw.get("label") or kw.get("text", "")
+        self.value = kw.get("value", "")
+        self._on_click: Callable[..., Any] | None = kw.get("on_click")
+
+    def __enter__(self) -> _El:
+        return self
+
+    def __exit__(self, *_: Any) -> bool:
+        return False
+
+    def classes(self, *_: Any, **__: Any) -> _El:
+        return self
+
+    def props(self, *_: Any, **__: Any) -> _El:
+        return self
+
+    def on_click(self, fn: Callable[..., Any] | None) -> _El:
+        self._on_click = fn
+        return self
+
+
+class _UI:
+    """Minimal NiceGUI ui replacement that records created elements."""
+
+    def __init__(self) -> None:
+        self.labels: list[_El] = []
+        self.buttons: list[_El] = []
+        self.notifications: list[dict[str, Any]] = []
+
+    def _el(self, kind: str, **kw: Any) -> _El:
+        el = _El(self, kind, **kw)
+        if kind == "label":
+            self.labels.append(el)
+        elif kind == "button":
+            self.buttons.append(el)
+        return el
+
+    def label(self, text: str = "") -> _El:
+        return self._el("label", text=text)
+
+    def button(self, label: str = "", on_click: Callable[..., Any] | None = None, **kw: Any) -> _El:
+        return self._el("button", label=label, on_click=on_click, **kw)
+
+    def card(self) -> _El:
+        return self._el("card")
+
+    def row(self) -> _El:
+        return self._el("row")
+
+    def column(self) -> _El:
+        return self._el("column")
+
+    def badge(self, text: str = "", **kw: Any) -> _El:
+        return self._el("badge", text=text, **kw)
+
+    def input(self, label: str = "", **kw: Any) -> _El:
+        return self._el("input", label=label, **kw)
+
+    def dialog(self) -> _El:
+        el = self._el("dialog")
+        el.open = lambda: None  # type: ignore[attr-defined]
+        el.close = lambda: None  # type: ignore[attr-defined]
+        return el
+
+    def notify(self, text: str, type: str | None = None) -> None:
+        self.notifications.append({"text": text, "type": type})
+
+    def refreshable(self, fn: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return fn(*args, **kwargs)
+
+        wrapper.refresh = lambda: None  # type: ignore[attr-defined]
+        return wrapper
+
+    class navigate:
+        @staticmethod
+        def reload() -> None:
+            pass
 
 
 class FakeStrategyService:
@@ -168,3 +258,84 @@ class TestStrategyServiceInteraction:
         result = await service.get_open_exposure("alpha_baseline", admin_user)
         assert result["positions_count"] == 0
         assert result["open_orders_count"] == 0
+
+
+class TestRenderToggleDialog:
+    """Tests that call the real _show_toggle_dialog() function with DummyUI."""
+
+    @pytest.mark.asyncio()
+    async def test_toggle_dialog_renders_confirmation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        admin_user: dict[str, Any],
+    ) -> None:
+        """Toggle dialog renders confirmation input and confirm/cancel buttons."""
+        dummy = _UI()
+        monkeypatch.setattr(strat_module, "ui", dummy)
+
+        service = FakeStrategyService()
+        fetch_fn = AsyncMock()
+        refresh_fn = AsyncMock()
+        refresh_fn.refresh = lambda: None
+
+        await strat_module._show_toggle_dialog(
+            service, "alpha_baseline", True, "Alpha Baseline", admin_user, fetch_fn, refresh_fn
+        )
+
+        # Confirm + Cancel buttons rendered
+        button_labels = [b.label for b in dummy.buttons]
+        assert "Confirm" in button_labels
+        assert "Cancel" in button_labels
+        # DEACTIVATE instruction label rendered (currently_active=True)
+        label_texts = [el.label for el in dummy.labels]
+        assert any("DEACTIVATE" in t for t in label_texts)
+
+    @pytest.mark.asyncio()
+    async def test_toggle_dialog_activate_label(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        admin_user: dict[str, Any],
+    ) -> None:
+        """When currently_active=False, dialog shows ACTIVATE."""
+        dummy = _UI()
+        monkeypatch.setattr(strat_module, "ui", dummy)
+
+        service = FakeStrategyService()
+        fetch_fn = AsyncMock()
+        refresh_fn = AsyncMock()
+        refresh_fn.refresh = lambda: None
+
+        await strat_module._show_toggle_dialog(
+            service, "alpha_v2", False, "Alpha V2", admin_user, fetch_fn, refresh_fn
+        )
+
+        label_texts = [el.label for el in dummy.labels]
+        assert any("ACTIVATE" in t for t in label_texts)
+
+    @pytest.mark.asyncio()
+    async def test_toggle_dialog_aborts_on_exposure_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        admin_user: dict[str, Any],
+    ) -> None:
+        """Exposure check failure aborts toggle with safety notification."""
+        dummy = _UI()
+        monkeypatch.setattr(strat_module, "ui", dummy)
+
+        class FailingExposureService(FakeStrategyService):
+            async def get_open_exposure(
+                self, strategy_id: str, user: dict[str, Any]
+            ) -> dict[str, Any]:
+                raise RuntimeError("DB down")
+
+        service = FailingExposureService()
+        fetch_fn = AsyncMock()
+        refresh_fn = AsyncMock()
+        refresh_fn.refresh = lambda: None
+
+        await strat_module._show_toggle_dialog(
+            service, "alpha_baseline", True, "Alpha Baseline", admin_user, fetch_fn, refresh_fn
+        )
+
+        # Should notify about failed exposure check
+        assert any("exposure" in n["text"].lower() for n in dummy.notifications)

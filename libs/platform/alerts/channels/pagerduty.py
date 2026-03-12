@@ -49,10 +49,12 @@ class PagerDutyChannel(BaseChannel):
         # Copy metadata to avoid mutating caller's dict
         meta = dict(metadata) if metadata else {}
         severity = meta.pop("severity", "warning")
+        # Extract delivery_id for PagerDuty dedup_key (prevents duplicate incidents on retry)
+        dedup_key = meta.pop("delivery_id", None)
         custom_details: dict[str, Any] = {"description": body}
         if meta:
             custom_details.update(meta)
-        payload = {
+        payload: dict[str, Any] = {
             "routing_key": recipient,
             "event_action": "trigger",
             "payload": {
@@ -62,6 +64,8 @@ class PagerDutyChannel(BaseChannel):
                 "custom_details": custom_details,
             },
         }
+        if dedup_key:
+            payload["dedup_key"] = dedup_key
         masked = mask_recipient(recipient, "pagerduty")
         try:
             async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
