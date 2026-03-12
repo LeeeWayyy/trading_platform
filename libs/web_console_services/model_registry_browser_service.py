@@ -255,6 +255,9 @@ class ModelRegistryBrowserService:
     ) -> dict[str, Any] | None:
         """Optional: validate a model via the model_registry API.
 
+        ``model_type`` must be a ``ModelType`` enum value (e.g.
+        ``"alpha_weights"``, ``"risk_model"``), NOT a strategy name.
+
         Returns validation result or None if API unavailable (graceful
         degradation). Uses the ``_validate_token`` stored at init time.
         Admin-only: model validation uses a privileged service token.

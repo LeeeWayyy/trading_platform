@@ -147,7 +147,10 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
     subsequent requests fail fast with "error" from the cache.
 
     A threading.Lock serializes cache-miss DB lookups to prevent concurrent
-    connections when called via asyncio.to_thread().
+    connections when called via asyncio.to_thread(). The lock scope
+    intentionally covers the DB call: the first request on cache-miss pays
+    the connect_timeout while subsequent requests wait on the lock and then
+    hit the freshly-cached result (either success or error).
     """
     with _strategy_cache_lock:
         now = time.time()
@@ -164,7 +167,7 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
 
         try:
             db_url = get_settings().database_url
-            with psycopg.connect(db_url, connect_timeout=5) as conn:
+            with psycopg.connect(db_url, connect_timeout=2) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT active FROM strategies WHERE strategy_id = %s",

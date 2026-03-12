@@ -579,7 +579,7 @@ class AlertConfigService:
                 FROM alert_events AS ae
                 LEFT JOIN alert_rules AS ar ON ar.id = ae.rule_id
                 {where_clause}
-                ORDER BY ae.triggered_at DESC
+                ORDER BY ae.triggered_at DESC, ae.id DESC
                 LIMIT %s OFFSET %s
                 """,
                 params,
