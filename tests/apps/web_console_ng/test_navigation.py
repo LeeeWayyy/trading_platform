@@ -713,7 +713,7 @@ async def test_p6t17_links_hidden_when_permissions_denied(
 
     # Run the layout with all feature flags on but P6T17 permissions denied.
     # _run_layout forces has_permission=True, so we override it after.
-    fake_ui = await _run_layout(monkeypatch, current_path="/")
+    await _run_layout(monkeypatch, current_path="/")
 
     # Now re-run with custom has_permission that denies P6T17 permissions
     fake_ui2 = _FakeUI()
