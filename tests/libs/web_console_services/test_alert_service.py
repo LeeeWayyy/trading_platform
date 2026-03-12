@@ -1289,7 +1289,11 @@ class TestBulkAcknowledgeAlerts:
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             count = await alert_service.bulk_acknowledge_alerts(
-                ["id1", "id2", "id3"],
+                [
+                    "00000000-0000-0000-0000-000000000001",
+                    "00000000-0000-0000-0000-000000000002",
+                    "00000000-0000-0000-0000-000000000003",
+                ],
                 "Bulk acknowledge: investigated and resolved",
                 admin_user,
             )
@@ -1319,7 +1323,10 @@ class TestBulkAcknowledgeAlerts:
             mock_acquire.return_value.__aenter__.return_value = mock_conn
 
             await alert_service.bulk_acknowledge_alerts(
-                ["id1", "id2"],
+                [
+                    "00000000-0000-0000-0000-000000000001",
+                    "00000000-0000-0000-0000-000000000002",
+                ],
                 "Acknowledged in bulk operation",
                 admin_user,
             )

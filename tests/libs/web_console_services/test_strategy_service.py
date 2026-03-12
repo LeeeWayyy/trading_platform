@@ -148,14 +148,12 @@ class TestToggleStrategy:
     """Tests for toggle_strategy with admin-only gate."""
 
     @pytest.mark.asyncio()
-    async def test_non_admin_denied(
-        self, strategy_service: StrategyService, operator_user: dict[str, Any]
+    async def test_viewer_denied(
+        self, strategy_service: StrategyService, viewer_user: dict[str, Any]
     ) -> None:
-        """Non-admin users cannot toggle strategies."""
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await strategy_service.toggle_strategy(
-                "alpha_baseline", active=False, user=operator_user
-            )
+        """Viewer lacks MANAGE_STRATEGIES permission."""
+        with pytest.raises(PermissionError, match="MANAGE_STRATEGIES"):
+            await strategy_service.toggle_strategy("alpha_baseline", active=False, user=viewer_user)
 
     @pytest.mark.asyncio()
     async def test_toggle_deactivate_success(
@@ -238,11 +236,11 @@ class TestGetOpenExposure:
     """Tests for get_open_exposure."""
 
     @pytest.mark.asyncio()
-    async def test_non_admin_denied(
-        self, strategy_service: StrategyService, operator_user: dict[str, Any]
+    async def test_viewer_denied(
+        self, strategy_service: StrategyService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await strategy_service.get_open_exposure("alpha_baseline", operator_user)
+        with pytest.raises(PermissionError, match="MANAGE_STRATEGIES"):
+            await strategy_service.get_open_exposure("alpha_baseline", viewer_user)
 
     @pytest.mark.asyncio()
     async def test_returns_exposure_data(

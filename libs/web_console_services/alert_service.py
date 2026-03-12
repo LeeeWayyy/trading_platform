@@ -634,6 +634,15 @@ class AlertConfigService:
         if not alert_ids:
             return 0
 
+        # Pre-validate UUIDs to give a clear ValueError instead of a DB DataError
+        from uuid import UUID as _UUID
+
+        for aid in alert_ids:
+            try:
+                _UUID(aid)
+            except (ValueError, AttributeError) as exc:
+                raise ValueError(f"Invalid alert ID format: {aid}") from exc
+
         user_id = user.get("user_id", "unknown")
 
         async with acquire_connection(self.db_pool) as conn:

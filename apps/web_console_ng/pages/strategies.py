@@ -19,7 +19,6 @@ from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import (
     Permission,
     has_permission,
-    is_admin,
 )
 
 if TYPE_CHECKING:
@@ -68,7 +67,7 @@ async def strategies_page() -> None:
         return
 
     service = _get_strategy_service(async_pool)
-    can_toggle = is_admin(user)
+    can_toggle = has_permission(user, Permission.MANAGE_STRATEGIES)
 
     # State
     strategies_data: list[dict[str, Any]] = []

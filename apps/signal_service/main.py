@@ -119,6 +119,10 @@ _generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
 
 
+_strategy_active_cache: dict[str, tuple[str, float]] = {}
+_STRATEGY_CACHE_TTL_SECONDS = 30
+
+
 def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
     """Check if strategy is active in the strategies table (fail-closed).
 
@@ -130,12 +134,20 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
     This is a safety-critical check: if we cannot determine strategy status,
     we block signal generation rather than allowing it through.
 
-    Uses settings.database_url directly to avoid coupling to ModelRegistry
-    internals.
+    Uses a TTL cache (30s) to avoid opening a new DB connection on every
+    request.  Uses settings.database_url directly to avoid coupling to
+    ModelRegistry internals.
     """
+    now = time.time()
+    cached = _strategy_active_cache.get(strategy_id)
+    if cached is not None:
+        value, ts = cached
+        if now - ts < _STRATEGY_CACHE_TTL_SECONDS:
+            return value
+
     try:
         db_url = get_settings().database_url
-        with psycopg.connect(db_url) as conn:
+        with psycopg.connect(db_url, connect_timeout=5) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT active FROM strategies WHERE strategy_id = %s",
@@ -147,8 +159,11 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
                         "strategy_not_found_fail_closed",
                         extra={"strategy_id": strategy_id},
                     )
-                    return "inactive"
-                return "active" if row[0] else "inactive"
+                    result = "inactive"
+                else:
+                    result = "active" if row[0] else "inactive"
+        _strategy_active_cache[strategy_id] = (result, now)
+        return result
     except Exception as exc:
         logger.error(
             "strategy_active_check_failed_fail_closed",

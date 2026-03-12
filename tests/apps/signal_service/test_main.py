@@ -1109,6 +1109,12 @@ class TestSignalEventPublishing:
 class TestCheckStrategyActive:
     """Tests for _check_strategy_active tri-state function."""
 
+    def setup_method(self) -> None:
+        """Clear TTL cache before each test."""
+        from apps.signal_service import main as signal_main
+
+        signal_main._strategy_active_cache.clear()
+
     def _make_mock_conn(self, fetchone_result: tuple | None) -> Mock:
         """Create mock psycopg connection context manager."""
         mock_cursor = Mock()
@@ -1124,7 +1130,12 @@ class TestCheckStrategyActive:
     def test_returns_active_when_strategy_active(self) -> None:
         """Active strategy returns 'active'."""
         mock_conn = self._make_mock_conn((True,))
-        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+        mock_settings = Mock()
+        mock_settings.database_url = "postgresql://test:test@localhost/test"
+        with (
+            patch("apps.signal_service.main.psycopg") as mock_psycopg,
+            patch("apps.signal_service.main.get_settings", return_value=mock_settings),
+        ):
             mock_psycopg.connect.return_value = mock_conn
             result = _check_strategy_active(Mock(), "alpha_baseline")
         assert result == "active"
@@ -1132,7 +1143,12 @@ class TestCheckStrategyActive:
     def test_returns_inactive_when_strategy_inactive(self) -> None:
         """Inactive strategy returns 'inactive'."""
         mock_conn = self._make_mock_conn((False,))
-        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+        mock_settings = Mock()
+        mock_settings.database_url = "postgresql://test:test@localhost/test"
+        with (
+            patch("apps.signal_service.main.psycopg") as mock_psycopg,
+            patch("apps.signal_service.main.get_settings", return_value=mock_settings),
+        ):
             mock_psycopg.connect.return_value = mock_conn
             result = _check_strategy_active(Mock(), "alpha_baseline")
         assert result == "inactive"
@@ -1140,17 +1156,44 @@ class TestCheckStrategyActive:
     def test_returns_inactive_when_strategy_missing(self) -> None:
         """Missing strategy returns 'inactive'."""
         mock_conn = self._make_mock_conn(None)
-        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+        mock_settings = Mock()
+        mock_settings.database_url = "postgresql://test:test@localhost/test"
+        with (
+            patch("apps.signal_service.main.psycopg") as mock_psycopg,
+            patch("apps.signal_service.main.get_settings", return_value=mock_settings),
+        ):
             mock_psycopg.connect.return_value = mock_conn
             result = _check_strategy_active(Mock(), "nonexistent")
         assert result == "inactive"
 
     def test_returns_error_on_db_failure(self) -> None:
         """DB connection error returns 'error'."""
-        with patch("apps.signal_service.main.psycopg") as mock_psycopg:
+        mock_settings = Mock()
+        mock_settings.database_url = "postgresql://test:test@localhost/test"
+        with (
+            patch("apps.signal_service.main.psycopg") as mock_psycopg,
+            patch("apps.signal_service.main.get_settings", return_value=mock_settings),
+        ):
             mock_psycopg.connect.side_effect = Exception("connection refused")
             result = _check_strategy_active(Mock(), "alpha_baseline")
         assert result == "error"
+
+    def test_uses_ttl_cache(self) -> None:
+        """Second call within TTL should return cached value without DB hit."""
+        mock_conn = self._make_mock_conn((True,))
+        mock_settings = Mock()
+        mock_settings.database_url = "postgresql://test:test@localhost/test"
+        with (
+            patch("apps.signal_service.main.psycopg") as mock_psycopg,
+            patch("apps.signal_service.main.get_settings", return_value=mock_settings),
+        ):
+            mock_psycopg.connect.return_value = mock_conn
+            result1 = _check_strategy_active(Mock(), "alpha_baseline")
+            result2 = _check_strategy_active(Mock(), "alpha_baseline")
+        assert result1 == "active"
+        assert result2 == "active"
+        # connect should only be called once (second call uses cache)
+        assert mock_psycopg.connect.call_count == 1
 
 
 if __name__ == "__main__":

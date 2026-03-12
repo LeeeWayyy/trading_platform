@@ -12,7 +12,6 @@ from libs.platform.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
     has_permission,
-    is_admin,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,10 +60,10 @@ class StrategyService:
 
         async with acquire_connection(self.db_pool) as conn:
             if view_all:
-                cursor = await conn.execute(f"{base_query} ORDER BY s.name")
+                cursor = await conn.execute(base_query + " ORDER BY s.name")
             elif authorized:
                 cursor = await conn.execute(
-                    f"{base_query} WHERE s.strategy_id = ANY(%s) ORDER BY s.name",
+                    base_query + " WHERE s.strategy_id = ANY(%s) ORDER BY s.name",
                     (authorized,),
                 )
             else:
@@ -144,8 +143,8 @@ class StrategyService:
         The service does NOT block toggle — the confirm/cancel decision is
         a UI-layer concern.
         """
-        if not is_admin(user):
-            raise PermissionError("Admin role required for strategy toggle")
+        if not has_permission(user, Permission.MANAGE_STRATEGIES):
+            raise PermissionError("Permission MANAGE_STRATEGIES required")
 
         async with acquire_connection(self.db_pool) as conn:
             # Count positions for symbols this strategy has traded.
@@ -186,11 +185,11 @@ class StrategyService:
     ) -> dict[str, Any]:
         """Toggle strategy active status.
 
-        Admin-only. Returns updated strategy dict. The UI must have already
-        checked open exposure and confirmed the action.
+        Requires MANAGE_STRATEGIES permission. Returns updated strategy dict.
+        The UI must have already checked open exposure and confirmed the action.
         """
-        if not is_admin(user):
-            raise PermissionError("Admin role required for strategy toggle")
+        if not has_permission(user, Permission.MANAGE_STRATEGIES):
+            raise PermissionError("Permission MANAGE_STRATEGIES required")
 
         user_id = user.get("user_id", "unknown")
         previous_active: bool | None = None

@@ -26,6 +26,9 @@ class PagerDutyChannel(BaseChannel):
     channel_type = "pagerduty"
     EVENTS_API_URL = "https://events.pagerduty.com/v2/enqueue"
 
+    def __init__(self) -> None:
+        self._client = httpx.AsyncClient(timeout=10.0)
+
     async def send(
         self,
         recipient: str,  # PagerDuty routing key
@@ -60,19 +63,21 @@ class PagerDutyChannel(BaseChannel):
         }
         masked = mask_recipient(recipient, "pagerduty")
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(self.EVENTS_API_URL, json=payload, timeout=10.0)
-                return DeliveryResult(
-                    success=resp.is_success,
-                    message_id=(
-                        resp.json().get("dedup_key")
-                        if resp.is_success
-                        and resp.headers.get("content-type", "").startswith("application/json")
-                        else None
-                    ),
-                    error=_sanitize_error_for_log(resp.text) if not resp.is_success else None,
-                    retryable=resp.status_code == 429 or resp.status_code >= 500,
-                )
+            resp = await self._client.post(self.EVENTS_API_URL, json=payload)
+            message_id = None
+            if resp.is_success and resp.headers.get("content-type", "").startswith(
+                "application/json"
+            ):
+                try:
+                    message_id = resp.json().get("dedup_key")
+                except ValueError:
+                    logger.warning("pagerduty_json_decode_error", extra={"recipient": masked})
+            return DeliveryResult(
+                success=resp.is_success,
+                message_id=message_id,
+                error=_sanitize_error_for_log(resp.text) if not resp.is_success else None,
+                retryable=resp.status_code == 429 or resp.status_code >= 500,
+            )
         except httpx.TimeoutException:
             logger.error("pagerduty_timeout", extra={"recipient": masked})
             return DeliveryResult(success=False, error="timeout", retryable=True)
