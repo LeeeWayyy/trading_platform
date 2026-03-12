@@ -123,6 +123,7 @@ _generator_cache_lock = asyncio.Lock()
 _strategy_active_cache: dict[str, tuple[str, float]] = {}
 _strategy_cache_lock = threading.Lock()
 _STRATEGY_CACHE_TTL_SECONDS = 5
+_STRATEGY_ERROR_CACHE_TTL_SECONDS = 1  # Short TTL for errors: fail fast on subsequent requests
 
 
 def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
@@ -141,6 +142,10 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
     stops use the Redis circuit breaker (instant), while admin-initiated
     deactivation via the web console propagates within 5s.
 
+    Error results are cached with a shorter TTL (1s) so that during a DB
+    outage, only the first request per second pays the connect_timeout —
+    subsequent requests fail fast with "error" from the cache.
+
     A threading.Lock serializes cache-miss DB lookups to prevent concurrent
     connections when called via asyncio.to_thread().
     """
@@ -149,7 +154,12 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
         cached = _strategy_active_cache.get(strategy_id)
         if cached is not None:
             value, ts = cached
-            if now - ts < _STRATEGY_CACHE_TTL_SECONDS:
+            ttl = (
+                _STRATEGY_ERROR_CACHE_TTL_SECONDS
+                if value == "error"
+                else _STRATEGY_CACHE_TTL_SECONDS
+            )
+            if now - ts < ttl:
                 return value
 
         try:
@@ -172,6 +182,8 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
             _strategy_active_cache[strategy_id] = (result, now)
             return result
         except Exception as exc:
+            # Cache error so subsequent requests fail fast instead of blocking
+            _strategy_active_cache[strategy_id] = ("error", now)
             # Redact connection details from driver errors to prevent credential leaks
             error_type = type(exc).__name__
             logger.error(

@@ -693,3 +693,44 @@ async def test_p6t17_links_visible_when_feature_flags_enabled(
     assert "/strategies" in targets
     assert "/models" in targets
     assert "/alerts" in targets
+
+
+@pytest.mark.asyncio()
+async def test_p6t17_links_hidden_when_permissions_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P6T17 links are hidden when user lacks the required permission (even with flags on)."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
+
+    # Deny all P6T17-related permissions; allow all others (so layout renders)
+    denied = {
+        Permission.MANAGE_STRATEGIES,
+        Permission.VIEW_MODELS,
+        Permission.VIEW_ALERTS,
+    }
+
+    # Run the layout with all feature flags on but P6T17 permissions denied.
+    # _run_layout forces has_permission=True, so we override it after.
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    # Now re-run with custom has_permission that denies P6T17 permissions
+    fake_ui2 = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui2)
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui2.links}
+    assert "/strategies" not in targets
+    assert "/models" not in targets
+    assert "/alerts" not in targets

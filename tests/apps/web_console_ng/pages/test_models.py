@@ -161,7 +161,11 @@ class TestPermissionChecks:
 
 
 class TestServiceInteraction:
-    """Tests for service layer interactions from the page."""
+    """Tests for service layer interactions via fake service (not real NiceGUI rendering).
+
+    NiceGUI pages cannot be unit-tested with a test client; these tests verify
+    that the service contract is exercised correctly by the page logic.
+    """
 
     @pytest.mark.asyncio()
     async def test_list_strategies(
