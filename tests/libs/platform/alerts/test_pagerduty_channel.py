@@ -67,6 +67,10 @@ class TestPagerDutySend:
         assert result.message_id == "abc123"
         assert result.error is None
 
+        # Verify per-send client lifecycle (context manager was used)
+        mock_cm.__aenter__.assert_called_once()
+        mock_cm.__aexit__.assert_called_once()
+
         # Verify payload format
         call_args = mock_client.post.call_args
         payload = call_args.kwargs["json"]
@@ -119,6 +123,9 @@ class TestPagerDutySend:
         assert result.success is False
         assert result.error == "timeout"
         assert result.retryable is True
+        # Verify per-send client lifecycle
+        mock_cm.__aenter__.assert_called_once()
+        mock_cm.__aexit__.assert_called_once()
 
     @pytest.mark.asyncio()
     async def test_request_error_returns_retryable(self, channel: PagerDutyChannel) -> None:
@@ -137,6 +144,9 @@ class TestPagerDutySend:
         assert result.retryable is True
         # Routing key should be masked in error
         assert "my-routing-key" not in (result.error or "")
+        # Verify per-send client lifecycle
+        mock_cm.__aenter__.assert_called_once()
+        mock_cm.__aexit__.assert_called_once()
 
     @pytest.mark.asyncio()
     async def test_api_error_retryable_for_500(self, channel: PagerDutyChannel) -> None:

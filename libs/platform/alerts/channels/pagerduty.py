@@ -74,19 +74,22 @@ class PagerDutyChannel(BaseChannel):
                     message_id = resp.json().get("dedup_key")
                 except ValueError:
                     logger.warning("pagerduty_json_decode_error", extra={"recipient": masked})
+            error_text = None
+            if not resp.is_success:
+                error_text = _sanitize_error_for_log(resp.text)
+                if recipient:
+                    error_text = error_text.replace(recipient, masked)
             return DeliveryResult(
                 success=resp.is_success,
                 message_id=message_id,
-                error=_sanitize_error_for_log(resp.text).replace(recipient, masked)
-                if not resp.is_success
-                else None,
+                error=error_text,
                 retryable=resp.status_code == 429 or resp.status_code >= 500,
             )
         except httpx.TimeoutException:
             logger.error("pagerduty_timeout", extra={"recipient": masked})
             return DeliveryResult(success=False, error="timeout", retryable=True)
         except httpx.RequestError as exc:
-            safe_error = str(exc).replace(recipient, masked)
+            safe_error = str(exc).replace(recipient, masked) if recipient else str(exc)
             logger.error(
                 "pagerduty_request_error",
                 extra={"recipient": masked, "error": safe_error},

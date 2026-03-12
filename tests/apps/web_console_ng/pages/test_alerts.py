@@ -914,7 +914,7 @@ async def test_render_alert_history_displays_acknowledged_event(
         triggered_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
         acknowledged_at=datetime(2026, 1, 1, 12, 30, 0, tzinfo=UTC),
         acknowledged_by="admin",
-        acknowledgment_note="Resolved",
+        acknowledged_note="Resolved",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     service = FakeAlertService(events=[event])
