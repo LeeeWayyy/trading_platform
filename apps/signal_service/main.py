@@ -34,6 +34,7 @@ See Also:
 import asyncio
 import logging
 import os
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable
@@ -120,6 +121,7 @@ _generator_cache_lock = asyncio.Lock()
 
 
 _strategy_active_cache: dict[str, tuple[str, float]] = {}
+_strategy_cache_lock = threading.Lock()
 _STRATEGY_CACHE_TTL_SECONDS = 5
 
 
@@ -135,43 +137,48 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
     we block signal generation rather than allowing it through.
 
     Uses a TTL cache (5s) to avoid opening a new DB connection on every
-    request.  Uses settings.database_url directly to avoid coupling to
-    ModelRegistry internals.
-    """
-    now = time.time()
-    cached = _strategy_active_cache.get(strategy_id)
-    if cached is not None:
-        value, ts = cached
-        if now - ts < _STRATEGY_CACHE_TTL_SECONDS:
-            return value
+    request.  The 5s staleness window is an accepted trade-off: emergency
+    stops use the Redis circuit breaker (instant), while admin-initiated
+    deactivation via the web console propagates within 5s.
 
-    try:
-        db_url = get_settings().database_url
-        with psycopg.connect(db_url, connect_timeout=5) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT active FROM strategies WHERE strategy_id = %s",
-                    (strategy_id,),
-                )
-                row = cur.fetchone()
-                if row is None:
-                    logger.warning(
-                        "strategy_not_found_fail_closed",
-                        extra={"strategy_id": strategy_id},
+    A threading.Lock serializes cache-miss DB lookups to prevent concurrent
+    connections when called via asyncio.to_thread().
+    """
+    with _strategy_cache_lock:
+        now = time.time()
+        cached = _strategy_active_cache.get(strategy_id)
+        if cached is not None:
+            value, ts = cached
+            if now - ts < _STRATEGY_CACHE_TTL_SECONDS:
+                return value
+
+        try:
+            db_url = get_settings().database_url
+            with psycopg.connect(db_url, connect_timeout=5) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT active FROM strategies WHERE strategy_id = %s",
+                        (strategy_id,),
                     )
-                    result = "inactive"
-                else:
-                    result = "active" if row[0] else "inactive"
-        _strategy_active_cache[strategy_id] = (result, now)
-        return result
-    except Exception as exc:
-        # Redact connection details from driver errors to prevent credential leaks
-        error_type = type(exc).__name__
-        logger.error(
-            "strategy_active_check_failed_fail_closed",
-            extra={"strategy_id": strategy_id, "error_type": error_type},
-        )
-        return "error"
+                    row = cur.fetchone()
+                    if row is None:
+                        logger.warning(
+                            "strategy_not_found_fail_closed",
+                            extra={"strategy_id": strategy_id},
+                        )
+                        result = "inactive"
+                    else:
+                        result = "active" if row[0] else "inactive"
+            _strategy_active_cache[strategy_id] = (result, now)
+            return result
+        except Exception as exc:
+            # Redact connection details from driver errors to prevent credential leaks
+            error_type = type(exc).__name__
+            logger.error(
+                "strategy_active_check_failed_fail_closed",
+                extra={"strategy_id": strategy_id, "error_type": error_type},
+            )
+            return "error"
 
 
 # ==============================================================================

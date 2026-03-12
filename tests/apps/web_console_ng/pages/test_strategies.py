@@ -1,11 +1,10 @@
 """Unit tests for apps.web_console_ng.pages.strategies.
 
-Tests cover:
-- Feature flag gating
+Tests use fake services (not real NiceGUI rendering) to verify:
+- Feature flag gating (FEATURE_STRATEGY_MANAGEMENT)
 - Permission checks (MANAGE_STRATEGIES for page access, admin-only for toggle)
-- Strategy list rendering
 - Toggle button visibility (admin-only per ADR)
-- Error handling for DB failures and permission denials
+- Service method invocation and error handling
 """
 
 from __future__ import annotations

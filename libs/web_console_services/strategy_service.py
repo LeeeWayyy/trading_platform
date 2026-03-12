@@ -108,35 +108,6 @@ class StrategyService:
             return "active"
         return "idle"
 
-    async def _get_activity_status(self, conn: Any, strategy_id: str) -> str:
-        """Derive activity status from orders table (single-strategy query).
-
-        Used by callers that need status for a single strategy outside
-        of the bulk get_strategies flow.
-
-        Returns:
-            "active" if MAX(created_at) across ALL orders is within the last 24h
-            "idle" if older
-            "unknown" if no orders exist or DB query fails
-        """
-        try:
-            cursor = await conn.execute(
-                """
-                SELECT MAX(created_at) as last_order_at
-                FROM orders
-                WHERE strategy_id = %s
-                """,
-                (strategy_id,),
-            )
-            row = await cursor.fetchone()
-            return self._derive_activity_status(row[0] if row else None)
-        except Exception:
-            logger.warning(
-                "activity_status_query_failed",
-                extra={"strategy_id": strategy_id},
-            )
-            return "unknown"
-
     async def get_open_exposure(self, strategy_id: str, user: dict[str, Any]) -> dict[str, Any]:
         """Check for open positions/orders for a strategy.
 

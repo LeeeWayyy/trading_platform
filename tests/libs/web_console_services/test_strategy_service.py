@@ -11,7 +11,7 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -277,47 +277,3 @@ class TestGetOpenExposure:
 
         assert result["positions_count"] == 3
         assert result["open_orders_count"] == 5
-
-
-class TestActivityStatus:
-    """Tests for _get_activity_status derivation."""
-
-    @pytest.mark.asyncio()
-    async def test_active_when_recent_orders(self, strategy_service: StrategyService) -> None:
-        mock_conn = AsyncMock()
-        mock_cursor = AsyncMock()
-        recent_time = datetime.now(UTC) - timedelta(hours=1)
-        mock_cursor.fetchone = AsyncMock(return_value=(recent_time,))
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-
-        result = await strategy_service._get_activity_status(mock_conn, "alpha_baseline")
-        assert result == "active"
-
-    @pytest.mark.asyncio()
-    async def test_idle_when_old_orders(self, strategy_service: StrategyService) -> None:
-        mock_conn = AsyncMock()
-        mock_cursor = AsyncMock()
-        old_time = datetime.now(UTC) - timedelta(days=2)
-        mock_cursor.fetchone = AsyncMock(return_value=(old_time,))
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-
-        result = await strategy_service._get_activity_status(mock_conn, "alpha_baseline")
-        assert result == "idle"
-
-    @pytest.mark.asyncio()
-    async def test_unknown_when_no_orders(self, strategy_service: StrategyService) -> None:
-        mock_conn = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.fetchone = AsyncMock(return_value=(None,))
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-
-        result = await strategy_service._get_activity_status(mock_conn, "alpha_baseline")
-        assert result == "unknown"
-
-    @pytest.mark.asyncio()
-    async def test_unknown_on_db_error(self, strategy_service: StrategyService) -> None:
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(side_effect=Exception("DB error"))
-
-        result = await strategy_service._get_activity_status(mock_conn, "alpha_baseline")
-        assert result == "unknown"

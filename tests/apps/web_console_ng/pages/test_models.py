@@ -1,11 +1,10 @@
 """Unit tests for apps.web_console_ng.pages.models.
 
-Tests cover:
-- Feature flag gating
-- Permission checks (VIEW_MODELS)
-- Model list rendering logic
-- Admin-only action visibility
-- Error handling for DB failures and permission denials
+Tests use fake services (not real NiceGUI rendering) to verify:
+- Feature flag gating (FEATURE_MODEL_REGISTRY)
+- Permission checks (VIEW_MODELS for page access)
+- Admin-only action visibility (activate/deactivate buttons)
+- Service method invocation and error handling
 """
 
 from __future__ import annotations
