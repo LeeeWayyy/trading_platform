@@ -25,6 +25,7 @@ See Also:
     - test_main_integration.py: Golden master integration test
 """
 
+import time
 from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1137,7 +1138,7 @@ class TestCheckStrategyActive:
             patch("apps.signal_service.main.get_settings", return_value=mock_settings),
         ):
             mock_psycopg.connect.return_value = mock_conn
-            result = _check_strategy_active(Mock(), "alpha_baseline")
+            result = _check_strategy_active("alpha_baseline")
         assert result == "active"
 
     def test_returns_inactive_when_strategy_inactive(self) -> None:
@@ -1150,7 +1151,7 @@ class TestCheckStrategyActive:
             patch("apps.signal_service.main.get_settings", return_value=mock_settings),
         ):
             mock_psycopg.connect.return_value = mock_conn
-            result = _check_strategy_active(Mock(), "alpha_baseline")
+            result = _check_strategy_active("alpha_baseline")
         assert result == "inactive"
 
     def test_returns_inactive_when_strategy_missing(self) -> None:
@@ -1163,7 +1164,7 @@ class TestCheckStrategyActive:
             patch("apps.signal_service.main.get_settings", return_value=mock_settings),
         ):
             mock_psycopg.connect.return_value = mock_conn
-            result = _check_strategy_active(Mock(), "nonexistent")
+            result = _check_strategy_active("nonexistent")
         assert result == "inactive"
 
     def test_returns_error_on_db_failure(self) -> None:
@@ -1175,7 +1176,7 @@ class TestCheckStrategyActive:
             patch("apps.signal_service.main.get_settings", return_value=mock_settings),
         ):
             mock_psycopg.connect.side_effect = Exception("connection refused")
-            result = _check_strategy_active(Mock(), "alpha_baseline")
+            result = _check_strategy_active("alpha_baseline")
         assert result == "error"
 
     def test_uses_ttl_cache(self) -> None:
@@ -1188,12 +1189,34 @@ class TestCheckStrategyActive:
             patch("apps.signal_service.main.get_settings", return_value=mock_settings),
         ):
             mock_psycopg.connect.return_value = mock_conn
-            result1 = _check_strategy_active(Mock(), "alpha_baseline")
-            result2 = _check_strategy_active(Mock(), "alpha_baseline")
+            result1 = _check_strategy_active("alpha_baseline")
+            result2 = _check_strategy_active("alpha_baseline")
         assert result1 == "active"
         assert result2 == "active"
         # connect should only be called once (second call uses cache)
         assert mock_psycopg.connect.call_count == 1
+
+    def test_error_cached_with_short_ttl(self) -> None:
+        """Error results are cached with short TTL for fail-fast on subsequent requests."""
+        from apps.signal_service import main as signal_main
+
+        mock_settings = Mock()
+        mock_settings.database_url = "postgresql://test:test@localhost/test"
+        with (
+            patch("apps.signal_service.main.psycopg") as mock_psycopg,
+            patch("apps.signal_service.main.get_settings", return_value=mock_settings),
+        ):
+            mock_psycopg.connect.side_effect = Exception("connection refused")
+            result1 = _check_strategy_active("err_test_strategy")
+        assert result1 == "error"
+
+        # Verify error is cached
+        cached = signal_main._strategy_active_cache.get("err_test_strategy")
+        assert cached is not None
+        value, ts = cached
+        assert value == "error"
+        # Timestamp should be recent (within 2s of now)
+        assert time.time() - ts < 2.0
 
 
 if __name__ == "__main__":

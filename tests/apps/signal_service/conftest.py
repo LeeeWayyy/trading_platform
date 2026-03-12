@@ -470,7 +470,7 @@ def client(monkeypatch, mock_settings, mock_model_registry, mock_signal_generato
     monkeypatch.setattr(main, "fallback_buffer", None)
     monkeypatch.setattr(main, "shadow_validator", None)
     # P6T17: Default strategy active check to "active" so existing tests pass
-    monkeypatch.setattr(main, "_check_strategy_active", lambda _reg, _sid: "active")
+    monkeypatch.setattr(main, "_check_strategy_active", lambda _sid: "active")
 
     return TestClient(main.app, raise_server_exceptions=False)
 

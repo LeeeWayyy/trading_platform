@@ -126,7 +126,7 @@ _STRATEGY_CACHE_TTL_SECONDS = 5
 _STRATEGY_ERROR_CACHE_TTL_SECONDS = 1  # Short TTL for errors: fail fast on subsequent requests
 
 
-def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
+def _check_strategy_active(strategy_id: str) -> str:
     """Check if strategy is active in the strategies table (fail-closed).
 
     Returns:
@@ -182,11 +182,11 @@ def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:
                         result = "inactive"
                     else:
                         result = "active" if row[0] else "inactive"
-            _strategy_active_cache[strategy_id] = (result, now)
+            _strategy_active_cache[strategy_id] = (result, time.time())
             return result
         except Exception as exc:
             # Cache error so subsequent requests fail fast instead of blocking
-            _strategy_active_cache[strategy_id] = ("error", now)
+            _strategy_active_cache[strategy_id] = ("error", time.time())
             # Redact connection details from driver errors to prevent credential leaks
             error_type = type(exc).__name__
             logger.error(
@@ -1737,9 +1737,7 @@ async def generate_signals(
         # P6T17: Fail-closed strategy active check
         # Block signal generation if strategy is inactive or missing from strategies table
         strategy_id = settings.default_strategy
-        strategy_status = await asyncio.to_thread(
-            _check_strategy_active, model_registry, strategy_id
-        )
+        strategy_status = await asyncio.to_thread(_check_strategy_active, strategy_id)
         if strategy_status == "error":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
