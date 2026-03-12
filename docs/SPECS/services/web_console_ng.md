@@ -863,7 +863,8 @@ Alpaca Pro WebSocket -> Level2WebSocketService -> Redis Pub/Sub -> DOMLadderComp
 - `libs/web_console_services/strategy_service.py` - Strategy management service.
 
 **Access Control:**
-- Requires `VIEW_MODELS` permission.
+- Requires `MANAGE_STRATEGIES` permission (page access).
+- Toggle active/inactive is admin-only (`is_admin` check).
 
 ### Model Registry Browser (P6T17)
 **Purpose:** Browse and manage model registry with activate/deactivate operations.

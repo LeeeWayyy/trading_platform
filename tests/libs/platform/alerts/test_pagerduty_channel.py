@@ -7,11 +7,12 @@ Tests cover:
 - DeliveryResult fields
 - Metadata severity override
 - JSON decode error handling
+- Per-send httpx client lifecycle (no persistent client)
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
@@ -21,10 +22,17 @@ from libs.platform.alerts.channels.pagerduty import PagerDutyChannel
 
 @pytest.fixture()
 def channel() -> PagerDutyChannel:
-    ch = PagerDutyChannel()
-    # Replace real httpx client with a mock for testing
-    ch._client = AsyncMock()
-    return ch
+    return PagerDutyChannel()
+
+
+def _mock_client_post(mock_response: Mock) -> AsyncMock:
+    """Create a mock httpx.AsyncClient context manager that returns mock_response on post."""
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_cm = AsyncMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+    return mock_cm, mock_client
 
 
 class TestPagerDutyChannelType:
@@ -44,20 +52,23 @@ class TestPagerDutySend:
         mock_response.headers = {"content-type": "application/json"}
         mock_response.json.return_value = {"dedup_key": "abc123"}
 
-        channel._client.post = AsyncMock(return_value=mock_response)
+        mock_cm, mock_client = _mock_client_post(mock_response)
 
-        result = await channel.send(
-            recipient="routing-key-12345",
-            subject="Test Alert",
-            body="Something happened",
-        )
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send(
+                recipient="routing-key-12345",
+                subject="Test Alert",
+                body="Something happened",
+            )
 
         assert result.success is True
         assert result.message_id == "abc123"
         assert result.error is None
 
         # Verify payload format
-        call_args = channel._client.post.call_args
+        call_args = mock_client.post.call_args
         payload = call_args.kwargs["json"]
         assert payload["routing_key"] == "routing-key-12345"
         assert payload["event_action"] == "trigger"
@@ -74,16 +85,19 @@ class TestPagerDutySend:
         mock_response.headers = {"content-type": "application/json"}
         mock_response.json.return_value = {"dedup_key": "abc123"}
 
-        channel._client.post = AsyncMock(return_value=mock_response)
+        mock_cm, mock_client = _mock_client_post(mock_response)
 
-        await channel.send(
-            recipient="key",
-            subject="Critical",
-            body="Down",
-            metadata={"severity": "critical", "rule_name": "test"},
-        )
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            await channel.send(
+                recipient="key",
+                subject="Critical",
+                body="Down",
+                metadata={"severity": "critical", "rule_name": "test"},
+            )
 
-        payload = channel._client.post.call_args.kwargs["json"]
+        payload = mock_client.post.call_args.kwargs["json"]
         assert payload["payload"]["severity"] == "critical"
         assert payload["payload"]["custom_details"]["rule_name"] == "test"
         # severity should NOT be in custom_details (popped)
@@ -91,9 +105,16 @@ class TestPagerDutySend:
 
     @pytest.mark.asyncio()
     async def test_timeout_returns_retryable(self, channel: PagerDutyChannel) -> None:
-        channel._client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
 
-        result = await channel.send("key", "subject", "body")
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send("key", "subject", "body")
 
         assert result.success is False
         assert result.error == "timeout"
@@ -101,9 +122,16 @@ class TestPagerDutySend:
 
     @pytest.mark.asyncio()
     async def test_request_error_returns_retryable(self, channel: PagerDutyChannel) -> None:
-        channel._client.post = AsyncMock(side_effect=httpx.RequestError("connection failed"))
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.RequestError("connection failed"))
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
 
-        result = await channel.send("my-routing-key", "subject", "body")
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send("my-routing-key", "subject", "body")
 
         assert result.success is False
         assert result.retryable is True
@@ -112,45 +140,54 @@ class TestPagerDutySend:
 
     @pytest.mark.asyncio()
     async def test_api_error_retryable_for_500(self, channel: PagerDutyChannel) -> None:
-        mock_response = AsyncMock()
+        mock_response = Mock()
         mock_response.is_success = False
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
         mock_response.headers = {}
 
-        channel._client.post = AsyncMock(return_value=mock_response)
+        mock_cm, mock_client = _mock_client_post(mock_response)
 
-        result = await channel.send("key", "subject", "body")
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send("key", "subject", "body")
 
         assert result.success is False
         assert result.retryable is True
 
     @pytest.mark.asyncio()
     async def test_api_error_not_retryable_for_400(self, channel: PagerDutyChannel) -> None:
-        mock_response = AsyncMock()
+        mock_response = Mock()
         mock_response.is_success = False
         mock_response.status_code = 400
         mock_response.text = "Bad Request"
         mock_response.headers = {}
 
-        channel._client.post = AsyncMock(return_value=mock_response)
+        mock_cm, mock_client = _mock_client_post(mock_response)
 
-        result = await channel.send("key", "subject", "body")
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send("key", "subject", "body")
 
         assert result.success is False
         assert result.retryable is False
 
     @pytest.mark.asyncio()
     async def test_rate_limit_retryable(self, channel: PagerDutyChannel) -> None:
-        mock_response = AsyncMock()
+        mock_response = Mock()
         mock_response.is_success = False
         mock_response.status_code = 429
         mock_response.text = "Rate limited"
         mock_response.headers = {}
 
-        channel._client.post = AsyncMock(return_value=mock_response)
+        mock_cm, mock_client = _mock_client_post(mock_response)
 
-        result = await channel.send("key", "subject", "body")
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send("key", "subject", "body")
 
         assert result.retryable is True
 
@@ -166,9 +203,12 @@ class TestPagerDutySend:
         mock_response.json.side_effect = ValueError("malformed JSON")
         mock_response.text = "not json"
 
-        channel._client.post = AsyncMock(return_value=mock_response)
+        mock_cm, mock_client = _mock_client_post(mock_response)
 
-        result = await channel.send("key", "subject", "body")
+        with patch(
+            "libs.platform.alerts.channels.pagerduty.httpx.AsyncClient", return_value=mock_cm
+        ):
+            result = await channel.send("key", "subject", "body")
 
         assert result.success is True
         assert result.message_id is None

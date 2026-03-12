@@ -33,7 +33,7 @@
 | `ExposureService` | - | service | Strategy net exposure aggregation with mock fallback, bias warnings, and partial data detection (P6T15). |
 | `UniverseService` | manager | service | Async, permission-aware universe management wrapping synchronous UniverseManager. List, detail, preview, create, delete universes; analytics (summary stats, distributions, mock sector/factor data) and side-by-side comparison with overlap metrics. RBAC (P6T15). |
 | `ModelRegistryBrowserService` | db_pool | service | Model registry browser with RBAC, activate/deactivate model operations (P6T17). |
-| `StrategyService` | db_pool, redis | service | Strategy management with RBAC, toggle active/inactive, and audit logging (P6T17). |
+| `StrategyService` | db_pool, audit_logger | service | Strategy management with RBAC, admin-only toggle active/inactive, and audit logging (P6T17). |
 
 ## Behavioral Contracts
 ### CircuitBreakerService

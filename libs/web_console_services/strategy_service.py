@@ -12,6 +12,7 @@ from libs.platform.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
     has_permission,
+    is_admin,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,10 +142,10 @@ class StrategyService:
 
         Returns exposure data for the UI to display a confirmation dialog.
         The service does NOT block toggle — the confirm/cancel decision is
-        a UI-layer concern.
+        a UI-layer concern.  Admin-only: admins implicitly have VIEW_ALL scope.
         """
-        if not has_permission(user, Permission.MANAGE_STRATEGIES):
-            raise PermissionError("Permission MANAGE_STRATEGIES required")
+        if not is_admin(user):
+            raise PermissionError("Admin role required")
 
         async with acquire_connection(self.db_pool) as conn:
             # Count positions for symbols this strategy has traded.
@@ -185,11 +186,11 @@ class StrategyService:
     ) -> dict[str, Any]:
         """Toggle strategy active status.
 
-        Requires MANAGE_STRATEGIES permission. Returns updated strategy dict.
-        The UI must have already checked open exposure and confirmed the action.
+        Admin-only: live strategy toggle is a destructive action restricted to
+        admins per ADR.  Admins implicitly have VIEW_ALL scope.
         """
-        if not has_permission(user, Permission.MANAGE_STRATEGIES):
-            raise PermissionError("Permission MANAGE_STRATEGIES required")
+        if not is_admin(user):
+            raise PermissionError("Admin role required")
 
         user_id = user.get("user_id", "unknown")
         previous_active: bool | None = None

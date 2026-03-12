@@ -2,9 +2,9 @@
 
 Tests cover:
 - Feature flag gating
-- Permission checks (MANAGE_STRATEGIES)
+- Permission checks (MANAGE_STRATEGIES for page access, admin-only for toggle)
 - Strategy list rendering
-- Toggle button visibility (MANAGE_STRATEGIES holders only)
+- Toggle button visibility (admin-only per ADR)
 - Error handling for DB failures and permission denials
 """
 
@@ -116,6 +116,15 @@ class TestPermissionChecks:
         from libs.platform.web_console_auth.permissions import Permission, has_permission
 
         assert has_permission(admin_user, Permission.MANAGE_STRATEGIES)
+
+    def test_toggle_is_admin_only(
+        self, admin_user: dict[str, Any], operator_user: dict[str, Any]
+    ) -> None:
+        """Toggle button visibility requires admin role, not just MANAGE_STRATEGIES."""
+        from libs.platform.web_console_auth.permissions import is_admin
+
+        assert is_admin(admin_user)
+        assert not is_admin(operator_user)
 
 
 class TestStrategyServiceInteraction:

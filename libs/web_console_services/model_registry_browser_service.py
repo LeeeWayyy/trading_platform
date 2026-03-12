@@ -48,7 +48,6 @@ class ModelRegistryBrowserService:
         # _validate_model(), never passed to any other method or used for
         # any other API call.
         self._validate_token = validate_token
-        self._http_client: httpx.AsyncClient | None = None
 
     async def list_strategies_with_models(self, user: dict[str, Any]) -> list[dict[str, Any]]:
         """List strategies that have models in the registry, scoped by RBAC."""
@@ -267,32 +266,29 @@ class ModelRegistryBrowserService:
             return None
 
         try:
-            if self._http_client is None:
-                self._http_client = httpx.AsyncClient(
-                    base_url=self._model_registry_url, timeout=30.0
+            async with httpx.AsyncClient(base_url=self._model_registry_url, timeout=30.0) as client:
+                resp = await client.post(
+                    f"/api/v1/models/{model_type}/{version}/validate",
+                    headers={"Authorization": f"Bearer {self._validate_token}"},
                 )
-            resp = await self._http_client.post(
-                f"/api/v1/models/{model_type}/{version}/validate",
-                headers={"Authorization": f"Bearer {self._validate_token}"},
-            )
-            if resp.is_success:
-                try:
-                    return resp.json()
-                except ValueError:
-                    logger.warning(
-                        "model_validate_json_decode_error",
-                        extra={"model_type": model_type, "version": version},
-                    )
-                    return None
-            logger.warning(
-                "model_validate_api_error",
-                extra={
-                    "model_type": model_type,
-                    "version": version,
-                    "status": resp.status_code,
-                },
-            )
-            return None
+                if resp.is_success:
+                    try:
+                        return resp.json()
+                    except ValueError:
+                        logger.warning(
+                            "model_validate_json_decode_error",
+                            extra={"model_type": model_type, "version": version},
+                        )
+                        return None
+                logger.warning(
+                    "model_validate_api_error",
+                    extra={
+                        "model_type": model_type,
+                        "version": version,
+                        "status": resp.status_code,
+                    },
+                )
+                return None
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             logger.warning(
                 "model_validate_api_unavailable",

@@ -120,7 +120,7 @@ _generator_cache_lock = asyncio.Lock()
 
 
 _strategy_active_cache: dict[str, tuple[str, float]] = {}
-_STRATEGY_CACHE_TTL_SECONDS = 30
+_STRATEGY_CACHE_TTL_SECONDS = 5
 
 
 def _check_strategy_active(registry: ModelRegistry, strategy_id: str) -> str:

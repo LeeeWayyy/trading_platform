@@ -25,9 +25,7 @@ class PagerDutyChannel(BaseChannel):
 
     channel_type = "pagerduty"
     EVENTS_API_URL = "https://events.pagerduty.com/v2/enqueue"
-
-    def __init__(self) -> None:
-        self._client = httpx.AsyncClient(timeout=10.0)
+    TIMEOUT = 10.0
 
     async def send(
         self,
@@ -44,6 +42,9 @@ class PagerDutyChannel(BaseChannel):
         - subject -> payload.summary
         - body -> payload.custom_details.description
         - metadata -> payload.custom_details (merged)
+
+        Uses a short-lived httpx client per send (matches Slack/Email channels)
+        to avoid cross-event-loop issues in the alert worker.
         """
         # Copy metadata to avoid mutating caller's dict
         meta = dict(metadata) if metadata else {}
@@ -63,7 +64,8 @@ class PagerDutyChannel(BaseChannel):
         }
         masked = mask_recipient(recipient, "pagerduty")
         try:
-            resp = await self._client.post(self.EVENTS_API_URL, json=payload)
+            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+                resp = await client.post(self.EVENTS_API_URL, json=payload)
             message_id = None
             if resp.is_success and resp.headers.get("content-type", "").startswith(
                 "application/json"

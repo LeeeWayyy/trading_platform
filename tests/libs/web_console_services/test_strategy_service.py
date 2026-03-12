@@ -151,9 +151,19 @@ class TestToggleStrategy:
     async def test_viewer_denied(
         self, strategy_service: StrategyService, viewer_user: dict[str, Any]
     ) -> None:
-        """Viewer lacks MANAGE_STRATEGIES permission."""
-        with pytest.raises(PermissionError, match="MANAGE_STRATEGIES"):
+        """Viewer lacks admin role."""
+        with pytest.raises(PermissionError, match="Admin role required"):
             await strategy_service.toggle_strategy("alpha_baseline", active=False, user=viewer_user)
+
+    @pytest.mark.asyncio()
+    async def test_operator_denied(
+        self, strategy_service: StrategyService, operator_user: dict[str, Any]
+    ) -> None:
+        """Operator lacks admin role — toggle is admin-only per ADR."""
+        with pytest.raises(PermissionError, match="Admin role required"):
+            await strategy_service.toggle_strategy(
+                "alpha_baseline", active=False, user=operator_user
+            )
 
     @pytest.mark.asyncio()
     async def test_toggle_deactivate_success(
@@ -233,14 +243,22 @@ class TestToggleStrategy:
 
 
 class TestGetOpenExposure:
-    """Tests for get_open_exposure."""
+    """Tests for get_open_exposure (admin-only)."""
 
     @pytest.mark.asyncio()
     async def test_viewer_denied(
         self, strategy_service: StrategyService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="MANAGE_STRATEGIES"):
+        with pytest.raises(PermissionError, match="Admin role required"):
             await strategy_service.get_open_exposure("alpha_baseline", viewer_user)
+
+    @pytest.mark.asyncio()
+    async def test_operator_denied(
+        self, strategy_service: StrategyService, operator_user: dict[str, Any]
+    ) -> None:
+        """Operator lacks admin role — exposure check is admin-only."""
+        with pytest.raises(PermissionError, match="Admin role required"):
+            await strategy_service.get_open_exposure("alpha_baseline", operator_user)
 
     @pytest.mark.asyncio()
     async def test_returns_exposure_data(
