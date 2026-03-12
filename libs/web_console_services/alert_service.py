@@ -657,7 +657,7 @@ class AlertConfigService:
                 """,
                 (user_id, note.strip(), alert_ids),
             )
-            count = cursor.rowcount
+            count: int = cursor.rowcount or 0
 
         sanitized_note = _sanitize_error_for_log(note)
         await self.audit_logger.log_action(

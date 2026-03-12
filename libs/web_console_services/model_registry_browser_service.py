@@ -276,7 +276,8 @@ class ModelRegistryBrowserService:
                 )
                 if resp.is_success:
                     try:
-                        return resp.json()
+                        result: dict[str, Any] = resp.json()
+                        return result
                     except ValueError:
                         logger.warning(
                             "model_validate_json_decode_error",

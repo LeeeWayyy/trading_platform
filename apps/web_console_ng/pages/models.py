@@ -54,7 +54,7 @@ def _get_model_registry_service(
             validate_token=validate_token or None,
         )
 
-    service: ModelRegistryBrowserService = app.storage._model_registry_browser_service  # noqa: B009
+    service: ModelRegistryBrowserService = app.storage._model_registry_browser_service  # type: ignore[attr-defined]  # noqa: B009
     return service
 
 
