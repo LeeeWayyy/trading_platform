@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from nicegui import app, ui
+from redis.exceptions import RedisError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -342,7 +343,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         except Exception as exc:
                             logger.debug("session_role_update_on_cache_hit_failed", extra={"user_id": user_id, "error": str(exc)})
                     return
-            except Exception as exc:
+            except (RedisError, OSError, TimeoutError) as exc:
                 logger.debug("role_cache_miss_or_error", extra={"user_id": user_id, "error": str(exc)})
 
             # Query DB with timeout
@@ -361,7 +362,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         return await cursor.fetchone()
 
                 row = await asyncio.wait_for(_db_role_lookup(), timeout=0.5)
-            except Exception as exc:
+            except (TimeoutError, OSError) as exc:
                 # Fail-open (ADR-0038): keep provider role on DB timeout/error
                 logger.debug(
                     "db_role_lookup_timeout_or_error",

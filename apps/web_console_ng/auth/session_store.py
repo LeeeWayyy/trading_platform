@@ -504,8 +504,8 @@ class ServerSessionStore:
                 uid = _get_user_id(session)
                 if uid:
                     await self.redis.srem(f"{self.user_sessions_prefix}{uid}", session_id)  # type: ignore[misc]
-        except Exception:
-            logger.debug("reverse_index_cleanup_failed", extra={"session_id": session_id})
+        except (redis.RedisError, json.JSONDecodeError, TypeError, AttributeError) as exc:
+            logger.debug("reverse_index_cleanup_failed", extra={"session_id": session_id, "error": str(exc)})
         await self.redis.delete(f"{self.session_prefix}{session_id}")
 
     async def invalidate_redis_sessions_for_user(self, user_id: str) -> int:
