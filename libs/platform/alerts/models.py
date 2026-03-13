@@ -16,6 +16,7 @@ class ChannelType(str, Enum):
     EMAIL = "email"
     SLACK = "slack"
     SMS = "sms"
+    PAGERDUTY = "pagerduty"
 
 
 class DeliveryStatus(str, Enum):

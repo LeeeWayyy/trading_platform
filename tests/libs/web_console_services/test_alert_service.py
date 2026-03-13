@@ -128,7 +128,6 @@ class TestAlertServiceInitialization:
             patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
             patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
         ):
-
             handlers = alert_service._get_channel_handlers()
 
             assert handlers is not None
@@ -148,7 +147,6 @@ class TestAlertServiceInitialization:
             patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
             patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
         ):
-
             handlers1 = alert_service._get_channel_handlers()
             handlers2 = alert_service._get_channel_handlers()
 
@@ -171,7 +169,6 @@ class TestAlertServiceInitialization:
             ),
             patch("libs.web_console_services.alert_service.logger") as mock_logger,
         ):
-
             handlers = alert_service._get_channel_handlers()
 
             assert ChannelType.EMAIL in handlers
@@ -666,7 +663,6 @@ class TestTestNotification:
                 return_value={ChannelType.EMAIL: mock_handler},
             ),
         ):
-
             result = await alert_service.test_notification(sample_channel_config, operator_user)
 
             assert result.success is True
@@ -707,7 +703,6 @@ class TestTestNotification:
                 return_value={ChannelType.EMAIL: mock_handler},
             ),
         ):
-
             result = await alert_service.test_notification(sample_channel_config, operator_user)
 
             assert result.success is False
@@ -733,7 +728,6 @@ class TestTestNotification:
                 return_value={ChannelType.EMAIL: mock_handler},
             ),
         ):
-
             result = await alert_service.test_notification(sample_channel_config, operator_user)
 
             assert result.success is False
@@ -756,7 +750,6 @@ class TestTestNotification:
             patch("libs.web_console_services.alert_service.has_permission", return_value=True),
             patch.object(alert_service, "_get_channel_handlers", return_value={}),
         ):
-
             with pytest.raises(ValueError, match="Unsupported channel type"):
                 await alert_service.test_notification(channel, operator_user)
 
@@ -925,9 +918,9 @@ class TestGetAlertEvents:
             events = await alert_service.get_alert_events()
 
             assert events == []
-            # Verify default limit was used
+            # Verify default limit and offset were used
             call_args = mock_conn.execute.call_args
-            assert call_args[0][1] == (DEFAULT_ALERT_EVENT_LIMIT,)
+            assert call_args[0][1] == [DEFAULT_ALERT_EVENT_LIMIT, 0]
 
     @pytest.mark.asyncio()
     async def test_get_alert_events_with_custom_limit(
@@ -947,7 +940,7 @@ class TestGetAlertEvents:
             assert events == []
             # Verify custom limit was used
             call_args = mock_conn.execute.call_args
-            assert call_args[0][1] == (50,)
+            assert call_args[0][1] == [50, 0]
 
     @pytest.mark.asyncio()
     async def test_get_alert_events_returns_events(
@@ -1127,3 +1120,217 @@ class TestEdgeCases:
             events = await alert_service.get_alert_events(limit=0)
 
             assert events == []
+
+    @pytest.mark.asyncio()
+    async def test_get_alert_events_with_pending_filter(
+        self, alert_service: AlertConfigService
+    ) -> None:
+        """Test get_alert_events with pending status filter."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            await alert_service.get_alert_events(status_filter="pending")
+
+            sql = mock_conn.execute.call_args[0][0]
+            assert "acknowledged_at IS NULL" in sql
+
+    @pytest.mark.asyncio()
+    async def test_get_alert_events_with_acknowledged_filter(
+        self, alert_service: AlertConfigService
+    ) -> None:
+        """Test get_alert_events with acknowledged status filter."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            await alert_service.get_alert_events(status_filter="acknowledged")
+
+            sql = mock_conn.execute.call_args[0][0]
+            assert "acknowledged_at IS NOT NULL" in sql
+
+    @pytest.mark.asyncio()
+    async def test_get_alert_events_with_offset(self, alert_service: AlertConfigService) -> None:
+        """Test get_alert_events with pagination offset."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            await alert_service.get_alert_events(limit=10, offset=20)
+
+            call_args = mock_conn.execute.call_args
+            assert call_args[0][1] == [10, 20]
+
+
+class TestGetAlertEventsCount:
+    """Tests for get_alert_events_count method."""
+
+    @pytest.mark.asyncio()
+    async def test_returns_count(self, alert_service: AlertConfigService) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=(42,))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            count = await alert_service.get_alert_events_count()
+
+        assert count == 42
+
+    @pytest.mark.asyncio()
+    async def test_returns_zero_when_no_row(self, alert_service: AlertConfigService) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=None)
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            count = await alert_service.get_alert_events_count()
+
+        assert count == 0
+
+    @pytest.mark.asyncio()
+    async def test_pending_filter(self, alert_service: AlertConfigService) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=(5,))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            count = await alert_service.get_alert_events_count(status_filter="pending")
+
+        assert count == 5
+        sql = mock_conn.execute.call_args[0][0]
+        assert "acknowledged_at IS NULL" in sql
+
+    @pytest.mark.asyncio()
+    async def test_acknowledged_filter(self, alert_service: AlertConfigService) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=(3,))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            count = await alert_service.get_alert_events_count(status_filter="acknowledged")
+
+        assert count == 3
+        sql = mock_conn.execute.call_args[0][0]
+        assert "acknowledged_at IS NOT NULL" in sql
+
+
+class TestBulkAcknowledgeAlerts:
+    """Tests for bulk_acknowledge_alerts method."""
+
+    @pytest.mark.asyncio()
+    async def test_permission_denied(
+        self, alert_service: AlertConfigService, viewer_user: dict[str, Any]
+    ) -> None:
+        with pytest.raises(PermissionError, match="ACKNOWLEDGE_ALERT"):
+            await alert_service.bulk_acknowledge_alerts(
+                ["id1"], "This is a sufficient note for testing", viewer_user
+            )
+
+    @pytest.mark.asyncio()
+    async def test_short_note_raises(
+        self, alert_service: AlertConfigService, admin_user: dict[str, Any]
+    ) -> None:
+        with (
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+            pytest.raises(ValueError, match="at least"),
+        ):
+            await alert_service.bulk_acknowledge_alerts(["id1"], "short", admin_user)
+
+    @pytest.mark.asyncio()
+    async def test_empty_ids_returns_zero(
+        self, alert_service: AlertConfigService, admin_user: dict[str, Any]
+    ) -> None:
+        with patch("libs.web_console_services.alert_service.has_permission", return_value=True):
+            count = await alert_service.bulk_acknowledge_alerts(
+                [], "This is a sufficient note for testing", admin_user
+            )
+        assert count == 0
+
+    @pytest.mark.asyncio()
+    async def test_bulk_acknowledge_success(
+        self,
+        alert_service: AlertConfigService,
+        admin_user: dict[str, Any],
+        mock_audit_logger: Mock,
+    ) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.rowcount = 3
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            count = await alert_service.bulk_acknowledge_alerts(
+                [
+                    "00000000-0000-0000-0000-000000000001",
+                    "00000000-0000-0000-0000-000000000002",
+                    "00000000-0000-0000-0000-000000000003",
+                ],
+                "Bulk acknowledge: investigated and resolved",
+                admin_user,
+            )
+
+        assert count == 3
+        mock_audit_logger.log_action.assert_called_once()
+        call_kwargs = mock_audit_logger.log_action.call_args.kwargs
+        assert call_kwargs["action"] == "ALERTS_BULK_ACKNOWLEDGED"
+        assert call_kwargs["details"]["count"] == 3
+
+    @pytest.mark.asyncio()
+    async def test_bulk_acknowledge_uses_any_clause(
+        self,
+        alert_service: AlertConfigService,
+        admin_user: dict[str, Any],
+    ) -> None:
+        """Verify bulk acknowledge uses ANY(%s::uuid[]) for single SQL UPDATE."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.rowcount = 2
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with (
+            patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire,
+            patch("libs.web_console_services.alert_service.has_permission", return_value=True),
+        ):
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+
+            await alert_service.bulk_acknowledge_alerts(
+                [
+                    "00000000-0000-0000-0000-000000000001",
+                    "00000000-0000-0000-0000-000000000002",
+                ],
+                "Acknowledged in bulk operation",
+                admin_user,
+            )
+
+        sql = mock_conn.execute.call_args[0][0]
+        assert "ANY(%s::uuid[])" in sql
+        assert "acknowledged_at IS NULL" in sql

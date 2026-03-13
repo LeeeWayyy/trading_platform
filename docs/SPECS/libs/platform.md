@@ -1,6 +1,6 @@
 # libs/platform
 
-<!-- Last reviewed: 2026-03-10 - P6T15: Fix require_permission __globals__ merging for FastAPI annotation resolution -->
+<!-- Last reviewed: 2026-03-12 - P6T17: PagerDuty channel, VIEW_MODELS permission, pagerduty rate limits -->
 
 ## Identity
 - **Type:** Library Group (Platform Services)
@@ -38,8 +38,8 @@ See [libs/alerts.md](./alerts.md) for detailed specification.
 **Key Features:**
 - Alert manager
 - Delivery service
-- Multiple channels (email, Slack, SMS)
-- PII masking
+- Multiple channels (email, Slack, SMS, PagerDuty)
+- PII masking (including PagerDuty)
 - Deduplication
 
 ### libs/platform/analytics
@@ -124,7 +124,9 @@ See [libs/web_console_services.md](./web_console_services.md) for detailed speci
 - Alert configuration and management
 - Alpha signal exploration
 - Circuit breaker control and monitoring
+- Model registry browser (P6T17)
 - Strategy comparison analytics
+- Strategy management (P6T17)
 - Dataset exploration with SQL validation
 - Data quality monitoring
 - Data synchronization scheduling
@@ -143,6 +145,6 @@ See [libs/web_console_services.md](./web_console_services.md) for detailed speci
 - [../services/web_console_ng.md](../services/web_console_ng.md) - Web console UI
 
 ## Metadata
-- **Last Updated:** 2026-03-10 (P6T15 PR fix - restore require_permission __globals__ merging)
+- **Last Updated:** 2026-03-12 (P6T17 - PagerDuty channel, VIEW_MODELS permission, pagerduty rate limits)
 - **Source Files:** `libs/platform/` (group index)
 - **ADRs:** N/A

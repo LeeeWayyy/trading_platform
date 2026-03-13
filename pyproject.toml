@@ -14,7 +14,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.11"
 # Data processing
-polars = "^1.0.0"
+polars = ">=1.0.0,<1.39.0"  # Pin: 1.39.0 changes sum() return type to include Decimal, breaking mypy
 pydantic = "^2.5.0"
 pydantic-settings = "^2.1.0"
 scipy = "^1.11.0"  # Statistical functions for factor analytics (Spearman correlation)
@@ -90,7 +90,7 @@ ruff = "^0.3.0"
 mypy = "1.19.1"  # Pinned to avoid local/CI version mismatch
 # Type stubs
 pandas-stubs = "^2.3.0"
-types-psycopg2 = "^2.9.0"
+types-psycopg2 = "2.9.21.20251012"  # Pinned: 20260223 breaks Decimal/float ops in risk/analytics
 types-requests = "^2.31.0"
 # Pre-commit
 pre-commit = "^3.6.0"

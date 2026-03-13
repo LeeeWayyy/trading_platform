@@ -34,6 +34,8 @@ def mask_recipient(value: str, channel_type: str) -> str:
         return mask_phone(value)
     elif channel_type == "slack":
         return mask_webhook(value)
+    elif channel_type == "pagerduty":
+        return mask_webhook(value)  # Routing keys use same last-4-chars convention
     return mask_email(value)  # Default to email masking
 
 

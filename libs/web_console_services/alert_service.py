@@ -6,13 +6,20 @@ import json
 import logging
 from decimal import Decimal
 from typing import Any
+from uuid import UUID as _UUID
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
 from libs.core.common.db import acquire_connection
 from libs.core.common.exceptions import ConfigurationError
-from libs.platform.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSChannel
+from libs.platform.alerts.channels import (
+    BaseChannel,
+    EmailChannel,
+    PagerDutyChannel,
+    SlackChannel,
+    SMSChannel,
+)
 from libs.platform.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
 from libs.platform.alerts.pii import mask_for_logs
 from libs.platform.alerts.poison_queue import _sanitize_error_for_log
@@ -71,7 +78,7 @@ class AlertConfigService:
         """Build channel handlers, lazily skipping unconfigured channels.
 
         SMS channel requires Twilio credentials. If not configured, SMS is
-        skipped and a warning is logged. Email and Slack are always enabled.
+        skipped and a warning is logged. Email, Slack, and PagerDuty are always enabled.
         """
         if self._channel_handlers is None:
             self._channel_handlers = {
@@ -89,6 +96,8 @@ class AlertConfigService:
                         "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
                     },
                 )
+            # PagerDuty uses routing key per-recipient, no global credentials needed
+            self._channel_handlers[ChannelType.PAGERDUTY] = PagerDutyChannel()
         return self._channel_handlers
 
     async def get_rules(self) -> list[AlertRule]:
@@ -529,18 +538,35 @@ class AlertConfigService:
             outcome="success",
         )
 
-    async def get_alert_events(self, limit: int = DEFAULT_ALERT_EVENT_LIMIT) -> list[AlertEvent]:
+    async def get_alert_events(
+        self,
+        limit: int = DEFAULT_ALERT_EVENT_LIMIT,
+        offset: int = 0,
+        status_filter: str | None = None,
+    ) -> list[AlertEvent]:
         """Get recent alert events ordered by triggered_at.
 
         Args:
             limit: Maximum number of events to return
+            offset: Number of events to skip (for pagination)
+            status_filter: Optional filter — "pending" or "acknowledged"
 
         Returns:
             List of AlertEvent objects
         """
+        where_clause = ""
+        params: list[Any] = []
+
+        if status_filter == "pending":
+            where_clause = "WHERE ae.acknowledged_at IS NULL"
+        elif status_filter == "acknowledged":
+            where_clause = "WHERE ae.acknowledged_at IS NOT NULL"
+
+        params.extend([limit, offset])
+
         async with acquire_connection(self.db_pool) as conn:
             cursor = await conn.execute(
-                """
+                f"""
                 SELECT ae.id,
                        ae.rule_id,
                        ar.name AS rule_name,
@@ -553,13 +579,98 @@ class AlertConfigService:
                        ae.created_at
                 FROM alert_events AS ae
                 LEFT JOIN alert_rules AS ar ON ar.id = ae.rule_id
-                ORDER BY ae.triggered_at DESC
-                LIMIT %s
+                {where_clause}
+                ORDER BY ae.triggered_at DESC, ae.id DESC
+                LIMIT %s OFFSET %s
                 """,
-                (limit,),
+                params,
             )
             rows = await cursor.fetchall()
         return [AlertEvent(**row) for row in rows]
+
+    async def get_alert_events_count(self, status_filter: str | None = None) -> int:
+        """Get total count of alert events for pagination.
+
+        Args:
+            status_filter: Optional filter — "pending" or "acknowledged"
+
+        Returns:
+            Total count of matching events
+        """
+        where_clause = ""
+        if status_filter == "pending":
+            where_clause = "WHERE acknowledged_at IS NULL"
+        elif status_filter == "acknowledged":
+            where_clause = "WHERE acknowledged_at IS NOT NULL"
+
+        async with acquire_connection(self.db_pool) as conn:
+            cursor = await conn.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM alert_events
+                {where_clause}
+                """
+            )
+            row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def bulk_acknowledge_alerts(
+        self, alert_ids: list[str], note: str, user: dict[str, Any]
+    ) -> int:
+        """Bulk acknowledge multiple alert events in a single UPDATE.
+
+        Emits: ALERTS_BULK_ACKNOWLEDGED audit event.
+
+        Returns:
+            Number of events acknowledged
+        """
+        if not has_permission(user, Permission.ACKNOWLEDGE_ALERT):
+            raise PermissionError("Permission ACKNOWLEDGE_ALERT required")
+
+        if len(note.strip()) < MIN_ACK_NOTE_LENGTH:
+            raise ValueError(
+                f"Acknowledgment note must be at least {MIN_ACK_NOTE_LENGTH} characters"
+            )
+
+        if not alert_ids:
+            return 0
+
+        # Pre-validate UUIDs to give a clear ValueError instead of a DB DataError
+        for aid in alert_ids:
+            try:
+                _UUID(aid)
+            except (ValueError, AttributeError) as exc:
+                raise ValueError(f"Invalid alert ID format: {aid}") from exc
+
+        user_id = user.get("user_id", "unknown")
+
+        async with acquire_connection(self.db_pool) as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE alert_events
+                SET acknowledged_at = NOW(),
+                    acknowledged_by = %s,
+                    acknowledged_note = %s
+                WHERE id = ANY(%s::uuid[])
+                  AND acknowledged_at IS NULL
+                """,
+                (user_id, note.strip(), alert_ids),
+            )
+            count: int = cursor.rowcount or 0
+
+        sanitized_note = _sanitize_error_for_log(note)
+        await self.audit_logger.log_action(
+            user_id=user_id,
+            action="ALERTS_BULK_ACKNOWLEDGED",
+            resource_type="alert_event",
+            resource_id=",".join(alert_ids[:5]),
+            outcome="success",
+            details={
+                "count": count,
+                "note": sanitized_note,
+            },
+        )
+        return count
 
 
 __all__ = [

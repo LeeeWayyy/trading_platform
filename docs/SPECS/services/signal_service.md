@@ -1,6 +1,6 @@
 # Signal Service
 
-<!-- Last reviewed: 2026-02-09 - P6T12: Added signal heartbeat to Redis after generate_signals -->
+<!-- Last reviewed: 2026-03-13 - P6T17: Fail-closed strategy gating with error_msg in logging extras -->
 
 ## Identity
 - **Type:** Service
@@ -37,16 +37,18 @@
 - Records signal heartbeat to Redis key `signal:last_update:{strategy_id}` (best-effort, P6T12).
 
 **Behavior:**
-1. Validate model availability and request parameters.
-2. Resolve `as_of_date` (default UTC now).
-3. Use cached `SignalGenerator` for overridden `top_n/bottom_n` (LRU size 10).
-4. Generate features (Alpha158 parity), predict returns, rank, and weight.
-5. Publish signal event to Redis with fallback buffer on failures.
+1. Check strategy active status via `_check_strategy_active()` (fail-closed tri-state: active → 200, inactive → 403, error → 503) (P6T17).
+2. Validate model availability and request parameters.
+3. Resolve `as_of_date` (default UTC now).
+4. Use cached `SignalGenerator` for overridden `top_n/bottom_n` (LRU size 10).
+5. Generate features (Alpha158 parity), predict returns, rank, and weight.
+6. Publish signal event to Redis with fallback buffer on failures.
 
 **Raises:**
 - `HTTPException 400` on invalid date or parameters.
+- `HTTPException 403` when strategy is inactive (P6T17).
 - `HTTPException 404` on missing data.
-- `HTTPException 503` when model not loaded or registry missing.
+- `HTTPException 503` when model not loaded, registry missing, or strategy status check fails (fail-closed) (P6T17).
 - `HTTPException 500` for internal errors.
 
 #### precompute_features(request: PrecomputeRequest) -> PrecomputeResponse
@@ -199,6 +201,6 @@ curl -s -X POST http://localhost:8001/api/v1/signals/generate   -H 'Content-Type
 - `../libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-02-09 (P6T12 - Signal heartbeat recording to Redis after generate_signals)
+- **Last Updated:** 2026-03-12 (P6T17 - Fail-closed strategy gating via _check_strategy_active())
 - **Source Files:** `apps/signal_service/main.py`, `apps/signal_service/config.py`, `apps/signal_service/signal_generator.py`, `apps/signal_service/model_registry.py`
 - **ADRs:** `docs/ADRs/0004-signal-service-architecture.md`

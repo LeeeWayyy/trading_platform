@@ -34,6 +34,7 @@ See Also:
 import asyncio
 import logging
 import os
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable
@@ -41,6 +42,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+import psycopg
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,6 +118,95 @@ hydration_complete = True
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
 _generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
+
+
+_strategy_active_cache: dict[str, tuple[str, float]] = {}
+_strategy_cache_lock = threading.Lock()
+_STRATEGY_CACHE_TTL_SECONDS = 5
+_STRATEGY_ERROR_CACHE_TTL_SECONDS = 1  # Short TTL for errors: fail fast on subsequent requests
+
+
+def _check_strategy_active(strategy_id: str) -> str:
+    """Check if strategy is active in the strategies table (fail-closed).
+
+    Returns:
+        "active" — strategy exists and active=TRUE
+        "inactive" — strategy exists but active=FALSE (admin-disabled)
+        "missing" — strategy not found in DB (config/deployment issue)
+        "error" — DB connection or query failure
+
+    This is a safety-critical check: if we cannot determine strategy status,
+    we block signal generation rather than allowing it through.
+
+    Uses a TTL cache (5s) to avoid opening a new DB connection on every
+    request.  The 5s staleness window is an accepted trade-off: emergency
+    stops use the Redis circuit breaker (instant), while admin-initiated
+    deactivation via the web console propagates within 5s.
+
+    Error results are cached with a shorter TTL (1s) so that during a DB
+    outage, only the first request per second pays the connect_timeout —
+    subsequent requests fail fast with "error" from the cache.
+
+    A threading.Lock serializes cache-miss DB lookups to prevent concurrent
+    connections when called via asyncio.to_thread(). The lock scope
+    intentionally covers the DB call: the first request on cache-miss pays
+    the connect_timeout while subsequent requests wait on the lock and then
+    hit the freshly-cached result (either success or error).
+
+    Timeout budget: connect_timeout=2s + statement_timeout=2s = max ~4s under
+    the lock. The statement_timeout caps query execution so the lock cannot be
+    held indefinitely by a stalled query (e.g. table lock contention).
+    """
+    with _strategy_cache_lock:
+        now = time.time()
+        cached = _strategy_active_cache.get(strategy_id)
+        if cached is not None:
+            value, ts = cached
+            ttl = (
+                _STRATEGY_ERROR_CACHE_TTL_SECONDS
+                if value == "error"
+                else _STRATEGY_CACHE_TTL_SECONDS
+            )
+            if now - ts < ttl:
+                return value
+
+        try:
+            db_url = get_settings().database_url
+            with psycopg.connect(
+                db_url,
+                connect_timeout=2,
+                options="-c statement_timeout=2000",
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT active FROM strategies WHERE strategy_id = %s",
+                        (strategy_id,),
+                    )
+                    row = cur.fetchone()
+                    if row is None:
+                        logger.warning(
+                            "strategy_not_found_fail_closed",
+                            extra={"strategy_id": strategy_id},
+                        )
+                        result = "missing"
+                    else:
+                        result = "active" if row[0] else "inactive"
+            _strategy_active_cache[strategy_id] = (result, time.time())
+            return result
+        except Exception as exc:
+            # Broad catch is intentional: fail-closed safety requires ALL errors → "error".
+            # Narrowing to psycopg.Error would let unexpected exceptions crash the handler
+            # instead of returning "error" and blocking signals safely.
+            _strategy_active_cache[strategy_id] = ("error", time.time())
+            logger.error(
+                "strategy_active_check_failed_fail_closed",
+                extra={
+                    "strategy_id": strategy_id,
+                    "error_type": type(exc).__name__,
+                    "error_msg": str(exc),
+                },
+            )
+            return "error"
 
 
 # ==============================================================================
@@ -552,6 +643,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _format_database_url_for_logging(settings.database_url),
         )
         model_registry = ModelRegistry(settings.database_url)
+
+        # Step 1.5: Ensure configured default_strategy exists in strategies table.
+        # Migration 0028 seeds 'alpha_baseline', but settings.default_strategy is
+        # configurable. Bootstrap here to prevent fail-closed blocking on envs
+        # that use a different default strategy.
+        try:
+            with psycopg.connect(
+                settings.database_url,
+                connect_timeout=2,
+                options="-c statement_timeout=2000",
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO strategies (strategy_id, name, description) "
+                        "VALUES (%s, %s, %s) ON CONFLICT (strategy_id) DO NOTHING",
+                        (
+                            settings.default_strategy,
+                            settings.default_strategy,
+                            "Auto-seeded by signal service startup",
+                        ),
+                    )
+                    conn.commit()
+            logger.info(
+                "strategy_bootstrap_ok",
+                extra={"strategy_id": settings.default_strategy},
+            )
+        except (psycopg.Error, OSError) as exc:
+            logger.warning(
+                "strategy_bootstrap_failed",
+                extra={"strategy_id": settings.default_strategy, "error_type": type(exc).__name__},
+            )
 
         # Step 2: Load active model
         logger.info(f"Loading model: {settings.default_strategy}")
@@ -1513,6 +1635,13 @@ async def health_check() -> HealthResponse:
     if _should_hydrate_features() and not hydration_complete:
         health_status = "degraded"
 
+    # P6T17: Probe strategy status DB to detect dependency failures.
+    # If generate_signals would 503 for all requests, readiness should report degraded.
+    # "error" = DB unreachable, "missing" = strategy not in DB (config mismatch).
+    strategy_status = await asyncio.to_thread(_check_strategy_active, settings.default_strategy)
+    if strategy_status in ("error", "missing"):
+        health_status = "degraded"
+
     return HealthResponse(
         status=health_status,
         model_loaded=True,
@@ -1654,6 +1783,26 @@ async def generate_signals(
         if not model_registry.is_loaded:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
+            )
+
+        # P6T17: Fail-closed strategy active check
+        # Block signal generation if strategy is inactive or missing from strategies table
+        strategy_id = settings.default_strategy
+        strategy_status = await asyncio.to_thread(_check_strategy_active, strategy_id)
+        if strategy_status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Cannot verify strategy '{strategy_id}' status. Signal generation blocked.",
+            )
+        if strategy_status == "missing":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Strategy '{strategy_id}' not found in database. Check deployment configuration.",
+            )
+        if strategy_status == "inactive":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Strategy '{strategy_id}' is not active. Signal generation blocked.",
             )
 
         # Parse date

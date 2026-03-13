@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 from nicegui import app, ui
 
+from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user
 from apps.web_console_ng.components.command_palette import CommandPalette
 from apps.web_console_ng.components.header_metrics import HeaderMetrics
@@ -170,6 +171,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Performance", "/performance", "show_chart", None),  # P5T8
                     ("Reports", "/reports", "summarize", None),  # P5T8
                     ("Backtest", "/backtest", "science", None),
+                    ("Strategies", "/strategies", "model_training", None),  # P6T17
+                    ("Models", "/models", "hub", None),  # P6T17
+                    ("Alerts", "/alerts", "notifications", None),  # P5T7
                     (
                         "Admin",
                         "/admin",
@@ -199,6 +203,27 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # Universes link requires VIEW_UNIVERSES
                     if path == "/research/universes" and not has_permission(
                         user, Permission.VIEW_UNIVERSES
+                    ):
+                        continue
+
+                    # Strategies link requires feature flag + MANAGE_STRATEGIES
+                    if path == "/strategies" and (
+                        not config.FEATURE_STRATEGY_MANAGEMENT
+                        or not has_permission(user, Permission.MANAGE_STRATEGIES)
+                    ):
+                        continue
+
+                    # Models link requires feature flag + VIEW_MODELS
+                    if path == "/models" and (
+                        not config.FEATURE_MODEL_REGISTRY
+                        or not has_permission(user, Permission.VIEW_MODELS)
+                    ):
+                        continue
+
+                    # Alerts link requires feature flag + VIEW_ALERTS
+                    if path == "/alerts" and (
+                        not config.FEATURE_ALERTS
+                        or not has_permission(user, Permission.VIEW_ALERTS)
                     ):
                         continue
 

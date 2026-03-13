@@ -403,7 +403,11 @@ class DeliveryExecutor:
                     return last_result
                 try:
                     last_result = await channel_handler.send(
-                        recipient, subject, body, metadata=None, attachments=attachments
+                        recipient,
+                        subject,
+                        body,
+                        metadata={"delivery_id": delivery_id},
+                        attachments=attachments,
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception(
