@@ -86,10 +86,12 @@ class DummyUI:
         options: list[str] | dict[str, Any] | None = None,
         value: Any = None,
         multiple: bool = False,
+        on_change: Callable[..., Any] | None = None,
     ) -> DummyElement:
         el = DummyElement(
             self, "select", label=label, options=options, value=value, multiple=multiple
         )
+        el._on_value_change = on_change
         self.selects.append(el)
         return el
 
@@ -177,11 +179,26 @@ class FakeAlertService:
     async def delete_rule(self, rule_id: str, user: dict[str, Any]) -> None:
         self.deleted.append(rule_id)
 
-    async def get_alert_events(self) -> list[AlertEvent]:
+    async def get_alert_events(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        status_filter: str | None = None,
+    ) -> list[AlertEvent]:
         return list(self.events)
+
+    async def get_alert_events_count(self, status_filter: str | None = None) -> int:
+        return len(self.events)
 
     async def acknowledge_alert(self, event_id: str, note: str, user: dict[str, Any]) -> None:
         self.acked.append((event_id, note))
+
+    async def bulk_acknowledge_alerts(
+        self, event_ids: list[str], note: str, user: dict[str, Any]
+    ) -> int:
+        for eid in event_ids:
+            self.acked.append((eid, note))
+        return len(event_ids)
 
 
 @pytest.fixture()
@@ -250,7 +267,7 @@ async def test_render_alert_history_acknowledge_flow(
     await alerts_module._render_alert_history({"user_id": "u1"}, service)
 
     note_input = next(t for t in dummy_ui.textareas if "Acknowledgment Note" in (t.label or ""))
-    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge")
+    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge Selected")
 
     note_input.value = "too short"
     await _call(ack_button._on_click)
@@ -462,15 +479,34 @@ class FakeAlertServiceWithErrors(FakeAlertService):
             raise self.create_error
         self.created.append((rule, user))
 
-    async def get_alert_events(self) -> list[AlertEvent]:
+    async def get_alert_events(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        status_filter: str | None = None,
+    ) -> list[AlertEvent]:
         if self.events_error:
             raise self.events_error
         return list(self.events)
+
+    async def get_alert_events_count(self, status_filter: str | None = None) -> int:
+        if self.events_error:
+            raise self.events_error
+        return len(self.events)
 
     async def acknowledge_alert(self, event_id: str, note: str, user: dict[str, Any]) -> None:
         if self.ack_error:
             raise self.ack_error
         self.acked.append((event_id, note))
+
+    async def bulk_acknowledge_alerts(
+        self, event_ids: list[str], note: str, user: dict[str, Any]
+    ) -> int:
+        if self.ack_error:
+            raise self.ack_error
+        for eid in event_ids:
+            self.acked.append((eid, note))
+        return len(event_ids)
 
 
 @pytest.mark.asyncio()
@@ -707,8 +743,8 @@ async def test_render_alert_rules_update_permission_shows_message(
 
     await alerts_module._render_alert_rules({"user_id": "u1"}, service)
 
-    # Verify edit message is shown
-    assert any("Edit functionality available" in lbl.text for lbl in dummy_ui.labels)
+    # Verify edit button is shown (P6T17.3 replaced text with inline edit buttons)
+    assert any(b.label == "Edit" for b in dummy_ui.buttons)
 
 
 @pytest.mark.asyncio()
@@ -878,7 +914,7 @@ async def test_render_alert_history_displays_acknowledged_event(
         triggered_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
         acknowledged_at=datetime(2026, 1, 1, 12, 30, 0, tzinfo=UTC),
         acknowledged_by="admin",
-        acknowledgment_note="Resolved",
+        acknowledged_note="Resolved",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     service = FakeAlertService(events=[event])
@@ -974,7 +1010,7 @@ async def test_render_alert_history_no_pending_alerts(
 
     await alerts_module._render_alert_history({"user_id": "u1"}, service)
 
-    assert any("No pending alerts to acknowledge" in lbl.text for lbl in dummy_ui.labels)
+    assert any("No pending alerts on this page" in lbl.text for lbl in dummy_ui.labels)
 
 
 @pytest.mark.asyncio()
@@ -1003,7 +1039,7 @@ async def test_render_alert_history_acknowledge_no_selection(
     event_select = next(s for s in dummy_ui.selects if s.label == "Select Alert")
     event_select.value = None
 
-    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge")
+    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge Selected")
     await _call(ack_button._on_click)
 
     assert any("Select an alert to acknowledge" in n["text"] for n in dummy_ui.notifications)
@@ -1036,7 +1072,7 @@ async def test_render_alert_history_acknowledge_permission_error(
     note_input = next(t for t in dummy_ui.textareas if "Acknowledgment Note" in (t.label or ""))
     note_input.value = "This is a sufficiently long acknowledgment note"
 
-    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge")
+    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge Selected")
     await _call(ack_button._on_click)
 
     assert any("Permission denied" in n["text"] for n in dummy_ui.notifications)
@@ -1070,7 +1106,7 @@ async def test_render_alert_history_acknowledge_db_error(
     note_input = next(t for t in dummy_ui.textareas if "Acknowledgment Note" in (t.label or ""))
     note_input.value = "This is a sufficiently long acknowledgment note"
 
-    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge")
+    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge Selected")
     await _call(ack_button._on_click)
 
     assert any("Database error" in n["text"] for n in dummy_ui.notifications)
@@ -1101,7 +1137,7 @@ async def test_render_alert_history_acknowledge_validation_error(
     note_input = next(t for t in dummy_ui.textareas if "Acknowledgment Note" in (t.label or ""))
     note_input.value = "This is a sufficiently long acknowledgment note"
 
-    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge")
+    ack_button = next(b for b in dummy_ui.buttons if b.label == "Acknowledge Selected")
     await _call(ack_button._on_click)
 
     assert any("Invalid input" in n["text"] for n in dummy_ui.notifications)

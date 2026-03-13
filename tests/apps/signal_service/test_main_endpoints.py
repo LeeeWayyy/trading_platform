@@ -553,6 +553,122 @@ class TestGenerateSignalsEndpoint:
         assert "non-string keys" in response.json()["detail"]
 
 
+class TestGenerateSignalsStrategyActiveCheck:
+    """Tests for P6T17 fail-closed strategy active check at endpoint level."""
+
+    def test_generate_signals_strategy_inactive_returns_403(
+        self,
+        client: TestClient,
+        mock_auth_context: Mock,
+    ) -> None:
+        """Inactive strategy returns 403 Forbidden."""
+        mock_generator = Mock()
+        mock_registry = Mock()
+        mock_registry.is_loaded = True
+
+        with patch("apps.signal_service.main.signal_generator", mock_generator):
+            with patch("apps.signal_service.main.model_registry", mock_registry):
+                with patch(
+                    "apps.signal_service.main._check_strategy_active",
+                    return_value="inactive",
+                ):
+                    response = client.post(
+                        "/api/v1/signals/generate",
+                        json={"symbols": ["AAPL"]},
+                    )
+
+        assert response.status_code == 403
+        assert "not active" in response.json()["detail"]
+
+    def test_generate_signals_strategy_check_error_returns_503(
+        self,
+        client: TestClient,
+        mock_auth_context: Mock,
+    ) -> None:
+        """Strategy check DB error returns 503 Service Unavailable."""
+        mock_generator = Mock()
+        mock_registry = Mock()
+        mock_registry.is_loaded = True
+
+        with patch("apps.signal_service.main.signal_generator", mock_generator):
+            with patch("apps.signal_service.main.model_registry", mock_registry):
+                with patch(
+                    "apps.signal_service.main._check_strategy_active",
+                    return_value="error",
+                ):
+                    response = client.post(
+                        "/api/v1/signals/generate",
+                        json={"symbols": ["AAPL"]},
+                    )
+
+        assert response.status_code == 503
+        assert "Cannot verify strategy" in response.json()["detail"]
+
+    def test_generate_signals_strategy_missing_returns_503(
+        self,
+        client: TestClient,
+        mock_auth_context: Mock,
+    ) -> None:
+        """Missing strategy (not in DB) returns 503 — config/deployment issue."""
+        mock_generator = Mock()
+        mock_registry = Mock()
+        mock_registry.is_loaded = True
+
+        with patch("apps.signal_service.main.signal_generator", mock_generator):
+            with patch("apps.signal_service.main.model_registry", mock_registry):
+                with patch(
+                    "apps.signal_service.main._check_strategy_active",
+                    return_value="missing",
+                ):
+                    response = client.post(
+                        "/api/v1/signals/generate",
+                        json={"symbols": ["AAPL"]},
+                    )
+
+        assert response.status_code == 503
+        assert "not found" in response.json()["detail"]
+
+    def test_generate_signals_strategy_active_proceeds(
+        self,
+        client: TestClient,
+        mock_auth_context: Mock,
+    ) -> None:
+        """Active strategy allows signal generation to proceed."""
+        mock_generator = Mock()
+        mock_signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "predicted_return": [0.023],
+                "rank": [1],
+                "target_weight": [1.0],
+            }
+        )
+        mock_generator.generate_signals.return_value = mock_signals
+        mock_generator.top_n = 1
+        mock_generator.bottom_n = 0
+
+        mock_registry = Mock()
+        mock_registry.is_loaded = True
+        mock_metadata = Mock()
+        mock_metadata.version = "v1.0.0"
+        mock_metadata.strategy_name = "alpha_baseline"
+        mock_registry.current_metadata = mock_metadata
+
+        with patch("apps.signal_service.main.signal_generator", mock_generator):
+            with patch("apps.signal_service.main.model_registry", mock_registry):
+                with patch(
+                    "apps.signal_service.main._check_strategy_active",
+                    return_value="active",
+                ):
+                    with patch("apps.signal_service.main._publish_signal_event_with_fallback"):
+                        response = client.post(
+                            "/api/v1/signals/generate",
+                            json={"symbols": ["AAPL"]},
+                        )
+
+        assert response.status_code == 200
+
+
 class TestGetModelInfoEndpoint:
     """Test get_model_info() endpoint."""
 

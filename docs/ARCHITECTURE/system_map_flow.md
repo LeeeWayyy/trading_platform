@@ -51,6 +51,8 @@ flowchart TB
   ext_redis -->|positions/orders| svc_web_console_ng
   svc_alert_worker -->|alert events| ext_redis
   lib_trading -->|circuit breaker state| ext_redis
+  svc_web_console_ng -->|strategy/model management| lib_web_console_services
+  svc_signal_service -->|strategy active check| ext_postgres
 
   %% Click links to documentation
   click svc_alert_worker "../SPECS/services/alert_worker.md"

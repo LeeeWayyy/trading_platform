@@ -1,6 +1,6 @@
 {
   "$schema": "./system_map.schema.json",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Configuration for architecture visualization generation",
 
   "layers": [
@@ -103,7 +103,9 @@
     {"from": "apps/web_console_ng", "to": "ext_redis", "type": "data_flow", "label": "realtime updates"},
     {"from": "ext_redis", "to": "apps/web_console_ng", "type": "event", "label": "positions/orders"},
     {"from": "apps/alert_worker", "to": "ext_redis", "type": "data_flow", "label": "alert events"},
-    {"from": "libs/trading", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
+    {"from": "libs/trading", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"},
+    {"from": "apps/web_console_ng", "to": "libs/web_console_services", "type": "data_flow", "label": "strategy/model management"},
+    {"from": "apps/signal_service", "to": "ext_postgres", "type": "data_flow", "label": "strategy active check"}
   ],
 
   "filtering": {

@@ -292,12 +292,16 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
 
     class _DummyClient:
         async def fetch_kill_switch_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "ACTIVE"}
 
         async def fetch_circuit_breaker_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "OPEN"}
 
@@ -333,6 +337,9 @@ def test_navigation_item_structure() -> None:
         ("Performance", "/performance", "show_chart", None),
         ("Reports", "/reports", "summarize", None),
         ("Backtest", "/backtest", "science", None),
+        ("Strategies", "/strategies", "model_training", None),  # P6T17
+        ("Models", "/models", "hub", None),  # P6T17
+        ("Alerts", "/alerts", "notifications", None),  # P5T7/P6T17
         ("Admin", "/admin", "settings", None),
     ]
 
@@ -375,7 +382,8 @@ async def test_exposure_link_hidden_without_permission(
 
     # Deny only VIEW_STRATEGY_EXPOSURE; grant everything else
     def mock_has_permission(
-        _user: dict[str, Any], perm: Permission,
+        _user: dict[str, Any],
+        perm: Permission,
     ) -> bool:
         return perm != Permission.VIEW_STRATEGY_EXPOSURE
 
@@ -473,12 +481,16 @@ async def test_exposure_link_hidden_without_permission(
 
     class _DummyClient:
         async def fetch_kill_switch_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "ACTIVE"}
 
         async def fetch_circuit_breaker_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "OPEN"}
 
@@ -520,7 +532,8 @@ async def test_universes_link_hidden_without_permission(
     )
 
     def mock_has_permission(
-        _user: dict[str, Any], perm: Permission,
+        _user: dict[str, Any],
+        perm: Permission,
     ) -> bool:
         return perm != Permission.VIEW_UNIVERSES
 
@@ -618,12 +631,16 @@ async def test_universes_link_hidden_without_permission(
 
     class _DummyClient:
         async def fetch_kill_switch_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "ACTIVE"}
 
         async def fetch_circuit_breaker_status(
-            self, _user_id: str, **_kwargs: Any,
+            self,
+            _user_id: str,
+            **_kwargs: Any,
         ) -> dict[str, str]:
             return {"state": "OPEN"}
 
@@ -641,3 +658,79 @@ async def test_universes_link_hidden_without_permission(
 
     targets = {link.target for link in fake_ui.links}
     assert "/research/universes" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_p6t17_links_hidden_when_feature_flags_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategies, Models, and Alerts nav links are hidden when feature flags are False."""
+    # Disable all P6T17 feature flags
+    monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", False)
+
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/strategies" not in targets
+    assert "/models" not in targets
+    assert "/alerts" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_p6t17_links_visible_when_feature_flags_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategies, Models, and Alerts nav links are visible when feature flags are True."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
+
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/strategies" in targets
+    assert "/models" in targets
+    assert "/alerts" in targets
+
+
+@pytest.mark.asyncio()
+async def test_p6t17_links_hidden_when_permissions_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P6T17 links are hidden when user lacks the required permission (even with flags on)."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
+
+    # Deny all P6T17-related permissions; allow all others (so layout renders)
+    denied = {
+        Permission.MANAGE_STRATEGIES,
+        Permission.VIEW_MODELS,
+        Permission.VIEW_ALERTS,
+    }
+
+    # Run the layout with all feature flags on but P6T17 permissions denied.
+    # _run_layout forces has_permission=True, so we override it after.
+    await _run_layout(monkeypatch, current_path="/")
+
+    # Now re-run with custom has_permission that denies P6T17 permissions
+    fake_ui2 = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui2)
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui2.links}
+    assert "/strategies" not in targets
+    assert "/models" not in targets
+    assert "/alerts" not in targets
