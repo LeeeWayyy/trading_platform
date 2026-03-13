@@ -127,7 +127,16 @@ ACTION_CHOICES = [
     "api_key_created",
     "api_key_revoked",
     "api_key_rotated",
+    "cost_basis_method_changed",
+    "cost_basis_method_change_denied",
+    "force_logout",
+    "force_logout_denied",
+    "force_logout_failed",
+    "lot_closed",
+    "lot_close_denied",
+    "provision_user_denied",
     "role_change",
+    "role_change_denied",
     "role_changed",
     "login",
     "logout",
@@ -392,15 +401,15 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                 try:
                     audit = AuditLogger(db_pool)
                     await audit.log_admin_change(
-                        admin_user_id=user_id,
+                        admin_user_id=cur_uid,
                         action="api_key_revoked",
-                        target_user_id=user_id,
+                        target_user_id=cur_uid,
                         details={"key_id": key_id, "key_prefix": db_prefix},
                     )
                 except Exception:
                     logger.warning(
                         "api_key_revoke_audit_failed",
-                        extra={"key_id": key_id, "user_id": user_id},
+                        extra={"key_id": key_id, "user_id": cur_uid},
                     )
                 dialog.close()
                 ui.notify("API key revoked", type="positive")
@@ -517,9 +526,9 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                 try:
                     audit = AuditLogger(db_pool)
                     await audit.log_admin_change(
-                        admin_user_id=user_id,
+                        admin_user_id=cur_uid,
                         action="api_key_rotated",
-                        target_user_id=user_id,
+                        target_user_id=cur_uid,
                         details={
                             "old_key_id": key_id,
                             "old_key_prefix": old_prefix,
@@ -529,7 +538,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                 except Exception:
                     logger.warning(
                         "api_key_rotate_audit_failed",
-                        extra={"key_id": key_id, "user_id": user_id},
+                        extra={"key_id": key_id, "user_id": cur_uid},
                     )
                 dialog.close()
                 # Show new key
@@ -883,6 +892,13 @@ async def _render_trading_hours_form(user: dict[str, Any], db_pool: AsyncConnect
         after_hours = ui.checkbox("Enable after-hours", value=config.after_hours_enabled)
 
         async def save() -> None:
+            cur = get_current_user()
+            cur_uid = cur.get("user_id", "unknown")
+            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG) or not await verify_db_role(
+                db_pool, cur_uid, Permission.MANAGE_SYSTEM_CONFIG
+            ):
+                ui.notify("Permission denied", type="negative")
+                return
             try:
                 open_time = datetime.strptime(open_input.value, "%H:%M").time()
                 close_time = datetime.strptime(close_input.value, "%H:%M").time()
@@ -892,8 +908,7 @@ async def _render_trading_hours_form(user: dict[str, Any], db_pool: AsyncConnect
                     pre_market_enabled=pre_market.value,
                     after_hours_enabled=after_hours.value,
                 )
-                user_id = _get_user_identifier(user)
-                if await _save_config(db_pool, "trading_hours", updated, user_id):
+                if await _save_config(db_pool, "trading_hours", updated, cur_uid):
                     ui.notify("Trading hours saved", type="positive")
                 else:
                     ui.notify("Failed to save", type="negative")
@@ -928,14 +943,20 @@ async def _render_position_limits_form(user: dict[str, Any], db_pool: AsyncConne
         ).classes("w-48")
 
         async def save() -> None:
+            cur = get_current_user()
+            cur_uid = cur.get("user_id", "unknown")
+            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG) or not await verify_db_role(
+                db_pool, cur_uid, Permission.MANAGE_SYSTEM_CONFIG
+            ):
+                ui.notify("Permission denied", type="negative")
+                return
             try:
                 updated = PositionLimitsConfig(
                     max_position_per_symbol=int(max_pos.value),
                     max_notional_total=Decimal(str(max_notional.value)),
                     max_open_orders=int(max_orders.value),
                 )
-                user_id = _get_user_identifier(user)
-                if await _save_config(db_pool, "position_limits", updated, user_id):
+                if await _save_config(db_pool, "position_limits", updated, cur_uid):
                     ui.notify("Position limits saved", type="positive")
                 else:
                     ui.notify("Failed to save", type="negative")
@@ -962,14 +983,20 @@ async def _render_system_defaults_form(user: dict[str, Any], db_pool: AsyncConne
         ).classes("w-48")
 
         async def save() -> None:
+            cur = get_current_user()
+            cur_uid = cur.get("user_id", "unknown")
+            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG) or not await verify_db_role(
+                db_pool, cur_uid, Permission.MANAGE_SYSTEM_CONFIG
+            ):
+                ui.notify("Permission denied", type="negative")
+                return
             try:
                 updated = SystemDefaultsConfig(
                     dry_run=dry_run.value,
                     circuit_breaker_enabled=cb_enabled.value,
                     drawdown_threshold=Decimal(str(drawdown.value)),
                 )
-                user_id = _get_user_identifier(user)
-                if await _save_config(db_pool, "system_defaults", updated, user_id):
+                if await _save_config(db_pool, "system_defaults", updated, cur_uid):
                     ui.notify("System defaults saved", type="positive")
                 else:
                     ui.notify("Failed to save", type="negative")
@@ -1109,7 +1136,19 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
     # Pagination
     with ui.row().classes("gap-4 mt-4"):
 
+        async def _check_audit_permission() -> bool:
+            cur = get_current_user()
+            cur_uid = cur.get("user_id", "unknown")
+            if not has_permission(cur, Permission.VIEW_AUDIT) or not await verify_db_role(
+                db_pool, cur_uid, Permission.VIEW_AUDIT
+            ):
+                ui.notify("Permission denied", type="negative")
+                return False
+            return True
+
         async def prev_page() -> None:
+            if not await _check_audit_permission():
+                return
             nonlocal current_page
             if current_page > 0:
                 current_page -= 1
@@ -1117,6 +1156,8 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
                 logs_display.refresh()
 
         async def next_page() -> None:
+            if not await _check_audit_permission():
+                return
             nonlocal current_page
             max_page = (total_count - 1) // PAGE_SIZE if total_count > 0 else 0
             if current_page < max_page:
@@ -1128,6 +1169,8 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
         ui.button("Next", on_click=next_page).props("flat")
 
         async def apply_filters() -> None:
+            if not await _check_audit_permission():
+                return
             nonlocal current_page
             current_page = 0
             await fetch_logs()
@@ -1137,6 +1180,13 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
 
     # Export button
     async def export_csv() -> None:
+        cur = get_current_user()
+        cur_uid = cur.get("user_id", "unknown")
+        if not has_permission(cur, Permission.VIEW_AUDIT) or not await verify_db_role(
+            db_pool, cur_uid, Permission.VIEW_AUDIT
+        ):
+            ui.notify("Permission denied", type="negative")
+            return
         filters = get_filters()
         all_logs, _ = await _fetch_audit_logs(db_pool, filters, MAX_EXPORT_RECORDS, 0)
         csv_data = _build_audit_csv(all_logs)

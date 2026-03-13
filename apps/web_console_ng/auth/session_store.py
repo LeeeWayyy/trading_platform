@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import redis.asyncio as redis
-from cryptography.fernet import Fernet, MultiFernet
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.audit import AuthAuditLogger
@@ -504,7 +504,7 @@ class ServerSessionStore:
                 uid = _get_user_id(session)
                 if uid:
                     await self.redis.srem(f"{self.user_sessions_prefix}{uid}", session_id)  # type: ignore[misc]
-        except (redis.RedisError, json.JSONDecodeError, TypeError, AttributeError) as exc:
+        except (redis.RedisError, json.JSONDecodeError, TypeError, AttributeError, InvalidToken) as exc:
             logger.debug("reverse_index_cleanup_failed", extra={"session_id": session_id, "error": str(exc)})
         await self.redis.delete(f"{self.session_prefix}{session_id}")
 
