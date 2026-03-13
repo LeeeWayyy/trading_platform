@@ -180,37 +180,37 @@ class TaxLotService:
         closed_at = datetime.now(UTC) if status_normalized == "closed" else None
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(
-                    """
-                    INSERT INTO tax_lots (
-                        user_id,
-                        symbol,
-                        quantity,
-                        cost_per_share,
-                        total_cost,
-                        acquired_at,
-                        acquisition_type,
-                        remaining_quantity,
-                        closed_at,
-                        created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                    RETURNING *
-                    """,
-                    (
-                        owner_id,
-                        symbol,
-                        quantity_decimal,
-                        cost_per_share,
-                        cost_basis_decimal,
-                        acquisition_date,
-                        "manual",
-                        remaining_quantity,
-                        closed_at,
-                    ),
-                )
-                row = await cur.fetchone()
-            await conn.commit()
+            async with conn.transaction():
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO tax_lots (
+                            user_id,
+                            symbol,
+                            quantity,
+                            cost_per_share,
+                            total_cost,
+                            acquired_at,
+                            acquisition_type,
+                            remaining_quantity,
+                            closed_at,
+                            created_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        RETURNING *
+                        """,
+                        (
+                            owner_id,
+                            symbol,
+                            quantity_decimal,
+                            cost_per_share,
+                            cost_basis_decimal,
+                            acquisition_date,
+                            "manual",
+                            remaining_quantity,
+                            closed_at,
+                        ),
+                    )
+                    row = await cur.fetchone()
 
         if not row:
             raise RuntimeError("Tax lot creation failed")
@@ -261,129 +261,129 @@ class TaxLotService:
             raise ValueError("No valid fields provided for update")
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                # User-scoped query to prevent cross-user writes
-                # FOR UPDATE prevents concurrent updates from overwriting each other
-                if target_user_id:
-                    await cur.execute(
-                        "SELECT * FROM tax_lots WHERE id = %s AND user_id = %s FOR UPDATE",
-                        (lot_id, target_user_id),
-                    )
-                else:
-                    await cur.execute(
-                        "SELECT * FROM tax_lots WHERE id = %s FOR UPDATE", (lot_id,)
-                    )
-                row = await cur.fetchone()
-                if not row:
-                    raise ValueError(f"Tax lot {lot_id} not found")
-
-                current_quantity = _to_decimal(row.get("quantity"))
-                current_cost = _to_decimal(
-                    row.get("total_cost")
-                    if row.get("total_cost") is not None
-                    else row.get("cost_basis")
-                )
-
-                new_quantity = _to_decimal(updates.get("quantity", current_quantity))
-                new_cost = _to_decimal(updates.get("cost_basis", current_cost))
-                new_acquired_at = updates.get(
-                    "acquisition_date",
-                    row.get("acquired_at") or row.get("acquisition_date"),
-                )
-                new_symbol = updates.get("symbol", row.get("symbol"))
-
-                status_override = updates.get("status")
-                if isinstance(status_override, str):
-                    status_normalized = status_override.strip().lower()
-                    if status_normalized not in {"open", "closed"}:
-                        raise ValueError(
-                            f"status must be 'open' or 'closed', got: {status_normalized}"
+            async with conn.transaction():
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    # User-scoped query to prevent cross-user writes
+                    # FOR UPDATE prevents concurrent updates from overwriting each other
+                    if target_user_id:
+                        await cur.execute(
+                            "SELECT * FROM tax_lots WHERE id = %s AND user_id = %s FOR UPDATE",
+                            (lot_id, target_user_id),
                         )
-                else:
-                    status_normalized = self._derive_status(row)
-
-                remaining_quantity = row.get("remaining_quantity", new_quantity)
-                closed_at = row.get("closed_at")
-                if status_normalized == "closed":
-                    remaining_quantity = Decimal("0")
-                    closed_at = datetime.now(UTC)
-                elif status_normalized == "open":
-                    remaining_quantity = new_quantity
-                    closed_at = None
-
-                set_clauses: list[str] = []
-                values: list[Any] = []
-
-                if "symbol" in updates:
-                    set_clauses.append("symbol = %s")
-                    values.append(new_symbol)
-                if "quantity" in updates:
-                    set_clauses.append("quantity = %s")
-                    values.append(new_quantity)
-                if "cost_basis" in updates:
-                    set_clauses.append("total_cost = %s")
-                    values.append(new_cost)
-                if "quantity" in updates or "cost_basis" in updates:
-                    # When quantity changes without cost_basis, total_cost is preserved
-                    # and cost_per_share is recalculated. This maintains the total_cost
-                    # invariant but may not be the intended behavior.
-                    if "quantity" in updates and "cost_basis" not in updates:
-                        logger.warning(
-                            "tax_lot_quantity_updated_without_cost_basis",
-                            extra={
-                                "lot_id": str(lot_id),
-                                "old_quantity": str(current_quantity),
-                                "new_quantity": str(new_quantity),
-                                "total_cost_preserved": str(current_cost),
-                                "note": "cost_per_share recalculated; provide cost_basis to update total_cost",
-                            },
+                    else:
+                        await cur.execute(
+                            "SELECT * FROM tax_lots WHERE id = %s FOR UPDATE", (lot_id,)
                         )
-                    cost_per_share = new_cost / new_quantity if new_quantity else Decimal("0")
-                    set_clauses.append("cost_per_share = %s")
-                    values.append(cost_per_share)
-                if "acquisition_date" in updates:
-                    if not isinstance(new_acquired_at, datetime):
-                        raise ValueError(
-                            f"acquisition_date must be datetime, got {type(new_acquired_at)}"
+                    row = await cur.fetchone()
+                    if not row:
+                        raise ValueError(f"Tax lot {lot_id} not found")
+
+                    current_quantity = _to_decimal(row.get("quantity"))
+                    current_cost = _to_decimal(
+                        row.get("total_cost")
+                        if row.get("total_cost") is not None
+                        else row.get("cost_basis")
+                    )
+
+                    new_quantity = _to_decimal(updates.get("quantity", current_quantity))
+                    new_cost = _to_decimal(updates.get("cost_basis", current_cost))
+                    new_acquired_at = updates.get(
+                        "acquisition_date",
+                        row.get("acquired_at") or row.get("acquisition_date"),
+                    )
+                    new_symbol = updates.get("symbol", row.get("symbol"))
+
+                    status_override = updates.get("status")
+                    if isinstance(status_override, str):
+                        status_normalized = status_override.strip().lower()
+                        if status_normalized not in {"open", "closed"}:
+                            raise ValueError(
+                                f"status must be 'open' or 'closed', got: {status_normalized}"
+                            )
+                    else:
+                        status_normalized = self._derive_status(row)
+
+                    remaining_quantity = row.get("remaining_quantity", new_quantity)
+                    closed_at = row.get("closed_at")
+                    if status_normalized == "closed":
+                        remaining_quantity = Decimal("0")
+                        closed_at = datetime.now(UTC)
+                    elif status_normalized == "open":
+                        remaining_quantity = new_quantity
+                        closed_at = None
+
+                    set_clauses: list[str] = []
+                    values: list[Any] = []
+
+                    if "symbol" in updates:
+                        set_clauses.append("symbol = %s")
+                        values.append(new_symbol)
+                    if "quantity" in updates:
+                        set_clauses.append("quantity = %s")
+                        values.append(new_quantity)
+                    if "cost_basis" in updates:
+                        set_clauses.append("total_cost = %s")
+                        values.append(new_cost)
+                    if "quantity" in updates or "cost_basis" in updates:
+                        # When quantity changes without cost_basis, total_cost is preserved
+                        # and cost_per_share is recalculated. This maintains the total_cost
+                        # invariant but may not be the intended behavior.
+                        if "quantity" in updates and "cost_basis" not in updates:
+                            logger.warning(
+                                "tax_lot_quantity_updated_without_cost_basis",
+                                extra={
+                                    "lot_id": str(lot_id),
+                                    "old_quantity": str(current_quantity),
+                                    "new_quantity": str(new_quantity),
+                                    "total_cost_preserved": str(current_cost),
+                                    "note": "cost_per_share recalculated; provide cost_basis to update total_cost",
+                                },
+                            )
+                        cost_per_share = new_cost / new_quantity if new_quantity else Decimal("0")
+                        set_clauses.append("cost_per_share = %s")
+                        values.append(cost_per_share)
+                    if "acquisition_date" in updates:
+                        if not isinstance(new_acquired_at, datetime):
+                            raise ValueError(
+                                f"acquisition_date must be datetime, got {type(new_acquired_at)}"
+                            )
+                        set_clauses.append("acquired_at = %s")
+                        values.append(new_acquired_at)
+                    # Only update status if a valid string was provided (ignore null/non-string values)
+                    # Update remaining_quantity when quantity changes
+                    if "quantity" in updates and "status" not in updates:
+                        # Cap remaining_quantity to new quantity if it exceeds
+                        current_remaining = _to_decimal(row.get("remaining_quantity", new_quantity))
+                        remaining_quantity = min(current_remaining, new_quantity)
+                        set_clauses.append("remaining_quantity = %s")
+                        values.append(remaining_quantity)
+                    # Only update status if a valid string was provided (ignore null/non-string values)
+                    if "status" in updates and isinstance(status_override, str):
+                        set_clauses.append("remaining_quantity = %s")
+                        values.append(remaining_quantity)
+                        set_clauses.append("closed_at = %s")
+                        values.append(closed_at)
+
+                    if not set_clauses:
+                        raise ValueError("No valid fields provided for update")
+
+                    # User-scoped UPDATE to prevent cross-user writes
+                    if target_user_id:
+                        query = (
+                            "UPDATE tax_lots SET "
+                            + ", ".join(set_clauses)
+                            + " WHERE id = %s AND user_id = %s RETURNING *"
                         )
-                    set_clauses.append("acquired_at = %s")
-                    values.append(new_acquired_at)
-                # Only update status if a valid string was provided (ignore null/non-string values)
-                # Update remaining_quantity when quantity changes
-                if "quantity" in updates and "status" not in updates:
-                    # Cap remaining_quantity to new quantity if it exceeds
-                    current_remaining = _to_decimal(row.get("remaining_quantity", new_quantity))
-                    remaining_quantity = min(current_remaining, new_quantity)
-                    set_clauses.append("remaining_quantity = %s")
-                    values.append(remaining_quantity)
-                # Only update status if a valid string was provided (ignore null/non-string values)
-                if "status" in updates and isinstance(status_override, str):
-                    set_clauses.append("remaining_quantity = %s")
-                    values.append(remaining_quantity)
-                    set_clauses.append("closed_at = %s")
-                    values.append(closed_at)
-
-                if not set_clauses:
-                    raise ValueError("No valid fields provided for update")
-
-                # User-scoped UPDATE to prevent cross-user writes
-                if target_user_id:
-                    query = (
-                        "UPDATE tax_lots SET "
-                        + ", ".join(set_clauses)
-                        + " WHERE id = %s AND user_id = %s RETURNING *"
-                    )
-                    values.extend([lot_id, target_user_id])
-                else:
-                    query = (
-                        "UPDATE tax_lots SET "
-                        + ", ".join(set_clauses)
-                        + " WHERE id = %s RETURNING *"
-                    )
-                    values.append(lot_id)
-                await cur.execute(query, tuple(values))
-                updated = await cur.fetchone()
-            await conn.commit()
+                        values.extend([lot_id, target_user_id])
+                    else:
+                        query = (
+                            "UPDATE tax_lots SET "
+                            + ", ".join(set_clauses)
+                            + " WHERE id = %s RETURNING *"
+                        )
+                        values.append(lot_id)
+                    await cur.execute(query, tuple(values))
+                    updated = await cur.fetchone()
 
         if not updated:
             raise RuntimeError(f"Tax lot {lot_id} update failed")
@@ -417,32 +417,32 @@ class TaxLotService:
         target_user_id = None if all_users else (user_id or current_user_id)
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                # User-scoped UPDATE to prevent cross-user writes
-                if target_user_id:
-                    await cur.execute(
-                        """
-                        UPDATE tax_lots
-                        SET remaining_quantity = 0,
-                            closed_at = NOW()
-                        WHERE id = %s AND user_id = %s
-                        RETURNING *
-                        """,
-                        (lot_id, target_user_id),
-                    )
-                else:
-                    await cur.execute(
-                        """
-                        UPDATE tax_lots
-                        SET remaining_quantity = 0,
-                            closed_at = NOW()
-                        WHERE id = %s
-                        RETURNING *
-                        """,
-                        (lot_id,),
-                    )
-                row = await cur.fetchone()
-            await conn.commit()
+            async with conn.transaction():
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    # User-scoped UPDATE to prevent cross-user writes
+                    if target_user_id:
+                        await cur.execute(
+                            """
+                            UPDATE tax_lots
+                            SET remaining_quantity = 0,
+                                closed_at = NOW()
+                            WHERE id = %s AND user_id = %s
+                            RETURNING *
+                            """,
+                            (lot_id, target_user_id),
+                        )
+                    else:
+                        await cur.execute(
+                            """
+                            UPDATE tax_lots
+                            SET remaining_quantity = 0,
+                                closed_at = NOW()
+                            WHERE id = %s
+                            RETURNING *
+                            """,
+                            (lot_id,),
+                        )
+                    row = await cur.fetchone()
 
         if not row:
             return None
@@ -499,17 +499,17 @@ class TaxLotService:
             raise PermissionError("User context required")
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    INSERT INTO tax_user_settings (user_id, cost_basis_method)
-                    VALUES (%s, %s)
-                    ON CONFLICT (user_id) DO UPDATE
-                    SET cost_basis_method = EXCLUDED.cost_basis_method
-                    """,
-                    (target, method_lower),
-                )
-            await conn.commit()
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO tax_user_settings (user_id, cost_basis_method)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id) DO UPDATE
+                        SET cost_basis_method = EXCLUDED.cost_basis_method
+                        """,
+                        (target, method_lower),
+                    )
 
     def _require_permission(self, permission: Permission) -> None:
         if not has_permission(self._user, permission):

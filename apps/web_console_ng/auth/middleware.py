@@ -375,8 +375,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if redis_client is not None:
                     try:
                         await redis_client.setex(cache_key, 60, "__none__")
-                    except Exception:
-                        logger.debug("role_cache_write_none_failed", extra={"user_id": user_id})
+                    except Exception as exc:
+                        logger.debug("role_cache_write_none_failed", extra={"user_id": user_id, "error": str(exc)})
                 return  # No DB row — keep provider role
 
             db_role = row[0]
@@ -385,8 +385,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if redis_client is not None:
                     try:
                         await redis_client.setex(cache_key, 60, db_role)
-                    except Exception:
-                        logger.debug("role_cache_write_failed", extra={"user_id": user_id})
+                    except Exception as exc:
+                        logger.debug("role_cache_write_failed", extra={"user_id": user_id, "error": str(exc)})
                 return
 
             # Role differs — apply override

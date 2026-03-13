@@ -45,6 +45,7 @@ def _mock_cursor_conn(mock_cursor: AsyncMock) -> Mock:
     """Create a mock connection with proper cursor async context manager."""
     mock_conn = Mock()
     mock_conn.cursor.return_value = AsyncContextManager(mock_cursor)
+    mock_conn.transaction.return_value = AsyncContextManager(None)
     mock_conn.commit = AsyncMock()  # conn.commit() is awaited
     return mock_conn
 

@@ -363,7 +363,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                             dialog.close()
                             return
                         db_prefix = row[0]
-                except Exception:
+                except psycopg.Error:
                     logger.exception("api_key_revoke_failed", extra={"key_id": key_id})
                     try:
                         actor_id = get_current_user().get("user_id", "unknown")
@@ -488,7 +488,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                     ui.notify("User not provisioned — contact admin", type="negative")
                     dialog.close()
                     return
-                except Exception:
+                except psycopg.Error:
                     logger.exception("api_key_rotate_failed", extra={"key_id": key_id})
                     try:
                         actor_id = get_current_user().get("user_id", "unknown")
@@ -755,7 +755,14 @@ async def _render_reconciliation_tools(user: dict[str, Any]) -> None:
         result_box = ui.label("").classes("text-xs text-gray-500 mt-2")
 
         async def run_backfill() -> None:
-            if not has_permission(get_current_user(), Permission.MANAGE_RECONCILIATION):
+            current = get_current_user()
+            current_uid = current.get("user_id", "unknown")
+            pool = get_db_pool()
+            if (
+                pool is None
+                or not has_permission(current, Permission.MANAGE_RECONCILIATION)
+                or not await verify_db_role(pool, current_uid, Permission.MANAGE_RECONCILIATION)
+            ):
                 ui.notify("Permission denied", type="negative")
                 return
             lookback_hours = None

@@ -867,6 +867,7 @@ async def test_render_reconciliation_tools_success(
     """Test reconciliation tools renders and executes backfill."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
     monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "get_db_pool", lambda: object())
 
     mock_client = AsyncMock()
     mock_client.run_fills_backfill = AsyncMock(
@@ -888,6 +889,7 @@ async def test_render_reconciliation_tools_invalid_lookback(
     """Test reconciliation tools validates lookback hours."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
     monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "get_db_pool", lambda: object())
     monkeypatch.setattr(admin_module.AsyncTradingClient, "get", lambda: AsyncMock())
 
     await admin_module._render_reconciliation_tools({"user_id": "u1", "role": "admin"})
@@ -907,6 +909,7 @@ async def test_render_reconciliation_tools_handles_exception(
     """Test reconciliation tools handles exceptions."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
     monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "get_db_pool", lambda: object())
 
     mock_client = AsyncMock()
     mock_client.run_fills_backfill = AsyncMock(side_effect=Exception("Service down"))
