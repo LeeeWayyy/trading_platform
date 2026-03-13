@@ -338,7 +338,11 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             confirm_input = ui.input("Type REVOKE").props("outlined")
 
             async def on_confirm() -> None:
-                if not has_permission(get_current_user(), Permission.MANAGE_API_KEYS):
+                cur = get_current_user()
+                cur_uid = cur.get("user_id", "unknown")
+                if not has_permission(cur, Permission.MANAGE_API_KEYS) or not await verify_db_role(
+                    db_pool, cur_uid, Permission.MANAGE_API_KEYS
+                ):
                     ui.notify("Permission denied", type="negative")
                     dialog.close()
                     return
@@ -439,7 +443,11 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             )
 
             async def on_confirm() -> None:
-                if not has_permission(get_current_user(), Permission.MANAGE_API_KEYS):
+                cur = get_current_user()
+                cur_uid = cur.get("user_id", "unknown")
+                if not has_permission(cur, Permission.MANAGE_API_KEYS) or not await verify_db_role(
+                    db_pool, cur_uid, Permission.MANAGE_API_KEYS
+                ):
                     ui.notify("Permission denied", type="negative")
                     dialog.close()
                     return

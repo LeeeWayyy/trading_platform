@@ -15,6 +15,7 @@ import httpx
 from nicegui import ui
 from psycopg.rows import dict_row
 
+from apps.web_console_ng.auth.db_role import verify_db_role
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.tax_harvesting import render_harvesting_suggestions
 from apps.web_console_ng.components.tax_lot_table import render_tax_lot_table
@@ -163,7 +164,10 @@ async def tax_lots_page() -> None:
             # Close lot handler
             async def _on_close_lot(lot_id: str) -> None:
                 current = get_current_user()
-                if not has_permission(current, Permission.MANAGE_TAX_LOTS):
+                current_uid = current.get("user_id", "unknown")
+                if not has_permission(current, Permission.MANAGE_TAX_LOTS) or not await verify_db_role(
+                    db_pool, current_uid, Permission.MANAGE_TAX_LOTS
+                ):
                     current_uid = current.get("user_id", "unknown")
                     await audit.log_action(
                         user_id=current_uid,

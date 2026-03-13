@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import hmac
 import logging
@@ -14,6 +15,7 @@ from starlette.responses import Response
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip, is_trusted_ip
+from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
 from apps.web_console_ng.auth.session_store import (
     SessionValidationError,
@@ -21,6 +23,7 @@ from apps.web_console_ng.auth.session_store import (
     get_session_store,
 )
 from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +114,6 @@ async def _validate_session_and_get_user(
     Raises:
         SessionValidationError: If Redis is unavailable (callers should return 503).
     """
-    from apps.web_console_ng.auth.cookie_config import CookieConfig
-
     cookie_cfg = CookieConfig.from_env()
     cookie_name = cookie_cfg.get_cookie_name()
     cookie_value = request.cookies.get(cookie_name)
@@ -281,8 +282,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
                 # Clear potentially invalid cookie to prevent redirect loops
                 # (e.g. if browser holds an old cookie with invalid signature)
-                from apps.web_console_ng.auth.cookie_config import CookieConfig
-
                 cookie_cfg = CookieConfig.from_env()
                 cookie_name = cookie_cfg.get_cookie_name()
 
@@ -313,8 +312,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         provider role is the best available signal.
         Uses optional Redis cache (ng_role_cache:{user_id}, TTL 60s) to minimize DB load.
         """
-        import asyncio
-
         user_id = user.get("user_id")
         if not user_id:
             return
@@ -325,8 +322,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             # Check Redis cache first
             try:
-                from apps.web_console_ng.core.redis_ha import get_redis_store
-
                 store = get_redis_store()
                 redis_client = await store.get_master()
                 cached_role = await redis_client.get(cache_key)
@@ -430,8 +425,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
     @staticmethod
     async def _update_session_payload(request: Request, db_role: str) -> None:
         """Best-effort: persist role change in Redis session payload."""
-        from apps.web_console_ng.auth.cookie_config import CookieConfig
-
         cookie_name = CookieConfig.from_env().get_cookie_name()
         signed_cookie = request.cookies.get(cookie_name)
         if signed_cookie:
@@ -467,8 +460,6 @@ class SessionMiddleware(BaseHTTPMiddleware):
         )
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
-        from apps.web_console_ng.auth.cookie_config import CookieConfig
-
         cookie_cfg = CookieConfig.from_env()
         cookie_name = cookie_cfg.get_cookie_name()
         cookie_value = request.cookies.get(cookie_name)
@@ -521,8 +512,6 @@ async def _validate_and_get_user_for_decorator(
         If should_return_early is True, the decorator should return immediately
         (either because UI was rendered or redirect was triggered).
     """
-    from apps.web_console_ng.auth.cookie_config import CookieConfig
-
     # Max age before requiring Redis revalidation (prevents stale cache after session revocation)
     CACHE_REVALIDATION_SECONDS = 60
 

@@ -105,7 +105,7 @@ async def test_role_override_from_db_success(
 
     with (
         patch(
-            "apps.web_console_ng.core.redis_ha.get_redis_store",
+            "apps.web_console_ng.auth.middleware.get_redis_store",
             return_value=mock_store,
         ),
         patch(
@@ -121,7 +121,7 @@ async def test_role_override_from_db_success(
             "apps.web_console_ng.auth.middleware.extract_session_id",
             return_value="session-abc",
         ),
-        patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cookie_cfg_cls,
+        patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cookie_cfg_cls,
     ):
         mock_cookie_cfg = MagicMock()
         mock_cookie_cfg.get_cookie_name.return_value = "ng_session"
@@ -159,7 +159,7 @@ async def test_role_override_cached_in_redis(
 
     with (
         patch(
-            "apps.web_console_ng.core.redis_ha.get_redis_store",
+            "apps.web_console_ng.auth.middleware.get_redis_store",
             return_value=mock_store,
         ),
         patch(
@@ -195,7 +195,7 @@ async def test_role_override_cached_same_role_skips_apply(
 
     with (
         patch(
-            "apps.web_console_ng.core.redis_ha.get_redis_store",
+            "apps.web_console_ng.auth.middleware.get_redis_store",
             return_value=mock_store,
         ),
         patch("apps.web_console_ng.auth.middleware.app", mock_app),
@@ -235,7 +235,7 @@ async def test_role_override_fails_open(
 
     with (
         patch(
-            "apps.web_console_ng.core.redis_ha.get_redis_store",
+            "apps.web_console_ng.auth.middleware.get_redis_store",
             return_value=mock_store,
         ),
         patch(
@@ -270,7 +270,7 @@ async def test_role_override_fails_open_on_db_pool_none(
 
     with (
         patch(
-            "apps.web_console_ng.core.redis_ha.get_redis_store",
+            "apps.web_console_ng.auth.middleware.get_redis_store",
             return_value=mock_store,
         ),
         patch(
