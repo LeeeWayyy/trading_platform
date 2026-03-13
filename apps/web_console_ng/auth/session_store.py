@@ -602,7 +602,7 @@ class ServerSessionStore:
                     try:
                         decrypted = self.fernet.decrypt(data).decode("utf-8")
                         session = cast(dict[str, Any], json.loads(decrypted))
-                    except Exception:
+                    except (InvalidToken, json.JSONDecodeError, TypeError):
                         await pipe.unwatch()  # type: ignore[no-untyped-call]
                         return False
 

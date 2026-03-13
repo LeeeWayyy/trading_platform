@@ -369,6 +369,7 @@ async def _render_summary_metrics(
     """Render summary header cards."""
     total_cost = sum(lot.cost_basis for lot in lots)
     total_value = Decimal("0")
+    priced_cost = Decimal("0")
     has_prices = bool(current_prices)
 
     if has_prices:
@@ -376,6 +377,9 @@ async def _render_summary_metrics(
             price = current_prices.get(lot.symbol)
             if price is not None:
                 total_value += price * lot.remaining_quantity
+                priced_cost += lot.cost_basis
+
+    all_priced = has_prices and priced_cost == total_cost
 
     now = datetime.now(UTC)
     short_term = [lot for lot in lots if (now - lot.acquisition_date).days <= 365]
@@ -387,10 +391,13 @@ async def _render_summary_metrics(
             ui.label(f"${float(total_cost):,.2f}").classes("text-xl font-bold")
         with ui.card().classes("flex-1 p-3"):
             ui.label("Unrealized Gain/Loss").classes("text-gray-500 text-sm")
-            if has_prices:
-                gain = total_value - total_cost
+            if has_prices and priced_cost > 0:
+                gain = total_value - priced_cost
                 color = "text-green-500" if gain >= 0 else "text-red-500"
-                ui.label(f"${float(gain):+,.2f}").classes(f"text-xl font-bold {color}")
+                label = f"${float(gain):+,.2f}"
+                if not all_priced:
+                    label += " (partial)"
+                ui.label(label).classes(f"text-xl font-bold {color}")
             else:
                 ui.label("N/A").classes("text-xl font-bold text-gray-400")
         with ui.card().classes("flex-1 p-3"):

@@ -54,7 +54,8 @@ def set_role(args: argparse.Namespace) -> None:
         import redis as _redis
     except ImportError as exc:
         print(f"WARNING: redis package not installed, cannot invalidate cache/sessions: {exc}", file=sys.stderr)
-        sys.exit(2)
+        print("Role was set in DB successfully. Sessions will pick up the change on cache expiry (60s).", file=sys.stderr)
+        return
 
     try:
         # NOTE: Uses direct redis.from_url() instead of the app's HA Redis
