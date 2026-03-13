@@ -375,18 +375,19 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                     return
                 try:
                     async with db_pool.connection() as conn:
-                        cursor = await conn.execute(
-                            "UPDATE api_keys SET revoked_at = NOW() "
-                            "WHERE id = %s AND user_id = %s AND revoked_at IS NULL "
-                            "RETURNING key_prefix",
-                            (key_id, user_id),
-                        )
-                        row = await cursor.fetchone()
-                        if not row:
-                            ui.notify("Key not found or already revoked", type="warning")
-                            dialog.close()
-                            return
-                        db_prefix = row[0]
+                        async with conn.transaction():
+                            cursor = await conn.execute(
+                                "UPDATE api_keys SET revoked_at = NOW() "
+                                "WHERE id = %s AND user_id = %s AND revoked_at IS NULL "
+                                "RETURNING key_prefix",
+                                (key_id, user_id),
+                            )
+                            row = await cursor.fetchone()
+                            if not row:
+                                ui.notify("Key not found or already revoked", type="warning")
+                                dialog.close()
+                                return
+                            db_prefix = row[0]
                 except psycopg.Error:
                     await _handle_api_key_db_error("revoke", key_id, dialog)
                     return
@@ -630,13 +631,14 @@ async def _create_api_key(
 
     try:
         async with db_pool.connection() as conn:
-            await conn.execute(
-                """
-                INSERT INTO api_keys (user_id, name, key_hash, key_salt, key_prefix, scopes, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (user_id, name, key_hash, salt, prefix, scope_list, expires_at),
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO api_keys (user_id, name, key_hash, key_salt, key_prefix, scopes, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (user_id, name, key_hash, salt, prefix, scope_list, expires_at),
+                )
     except psycopg.errors.ForeignKeyViolation as exc:
         raise RuntimeError("User not provisioned — contact admin") from exc
 

@@ -261,6 +261,10 @@ class FakeAsyncConnection:
         if self.error:
             raise self.error
 
+    def transaction(self) -> FakeAsyncConnection:
+        """Return self as a no-op async context manager for transaction()."""
+        return self
+
     def cursor(self, *, row_factory: Any = None) -> FakeAsyncCursor:
         return FakeAsyncCursor(self.data, self.error)
 
