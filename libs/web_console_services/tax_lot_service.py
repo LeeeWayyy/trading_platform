@@ -349,9 +349,9 @@ class TaxLotService:
                             )
                         set_clauses.append("acquired_at = %s")
                         values.append(new_acquired_at)
-                    # Only update status if a valid string was provided (ignore null/non-string values)
-                    # Update remaining_quantity when quantity changes
-                    if "quantity" in updates and "status" not in updates:
+                    # Update remaining_quantity when quantity changes without an explicit status string
+                    status_is_explicit = "status" in updates and isinstance(status_override, str)
+                    if "quantity" in updates and not status_is_explicit:
                         # Cap remaining_quantity to new quantity if it exceeds
                         current_remaining = _to_decimal(row.get("remaining_quantity", new_quantity))
                         remaining_quantity = min(current_remaining, new_quantity)

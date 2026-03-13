@@ -725,6 +725,8 @@ async def test_render_trading_hours_form(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_trading_hours_form({"user_id": "u1"}, db_pool=object())
 
@@ -747,6 +749,8 @@ async def test_render_trading_hours_form_validation_error(
         return admin_module.TradingHoursConfig()
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_trading_hours_form({"user_id": "u1"}, db_pool=object())
 
@@ -773,6 +777,8 @@ async def test_render_trading_hours_form_save_failure(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_trading_hours_form({"user_id": "u1"}, db_pool=object())
 
@@ -795,6 +801,8 @@ async def test_render_position_limits_form(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_position_limits_form({"user_id": "u1"}, db_pool=object())
 
@@ -817,6 +825,8 @@ async def test_render_position_limits_form_validation_error(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_position_limits_form({"user_id": "u1"}, db_pool=object())
 
@@ -839,6 +849,8 @@ async def test_render_system_defaults_form(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_system_defaults_form({"user_id": "u1"}, db_pool=object())
 
@@ -973,6 +985,7 @@ async def test_render_audit_log_viewer_pagination(
 ) -> None:
     """Test audit log viewer pagination."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_fetch_logs(*_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
         return [], 100
@@ -997,6 +1010,7 @@ async def test_render_audit_log_viewer_filters(
 ) -> None:
     """Test audit log viewer filter application."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_fetch_logs(*_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
         return [], 0
@@ -1018,6 +1032,7 @@ async def test_render_audit_log_viewer_export_csv(
 ) -> None:
     """Test audit log viewer CSV export."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_fetch_logs(*_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
         return [

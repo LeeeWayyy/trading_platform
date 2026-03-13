@@ -68,6 +68,14 @@
 - Admission control checks connection limits (global and per-session).
 - Session middleware validates cookies and device binding before auth middleware.
 
+### DB Role Authority (P6T16, ADR-0038)
+**Purpose:** Verify user permissions against the database-authoritative `user_roles` table for mutation callbacks.
+
+**Behavior:**
+- `verify_db_role(db_pool, user_id, permission)` queries `user_roles` directly, bypassing session/cache.
+- Returns `False` (fail-closed) on any error, including 5-second timeout.
+- Used by all NiceGUI mutation callbacks to prevent stale-WebSocket privilege escalation.
+
 ### Health + Metrics
 **Purpose:** Expose internal liveness/readiness and Prometheus metrics.
 

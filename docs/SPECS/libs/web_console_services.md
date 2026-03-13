@@ -93,6 +93,7 @@
 - `strategy_id` is NOT persisted to DB; carried in returned `TaxLot` for UI display only
 - Updates use `SELECT ... FOR UPDATE` to prevent concurrent overwrites
 - Quantity-only updates (without cost_basis) preserve total_cost and recalculate cost_per_share (logged as warning)
+- Quantity updates cap `remaining_quantity` to the new quantity value (prevents remaining > total invariant violation)
 
 ### UserManagement (module)
 **Purpose:** User provisioning, role management, and strategy access control with full audit trail.
