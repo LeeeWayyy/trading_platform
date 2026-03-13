@@ -28,6 +28,7 @@ class TaxLot:
     acquisition_date: datetime
     strategy_id: str | None
     status: str
+    remaining_quantity: Decimal
 
 
 class TaxLotService:
@@ -552,14 +553,19 @@ class TaxLotService:
             else row.get("status") or self._derive_status(row)
         )
 
+        quantity_dec = _to_decimal(quantity_value)
+        remaining_raw = row.get("remaining_quantity")
+        remaining_dec = _to_decimal(remaining_raw) if remaining_raw is not None else quantity_dec
+
         return TaxLot(
             lot_id=str(lot_id),
             symbol=str(row.get("symbol", "")),
-            quantity=_to_decimal(quantity_value),
+            quantity=quantity_dec,
             cost_basis=_to_decimal(cost_basis_value),
             acquisition_date=acquisition_date,
             strategy_id=strategy_id,
             status=status,
+            remaining_quantity=remaining_dec,
         )
 
     @staticmethod
