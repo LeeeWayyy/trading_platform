@@ -57,6 +57,10 @@ def set_role(args: argparse.Namespace) -> None:
         sys.exit(2)
 
     try:
+        # NOTE: Uses direct redis.from_url() instead of the app's HA Redis
+        # abstraction (get_redis_store) because this script runs standalone
+        # outside the NiceGUI app context.  In Sentinel/HA deployments, ensure
+        # REDIS_URL points to the master node.
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/1")
         r = _redis.from_url(redis_url)  # type: ignore[no-untyped-call]
         r.delete(f"ng_role_cache:{args.user_id}")

@@ -68,6 +68,10 @@ async def admin_users_page() -> None:
         provision_input = ui.input("Provision User ID").props("outlined dense").classes("w-64")
 
         async def _provision_user() -> None:
+            # NOTE: verify_db_role requires the calling admin to have a user_roles
+            # DB row.  The first admin must be bootstrapped via ops script
+            # (scripts/ops/manage_roles.py) or direct DB insert before using
+            # this page.
             current = get_current_user()
             current_uid = current.get("user_id", "unknown")
             if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(

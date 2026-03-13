@@ -113,6 +113,12 @@ async def change_user_role(
 
     [v1.1] Now logs DENIED attempts to audit trail, not just successes.
     Returns (success, message).
+
+    **Caller responsibility:** After a successful role change, callers must
+    invalidate the role cache key ``ng_role_cache:{user_id}`` in Redis so the
+    middleware picks up the new role immediately (ADR-0038).  The UI layer
+    (``admin_users.py``) handles this; non-UI callers (ops scripts, future API
+    endpoints) must do the same.
     """
 
     # [T16.2] Self-edit guard: cannot change own role
