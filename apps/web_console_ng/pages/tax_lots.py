@@ -91,7 +91,10 @@ async def tax_lots_page() -> None:
 
             async def toggle_all_users(e: Any) -> None:
                 current = get_current_user()
-                if not has_permission(current, Permission.MANAGE_TAX_LOTS):
+                current_uid = current.get("user_id", "unknown")
+                if not has_permission(current, Permission.MANAGE_TAX_LOTS) or not await verify_db_role(
+                    db_pool, current_uid, Permission.MANAGE_TAX_LOTS
+                ):
                     ui.notify("Permission denied", type="negative")
                     return
                 nonlocal show_all_users, lots, wash_sale_lot_ids, current_prices, suggestions
@@ -119,7 +122,10 @@ async def tax_lots_page() -> None:
 
             async def _on_method_change(e: Any) -> None:
                 current = get_current_user()
-                if not has_permission(current, Permission.MANAGE_TAX_SETTINGS):
+                current_uid = current.get("user_id", "unknown")
+                if not has_permission(current, Permission.MANAGE_TAX_SETTINGS) or not await verify_db_role(
+                    db_pool, current_uid, Permission.MANAGE_TAX_SETTINGS
+                ):
                     ui.notify("Permission denied", type="negative")
                     return
                 current_uid = current.get("user_id", "unknown")
