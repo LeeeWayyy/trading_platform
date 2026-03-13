@@ -157,6 +157,20 @@ class ServerSessionStore:
             uid = user_data.get("user_id")
             if uid:
                 index_key = f"{self.user_sessions_prefix}{uid}"
+                # Lazy prune: remove stale session IDs whose keys have expired
+                try:
+                    existing_ids = await self.redis.smembers(index_key)
+                    if existing_ids:
+                        stale = []
+                        for sid in existing_ids:
+                            sid_str = sid.decode() if isinstance(sid, bytes) else str(sid)
+                            exists = await self.redis.exists(f"{self.session_prefix}{sid_str}")
+                            if not exists:
+                                stale.append(sid)
+                        if stale:
+                            await self.redis.srem(index_key, *stale)
+                except Exception:
+                    pass  # Best-effort pruning; don't block login
                 async with self.redis.pipeline(transaction=True) as pipe:
                     pipe.setex(session_key, self.absolute_timeout, encrypted)
                     pipe.sadd(index_key, session_id)

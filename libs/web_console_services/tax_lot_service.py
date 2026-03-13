@@ -309,7 +309,7 @@ class TaxLotService:
                     if status_normalized == "closed":
                         remaining_quantity = Decimal("0")
                         closed_at = datetime.now(UTC)
-                    elif status_normalized == "open":
+                    elif status_normalized == "open" and isinstance(updates.get("status"), str):
                         remaining_quantity = new_quantity
                         closed_at = None
 
