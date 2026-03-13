@@ -92,9 +92,11 @@ class TestChangeUserRole:
         # Mock transaction() - it returns an async context manager
         mock_conn.transaction = MagicMock(return_value=MockTransaction())
 
-        # psycopg3 pattern: execute returns cursor, cursor.fetchone returns tuple
-        mock_cursor = MockAsyncCursor(single_row=("viewer",))
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+        # psycopg3 pattern: first execute (SELECT FOR UPDATE) returns rows via fetchall,
+        # second execute (UPDATE) returns empty cursor
+        select_cursor = MockAsyncCursor(rows=[("user1", "viewer")])
+        update_cursor = MockAsyncCursor()
+        mock_conn.execute = AsyncMock(side_effect=[select_cursor, update_cursor])
 
         mock_audit = AsyncMock()
 

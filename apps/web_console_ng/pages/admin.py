@@ -1,7 +1,7 @@
-"""Admin Dashboard page for NiceGUI web console (P5T7).
+"""Admin Dashboard page for NiceGUI web console (P5T7, P6T16.3).
 
 Provides admin-only management of:
-- API Keys (create and list; revoke/rotate TODO for future implementation)
+- API Keys (create, list, revoke, rotate)
 - System Configuration (trading hours, position limits, system defaults)
 - Audit Log viewing (with filters, pagination, export)
 
@@ -28,8 +28,10 @@ from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_va
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
 from libs.core.common.log_sanitizer import sanitize_dict
+from libs.platform.web_console_auth.audit_log import AuditLogger
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
@@ -122,12 +124,14 @@ ACTION_CHOICES = [
     "config_saved",
     "api_key_created",
     "api_key_revoked",
+    "api_key_rotated",
+    "role_change",
     "role_changed",
     "login",
     "logout",
 ]
 EVENT_TYPES = ["All", "admin", "auth", "action"]
-OUTCOMES = ["All", "success", "failure"]
+OUTCOMES = ["All", "success", "failure", "denied", "failed", "error"]
 
 
 # === Page Entry Point ===
@@ -216,6 +220,22 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
         set_expiry.on_value_change(toggle_expiry)
 
         async def create_key() -> None:
+            cur_user = get_current_user()
+            if not has_permission(cur_user, Permission.MANAGE_API_KEYS):
+                try:
+                    audit = AuditLogger(db_pool)
+                    await audit.log_action(
+                        user_id=cur_user.get("user_id", "unknown"),
+                        action="api_key_create_denied",
+                        resource_type="api_key",
+                        resource_id=user_id,
+                        outcome="denied",
+                        details={"role": cur_user.get("role")},
+                    )
+                except Exception:
+                    logger.debug("audit_log_denied_create_key_failed")
+                ui.notify("Permission denied", type="negative")
+                return
             name = name_input.value
             if not name or len(name.strip()) < 3:
                 ui.notify("Name must be at least 3 characters", type="negative")
@@ -286,6 +306,231 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
 
     await fetch_keys()
 
+    async def _revoke_key(key_id: str, key_prefix: str) -> None:
+        """Revoke an API key with confirmation dialog."""
+        cur_user = get_current_user()
+        if not has_permission(cur_user, Permission.MANAGE_API_KEYS):
+            try:
+                audit = AuditLogger(db_pool)
+                await audit.log_action(
+                    user_id=cur_user.get("user_id", "unknown"),
+                    action="api_key_revoke_denied",
+                    resource_type="api_key",
+                    resource_id=key_id,
+                    outcome="denied",
+                    details={"role": cur_user.get("role")},
+                )
+            except Exception:
+                logger.debug("audit_log_denied_revoke_key_failed")
+            ui.notify("Permission denied", type="negative")
+            return
+        with ui.dialog() as dialog, ui.card():
+            ui.label(f"Revoke API key {key_prefix}?").classes("text-lg font-bold")
+            ui.label("This action cannot be undone. Type REVOKE to confirm.")
+            confirm_input = ui.input("Type REVOKE").props("outlined")
+
+            async def on_confirm() -> None:
+                if not has_permission(get_current_user(), Permission.MANAGE_API_KEYS):
+                    ui.notify("Permission denied", type="negative")
+                    dialog.close()
+                    return
+                if confirm_input.value != "REVOKE":
+                    ui.notify("Type REVOKE to confirm", type="warning")
+                    return
+                try:
+                    async with db_pool.connection() as conn:
+                        cursor = await conn.execute(
+                            "UPDATE api_keys SET revoked_at = NOW() "
+                            "WHERE id = %s AND user_id = %s AND revoked_at IS NULL "
+                            "RETURNING key_prefix",
+                            (key_id, user_id),
+                        )
+                        row = await cursor.fetchone()
+                        if not row:
+                            ui.notify("Key not found or already revoked", type="warning")
+                            dialog.close()
+                            return
+                        db_prefix = row[0]
+                except Exception:
+                    logger.exception("api_key_revoke_failed", extra={"key_id": key_id})
+                    try:
+                        actor_id = get_current_user().get("user_id", "unknown")
+                        audit = AuditLogger(db_pool)
+                        await audit.log_action(
+                            user_id=actor_id,
+                            action="api_key_revoke_failed",
+                            resource_type="api_key",
+                            resource_id=key_id,
+                            outcome="failed",
+                            details={"error": "db_failure"},
+                        )
+                    except Exception:
+                        logger.debug("audit_log_revoke_failed_error")
+                    ui.notify("Failed to revoke key — please try again", type="negative")
+                    dialog.close()
+                    return
+                # Cache revoked state in Redis (best-effort)
+                try:
+                    store = get_redis_store()
+                    redis_client = await store.get_master()
+                    await redis_client.setex(f"api_key_revoked:{db_prefix}", 300, "1")
+                except Exception:
+                    logger.warning("redis_revoke_cache_failed", extra={"key_prefix": db_prefix})
+                # Audit log (best-effort: must not block UI feedback)
+                try:
+                    audit = AuditLogger(db_pool)
+                    await audit.log_admin_change(
+                        admin_user_id=user_id,
+                        action="api_key_revoked",
+                        target_user_id=user_id,
+                        details={"key_id": key_id, "key_prefix": db_prefix},
+                    )
+                except Exception:
+                    logger.warning(
+                        "api_key_revoke_audit_failed",
+                        extra={"key_id": key_id, "user_id": user_id},
+                    )
+                dialog.close()
+                ui.notify("API key revoked", type="positive")
+                await fetch_keys()
+                keys_list.refresh()
+
+            with ui.row().classes("gap-2 mt-4"):
+                ui.button("Revoke", on_click=on_confirm, color="red")
+                ui.button("Cancel", on_click=dialog.close)
+        dialog.open()
+
+    async def _rotate_key(key_id: str, key_prefix: str) -> None:
+        """Rotate an API key: revoke old + create new in one transaction."""
+        cur_user = get_current_user()
+        if not has_permission(cur_user, Permission.MANAGE_API_KEYS):
+            try:
+                audit = AuditLogger(db_pool)
+                await audit.log_action(
+                    user_id=cur_user.get("user_id", "unknown"),
+                    action="api_key_rotate_denied",
+                    resource_type="api_key",
+                    resource_id=key_id,
+                    outcome="denied",
+                    details={"role": cur_user.get("role")},
+                )
+            except Exception:
+                logger.debug("audit_log_denied_rotate_key_failed")
+            ui.notify("Permission denied", type="negative")
+            return
+        from libs.platform.admin.api_keys import generate_api_key, hash_api_key
+
+        with ui.dialog() as dialog, ui.card():
+            ui.label(f"Rotate API key {key_prefix}?").classes("text-lg font-bold")
+            ui.label(
+                "This will revoke the current key and generate a new one. "
+                "The old key will stop working immediately."
+            )
+
+            async def on_confirm() -> None:
+                if not has_permission(get_current_user(), Permission.MANAGE_API_KEYS):
+                    ui.notify("Permission denied", type="negative")
+                    dialog.close()
+                    return
+                try:
+                    full_key, new_prefix, salt = generate_api_key()
+                    key_hash = hash_api_key(full_key, salt)
+                    async with db_pool.connection() as conn:
+                        async with conn.transaction():
+                            # Revoke old key and get its scopes/name/expires_at
+                            cursor = await conn.execute(
+                                "UPDATE api_keys SET revoked_at = NOW() "
+                                "WHERE id = %s AND user_id = %s AND revoked_at IS NULL "
+                                "RETURNING name, scopes, expires_at, key_prefix",
+                                (key_id, user_id),
+                            )
+                            old_row = await cursor.fetchone()
+                            if not old_row:
+                                ui.notify("Key not found or already revoked", type="warning")
+                                dialog.close()
+                                return
+                            old_name, old_scopes, old_expires, old_prefix = old_row
+                            # Insert new key preserving scopes
+                            await conn.execute(
+                                "INSERT INTO api_keys "
+                                "(user_id, name, key_hash, key_salt, key_prefix, scopes, expires_at) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                                (
+                                    user_id,
+                                    old_name,
+                                    key_hash,
+                                    salt,
+                                    new_prefix,
+                                    old_scopes,
+                                    old_expires,
+                                ),
+                            )
+                except psycopg.errors.ForeignKeyViolation:
+                    ui.notify("User not provisioned — contact admin", type="negative")
+                    dialog.close()
+                    return
+                except Exception:
+                    logger.exception("api_key_rotate_failed", extra={"key_id": key_id})
+                    try:
+                        actor_id = get_current_user().get("user_id", "unknown")
+                        audit = AuditLogger(db_pool)
+                        await audit.log_action(
+                            user_id=actor_id,
+                            action="api_key_rotate_failed",
+                            resource_type="api_key",
+                            resource_id=key_id,
+                            outcome="failed",
+                            details={"error": "db_failure"},
+                        )
+                    except Exception:
+                        logger.debug("audit_log_rotate_failed_error")
+                    ui.notify("Failed to rotate key — please try again", type="negative")
+                    dialog.close()
+                    return
+                # Cache old key revocation in Redis (best-effort)
+                try:
+                    store = get_redis_store()
+                    redis_client = await store.get_master()
+                    await redis_client.setex(f"api_key_revoked:{old_prefix}", 300, "1")
+                except Exception:
+                    logger.warning("redis_revoke_cache_failed", extra={"key_prefix": old_prefix})
+                # Audit log (best-effort: must not block key display)
+                try:
+                    audit = AuditLogger(db_pool)
+                    await audit.log_admin_change(
+                        admin_user_id=user_id,
+                        action="api_key_rotated",
+                        target_user_id=user_id,
+                        details={
+                            "old_key_id": key_id,
+                            "old_key_prefix": old_prefix,
+                            "new_key_prefix": new_prefix,
+                        },
+                    )
+                except Exception:
+                    logger.warning(
+                        "api_key_rotate_audit_failed",
+                        extra={"key_id": key_id, "user_id": user_id},
+                    )
+                dialog.close()
+                # Show new key
+                with ui.dialog() as key_dialog, ui.card():
+                    ui.label("Your new API key:").classes("font-bold")
+                    ui.code(full_key).classes("w-full")
+                    ui.label("Copy this key now. It will not be shown again.").classes(
+                        "text-yellow-600 text-sm"
+                    )
+                    ui.button("Close", on_click=key_dialog.close)
+                key_dialog.open()
+                ui.notify("API key rotated", type="positive")
+                await fetch_keys()
+                keys_list.refresh()
+
+            with ui.row().classes("gap-2 mt-4"):
+                ui.button("Rotate", on_click=on_confirm, color="orange")
+                ui.button("Cancel", on_click=dialog.close)
+        dialog.open()
+
     @ui.refreshable
     def keys_list() -> None:
         ui.label("Existing Keys").classes("text-lg font-bold mb-2")
@@ -294,42 +539,77 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             ui.label("No API keys yet. Create one to get started.").classes("text-gray-500")
             return
 
-        # Keys table
-        columns: list[dict[str, Any]] = [
-            {"name": "name", "label": "Name", "field": "name"},
-            {"name": "prefix", "label": "Prefix", "field": "key_prefix"},
-            {"name": "scopes", "label": "Scopes", "field": "scopes"},
-            {"name": "created", "label": "Created", "field": "created_at"},
-            {"name": "status", "label": "Status", "field": "status"},
-        ]
-
-        rows: list[dict[str, Any]] = []
         for key in keys_data:
-            status = "Active"
-            if key.get("revoked_at"):
-                status = "Revoked"
-            elif key.get("expires_at") and key["expires_at"] < datetime.now(UTC):
-                status = "Expired"
-
-            scopes = key.get("scopes", [])
-            if isinstance(scopes, list):
-                scopes_str = ", ".join(scopes[:3])
-                if len(scopes) > 3:
-                    scopes_str += "..."
-            else:
-                scopes_str = str(scopes)
-
-            rows.append(
-                {
-                    "name": key["name"],
-                    "key_prefix": key["key_prefix"],
-                    "scopes": scopes_str,
-                    "created_at": key["created_at"].isoformat() if key.get("created_at") else "-",
-                    "status": status,
-                }
+            is_revoked = bool(key.get("revoked_at"))
+            is_expired = (
+                not is_revoked and key.get("expires_at") and key["expires_at"] < datetime.now(UTC)
             )
+            is_active = not is_revoked and not is_expired
+            row_classes = "opacity-50" if is_revoked else ""
 
-        ui.table(columns=columns, rows=rows).classes("w-full")
+            with ui.card().classes(f"w-full p-3 mb-2 {row_classes}"):
+                with ui.row().classes("w-full items-center justify-between"):
+                    with ui.column().classes("gap-0"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label(key["name"]).classes("font-bold")
+                            ui.label(key["key_prefix"]).classes("text-gray-500 text-sm font-mono")
+                            # Status badge
+                            if is_revoked:
+                                revoked_str = key["revoked_at"].strftime("%Y-%m-%d %H:%M")
+                                ui.badge(f"Revoked {revoked_str}", color="red")
+                            elif is_expired:
+                                ui.badge("Expired", color="yellow")
+                            else:
+                                ui.badge("Active", color="green")
+
+                        with ui.row().classes("gap-4 text-xs text-gray-400"):
+                            # Scopes
+                            scopes = key.get("scopes", [])
+                            if isinstance(scopes, list):
+                                scopes_str = ", ".join(scopes[:3])
+                                if len(scopes) > 3:
+                                    scopes_str += "..."
+                            else:
+                                scopes_str = str(scopes)
+                            ui.label(f"Scopes: {scopes_str}")
+
+                            # Created
+                            created = (
+                                key["created_at"].strftime("%Y-%m-%d")
+                                if key.get("created_at")
+                                else "-"
+                            )
+                            ui.label(f"Created: {created}")
+
+                            # Last used
+                            last_used = key.get("last_used_at")
+                            if last_used:
+                                delta = datetime.now(UTC) - last_used
+                                if delta.days > 0:
+                                    used_str = f"{delta.days}d ago"
+                                elif delta.seconds >= 3600:
+                                    used_str = f"{delta.seconds // 3600}h ago"
+                                else:
+                                    used_str = f"{delta.seconds // 60}m ago"
+                            else:
+                                used_str = "never"
+                            ui.label(f"Last used: {used_str}")
+
+                    # Action buttons (only for active keys)
+                    if is_active:
+                        key_id = str(key["id"])
+                        key_prefix = key["key_prefix"]
+                        with ui.row().classes("gap-1"):
+                            ui.button(
+                                "Revoke",
+                                on_click=lambda _e, kid=key_id, kp=key_prefix: _revoke_key(kid, kp),
+                                color="red",
+                            ).props("flat dense").classes("text-xs")
+                            ui.button(
+                                "Rotate",
+                                on_click=lambda _e, kid=key_id, kp=key_prefix: _rotate_key(kid, kp),
+                                color="orange",
+                            ).props("flat dense").classes("text-xs")
 
     keys_list()
 
@@ -348,14 +628,17 @@ async def _create_api_key(
     key_hash = hash_api_key(full_key, salt)
     scope_list = [s for s, enabled in scopes.items() if enabled]
 
-    async with db_pool.connection() as conn:
-        await conn.execute(
-            """
-            INSERT INTO api_keys (user_id, name, key_hash, key_salt, key_prefix, scopes, expires_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (user_id, name, key_hash, salt, prefix, scope_list, expires_at),
-        )
+    try:
+        async with db_pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO api_keys (user_id, name, key_hash, key_salt, key_prefix, scopes, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (user_id, name, key_hash, salt, prefix, scope_list, expires_at),
+            )
+    except psycopg.errors.ForeignKeyViolation as exc:
+        raise RuntimeError("User not provisioned — contact admin") from exc
 
     return {"full_key": full_key, "prefix": prefix}
 
@@ -369,7 +652,8 @@ async def _list_api_keys(db_pool: AsyncConnectionPool, user_id: str) -> list[dic
             await cursor.execute(
                 """
                 SELECT id, name, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
-                FROM api_keys WHERE user_id = %s ORDER BY created_at DESC
+                FROM api_keys WHERE user_id = %s
+                ORDER BY (revoked_at IS NOT NULL), created_at DESC
                 """,
                 (user_id,),
             )
@@ -451,6 +735,9 @@ async def _render_reconciliation_tools(user: dict[str, Any]) -> None:
         result_box = ui.label("").classes("text-xs text-gray-500 mt-2")
 
         async def run_backfill() -> None:
+            if not has_permission(get_current_user(), Permission.MANAGE_RECONCILIATION):
+                ui.notify("Permission denied", type="negative")
+                return
             lookback_hours = None
             if lookback_input.value:
                 try:

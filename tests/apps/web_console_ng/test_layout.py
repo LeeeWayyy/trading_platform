@@ -318,6 +318,8 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
         "/performance",
         "/reports",
         "/backtest",
+        "/tax-lots",
+        "/admin/users",
         "/admin",
     ]
     for path in expected_paths:

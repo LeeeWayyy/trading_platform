@@ -42,6 +42,7 @@ class TaxLotService:
         user_id: str | None = None,
         *,
         all_users: bool = False,
+        open_only: bool = False,
         limit: int = 500,
     ) -> list[TaxLot]:
         """List tax lots.
@@ -49,6 +50,7 @@ class TaxLotService:
         Args:
             user_id: Filter by specific user. Defaults to current user if not provided.
             all_users: If True, list lots for all users (requires MANAGE_TAX_LOTS).
+            open_only: If True, only return lots with remaining_quantity > 0 and closed_at IS NULL.
             limit: Maximum number of lots to return (default 500, max 500).
 
         Raises:
@@ -73,29 +75,27 @@ class TaxLotService:
 
         target_user_id = None if all_users else (user_id or current_user_id)
 
+        # Build query with optional open_only filter
+        where_clauses: list[str] = []
+        params: list[Any] = []
+
+        if target_user_id:
+            where_clauses.append("user_id = %s")
+            params.append(target_user_id)
+
+        if open_only:
+            where_clauses.append("remaining_quantity > 0")
+            where_clauses.append("closed_at IS NULL")
+
+        where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        params.append(limit)
+
         async with acquire_connection(self._db_pool) as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                if target_user_id:
-                    await cur.execute(
-                        """
-                        SELECT *
-                        FROM tax_lots
-                        WHERE user_id = %s
-                        ORDER BY acquired_at DESC
-                        LIMIT %s
-                        """,
-                        (target_user_id, limit),
-                    )
-                else:
-                    await cur.execute(
-                        """
-                        SELECT *
-                        FROM tax_lots
-                        ORDER BY acquired_at DESC
-                        LIMIT %s
-                        """,
-                        (limit,),
-                    )
+                await cur.execute(
+                    f"SELECT * FROM tax_lots{where_sql} ORDER BY acquired_at DESC LIMIT %s",
+                    tuple(params),
+                )
                 rows = await cur.fetchall()
 
         return [self._row_to_lot(row) for row in rows]
@@ -263,13 +263,16 @@ class TaxLotService:
         async with acquire_connection(self._db_pool) as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 # User-scoped query to prevent cross-user writes
+                # FOR UPDATE prevents concurrent updates from overwriting each other
                 if target_user_id:
                     await cur.execute(
-                        "SELECT * FROM tax_lots WHERE id = %s AND user_id = %s",
+                        "SELECT * FROM tax_lots WHERE id = %s AND user_id = %s FOR UPDATE",
                         (lot_id, target_user_id),
                     )
                 else:
-                    await cur.execute("SELECT * FROM tax_lots WHERE id = %s", (lot_id,))
+                    await cur.execute(
+                        "SELECT * FROM tax_lots WHERE id = %s FOR UPDATE", (lot_id,)
+                    )
                 row = await cur.fetchone()
                 if not row:
                     raise ValueError(f"Tax lot {lot_id} not found")
@@ -445,6 +448,68 @@ class TaxLotService:
             return None
 
         return self._row_to_lot(row, status_override="closed")
+
+    _VALID_COST_BASIS_METHODS = {"fifo", "lifo", "specific_id"}
+
+    async def get_cost_basis_method(self, user_id: str | None = None) -> str:
+        """Get cost basis method for a user from tax_user_settings.
+
+        Returns 'fifo' if no setting exists or the DB value is invalid.
+        """
+        self._require_permission(Permission.VIEW_TAX_LOTS)
+        target = user_id or self._user.get("user_id")
+        if not target:
+            return "fifo"
+
+        # Cross-user access requires elevated permission
+        current_uid = self._user.get("user_id")
+        if user_id and user_id != current_uid:
+            self._require_permission(Permission.MANAGE_TAX_SETTINGS)
+
+        async with acquire_connection(self._db_pool) as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    "SELECT cost_basis_method FROM tax_user_settings WHERE user_id = %s",
+                    (target,),
+                )
+                row = await cur.fetchone()
+
+        if row and row.get("cost_basis_method"):
+            method = str(row["cost_basis_method"])
+            if method in self._VALID_COST_BASIS_METHODS:
+                return method
+        return "fifo"
+
+    async def set_cost_basis_method(self, method: str, user_id: str | None = None) -> None:
+        """Set cost basis method for a user in tax_user_settings.
+
+        Requires MANAGE_TAX_SETTINGS permission.
+        """
+        self._require_permission(Permission.MANAGE_TAX_SETTINGS)
+
+        method_lower = method.strip().lower()
+        if method_lower not in self._VALID_COST_BASIS_METHODS:
+            raise ValueError(
+                f"Invalid cost basis method: {method}. "
+                f"Must be one of: {', '.join(sorted(self._VALID_COST_BASIS_METHODS))}"
+            )
+
+        target = user_id or self._user.get("user_id")
+        if not target:
+            raise PermissionError("User context required")
+
+        async with acquire_connection(self._db_pool) as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO tax_user_settings (user_id, cost_basis_method)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET cost_basis_method = EXCLUDED.cost_basis_method
+                    """,
+                    (target, method_lower),
+                )
+            await conn.commit()
 
     def _require_permission(self, permission: Permission) -> None:
         if not has_permission(self._user, permission):

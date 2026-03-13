@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 
 import psycopg
 
@@ -48,6 +49,42 @@ def set_role(args: argparse.Namespace) -> None:
         )
         row = cur.fetchone()
     print(f"Set role: {row}")
+    # Invalidate Redis role cache and sessions so middleware picks up change immediately
+    try:
+        import redis as _redis
+
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/1")
+        r = _redis.from_url(redis_url)  # type: ignore[no-untyped-call]
+        r.delete(f"ng_role_cache:{args.user_id}")
+        print(f"Invalidated role cache for {args.user_id}")
+
+        # Atomically invalidate all active sessions via Lua script
+        # (prevents race where a new session created between SMEMBERS and DELETE
+        # would survive invalidation)
+        index_key = f"ng_user_sessions:{args.user_id}"
+        lua = """
+        local index_key = KEYS[1]
+        local prefix = ARGV[1]
+        local sids = redis.call('SMEMBERS', index_key)
+        local count = 0
+        for _, sid in ipairs(sids) do
+            count = count + redis.call('DEL', prefix .. sid)
+        end
+        redis.call('DEL', index_key)
+        return count
+        """
+        count = r.eval(lua, 1, index_key, "ng_session:")
+        if count and int(count) > 0:
+            print(f"Invalidated {count} sessions for {args.user_id}")
+    except Exception as exc:
+        print(f"WARNING: could not invalidate role cache/sessions: {exc}", file=sys.stderr)
+        print(
+            "Role was set in DB successfully but stale sessions may persist. "
+            "Do NOT re-run (DB role is already updated). "
+            "Manually restart the user's sessions or wait for cache expiry (60s).",
+            file=sys.stderr,
+        )
+        sys.exit(2)  # exit 2 = partial success (DB ok, cache/session invalidation failed)
 
 
 def grant_strategy(args: argparse.Namespace) -> None:
@@ -94,7 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_set_role = sub.add_parser("set-role", help="Set role for user")
     p_set_role.add_argument("--user-id", required=True)
-    p_set_role.add_argument("--role", required=True, choices=["viewer", "operator", "admin"])
+    p_set_role.add_argument(
+        "--role", required=True, choices=["viewer", "researcher", "operator", "admin"]
+    )
     p_set_role.add_argument("--by", required=True, help="Admin performing the change")
     p_set_role.set_defaults(func=set_role)
 
