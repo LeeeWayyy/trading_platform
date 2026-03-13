@@ -194,6 +194,37 @@ async def admin_page() -> None:
 # === API Key Manager ===
 
 
+async def _check_api_key_permission(
+    db_pool: AsyncConnectionPool,
+    action: str,
+    resource_id: str,
+) -> bool:
+    """Check MANAGE_API_KEYS permission with audit logging on denial.
+
+    Returns True if permitted, False otherwise (with audit + UI notify).
+    """
+    cur_user = get_current_user()
+    cur_uid = cur_user.get("user_id", "unknown")
+    if has_permission(cur_user, Permission.MANAGE_API_KEYS) and await verify_db_role(
+        db_pool, cur_uid, Permission.MANAGE_API_KEYS
+    ):
+        return True
+    try:
+        audit = AuditLogger(db_pool)
+        await audit.log_action(
+            user_id=cur_uid,
+            action=f"api_key_{action}_denied",
+            resource_type="api_key",
+            resource_id=resource_id,
+            outcome="denied",
+            details={"role": cur_user.get("role")},
+        )
+    except Exception:
+        logger.debug("audit_log_denied_%s_key_failed", action)
+    ui.notify("Permission denied", type="negative")
+    return False
+
+
 async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnectionPool) -> None:
     """Render API key manager UI."""
     if not has_permission(user, Permission.MANAGE_API_KEYS):
@@ -231,24 +262,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
         set_expiry.on_value_change(toggle_expiry)
 
         async def create_key() -> None:
-            cur_user = get_current_user()
-            cur_uid = cur_user.get("user_id", "unknown")
-            if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await verify_db_role(
-                db_pool, cur_uid, Permission.MANAGE_API_KEYS
-            ):
-                try:
-                    audit = AuditLogger(db_pool)
-                    await audit.log_action(
-                        user_id=cur_user.get("user_id", "unknown"),
-                        action="api_key_create_denied",
-                        resource_type="api_key",
-                        resource_id=user_id,
-                        outcome="denied",
-                        details={"role": cur_user.get("role")},
-                    )
-                except Exception:
-                    logger.debug("audit_log_denied_create_key_failed")
-                ui.notify("Permission denied", type="negative")
+            if not await _check_api_key_permission(db_pool, "create", user_id):
                 return
             name = name_input.value
             if not name or len(name.strip()) < 3:
@@ -322,24 +336,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
 
     async def _revoke_key(key_id: str, key_prefix: str) -> None:
         """Revoke an API key with confirmation dialog."""
-        cur_user = get_current_user()
-        cur_uid = cur_user.get("user_id", "unknown")
-        if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await verify_db_role(
-            db_pool, cur_uid, Permission.MANAGE_API_KEYS
-        ):
-            try:
-                audit = AuditLogger(db_pool)
-                await audit.log_action(
-                    user_id=cur_user.get("user_id", "unknown"),
-                    action="api_key_revoke_denied",
-                    resource_type="api_key",
-                    resource_id=key_id,
-                    outcome="denied",
-                    details={"role": cur_user.get("role")},
-                )
-            except Exception:
-                logger.debug("audit_log_denied_revoke_key_failed")
-            ui.notify("Permission denied", type="negative")
+        if not await _check_api_key_permission(db_pool, "revoke", key_id):
             return
         with ui.dialog() as dialog, ui.card():
             ui.label(f"Revoke API key {key_prefix}?").classes("text-lg font-bold")
@@ -423,24 +420,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
 
     async def _rotate_key(key_id: str, key_prefix: str) -> None:
         """Rotate an API key: revoke old + create new in one transaction."""
-        cur_user = get_current_user()
-        cur_uid = cur_user.get("user_id", "unknown")
-        if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await verify_db_role(
-            db_pool, cur_uid, Permission.MANAGE_API_KEYS
-        ):
-            try:
-                audit = AuditLogger(db_pool)
-                await audit.log_action(
-                    user_id=cur_user.get("user_id", "unknown"),
-                    action="api_key_rotate_denied",
-                    resource_type="api_key",
-                    resource_id=key_id,
-                    outcome="denied",
-                    details={"role": cur_user.get("role")},
-                )
-            except Exception:
-                logger.debug("audit_log_denied_rotate_key_failed")
-            ui.notify("Permission denied", type="negative")
+        if not await _check_api_key_permission(db_pool, "rotate", key_id):
             return
         from libs.platform.admin.api_keys import generate_api_key, hash_api_key
 

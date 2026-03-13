@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-03-13 - P6T16+P6T17: Tax Lots, User Management admin, API key management, Strategy Management, Model Registry Browser, Alerts, sanitize_dict in user_activity, UNION ALL audit query -->
+<!-- Last reviewed: 2026-03-13 - P6T16+P6T17: Tax Lots, User Management admin, API key management, Strategy Management, Model Registry Browser, Alerts, audit denial logging, remaining_quantity valuation, API key permission helper -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

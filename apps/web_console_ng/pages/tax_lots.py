@@ -375,7 +375,7 @@ async def _render_summary_metrics(
         for lot in lots:
             price = current_prices.get(lot.symbol)
             if price is not None:
-                total_value += price * lot.quantity
+                total_value += price * lot.remaining_quantity
 
     now = datetime.now(UTC)
     short_term = [lot for lot in lots if (now - lot.acquisition_date).days <= 365]

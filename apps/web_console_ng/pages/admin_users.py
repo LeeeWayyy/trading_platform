@@ -134,9 +134,19 @@ async def admin_users_page() -> None:
         if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
             db_pool, current_uid, Permission.MANAGE_USERS
         ):
+            try:
+                await audit.log_action(
+                    user_id=current_uid,
+                    action="role_change_denied",
+                    resource_type="user",
+                    resource_id=target_user_id,
+                    outcome="denied",
+                    details={"reason": "permission_denied"},
+                )
+            except Exception:
+                logger.debug("audit_log_role_change_denied_failed")
             ui.notify("Permission denied", type="negative")
             return
-        current_uid = current.get("user_id", "unknown")
 
         # Self-edit guard (page-level + service-level)
         if target_user_id == current_uid:
@@ -240,6 +250,17 @@ async def admin_users_page() -> None:
             if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
                 db_pool, cur_uid, Permission.MANAGE_USERS
             ):
+                try:
+                    await audit.log_action(
+                        user_id=cur_uid,
+                        action="strategy_grant_denied",
+                        resource_type="user_strategy",
+                        resource_id=f"{uid}:{sid}",
+                        outcome="denied",
+                        details={"reason": "permission_denied"},
+                    )
+                except Exception:
+                    logger.debug("audit_log_grant_denied_failed")
                 ui.notify("Permission denied", type="negative")
                 return
             success, msg = await grant_strategy(
@@ -256,6 +277,17 @@ async def admin_users_page() -> None:
             if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
                 db_pool, cur_uid, Permission.MANAGE_USERS
             ):
+                try:
+                    await audit.log_action(
+                        user_id=cur_uid,
+                        action="strategy_revoke_denied",
+                        resource_type="user_strategy",
+                        resource_id=f"{uid}:{sid}",
+                        outcome="denied",
+                        details={"reason": "permission_denied"},
+                    )
+                except Exception:
+                    logger.debug("audit_log_revoke_denied_failed")
                 ui.notify("Permission denied", type="negative")
                 return
             success, msg = await revoke_strategy(
@@ -307,6 +339,17 @@ async def admin_users_page() -> None:
         if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
             db_pool, current_uid, Permission.MANAGE_USERS
         ):
+            try:
+                await audit.log_action(
+                    user_id=current_uid,
+                    action="force_logout_denied",
+                    resource_type="user",
+                    resource_id=target_user_id,
+                    outcome="denied",
+                    details={"reason": "permission_denied"},
+                )
+            except Exception:
+                logger.debug("audit_log_force_logout_denied_failed")
             ui.notify("Permission denied", type="negative")
             return
 
@@ -422,30 +465,14 @@ async def _fetch_user_activity(
     try:
         async with db_pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                # UNION ALL + DISTINCT ON (id) preserves repeated events (PR #148 R3)
                 await cur.execute(
                     """
                     SELECT user_id, action, resource_type, resource_id,
                            outcome, details, timestamp
-                    FROM (
-                        SELECT DISTINCT ON (id)
-                               id, user_id, action, resource_type, resource_id,
-                               outcome, details, timestamp
-                        FROM (
-                            (SELECT id, user_id, action, resource_type, resource_id,
-                                    outcome, details, timestamp
-                             FROM audit_log WHERE user_id = %s)
-                            UNION ALL
-                            (SELECT id, user_id, action, resource_type, resource_id,
-                                    outcome, details, timestamp
-                             FROM audit_log WHERE resource_id = %s)
-                            UNION ALL
-                            (SELECT id, user_id, action, resource_type, resource_id,
-                                    outcome, details, timestamp
-                             FROM audit_log WHERE resource_id LIKE %s ESCAPE '\\')
-                        ) branches
-                        ORDER BY id
-                    ) deduped
+                    FROM audit_log
+                    WHERE user_id = %s
+                       OR resource_id = %s
+                       OR resource_id LIKE %s ESCAPE '\\'
                     ORDER BY timestamp DESC
                     LIMIT %s
                     """,

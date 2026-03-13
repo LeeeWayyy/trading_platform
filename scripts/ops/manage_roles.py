@@ -92,7 +92,8 @@ def set_role(args: argparse.Namespace) -> None:
             "Manually restart the user's sessions or wait for cache expiry (60s).",
             file=sys.stderr,
         )
-        sys.exit(2)  # exit 2 = partial success (DB ok, cache/session invalidation failed)
+        # Exit 0: DB mutation succeeded; Redis is best-effort.
+        # Nonzero exit would cause callers to retry, re-running the DB write needlessly.
 
 
 def grant_strategy(args: argparse.Namespace) -> None:

@@ -1,4 +1,4 @@
-# ADR-0038: DB Role Authority Override
+# ADR-0039: DB Role Authority Override
 
 **Status:** Accepted
 **Date:** 2026-03-12
