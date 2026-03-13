@@ -52,6 +52,30 @@ async def tax_lots_page() -> None:
     user_id = user.get("user_id", "unknown")
     is_admin = has_permission(user, Permission.MANAGE_TAX_LOTS)
 
+    async def _check_tax_permission(
+        permission: Permission, action: str, resource_type: str, resource_id: str,
+    ) -> tuple[bool, str]:
+        """Check tax permission with DB verification and audit on denial."""
+        current = get_current_user()
+        uid = current.get("user_id", "unknown")
+        if has_permission(current, permission) and await verify_db_role(
+            db_pool, uid, permission
+        ):
+            return True, uid
+        try:
+            await audit.log_action(
+                user_id=uid,
+                action=f"{action}_denied",
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome="denied",
+                details={"role": current.get("role")},
+            )
+        except Exception:
+            logger.debug("audit_log_%s_denied_failed", action)
+        ui.notify("Permission denied", type="negative")
+        return False, uid
+
     # State
     show_all_users = False
 
@@ -90,12 +114,10 @@ async def tax_lots_page() -> None:
         with ui.row().classes("w-full items-center gap-4 mb-4"):
 
             async def toggle_all_users(e: Any) -> None:
-                current = get_current_user()
-                current_uid = current.get("user_id", "unknown")
-                if not has_permission(current, Permission.MANAGE_TAX_LOTS) or not await verify_db_role(
-                    db_pool, current_uid, Permission.MANAGE_TAX_LOTS
-                ):
-                    ui.notify("Permission denied", type="negative")
+                allowed, _ = await _check_tax_permission(
+                    Permission.MANAGE_TAX_LOTS, "toggle_all_users", "tax_lot", "",
+                )
+                if not allowed:
                     return
                 nonlocal show_all_users, lots, wash_sale_lot_ids, current_prices, suggestions
                 show_all_users = e.value
@@ -121,14 +143,13 @@ async def tax_lots_page() -> None:
             ui.label("Cost Basis Method:").classes("font-medium")
 
             async def _on_method_change(e: Any) -> None:
-                current = get_current_user()
-                current_uid = current.get("user_id", "unknown")
-                if not has_permission(current, Permission.MANAGE_TAX_SETTINGS) or not await verify_db_role(
-                    db_pool, current_uid, Permission.MANAGE_TAX_SETTINGS
-                ):
-                    ui.notify("Permission denied", type="negative")
+                allowed, current_uid = await _check_tax_permission(
+                    Permission.MANAGE_TAX_SETTINGS, "cost_basis_method_change",
+                    "tax_settings", "",
+                )
+                if not allowed:
                     return
-                current_uid = current.get("user_id", "unknown")
+                current = get_current_user()
                 fresh_service = TaxLotService(db_pool, current)
                 try:
                     await fresh_service.set_cost_basis_method(e.value)
@@ -169,23 +190,12 @@ async def tax_lots_page() -> None:
         with ui.column().classes("flex-1"):
             # Close lot handler
             async def _on_close_lot(lot_id: str) -> None:
-                current = get_current_user()
-                current_uid = current.get("user_id", "unknown")
-                if not has_permission(current, Permission.MANAGE_TAX_LOTS) or not await verify_db_role(
-                    db_pool, current_uid, Permission.MANAGE_TAX_LOTS
-                ):
-                    current_uid = current.get("user_id", "unknown")
-                    await audit.log_action(
-                        user_id=current_uid,
-                        action="lot_close_denied",
-                        resource_type="tax_lot",
-                        resource_id=lot_id,
-                        outcome="denied",
-                        details={"role": current.get("role")},
-                    )
-                    ui.notify("Permission denied: MANAGE_TAX_LOTS required", type="negative")
+                allowed, current_uid = await _check_tax_permission(
+                    Permission.MANAGE_TAX_LOTS, "lot_close", "tax_lot", lot_id,
+                )
+                if not allowed:
                     return
-                current_uid = current.get("user_id", "unknown")
+                current = get_current_user()
                 fresh_service = TaxLotService(db_pool, current)
                 # Look up lot owner before closing for accurate audit attribution
                 lot_owner_id = current_uid

@@ -57,6 +57,30 @@ async def admin_users_page() -> None:
     audit = AuditLogger(db_pool)
     admin_user_id = user.get("user_id", "unknown")
 
+    async def _check_manage_users_perm(
+        action: str, resource_type: str, resource_id: str,
+    ) -> tuple[bool, str]:
+        """Check MANAGE_USERS permission with DB verification and audit on denial."""
+        current = get_current_user()
+        uid = current.get("user_id", "unknown")
+        if has_permission(current, Permission.MANAGE_USERS) and await verify_db_role(
+            db_pool, uid, Permission.MANAGE_USERS
+        ):
+            return True, uid
+        try:
+            await audit.log_action(
+                user_id=uid,
+                action=f"{action}_denied",
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome="denied",
+                details={"reason": "permission_denied"},
+            )
+        except Exception:
+            logger.debug("audit_log_%s_denied_failed", action)
+        ui.notify("Permission denied", type="negative")
+        return False, uid
+
     # Load users
     users = await list_users(db_pool)
 
@@ -72,30 +96,16 @@ async def admin_users_page() -> None:
             # DB row.  The first admin must be bootstrapped via ops script
             # (scripts/ops/manage_roles.py) or direct DB insert before using
             # this page.
-            current = get_current_user()
-            current_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-                db_pool, current_uid, Permission.MANAGE_USERS
-            ):
-                try:
-                    await audit.log_action(
-                        user_id=current_uid,
-                        action="provision_user_denied",
-                        resource_type="user",
-                        resource_id="",
-                        outcome="denied",
-                        details={"reason": "permission_denied"},
-                    )
-                except Exception:
-                    logger.debug("audit_log_provision_denied_failed")
-                ui.notify("Permission denied", type="negative")
+            allowed, current_uid = await _check_manage_users_perm(
+                "provision_user", "user", "",
+            )
+            if not allowed:
                 return
             target_id = provision_input.value
             if not target_id or not target_id.strip():
                 ui.notify("Enter a user ID", type="warning")
                 return
             target_id = target_id.strip()
-            current_uid = current.get("user_id", "unknown")
 
             # Self-provisioning guard: prevent admin from provisioning themselves
             # as viewer, which would cause middleware role override to demote them.
@@ -129,23 +139,10 @@ async def admin_users_page() -> None:
 
     # Role change callback
     async def _on_role_change(target_user_id: str) -> None:
-        current = get_current_user()
-        current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-            db_pool, current_uid, Permission.MANAGE_USERS
-        ):
-            try:
-                await audit.log_action(
-                    user_id=current_uid,
-                    action="role_change_denied",
-                    resource_type="user",
-                    resource_id=target_user_id,
-                    outcome="denied",
-                    details={"reason": "permission_denied"},
-                )
-            except Exception:
-                logger.debug("audit_log_role_change_denied_failed")
-            ui.notify("Permission denied", type="negative")
+        allowed, current_uid = await _check_manage_users_perm(
+            "role_change", "user", target_user_id,
+        )
+        if not allowed:
             return
 
         # Self-edit guard (page-level + service-level)
@@ -218,23 +215,10 @@ async def admin_users_page() -> None:
 
     # Strategy grants callback
     async def _on_view_strategies(target_user_id: str) -> None:
-        current = get_current_user()
-        current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-            db_pool, current_uid, Permission.MANAGE_USERS
-        ):
-            try:
-                await audit.log_action(
-                    user_id=current_uid,
-                    action="view_strategies_denied",
-                    resource_type="user",
-                    resource_id=target_user_id,
-                    outcome="denied",
-                    details={"reason": "permission_denied"},
-                )
-            except Exception:
-                logger.debug("audit_log_view_strategies_denied_failed")
-            ui.notify("Permission denied", type="negative")
+        allowed, _ = await _check_manage_users_perm(
+            "view_strategies", "user", target_user_id,
+        )
+        if not allowed:
             return
         try:
             assigned = await get_user_strategies(db_pool, target_user_id)
@@ -245,23 +229,10 @@ async def admin_users_page() -> None:
             return
 
         async def _grant(uid: str, sid: str) -> None:
-            current = get_current_user()
-            cur_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-                db_pool, cur_uid, Permission.MANAGE_USERS
-            ):
-                try:
-                    await audit.log_action(
-                        user_id=cur_uid,
-                        action="strategy_grant_denied",
-                        resource_type="user_strategy",
-                        resource_id=f"{uid}:{sid}",
-                        outcome="denied",
-                        details={"reason": "permission_denied"},
-                    )
-                except Exception:
-                    logger.debug("audit_log_grant_denied_failed")
-                ui.notify("Permission denied", type="negative")
+            allowed, cur_uid = await _check_manage_users_perm(
+                "strategy_grant", "user_strategy", f"{uid}:{sid}",
+            )
+            if not allowed:
                 return
             success, msg = await grant_strategy(
                 db_pool, uid, sid, cur_uid, audit
@@ -272,23 +243,10 @@ async def admin_users_page() -> None:
                 ui.notify(msg, type="negative")
 
         async def _revoke(uid: str, sid: str) -> None:
-            current = get_current_user()
-            cur_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-                db_pool, cur_uid, Permission.MANAGE_USERS
-            ):
-                try:
-                    await audit.log_action(
-                        user_id=cur_uid,
-                        action="strategy_revoke_denied",
-                        resource_type="user_strategy",
-                        resource_id=f"{uid}:{sid}",
-                        outcome="denied",
-                        details={"reason": "permission_denied"},
-                    )
-                except Exception:
-                    logger.debug("audit_log_revoke_denied_failed")
-                ui.notify("Permission denied", type="negative")
+            allowed, cur_uid = await _check_manage_users_perm(
+                "strategy_revoke", "user_strategy", f"{uid}:{sid}",
+            )
+            if not allowed:
                 return
             success, msg = await revoke_strategy(
                 db_pool, uid, sid, cur_uid, audit
@@ -304,23 +262,10 @@ async def admin_users_page() -> None:
 
     # Activity log callback
     async def _on_view_activity(target_user_id: str) -> None:
-        current = get_current_user()
-        current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-            db_pool, current_uid, Permission.MANAGE_USERS
-        ):
-            try:
-                await audit.log_action(
-                    user_id=current_uid,
-                    action="view_activity_denied",
-                    resource_type="user",
-                    resource_id=target_user_id,
-                    outcome="denied",
-                    details={"reason": "permission_denied"},
-                )
-            except Exception:
-                logger.debug("audit_log_view_activity_denied_failed")
-            ui.notify("Permission denied", type="negative")
+        allowed, _ = await _check_manage_users_perm(
+            "view_activity", "user", target_user_id,
+        )
+        if not allowed:
             return
         events = await _fetch_user_activity(db_pool, target_user_id)
         if events is None:
@@ -334,23 +279,10 @@ async def admin_users_page() -> None:
     # enforces the DB role on every subsequent HTTP request, preventing
     # privilege escalation via stale WebSocket sessions.
     async def _on_force_logout(target_user_id: str) -> None:
-        current = get_current_user()
-        current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
-            db_pool, current_uid, Permission.MANAGE_USERS
-        ):
-            try:
-                await audit.log_action(
-                    user_id=current_uid,
-                    action="force_logout_denied",
-                    resource_type="user",
-                    resource_id=target_user_id,
-                    outcome="denied",
-                    details={"reason": "permission_denied"},
-                )
-            except Exception:
-                logger.debug("audit_log_force_logout_denied_failed")
-            ui.notify("Permission denied", type="negative")
+        allowed, current_uid = await _check_manage_users_perm(
+            "force_logout", "user", target_user_id,
+        )
+        if not allowed:
             return
 
         if target_user_id == current_uid:

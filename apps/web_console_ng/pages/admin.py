@@ -344,14 +344,11 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             confirm_input = ui.input("Type REVOKE").props("outlined")
 
             async def on_confirm() -> None:
-                cur = get_current_user()
-                cur_uid = cur.get("user_id", "unknown")
-                if not has_permission(cur, Permission.MANAGE_API_KEYS) or not await verify_db_role(
-                    db_pool, cur_uid, Permission.MANAGE_API_KEYS
-                ):
-                    ui.notify("Permission denied", type="negative")
+                if not await _check_api_key_permission(db_pool, "revoke", key_id):
                     dialog.close()
                     return
+                cur = get_current_user()
+                cur_uid = cur.get("user_id", "unknown")
                 if confirm_input.value != "REVOKE":
                     ui.notify("Type REVOKE to confirm", type="warning")
                     return
@@ -432,14 +429,11 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             )
 
             async def on_confirm() -> None:
-                cur = get_current_user()
-                cur_uid = cur.get("user_id", "unknown")
-                if not has_permission(cur, Permission.MANAGE_API_KEYS) or not await verify_db_role(
-                    db_pool, cur_uid, Permission.MANAGE_API_KEYS
-                ):
-                    ui.notify("Permission denied", type="negative")
+                if not await _check_api_key_permission(db_pool, "rotate", key_id):
                     dialog.close()
                     return
+                cur = get_current_user()
+                cur_uid = cur.get("user_id", "unknown")
                 try:
                     full_key, new_prefix, salt = generate_api_key()
                     key_hash = hash_api_key(full_key, salt)
