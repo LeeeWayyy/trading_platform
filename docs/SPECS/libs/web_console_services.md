@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-03-12 - P6T17: Added ModelRegistryBrowserService, StrategyService, enhanced AlertConfigService -->
+<!-- Last reviewed: 2026-03-12 - P6T17: Added ModelRegistryBrowserService, StrategyService, enhanced AlertConfigService with top-level UUID import -->
 
 ## Identity
 - **Type:** Library

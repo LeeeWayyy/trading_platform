@@ -1,6 +1,6 @@
 # web_console_ng
 
-<!-- Last reviewed: 2026-03-12 - P6T17: Strategy Management, Model Registry Browser, enhanced Alerts -->
+<!-- Last reviewed: 2026-03-12 - P6T17: Strategy Management, Model Registry Browser, enhanced Alerts with channel loop refactor -->
 
 ## Identity
 - **Type:** Service (NiceGUI + FastAPI endpoints)

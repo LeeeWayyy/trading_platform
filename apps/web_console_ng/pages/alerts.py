@@ -665,70 +665,29 @@ async def _show_edit_dialog(
 
             # Build channels: use new value if provided (non-whitespace), else keep existing
             channels: list[ChannelConfig] = []
-            if email_edit.value and email_edit.value.strip():
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.EMAIL,
-                        recipient=email_edit.value.strip(),
-                        enabled=enabled_channels.get("email", True),
+            channel_edits: list[tuple[str, ChannelType, Any]] = [
+                ("email", ChannelType.EMAIL, email_edit),
+                ("slack", ChannelType.SLACK, slack_edit),
+                ("pagerduty", ChannelType.PAGERDUTY, pagerduty_edit),
+                ("sms", ChannelType.SMS, sms_edit),
+            ]
+            for key, ch_type, edit_field in channel_edits:
+                if edit_field.value and edit_field.value.strip():
+                    channels.append(
+                        ChannelConfig(
+                            type=ch_type,
+                            recipient=edit_field.value.strip(),
+                            enabled=enabled_channels.get(key, True),
+                        )
                     )
-                )
-            elif "email" in existing_channels:
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.EMAIL,
-                        recipient=existing_channels["email"],
-                        enabled=enabled_channels.get("email", True),
+                elif key in existing_channels:
+                    channels.append(
+                        ChannelConfig(
+                            type=ch_type,
+                            recipient=existing_channels[key],
+                            enabled=enabled_channels.get(key, True),
+                        )
                     )
-                )
-            if slack_edit.value and slack_edit.value.strip():
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.SLACK,
-                        recipient=slack_edit.value.strip(),
-                        enabled=enabled_channels.get("slack", True),
-                    )
-                )
-            elif "slack" in existing_channels:
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.SLACK,
-                        recipient=existing_channels["slack"],
-                        enabled=enabled_channels.get("slack", True),
-                    )
-                )
-            if pagerduty_edit.value and pagerduty_edit.value.strip():
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.PAGERDUTY,
-                        recipient=pagerduty_edit.value.strip(),
-                        enabled=enabled_channels.get("pagerduty", True),
-                    )
-                )
-            elif "pagerduty" in existing_channels:
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.PAGERDUTY,
-                        recipient=existing_channels["pagerduty"],
-                        enabled=enabled_channels.get("pagerduty", True),
-                    )
-                )
-            if sms_edit.value and sms_edit.value.strip():
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.SMS,
-                        recipient=sms_edit.value.strip(),
-                        enabled=enabled_channels.get("sms", True),
-                    )
-                )
-            elif "sms" in existing_channels:
-                channels.append(
-                    ChannelConfig(
-                        type=ChannelType.SMS,
-                        recipient=existing_channels["sms"],
-                        enabled=enabled_channels.get("sms", True),
-                    )
-                )
 
             update = AlertRuleUpdate(
                 name=name_val or None,

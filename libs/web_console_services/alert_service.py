@@ -6,6 +6,7 @@ import json
 import logging
 from decimal import Decimal
 from typing import Any
+from uuid import UUID as _UUID
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
@@ -635,8 +636,6 @@ class AlertConfigService:
             return 0
 
         # Pre-validate UUIDs to give a clear ValueError instead of a DB DataError
-        from uuid import UUID as _UUID
-
         for aid in alert_ids:
             try:
                 _UUID(aid)

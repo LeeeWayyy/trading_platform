@@ -192,7 +192,7 @@ async def _show_toggle_dialog(
                     f"\n\nWarning: {exposure['positions_count']} open positions, "
                     f"{exposure['open_orders_count']} open orders"
                 )
-        except Exception as e:
+        except (psycopg.OperationalError, ConnectionError, TimeoutError, OSError) as e:
             logger.warning(
                 "exposure_check_failed",
                 extra={"strategy_id": strategy_id, "error": str(e)},

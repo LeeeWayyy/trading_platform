@@ -326,7 +326,7 @@ class TestRenderToggleDialog:
             async def get_open_exposure(
                 self, strategy_id: str, user: dict[str, Any]
             ) -> dict[str, Any]:
-                raise RuntimeError("DB down")
+                raise ConnectionError("DB down")
 
         service = FailingExposureService()
         fetch_fn = AsyncMock()
