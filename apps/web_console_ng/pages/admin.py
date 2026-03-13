@@ -539,10 +539,11 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             ui.label("No API keys yet. Create one to get started.").classes("text-gray-500")
             return
 
+        now = datetime.now(UTC)
         for key in keys_data:
             is_revoked = bool(key.get("revoked_at"))
             is_expired = (
-                not is_revoked and key.get("expires_at") and key["expires_at"] < datetime.now(UTC)
+                not is_revoked and key.get("expires_at") and key["expires_at"] < now
             )
             is_active = not is_revoked and not is_expired
             row_classes = "opacity-50" if is_revoked else ""
@@ -584,7 +585,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                             # Last used
                             last_used = key.get("last_used_at")
                             if last_used:
-                                delta = datetime.now(UTC) - last_used
+                                delta = now - last_used
                                 if delta.days > 0:
                                     used_str = f"{delta.days}d ago"
                                 elif delta.seconds >= 3600:

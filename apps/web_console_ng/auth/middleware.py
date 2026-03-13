@@ -335,6 +335,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         if isinstance(cached_role, bytes)
                         else str(cached_role)
                     )
+                    # Sentinel: no DB row exists — keep provider role
+                    if db_role == "__none__":
+                        return
                     if db_role != user.get("role"):
                         self._apply_role_override(request, user, db_role)
                         # Best-effort: also persist role change in Redis session
@@ -370,6 +373,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return
 
             if not row:
+                # Cache "no row" sentinel to avoid repeated DB queries for
+                # unprovisioned users (P6T16 feedback).
+                if redis_client is not None:
+                    try:
+                        await redis_client.setex(cache_key, 60, "__none__")
+                    except Exception:
+                        logger.debug("role_cache_write_none_failed", extra={"user_id": user_id})
                 return  # No DB row — keep provider role
 
             db_role = row[0]

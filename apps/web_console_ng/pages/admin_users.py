@@ -88,6 +88,13 @@ async def admin_users_page() -> None:
                 return
             target_id = target_id.strip()
             current_uid = current.get("user_id", "unknown")
+
+            # Self-provisioning guard: prevent admin from provisioning themselves
+            # as viewer, which would cause middleware role override to demote them.
+            if target_id == current_uid:
+                ui.notify("Cannot provision yourself — use role change instead", type="warning")
+                return
+
             created, msg = await ensure_user_provisioned(
                 db_pool, target_id, "viewer", current_uid, audit
             )
@@ -376,14 +383,20 @@ async def _fetch_user_activity(
     try:
         async with db_pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
+                # Use UNION for index-friendly queries instead of OR (PR #148 review)
                 await cur.execute(
                     """
-                    SELECT user_id, action, resource_type, resource_id,
-                           outcome, details, timestamp
-                    FROM audit_log
-                    WHERE user_id = %s
-                       OR resource_id = %s
-                       OR resource_id LIKE %s ESCAPE '\\'
+                    (SELECT user_id, action, resource_type, resource_id,
+                            outcome, details, timestamp
+                     FROM audit_log WHERE user_id = %s)
+                    UNION
+                    (SELECT user_id, action, resource_type, resource_id,
+                            outcome, details, timestamp
+                     FROM audit_log WHERE resource_id = %s)
+                    UNION
+                    (SELECT user_id, action, resource_type, resource_id,
+                            outcome, details, timestamp
+                     FROM audit_log WHERE resource_id LIKE %s ESCAPE '\\')
                     ORDER BY timestamp DESC
                     LIMIT %s
                     """,
