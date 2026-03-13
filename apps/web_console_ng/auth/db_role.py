@@ -15,6 +15,8 @@ import asyncio
 import logging
 from typing import Any
 
+import psycopg
+
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,6 @@ async def verify_db_role(
                     return False
                 mock_user: dict[str, Any] = {"role": row[0]}
                 return has_permission(mock_user, required_permission)
-    except Exception as exc:
+    except (asyncio.TimeoutError, psycopg.Error, OSError) as exc:
         logger.warning("db_role_verify_failed", extra={"user_id": user_id, "error": str(exc)})
         return False  # Fail-closed for mutations

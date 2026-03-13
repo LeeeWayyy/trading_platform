@@ -1,4 +1,4 @@
--- Migration 0028: Add 'researcher' to user_roles CHECK constraint
+-- Migration 0030: Add 'researcher' to user_roles CHECK constraint
 -- Purpose: Allow RESEARCHER role assignment via admin UI and ops tooling
 -- Prerequisite for T16.2 (User Management / RBAC Admin)
 
