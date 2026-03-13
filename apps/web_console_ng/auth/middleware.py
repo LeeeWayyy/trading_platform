@@ -339,11 +339,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         # Best-effort: also persist role change in Redis session
                         try:
                             await self._update_session_payload(request, db_role)
-                        except Exception:
-                            logger.debug("session_role_update_on_cache_hit_failed", extra={"user_id": user_id})
+                        except Exception as exc:
+                            logger.debug("session_role_update_on_cache_hit_failed", extra={"user_id": user_id, "error": str(exc)})
                     return
-            except Exception:
-                logger.debug("role_cache_miss_or_error", extra={"user_id": user_id})
+            except Exception as exc:
+                logger.debug("role_cache_miss_or_error", extra={"user_id": user_id, "error": str(exc)})
 
             # Query DB with timeout
             db_pool = get_db_pool()
@@ -396,18 +396,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if redis_client is not None:
                 try:
                     await redis_client.setex(cache_key, 60, db_role)
-                except Exception:
-                    logger.debug("role_cache_write_failed_post_override", extra={"user_id": user_id})
+                except Exception as exc:
+                    logger.debug("role_cache_write_failed_post_override", extra={"user_id": user_id, "error": str(exc)})
 
             # Update Redis session payload
             try:
                 await self._update_session_payload(request, db_role)
-            except Exception:
-                logger.debug("session_role_update_failed", extra={"user_id": user_id})
+            except Exception as exc:
+                logger.debug("session_role_update_failed", extra={"user_id": user_id, "error": str(exc)})
 
-        except Exception:
+        except Exception as exc:
             # Fail-open: never block requests due to role override errors
-            logger.debug("role_override_failed", extra={"user_id": user_id})
+            logger.debug("role_override_failed", extra={"user_id": user_id, "error": str(exc)})
 
     @staticmethod
     def _apply_role_override(request: Request, user: dict[str, Any], db_role: str) -> None:

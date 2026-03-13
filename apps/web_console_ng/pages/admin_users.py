@@ -103,6 +103,15 @@ async def admin_users_page() -> None:
                 db_pool, target_id, "viewer", current_uid, audit
             )
             if created:
+                # Invalidate __none__ sentinel so middleware picks up new role
+                try:
+                    from apps.web_console_ng.core.redis_ha import get_redis_store
+
+                    store = get_redis_store()
+                    redis_client = await store.get_master()
+                    await redis_client.delete(f"ng_role_cache:{target_id}")
+                except Exception:
+                    logger.debug("role_cache_invalidation_after_provision_failed", extra={"user_id": target_id})
                 ui.notify(msg, type="positive")
                 nonlocal users
                 users = await list_users(db_pool)

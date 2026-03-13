@@ -38,6 +38,6 @@ async def verify_db_role(
                 return False
             mock_user: dict[str, Any] = {"role": row[0]}
             return has_permission(mock_user, required_permission)
-    except Exception:
-        logger.warning("db_role_verify_failed", extra={"user_id": user_id})
+    except Exception as exc:
+        logger.warning("db_role_verify_failed", extra={"user_id": user_id, "error": str(exc)})
         return False  # Fail-closed for mutations

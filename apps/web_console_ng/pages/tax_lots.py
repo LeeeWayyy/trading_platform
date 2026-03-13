@@ -466,7 +466,10 @@ def _rows_to_report_rows(rows: list[dict[str, Any]]) -> list[Any]:
 async def _handle_form_8949_export(db_pool: Any, user: dict[str, Any]) -> None:
     """Export Form 8949 as CSV download. Requires EXPORT_DATA."""
     current = get_current_user()
-    if not has_permission(current, Permission.EXPORT_DATA):
+    current_uid = current.get("user_id", "unknown")
+    if not has_permission(current, Permission.EXPORT_DATA) or not await verify_db_role(
+        db_pool, current_uid, Permission.EXPORT_DATA
+    ):
         try:
             audit = AuditLogger(db_pool)
             await audit.log_action(
@@ -524,7 +527,10 @@ async def _handle_form_8949_export(db_pool: Any, user: dict[str, Any]) -> None:
 async def _handle_form_8949_preview(db_pool: Any, user: dict[str, Any]) -> None:
     """Preview Form 8949 data on-screen. Requires VIEW_TAX_REPORTS."""
     current = get_current_user()
-    if not has_permission(current, Permission.VIEW_TAX_REPORTS):
+    current_uid = current.get("user_id", "unknown")
+    if not has_permission(current, Permission.VIEW_TAX_REPORTS) or not await verify_db_role(
+        db_pool, current_uid, Permission.VIEW_TAX_REPORTS
+    ):
         try:
             audit = AuditLogger(db_pool)
             await audit.log_action(
