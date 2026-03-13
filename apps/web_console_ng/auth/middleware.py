@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import hmac
 import logging
@@ -8,14 +9,22 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from nicegui import app, ui
+from redis.exceptions import RedisError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip, is_trusted_ip
+from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
-from apps.web_console_ng.auth.session_store import SessionValidationError, get_session_store
+from apps.web_console_ng.auth.session_store import (
+    SessionValidationError,
+    extract_session_id,
+    get_session_store,
+)
+from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +115,6 @@ async def _validate_session_and_get_user(
     Raises:
         SessionValidationError: If Redis is unavailable (callers should return 503).
     """
-    from apps.web_console_ng.auth.cookie_config import CookieConfig
-
     cookie_cfg = CookieConfig.from_env()
     cookie_name = cookie_cfg.get_cookie_name()
     cookie_value = request.cookies.get(cookie_name)
@@ -164,6 +171,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
     provides a fallback by validating the session directly.
     """
 
+    # ACCEPTED_LIMITATION(ADR-0038): WebSocket session staleness
+    #
+    # /_nicegui and /socket.io are exempt because NiceGUI requires them
+    # for UI interactivity (WebSocket transport).  This means role-override
+    # middleware does NOT fire on WebSocket callbacks — only on HTTP requests.
+    #
+    # After a role demotion or force-logout, an already-open browser tab
+    # retains the cached role in app.storage.user until the next HTTP request
+    # triggers middleware.  NiceGUI does not expose an API to disconnect
+    # individual clients by user ID, so immediate eviction is not possible.
+    #
+    # Mitigations (defense-in-depth):
+    #   1. Every privileged callback re-checks get_current_user() +
+    #      has_permission() at execution time.
+    #   2. The 60s Redis role-cache TTL ensures the DB-authoritative role
+    #      propagates on the next HTTP request (page nav, AJAX, etc.).
+    #   3. invalidate_redis_sessions_for_user() deletes all Redis session
+    #      keys, so the next page load forces re-authentication.
+    #   4. Backend service calls (change_user_role, close_lot) re-validate
+    #      permissions independently of the UI layer.
+    #   5. update_session_role() uses WATCH/MULTI optimistic locking to
+    #      prevent stale-role restoration from concurrent writes.
     _EXEMPT_PATH_PREFIXES = (
         "/_nicegui",
         "/socket.io",  # NiceGUI WebSocket/socket.io endpoint (required for UI interactivity)
@@ -234,6 +263,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     )
                 # For HTML requests, proceed without user - decorators will handle error UI
 
+        # [T16.2] DB role override: make admin role changes authoritative
+        if user and isinstance(user, dict) and user.get("user_id"):
+            await self._override_role_from_db(request, user)
+
         if not user:
             # For browser requests (Accept: text/html), redirect to login
             # For API requests, return 401
@@ -250,8 +283,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
                 # Clear potentially invalid cookie to prevent redirect loops
                 # (e.g. if browser holds an old cookie with invalid signature)
-                from apps.web_console_ng.auth.cookie_config import CookieConfig
-
                 cookie_cfg = CookieConfig.from_env()
                 cookie_name = cookie_cfg.get_cookie_name()
 
@@ -272,6 +303,135 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return Response(status_code=401)
 
         return cast(Response, await call_next(request))
+
+    async def _override_role_from_db(self, request: Request, user: dict[str, Any]) -> None:
+        """Override provider-derived session role with DB role from user_roles.
+
+        Fail-open by design (ADR-0038): on any error (DB/Redis timeout, network
+        partition), keep the provider-derived role unchanged so the user is not
+        blocked.  The DB role is authoritative when reachable; when not, the
+        provider role is the best available signal.
+        Uses optional Redis cache (ng_role_cache:{user_id}, TTL 60s) to minimize DB load.
+        """
+        user_id = user.get("user_id")
+        if not user_id:
+            return
+
+        redis_client = None
+        cache_key = f"ng_role_cache:{user_id}"
+
+        try:
+            # Check Redis cache first
+            try:
+                store = get_redis_store()
+                redis_client = await store.get_master()
+                cached_role = await redis_client.get(cache_key)
+                if cached_role is not None:
+                    db_role = (
+                        cached_role.decode("utf-8")
+                        if isinstance(cached_role, bytes)
+                        else str(cached_role)
+                    )
+                    # Sentinel: no DB row exists — keep provider role
+                    if db_role == "__none__":
+                        return
+                    if db_role != user.get("role"):
+                        self._apply_role_override(request, user, db_role)
+                        # Best-effort: also persist role change in Redis session
+                        try:
+                            await self._update_session_payload(request, db_role)
+                        except Exception as exc:
+                            logger.debug("session_role_update_on_cache_hit_failed", extra={"user_id": user_id, "error": str(exc)})
+                    return
+            except (RedisError, OSError, TimeoutError) as exc:
+                logger.debug("role_cache_miss_or_error", extra={"user_id": user_id, "error": str(exc)})
+
+            # Query DB with timeout
+            db_pool = get_db_pool()
+            if db_pool is None:
+                return  # Fail-open (ADR-0038): keep provider role when DB unavailable
+
+            try:
+
+                async def _db_role_lookup() -> Any:
+                    async with db_pool.connection() as conn:
+                        cursor = await conn.execute(
+                            "SELECT role FROM user_roles WHERE user_id = %s",
+                            (user_id,),
+                        )
+                        return await cursor.fetchone()
+
+                row = await asyncio.wait_for(_db_role_lookup(), timeout=0.5)
+            except (TimeoutError, OSError) as exc:
+                # Fail-open (ADR-0038): keep provider role on DB timeout/error
+                logger.debug(
+                    "db_role_lookup_timeout_or_error",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
+                return
+
+            if not row:
+                # Cache "no row" sentinel to avoid repeated DB queries for
+                # unprovisioned users (P6T16 feedback).
+                if redis_client is not None:
+                    try:
+                        await redis_client.setex(cache_key, 60, "__none__")
+                    except Exception as exc:
+                        logger.debug("role_cache_write_none_failed", extra={"user_id": user_id, "error": str(exc)})
+                return  # No DB row — keep provider role
+
+            db_role = row[0]
+            if db_role == user.get("role"):
+                # Same role — still cache it to avoid repeated DB queries
+                if redis_client is not None:
+                    try:
+                        await redis_client.setex(cache_key, 60, db_role)
+                    except Exception as exc:
+                        logger.debug("role_cache_write_failed", extra={"user_id": user_id, "error": str(exc)})
+                return
+
+            # Role differs — apply override
+            self._apply_role_override(request, user, db_role)
+
+            # Cache the DB role
+            if redis_client is not None:
+                try:
+                    await redis_client.setex(cache_key, 60, db_role)
+                except Exception as exc:
+                    logger.debug("role_cache_write_failed_post_override", extra={"user_id": user_id, "error": str(exc)})
+
+            # Update Redis session payload
+            try:
+                await self._update_session_payload(request, db_role)
+            except Exception as exc:
+                logger.debug("session_role_update_failed", extra={"user_id": user_id, "error": str(exc)})
+
+        except Exception as exc:
+            # Fail-open: never block requests due to role override errors
+            logger.debug("role_override_failed", extra={"user_id": user_id, "error": str(exc)})
+
+    @staticmethod
+    def _apply_role_override(request: Request, user: dict[str, Any], db_role: str) -> None:
+        """Apply DB role to all in-memory locations."""
+        user["role"] = db_role
+        request.state.user = user
+        try:
+            stored = app.storage.user.get("user")
+            if isinstance(stored, dict):
+                stored["role"] = db_role
+                app.storage.user["user"] = stored
+        except (RuntimeError, AttributeError, KeyError):
+            pass  # Storage not available
+
+    @staticmethod
+    async def _update_session_payload(request: Request, db_role: str) -> None:
+        """Best-effort: persist role change in Redis session payload."""
+        cookie_name = CookieConfig.from_env().get_cookie_name()
+        signed_cookie = request.cookies.get(cookie_name)
+        if signed_cookie:
+            session_id = extract_session_id(signed_cookie)
+            session_store = get_session_store()
+            await session_store.update_session_role(session_id, db_role)
 
 
 class SessionMiddleware(BaseHTTPMiddleware):
@@ -301,8 +461,6 @@ class SessionMiddleware(BaseHTTPMiddleware):
         )
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
-        from apps.web_console_ng.auth.cookie_config import CookieConfig
-
         cookie_cfg = CookieConfig.from_env()
         cookie_name = cookie_cfg.get_cookie_name()
         cookie_value = request.cookies.get(cookie_name)
@@ -355,8 +513,6 @@ async def _validate_and_get_user_for_decorator(
         If should_return_early is True, the decorator should return immediately
         (either because UI was rendered or redirect was triggered).
     """
-    from apps.web_console_ng.auth.cookie_config import CookieConfig
-
     # Max age before requiring Redis revalidation (prevents stale cache after session revocation)
     CACHE_REVALIDATION_SECONDS = 60
 

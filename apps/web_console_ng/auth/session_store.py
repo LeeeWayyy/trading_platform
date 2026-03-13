@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import redis.asyncio as redis
-from cryptography.fernet import Fernet, MultiFernet
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.audit import AuthAuditLogger
@@ -40,6 +40,30 @@ if not old_data then
 end
 redis.call("SETEX", KEYS[2], ARGV[2], ARGV[1])
 redis.call("DEL", KEYS[1])
+return old_data
+"""
+
+# Extended rotation with atomic reverse-index update (force-logout safe).
+# KEYS[1] = old session key, KEYS[2] = new session key, KEYS[3] = user index key
+# ARGV[1] = new encrypted data, ARGV[2] = TTL in seconds,
+# ARGV[3] = old session_id, ARGV[4] = new session_id
+_ROTATE_SESSION_WITH_INDEX_LUA = """
+local old_data = redis.call("GET", KEYS[1])
+if not old_data then
+    return nil
+end
+redis.call("SETEX", KEYS[2], ARGV[2], ARGV[1])
+redis.call("DEL", KEYS[1])
+redis.call("SREM", KEYS[3], ARGV[3])
+redis.call("SADD", KEYS[3], ARGV[4])
+local current_ttl = redis.call("TTL", KEYS[3])
+local new_ttl = tonumber(ARGV[2])
+if current_ttl > new_ttl then
+    new_ttl = current_ttl
+end
+if new_ttl > 0 then
+    redis.call("EXPIRE", KEYS[3], new_ttl)
+end
 return old_data
 """
 
@@ -83,6 +107,7 @@ class ServerSessionStore:
         self.signing_keys = signing_keys
         self.current_signing_key_id = current_signing_key_id
         self.session_prefix = "ng_session:"
+        self.user_sessions_prefix = "ng_user_sessions:"
         self.rate_limit_prefix = "ng_rate:"
         self.idle_timeout = config.SESSION_IDLE_TIMEOUT_MINUTES * 60
         self.absolute_timeout = config.SESSION_ABSOLUTE_TIMEOUT_HOURS * 3600
@@ -125,11 +150,20 @@ class ServerSessionStore:
             }
 
             encrypted = self.fernet.encrypt(json.dumps(session_data).encode())
-            await self.redis.setex(
-                f"{self.session_prefix}{session_id}",
-                self.absolute_timeout,
-                encrypted,
-            )
+            session_key = f"{self.session_prefix}{session_id}"
+
+            # [T16.2] Atomic: create session + reverse index in one pipeline
+            # to prevent orphaned sessions that force-logout would miss.
+            uid = user_data.get("user_id")
+            if uid:
+                index_key = f"{self.user_sessions_prefix}{uid}"
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    pipe.setex(session_key, self.absolute_timeout, encrypted)
+                    pipe.sadd(index_key, session_id)
+                    pipe.expire(index_key, self.absolute_timeout)
+                    await pipe.execute()
+            else:
+                await self.redis.setex(session_key, self.absolute_timeout, encrypted)
 
             cookie_value = self._build_cookie_value(session_id)
             if self.audit_logger:
@@ -374,34 +408,62 @@ class ServerSessionStore:
             encrypted = self.fernet.encrypt(json.dumps(session).encode())
             new_key = f"{self.session_prefix}{new_session_id}"
 
-            # Atomic rotation: SETEX new session + DELETE old session in one Lua call
-            # This prevents race conditions where both sessions could be valid briefly
+            # [T16.2] Atomic rotation: SETEX new + DELETE old + reverse-index update
+            # in one Lua call so force-logout between steps cannot miss the new session.
+            uid = _get_user_id(session)
             try:
-                # Cast encrypted bytes to Any for eval() - Redis handles binary data fine
                 encrypted_arg: Any = encrypted
-                result = await self.redis.eval(  # type: ignore[misc]
-                    _ROTATE_SESSION_LUA,
-                    2,  # number of keys
-                    old_key,
-                    new_key,
-                    encrypted_arg,
-                    str(remaining_ttl),
-                )
+                if uid:
+                    index_key = f"{self.user_sessions_prefix}{uid}"
+                    result = await self.redis.eval(  # type: ignore[misc]
+                        _ROTATE_SESSION_WITH_INDEX_LUA,
+                        3,  # number of keys
+                        old_key,
+                        new_key,
+                        index_key,
+                        encrypted_arg,
+                        str(remaining_ttl),
+                        old_session_id,
+                        new_session_id,
+                    )
+                else:
+                    result = await self.redis.eval(  # type: ignore[misc]
+                        _ROTATE_SESSION_LUA,
+                        2,  # number of keys
+                        old_key,
+                        new_key,
+                        encrypted_arg,
+                        str(remaining_ttl),
+                    )
                 if result is None:
                     # Old session was deleted between GET and rotation - abort
                     return None
             except redis.RedisError as lua_err:
                 if "unknown command" not in str(lua_err).lower():
                     raise
-                # Fallback for test doubles without EVAL support
+                # Fallback for test doubles without EVAL support.
+                # Non-atomic: a force-logout between steps could miss the new session.
+                if not config.DEBUG:
+                    logger.warning(
+                        "session_rotation_lua_fallback",
+                        extra={"old_session_id": old_session_id},
+                    )
                 await self.redis.setex(new_key, remaining_ttl, encrypted)
                 await self.redis.delete(old_key)
+                if uid:
+                    index_key = f"{self.user_sessions_prefix}{uid}"
+                    await self.redis.srem(index_key, old_session_id)  # type: ignore[misc]
+                    await self.redis.sadd(index_key, new_session_id)  # type: ignore[misc]
+                    current_ttl_val = await self.redis.ttl(index_key)
+                    new_ttl = max(remaining_ttl, current_ttl_val if current_ttl_val > 0 else 0)
+                    if new_ttl > 0:
+                        await self.redis.expire(index_key, new_ttl)
 
             cookie_value = self._build_cookie_value(new_session_id)
             if self.audit_logger:
                 self.audit_logger.log_event(
                     event_type="session_rotation",
-                    user_id=_get_user_id(session),
+                    user_id=uid,
                     session_id=new_session_id,
                     client_ip=session.get("device", {}).get("ip_subnet", ""),
                     user_agent="",
@@ -433,7 +495,158 @@ class ServerSessionStore:
             return None
 
     async def invalidate_session(self, session_id: str) -> None:
+        # [T16.2] Best-effort cleanup of reverse index
+        try:
+            data = await self.redis.get(f"{self.session_prefix}{session_id}")
+            if data:
+                decrypted = self.fernet.decrypt(data).decode("utf-8")
+                session = json.loads(decrypted)
+                uid = _get_user_id(session)
+                if uid:
+                    await self.redis.srem(f"{self.user_sessions_prefix}{uid}", session_id)  # type: ignore[misc]
+        except (redis.RedisError, json.JSONDecodeError, TypeError, AttributeError, InvalidToken) as exc:
+            logger.debug("reverse_index_cleanup_failed", extra={"session_id": session_id, "error": str(exc)})
         await self.redis.delete(f"{self.session_prefix}{session_id}")
+
+    async def invalidate_redis_sessions_for_user(self, user_id: str) -> int:
+        """Invalidate ALL Redis sessions for a given user_id.
+
+        Uses the reverse index (ng_user_sessions:{user_id} SET) to find
+        and delete all session keys atomically via Lua script.
+        Returns the number of sessions invalidated.
+
+        Limitations (accepted best-effort trade-offs):
+        - Sessions created before the reverse-index feature was deployed are
+          not tracked in the index and will not be invalidated.
+        - Active NiceGUI WebSocket connections are NOT terminated by this
+          call.  WebSocket clients hold in-memory auth state and will
+          continue until the next HTTP request triggers middleware
+          re-validation.  The role-override middleware enforces the DB
+          role on every subsequent request, so stale WebSocket sessions
+          cannot escalate privileges.
+        """
+        index_key = f"{self.user_sessions_prefix}{user_id}"
+
+        # Lua script: atomically read reverse-index, delete sessions + index.
+        # Prevents race where a new session is created between read and delete.
+        lua = """
+        local index_key = KEYS[1]
+        local prefix = ARGV[1]
+        local sids = redis.call('SMEMBERS', index_key)
+        local count = 0
+        for _, sid in ipairs(sids) do
+            count = count + redis.call('DEL', prefix .. sid)
+        end
+        redis.call('DEL', index_key)
+        return count
+        """
+        try:
+            count = int(
+                await self.redis.eval(lua, 1, index_key, self.session_prefix)  # type: ignore[misc]
+            )
+        except redis.RedisError as lua_err:
+            if "unknown command" not in str(lua_err).lower():
+                raise
+            # Fallback for test doubles without EVAL support.
+            # Non-atomic: concurrent session creation may survive invalidation.
+            if not config.DEBUG:
+                logger.warning(
+                    "session_invalidation_lua_fallback",
+                    extra={"user_id": user_id},
+                )
+            session_ids = await self.redis.smembers(index_key)  # type: ignore[misc]
+            if not session_ids:
+                return 0
+            session_keys = []
+            for sid_bytes in session_ids:
+                sid = sid_bytes.decode("utf-8") if isinstance(sid_bytes, bytes) else str(sid_bytes)
+                session_keys.append(f"{self.session_prefix}{sid}")
+            async with self.redis.pipeline(transaction=True) as pipe:
+                for key in session_keys:
+                    pipe.delete(key)
+                pipe.delete(index_key)
+                results = await pipe.execute()
+            count = sum(1 for r in results[:-1] if r)
+
+        logger.info(
+            "user_sessions_invalidated",
+            extra={"user_id": user_id, "sessions_removed": count},
+        )
+        return count
+
+    async def update_session_role(self, session_id: str, new_role: str) -> bool:
+        """Update the role in an existing Redis session payload.
+
+        Uses WATCH/MULTI optimistic locking to prevent race conditions with
+        concurrent validate_session writes (which update last_activity).
+        Retries up to 3 times on WatchError before giving up.
+
+        Returns True if the session was found and updated, False otherwise.
+        """
+        session_key = f"{self.session_prefix}{session_id}"
+        max_retries = 3
+
+        for attempt in range(max_retries):
+            try:
+                # WATCH first, then GET — ensures we detect any concurrent
+                # write between our read and the transactional SET.
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    await pipe.watch(session_key)
+
+                    # Read AFTER watch so any concurrent change triggers WatchError
+                    data = await pipe.get(session_key)
+                    if not data:
+                        await pipe.unwatch()  # type: ignore[no-untyped-call]
+                        return False
+
+                    try:
+                        decrypted = self.fernet.decrypt(data).decode("utf-8")
+                        session = cast(dict[str, Any], json.loads(decrypted))
+                    except Exception:
+                        await pipe.unwatch()  # type: ignore[no-untyped-call]
+                        return False
+
+                    user = session.get("user")
+                    if not isinstance(user, dict):
+                        await pipe.unwatch()  # type: ignore[no-untyped-call]
+                        return False
+
+                    if user.get("role") == new_role:
+                        await pipe.unwatch()  # type: ignore[no-untyped-call]
+                        return True  # Already correct
+
+                    user["role"] = new_role
+                    encrypted = self.fernet.encrypt(json.dumps(session).encode())
+
+                    ttl = await pipe.ttl(session_key)
+                    if ttl == -2 or ttl == 0:
+                        await pipe.unwatch()  # type: ignore[no-untyped-call]
+                        return False
+
+                    pipe.multi()  # type: ignore[no-untyped-call]
+                    if ttl == -1:
+                        pipe.set(session_key, encrypted, xx=True)
+                    else:
+                        pipe.set(session_key, encrypted, ex=ttl, xx=True)
+                    results = await pipe.execute()
+
+                if not results or not results[0]:
+                    return False
+                return True
+
+            except redis.WatchError:
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        "update_session_role_watch_retry",
+                        extra={"session_id": session_id, "attempt": attempt + 1},
+                    )
+                    continue
+                logger.warning(
+                    "update_session_role_watch_exhausted",
+                    extra={"session_id": session_id},
+                )
+                return False
+        return False  # Exhausted retries without WatchError
 
     async def _check_rate_limit(self, client_ip: str, action: str, limit: int) -> bool:
         key = f"{self.rate_limit_prefix}{action}:{client_ip}"
@@ -614,4 +827,11 @@ __all__ = [
     "RateLimitExceeded",
     "get_session_store",
     "extract_session_id",
+    "invalidate_redis_sessions_for_user",
 ]
+
+
+async def invalidate_redis_sessions_for_user(user_id: str) -> int:
+    """Module-level convenience: invalidate all Redis sessions for a user."""
+    store = get_session_store()
+    return await store.invalidate_redis_sessions_for_user(user_id)

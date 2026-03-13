@@ -1,6 +1,6 @@
 # web_console_services
 
-<!-- Last reviewed: 2026-03-12 - P6T17: Added ModelRegistryBrowserService, StrategyService, enhanced AlertConfigService with top-level UUID import -->
+<!-- Last reviewed: 2026-03-13 - P6T16+P6T17: TaxLotService, UserManagement, ModelRegistryBrowserService, StrategyService, AlertConfigService -->
 
 ## Identity
 - **Type:** Library
@@ -23,8 +23,8 @@
 | `RiskService` | db_pool, redis | service | Risk analytics, VaR calculation, and stress testing. |
 | `ScheduledReportsService` | db_pool, user, trading_client_factory | service | Report scheduling, generation, and delivery. Uses DI for trading client. |
 | `SQLValidator` | - | validator | SQL query validation and sanitization for data explorer. |
-| `TaxLotService` | db_pool | service | Tax lot tracking and wash sale detection. |
-| `UserManagement` | db_pool, redis | service | User management and role assignment. |
+| `TaxLotService` | db_pool, user | service | CRUD service for tax lots with user-scoped queries, cost basis method management (FIFO/LIFO/specific_id), open/closed status tracking, and cross-user access via `all_users` flag. RBAC: VIEW_TAX_LOTS, MANAGE_TAX_LOTS, MANAGE_TAX_SETTINGS (P6T16). |
+| `UserManagement` (module-level functions) | db_pool, audit_logger, admin_user_id | varies | User provisioning, role changes with self-edit and last-admin guards, strategy grant/revoke with existence checks, and bulk operations. All mutations use explicit transactions and audit all denial paths (P6T16). |
 | `AttributionService` | data_access, ff_provider, crsp_provider | service | Fama-French factor attribution (FF3/FF5/FF6 models) for portfolio returns. |
 | `BacktestAnalyticsService` | data_access, storage | service | Backtest analytics with quantile analysis, universe signal loading, and portfolio return retrieval (net→gross fallback). |
 | `SqlExplorerService` | rate_limiter | service | Defense-in-depth SQL query execution with DuckDB sandbox, AST validation, sensitive table blocking, and audit logging (P6T14). |
@@ -71,11 +71,63 @@
 - Factor exposure analysis
 - Position concentration monitoring
 
+### TaxLotService
+**Purpose:** CRUD service for tax lots with user-scoped data isolation and cost basis management.
+
+**Key Operations:**
+- `list_lots(user_id, all_users, open_only, limit)` - List lots (user-scoped, filterable by open status, max 500)
+- `get_lot(lot_id, user_id, all_users)` - Fetch single lot by ID (user-scoped)
+- `create_lot(symbol, quantity, cost_basis, acquisition_date, strategy_id, status, user_id)` - Create new lot (requires MANAGE_TAX_LOTS)
+- `update_lot(lot_id, updates, user_id, all_users)` - Update lot fields with SELECT FOR UPDATE concurrency control
+- `close_lot(lot_id, user_id, all_users)` - Close lot by zeroing remaining quantity
+- `get_cost_basis_method(user_id)` / `set_cost_basis_method(method, user_id)` - Manage per-user cost basis method (fifo/lifo/specific_id)
+
+**RBAC:**
+- VIEW_TAX_LOTS: list and get operations (own lots)
+- MANAGE_TAX_LOTS: create, update, close, and cross-user access
+- MANAGE_TAX_SETTINGS: get/set cost basis method for other users
+
+**Behavioral Notes:**
+- All queries are user-scoped by default; `all_users=True` requires MANAGE_TAX_LOTS
+- Status derived from `remaining_quantity` and `closed_at` columns (not stored directly)
+- `strategy_id` is NOT persisted to DB; carried in returned `TaxLot` for UI display only
+- Updates use `SELECT ... FOR UPDATE` to prevent concurrent overwrites
+- Quantity-only updates (without cost_basis) preserve total_cost and recalculate cost_per_share (logged as warning)
+- Quantity updates cap `remaining_quantity` to the new quantity value (prevents remaining > total invariant violation)
+
+### UserManagement (module)
+**Purpose:** User provisioning, role management, and strategy access control with full audit trail.
+
+**Key Operations:**
+- `list_users(db_pool)` - List all users with strategy counts
+- `change_user_role(db_pool, user_id, new_role, admin_user_id, audit_logger, reason)` - Change role with guards
+- `ensure_user_provisioned(db_pool, user_id, default_role, admin_user_id, audit_logger)` - Bootstrap user_roles row (ON CONFLICT DO NOTHING)
+- `list_strategies(db_pool)` / `get_user_strategies(db_pool, user_id)` - Strategy listing
+- `grant_strategy(db_pool, user_id, strategy_id, admin_user_id, audit_logger)` - Grant with existence check
+- `revoke_strategy(db_pool, user_id, strategy_id, admin_user_id, audit_logger)` - Revoke with existence check
+- `bulk_change_roles(...)` / `bulk_grant_strategy(...)` / `bulk_revoke_strategy(...)` - Bulk variants (each operation independent)
+
+**Guards (P6T16):**
+- **Self-edit guard:** Admins cannot change their own role
+- **Last-admin guard:** Cannot demote the sole remaining admin (locks all admin rows + target row ordered by user_id to prevent deadlocks)
+
+**Audit Trail:**
+- All denial paths (invalid role, user not found, no-op, self-edit, last-admin, already granted, not assigned, strategy not found) emit audit log entries
+- Success paths use `audit_logger.log_admin_change()`
+- DB errors are caught, audit-logged, and returned as `(False, message)`
+
+**Session Invalidation:**
+- Role changes increment `session_version` in the UPDATE statement
+- Strategy grant/revoke session invalidation handled by DB trigger (`0007_strategy_session_version_triggers.sql`)
+
 ### Invariants
 - All service operations enforce RBAC permissions
 - Circuit breaker state changes are audited
 - SQL queries are validated before execution
 - User authorization checked for dataset access
+- TaxLotService queries are user-scoped by default (cross-user requires explicit flag + permission)
+- UserManagement mutations use explicit transactions for atomicity
+- All denied user management attempts are audit-logged
 
 ## Data Flow
 ```
@@ -177,6 +229,6 @@ stress_results = await risk_service.run_stress_test(strategy_id="alpha_baseline"
 | Runtime import | LOW | scheduled_reports_service has runtime import of apps.web_console_ng (inside try/except) | Migration cleanup |
 
 ## Metadata
-- **Last Updated:** 2026-03-12 (P6T17 - Added ModelRegistryBrowserService, StrategyService, enhanced AlertConfigService)
+- **Last Updated:** 2026-03-13 (P6T16+P6T17)
 - **Source Files:** `libs/web_console_services/__init__.py`, `libs/web_console_services/alert_service.py`, `libs/web_console_services/alpha_explorer_service.py`, `libs/web_console_services/attribution_service.py`, `libs/web_console_services/backtest_analytics_service.py`, `libs/web_console_services/cb_metrics.py`, `libs/web_console_services/cb_rate_limiter.py`, `libs/web_console_services/cb_service.py`, `libs/web_console_services/comparison_service.py`, `libs/web_console_services/config.py`, `libs/web_console_services/data_explorer_service.py`, `libs/web_console_services/data_quality_service.py`, `libs/web_console_services/data_source_status_service.py`, `libs/web_console_services/data_sync_service.py`, `libs/web_console_services/duckdb_connection.py`, `libs/web_console_services/exposure_service.py`, `libs/web_console_services/health_service.py`, `libs/web_console_services/model_registry_browser_service.py`, `libs/web_console_services/notebook_launcher_service.py`, `libs/web_console_services/risk_service.py`, `libs/web_console_services/scheduled_reports_service.py`, `libs/web_console_services/shadow_results_service.py`, `libs/web_console_services/sql_explorer_service.py`, `libs/web_console_services/sql_validator.py`, `libs/web_console_services/strategy_service.py`, `libs/web_console_services/tax_lot_service.py`, `libs/web_console_services/universe_service.py`, `libs/web_console_services/user_management.py`, `libs/web_console_services/schemas/`, `libs/web_console_services/schemas/universe.py`
 - **ADRs:** N/A

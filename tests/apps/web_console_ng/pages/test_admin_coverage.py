@@ -165,6 +165,12 @@ class DummyUI:
     def row(self) -> DummyElement:
         return DummyElement(self, "row")
 
+    def column(self) -> DummyElement:
+        return DummyElement(self, "column")
+
+    def badge(self, text: str = "", **kw: Any) -> DummyElement:
+        return DummyElement(self, "badge", text=text)
+
     def tabs(self) -> DummyElement:
         return DummyElement(self, "tabs")
 
@@ -204,6 +210,16 @@ class DummyUI:
 
     def download(self, data: bytes, filename: str) -> None:
         self.downloads.append({"data": data, "filename": filename})
+
+
+@pytest.fixture(autouse=True)
+def _stub_verify_db_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub verify_db_role to return True by default (tests use object() as db_pool)."""
+
+    async def _always_pass(*_a: Any, **_kw: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(admin_module, "verify_db_role", _always_pass)
 
 
 @pytest.fixture()
@@ -508,14 +524,11 @@ async def test_render_api_key_manager_with_existing_keys(
 
     await admin_module._render_api_key_manager({"user_id": "u1"}, db_pool=object())
 
-    # Should display table with keys
-    assert len(dummy_ui.tables) > 0
-    table = dummy_ui.tables[0]
-    assert len(table["rows"]) == 3
-    # Check status handling
-    assert any(row["status"] == "Active" for row in table["rows"])
-    assert any(row["status"] == "Expired" for row in table["rows"])
-    assert any(row["status"] == "Revoked" for row in table["rows"])
+    # T16.3 uses card-based rendering — check labels for key names and status badges
+    label_texts = [lbl.text for lbl in dummy_ui.labels]
+    assert any("Test Key" in t for t in label_texts)
+    assert any("Expired Key" in t for t in label_texts)
+    assert any("Revoked Key" in t for t in label_texts)
 
 
 @pytest.mark.asyncio()
@@ -524,6 +537,7 @@ async def test_create_api_key_validations(
 ) -> None:
     """Test create API key form validations."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_list_keys(*_: Any, **__: Any) -> list[dict[str, Any]]:
         return []
@@ -547,6 +561,7 @@ async def test_create_api_key_with_expiry(
 ) -> None:
     """Test create API key with expiry date."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_list_keys(*_: Any, **__: Any) -> list[dict[str, Any]]:
         return []
@@ -590,6 +605,7 @@ async def test_create_api_key_handles_value_error(
 ) -> None:
     """Test create API key handles validation errors."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_list_keys(*_: Any, **__: Any) -> list[dict[str, Any]]:
         return []
@@ -624,6 +640,7 @@ async def test_create_api_key_handles_runtime_error(
 ) -> None:
     """Test create API key handles service errors."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_list_keys(*_: Any, **__: Any) -> list[dict[str, Any]]:
         return []
@@ -708,6 +725,8 @@ async def test_render_trading_hours_form(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_trading_hours_form({"user_id": "u1"}, db_pool=object())
 
@@ -730,6 +749,8 @@ async def test_render_trading_hours_form_validation_error(
         return admin_module.TradingHoursConfig()
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_trading_hours_form({"user_id": "u1"}, db_pool=object())
 
@@ -756,6 +777,8 @@ async def test_render_trading_hours_form_save_failure(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_trading_hours_form({"user_id": "u1"}, db_pool=object())
 
@@ -778,6 +801,8 @@ async def test_render_position_limits_form(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_position_limits_form({"user_id": "u1"}, db_pool=object())
 
@@ -800,6 +825,8 @@ async def test_render_position_limits_form_validation_error(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_position_limits_form({"user_id": "u1"}, db_pool=object())
 
@@ -822,6 +849,8 @@ async def test_render_system_defaults_form(
 
     monkeypatch.setattr(admin_module, "_get_config", fake_get_config)
     monkeypatch.setattr(admin_module, "_save_config", fake_save_config)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
 
     await admin_module._render_system_defaults_form({"user_id": "u1"}, db_pool=object())
 
@@ -849,6 +878,8 @@ async def test_render_reconciliation_tools_success(
 ) -> None:
     """Test reconciliation tools renders and executes backfill."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "get_db_pool", lambda: object())
 
     mock_client = AsyncMock()
     mock_client.run_fills_backfill = AsyncMock(
@@ -869,6 +900,8 @@ async def test_render_reconciliation_tools_invalid_lookback(
 ) -> None:
     """Test reconciliation tools validates lookback hours."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "get_db_pool", lambda: object())
     monkeypatch.setattr(admin_module.AsyncTradingClient, "get", lambda: AsyncMock())
 
     await admin_module._render_reconciliation_tools({"user_id": "u1", "role": "admin"})
@@ -887,6 +920,8 @@ async def test_render_reconciliation_tools_handles_exception(
 ) -> None:
     """Test reconciliation tools handles exceptions."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
+    monkeypatch.setattr(admin_module, "get_db_pool", lambda: object())
 
     mock_client = AsyncMock()
     mock_client.run_fills_backfill = AsyncMock(side_effect=Exception("Service down"))
@@ -950,6 +985,7 @@ async def test_render_audit_log_viewer_pagination(
 ) -> None:
     """Test audit log viewer pagination."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_fetch_logs(*_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
         return [], 100
@@ -974,6 +1010,7 @@ async def test_render_audit_log_viewer_filters(
 ) -> None:
     """Test audit log viewer filter application."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_fetch_logs(*_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
         return [], 0
@@ -995,6 +1032,7 @@ async def test_render_audit_log_viewer_export_csv(
 ) -> None:
     """Test audit log viewer CSV export."""
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
+    monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
     async def fake_fetch_logs(*_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
         return [

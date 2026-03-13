@@ -272,7 +272,7 @@ async def test_validate_session_and_get_user_no_cookie(
     mock_cookie_cfg.get_cookie_name.return_value = "session_cookie"
     mock_cookie_config_cls = MagicMock(from_env=MagicMock(return_value=mock_cookie_cfg))
 
-    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig", mock_cookie_config_cls):
+    with patch("apps.web_console_ng.auth.middleware.CookieConfig", mock_cookie_config_cls):
         user_data, cookie_value = await middleware_module._validate_session_and_get_user(request)
 
     assert user_data is None
@@ -299,7 +299,7 @@ async def test_validate_session_and_get_user_valid_session(
     monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
     monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
 
-    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+    with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
         mock_cc.from_env.return_value = mock_cookie_cfg
         with patch(
             "apps.web_console_ng.auth.middleware.get_session_store",
@@ -329,7 +329,7 @@ async def test_validate_session_and_get_user_invalid_session(
     monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
     monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
 
-    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+    with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
         mock_cc.from_env.return_value = mock_cookie_cfg
         with patch(
             "apps.web_console_ng.auth.middleware.get_session_store",
@@ -363,7 +363,7 @@ async def test_validate_session_and_get_user_mtls_validation_failure(
     monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
     monkeypatch.setattr(middleware_module, "is_trusted_ip", lambda _ip: True)
 
-    with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+    with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
         mock_cc.from_env.return_value = mock_cookie_cfg
         with patch(
             "apps.web_console_ng.auth.middleware.get_session_store",
@@ -476,7 +476,7 @@ class TestAuthMiddleware:
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -516,7 +516,7 @@ class TestAuthMiddleware:
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -553,7 +553,7 @@ class TestAuthMiddleware:
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -583,7 +583,7 @@ class TestAuthMiddleware:
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -613,7 +613,7 @@ class TestAuthMiddleware:
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -637,7 +637,7 @@ class TestSessionMiddleware:
         middleware = middleware_module.SessionMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -674,7 +674,7 @@ class TestSessionMiddleware:
         )
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -701,7 +701,7 @@ class TestSessionMiddleware:
         )
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -734,7 +734,7 @@ class TestSessionMiddleware:
         )
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -765,7 +765,7 @@ class TestSessionMiddleware:
         )
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -795,7 +795,7 @@ class TestSessionMiddleware:
         )
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             response = await middleware.dispatch(request, call_next)
 
@@ -844,7 +844,7 @@ class TestValidateAndGetUserForDecorator:
 
         request = make_request(path="/dashboard", cookies={"trading_session": "valid_cookie"})
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             user_data, cookie_value, should_return = (
                 await middleware_module._validate_and_get_user_for_decorator(request)
@@ -894,7 +894,7 @@ class TestValidateAndGetUserForDecorator:
         request = make_request(path="/dashboard", cookies={"trading_session": "valid_cookie"})
         request.state.user = None
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -951,7 +951,7 @@ class TestValidateAndGetUserForDecorator:
         request = make_request(path="/dashboard", cookies={"trading_session": "new_cookie"})
         request.state.user = None
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -996,7 +996,7 @@ class TestValidateAndGetUserForDecorator:
         mock_ui.button = MagicMock()
         monkeypatch.setattr(middleware_module, "ui", mock_ui)
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1036,7 +1036,7 @@ class TestValidateAndGetUserForDecorator:
         # Use a path in ALLOWED_REDIRECT_PATHS to test proper redirect_after_login storage
         request = make_request(path="/risk")
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             user_data, cookie_value, should_return = (
                 await middleware_module._validate_and_get_user_for_decorator(request)
@@ -1076,7 +1076,7 @@ class TestValidateAndGetUserForDecorator:
 
         request = make_request(path="/dashboard", cookies={"trading_session": "expired_cookie"})
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1120,7 +1120,7 @@ class TestValidateAndGetUserForDecorator:
 
         request = make_request(path="/dashboard", cookies={"trading_session": "valid_cookie"})
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1162,7 +1162,7 @@ class TestValidateAndGetUserForDecorator:
         # User is already on /mfa-verify page
         request = make_request(path="/mfa-verify", cookies={"trading_session": "valid_cookie"})
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1193,7 +1193,7 @@ class TestValidateAndGetUserForDecorator:
         request = make_request(path="/dashboard", cookies={"trading_session": "valid_cookie"})
         request.state.user = {"username": "state_user", "role": "admin"}
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             user_data, cookie_value, should_return = (
                 await middleware_module._validate_and_get_user_for_decorator(request)
@@ -1234,7 +1234,7 @@ class TestValidateAndGetUserForDecorator:
         request = make_request(path="/dashboard", cookies={"trading_session": "valid_cookie"})
         request.state.user = None
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1281,7 +1281,7 @@ class TestRequiresAuth:
         async def protected_page() -> str:
             return "success"
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1325,7 +1325,7 @@ class TestRequiresAuth:
         async def protected_page() -> str:
             return "success"
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             result = await protected_page()
 
@@ -1366,7 +1366,7 @@ class TestRequiresRole:
         async def admin_page() -> str:
             return "admin_success"
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1411,7 +1411,7 @@ class TestRequiresRole:
         async def admin_page() -> str:
             return "admin_success"
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             with patch(
                 "apps.web_console_ng.auth.middleware.get_session_store",
@@ -1452,7 +1452,7 @@ class TestRequiresRole:
         async def admin_page() -> str:
             return "admin_success"
 
-        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
             mock_cc.from_env.return_value = mock_cookie_cfg
             result = await admin_page()
 

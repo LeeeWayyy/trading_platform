@@ -188,7 +188,14 @@ async def test_create_session_rate_limit_exceeded(store_with_audit: ServerSessio
 @pytest.mark.asyncio()
 async def test_create_session_redis_error_raises(session_store: ServerSessionStore) -> None:
     """Test that Redis error during session creation raises SessionCreationError."""
+    # Mock both setex (no user_id path) and pipeline (user_id path)
     session_store.redis.setex = AsyncMock(side_effect=redis.RedisError("connection failed"))
+
+    pipe_mock = AsyncMock()
+    pipe_mock.__aenter__ = AsyncMock(return_value=pipe_mock)
+    pipe_mock.__aexit__ = AsyncMock(return_value=False)
+    pipe_mock.execute = AsyncMock(side_effect=redis.RedisError("connection failed"))
+    session_store.redis.pipeline = MagicMock(return_value=pipe_mock)
 
     with pytest.raises(SessionCreationError, match="Session creation failed"):
         await session_store.create_session(
