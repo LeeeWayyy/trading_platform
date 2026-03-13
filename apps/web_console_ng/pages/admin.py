@@ -579,12 +579,18 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                             last_used = key.get("last_used_at")
                             if last_used:
                                 delta = now - last_used
-                                if delta.days > 0:
+                                if delta.days > 365:
+                                    used_str = f"{delta.days // 365}y ago"
+                                elif delta.days > 30:
+                                    used_str = f"{delta.days // 30}mo ago"
+                                elif delta.days > 0:
                                     used_str = f"{delta.days}d ago"
                                 elif delta.seconds >= 3600:
                                     used_str = f"{delta.seconds // 3600}h ago"
-                                else:
+                                elif delta.seconds >= 60:
                                     used_str = f"{delta.seconds // 60}m ago"
+                                else:
+                                    used_str = "just now"
                             else:
                                 used_str = "never"
                             ui.label(f"Last used: {used_str}")

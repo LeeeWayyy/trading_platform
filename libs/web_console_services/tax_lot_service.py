@@ -354,7 +354,7 @@ class TaxLotService:
                     status_is_explicit = "status" in updates and isinstance(status_override, str)
                     if "quantity" in updates and not status_is_explicit:
                         # Cap remaining_quantity to new quantity if it exceeds
-                        current_remaining = _to_decimal(row.get("remaining_quantity", new_quantity))
+                        current_remaining = _to_decimal(row.get("remaining_quantity", current_quantity))
                         remaining_quantity = min(current_remaining, new_quantity)
                         set_clauses.append("remaining_quantity = %s")
                         values.append(remaining_quantity)
