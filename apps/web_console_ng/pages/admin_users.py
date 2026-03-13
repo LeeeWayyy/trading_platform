@@ -422,20 +422,30 @@ async def _fetch_user_activity(
     try:
         async with db_pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Use UNION for index-friendly queries instead of OR (PR #148 review)
+                # UNION ALL + DISTINCT ON (id) preserves repeated events (PR #148 R3)
                 await cur.execute(
                     """
-                    (SELECT user_id, action, resource_type, resource_id,
-                            outcome, details, timestamp
-                     FROM audit_log WHERE user_id = %s)
-                    UNION
-                    (SELECT user_id, action, resource_type, resource_id,
-                            outcome, details, timestamp
-                     FROM audit_log WHERE resource_id = %s)
-                    UNION
-                    (SELECT user_id, action, resource_type, resource_id,
-                            outcome, details, timestamp
-                     FROM audit_log WHERE resource_id LIKE %s ESCAPE '\\')
+                    SELECT user_id, action, resource_type, resource_id,
+                           outcome, details, timestamp
+                    FROM (
+                        SELECT DISTINCT ON (id)
+                               id, user_id, action, resource_type, resource_id,
+                               outcome, details, timestamp
+                        FROM (
+                            (SELECT id, user_id, action, resource_type, resource_id,
+                                    outcome, details, timestamp
+                             FROM audit_log WHERE user_id = %s)
+                            UNION ALL
+                            (SELECT id, user_id, action, resource_type, resource_id,
+                                    outcome, details, timestamp
+                             FROM audit_log WHERE resource_id = %s)
+                            UNION ALL
+                            (SELECT id, user_id, action, resource_type, resource_id,
+                                    outcome, details, timestamp
+                             FROM audit_log WHERE resource_id LIKE %s ESCAPE '\\')
+                        ) branches
+                        ORDER BY id
+                    ) deduped
                     ORDER BY timestamp DESC
                     LIMIT %s
                     """,

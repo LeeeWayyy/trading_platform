@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from nicegui import ui
+
+from libs.core.common.log_sanitizer import sanitize_dict
 
 
 def render_user_activity_log(user_id: str, events: list[dict[str, Any]]) -> None:
@@ -40,14 +41,9 @@ def render_user_activity_log(user_id: str, events: list[dict[str, Any]]) -> None
                     else str(created or "-")
                 )
                 details_raw = evt.get("details")
+                if isinstance(details_raw, dict):
+                    details_raw = sanitize_dict(details_raw)
                 details_str = str(details_raw) if details_raw else "-"
-                # Mask sensitive key-value patterns (tokens, keys, secrets, passwords)
-                details_str = re.sub(
-                    r"(token|key|secret|password|api_key|session_id)['\"]?\s*[:=]\s*['\"]?[\w\-\.@+/=]{8,}",
-                    r"\1=***REDACTED***",
-                    details_str,
-                    flags=re.IGNORECASE,
-                )
                 # Truncate long details for display
                 if len(details_str) > 120:
                     details_str = details_str[:117] + "..."
