@@ -340,7 +340,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         # Best-effort: also persist role change in Redis session
                         try:
                             await self._update_session_payload(request, db_role)
-                        except Exception as exc:
+                        except (RedisError, OSError, TimeoutError, ValueError) as exc:
                             logger.debug("session_role_update_on_cache_hit_failed", extra={"user_id": user_id, "error": str(exc)})
                     return
             except (RedisError, OSError, TimeoutError) as exc:
@@ -376,7 +376,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if redis_client is not None:
                     try:
                         await redis_client.setex(cache_key, 60, "__none__")
-                    except Exception as exc:
+                    except (RedisError, OSError, TimeoutError) as exc:
                         logger.debug("role_cache_write_none_failed", extra={"user_id": user_id, "error": str(exc)})
                 return  # No DB row — keep provider role
 
@@ -386,7 +386,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if redis_client is not None:
                     try:
                         await redis_client.setex(cache_key, 60, db_role)
-                    except Exception as exc:
+                    except (RedisError, OSError, TimeoutError) as exc:
                         logger.debug("role_cache_write_failed", extra={"user_id": user_id, "error": str(exc)})
                 return
 
@@ -397,13 +397,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if redis_client is not None:
                 try:
                     await redis_client.setex(cache_key, 60, db_role)
-                except Exception as exc:
+                except (RedisError, OSError, TimeoutError) as exc:
                     logger.debug("role_cache_write_failed_post_override", extra={"user_id": user_id, "error": str(exc)})
 
             # Update Redis session payload
             try:
                 await self._update_session_payload(request, db_role)
-            except Exception as exc:
+            except (RedisError, OSError, TimeoutError, ValueError) as exc:
                 logger.debug("session_role_update_failed", extra={"user_id": user_id, "error": str(exc)})
 
         except Exception as exc:
