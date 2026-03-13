@@ -25,6 +25,7 @@ import psycopg
 from nicegui import ui
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 
+from apps.web_console_ng.auth.db_role import verify_db_role
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.database import get_db_pool
@@ -38,27 +39,6 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
 logger = logging.getLogger(__name__)
-
-
-async def _verify_db_role(db_pool: Any, user_id: str, required_permission: Permission) -> bool:
-    """Fresh DB role check for mutation callbacks (WebSocket sessions bypass middleware).
-
-    Returns True if the user's current DB role has the required permission.
-    Returns False on DB error (fail-closed for mutations).
-    """
-    try:
-        async with db_pool.connection() as conn:
-            cursor = await conn.execute(
-                "SELECT role FROM user_roles WHERE user_id = %s", (user_id,)
-            )
-            row = await cursor.fetchone()
-            if not row:
-                return False
-            mock_user: dict[str, Any] = {"role": row[0]}
-            return has_permission(mock_user, required_permission)
-    except Exception:
-        logger.warning("db_role_verify_failed", extra={"user_id": user_id})
-        return False
 
 
 # Admin permissions required for page access
@@ -243,7 +223,10 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
 
         async def create_key() -> None:
             cur_user = get_current_user()
-            if not has_permission(cur_user, Permission.MANAGE_API_KEYS):
+            cur_uid = cur_user.get("user_id", "unknown")
+            if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await verify_db_role(
+                db_pool, cur_uid, Permission.MANAGE_API_KEYS
+            ):
                 try:
                     audit = AuditLogger(db_pool)
                     await audit.log_action(
@@ -332,7 +315,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
         """Revoke an API key with confirmation dialog."""
         cur_user = get_current_user()
         cur_uid = cur_user.get("user_id", "unknown")
-        if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await _verify_db_role(
+        if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await verify_db_role(
             db_pool, cur_uid, Permission.MANAGE_API_KEYS
         ):
             try:
@@ -429,7 +412,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
         """Rotate an API key: revoke old + create new in one transaction."""
         cur_user = get_current_user()
         cur_uid = cur_user.get("user_id", "unknown")
-        if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await _verify_db_role(
+        if not has_permission(cur_user, Permission.MANAGE_API_KEYS) or not await verify_db_role(
             db_pool, cur_uid, Permission.MANAGE_API_KEYS
         ):
             try:

@@ -109,7 +109,7 @@ async def test_role_override_from_db_success(
             return_value=mock_store,
         ),
         patch(
-            "apps.web_console_ng.core.database.get_db_pool",
+            "apps.web_console_ng.auth.middleware.get_db_pool",
             return_value=mock_pool,
         ),
         patch("apps.web_console_ng.auth.middleware.app", mock_app),
@@ -163,7 +163,7 @@ async def test_role_override_cached_in_redis(
             return_value=mock_store,
         ),
         patch(
-            "apps.web_console_ng.core.database.get_db_pool",
+            "apps.web_console_ng.auth.middleware.get_db_pool",
             return_value=mock_pool,
         ),
         patch("apps.web_console_ng.auth.middleware.app", mock_app),
@@ -239,7 +239,7 @@ async def test_role_override_fails_open(
             return_value=mock_store,
         ),
         patch(
-            "apps.web_console_ng.core.database.get_db_pool",
+            "apps.web_console_ng.auth.middleware.get_db_pool",
             return_value=mock_pool,
         ),
         patch("apps.web_console_ng.auth.middleware.app", mock_app),
@@ -274,7 +274,7 @@ async def test_role_override_fails_open_on_db_pool_none(
             return_value=mock_store,
         ),
         patch(
-            "apps.web_console_ng.core.database.get_db_pool",
+            "apps.web_console_ng.auth.middleware.get_db_pool",
             return_value=None,
         ),
         patch("apps.web_console_ng.auth.middleware.app", mock_app),

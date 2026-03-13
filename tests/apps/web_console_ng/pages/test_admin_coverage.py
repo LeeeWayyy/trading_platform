@@ -212,6 +212,16 @@ class DummyUI:
         self.downloads.append({"data": data, "filename": filename})
 
 
+@pytest.fixture(autouse=True)
+def _stub_verify_db_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub verify_db_role to return True by default (tests use object() as db_pool)."""
+
+    async def _always_pass(*_a: Any, **_kw: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(admin_module, "verify_db_role", _always_pass)
+
+
 @pytest.fixture()
 def dummy_ui(monkeypatch: pytest.MonkeyPatch) -> DummyUI:
     """Replace NiceGUI UI with dummy for testing."""

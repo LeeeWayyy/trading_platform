@@ -219,6 +219,11 @@ async def test_render_api_key_manager_validations(
     monkeypatch.setattr(admin_module, "has_permission", lambda *_: True)
     monkeypatch.setattr(admin_module, "get_current_user", lambda: {"user_id": "u1", "role": "admin"})
 
+    async def _always_pass(*_a: Any, **_kw: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(admin_module, "verify_db_role", _always_pass)
+
     async def fake_list_keys(*_: Any, **__: Any) -> list[dict[str, Any]]:
         return []
 

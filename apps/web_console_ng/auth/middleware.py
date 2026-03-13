@@ -20,6 +20,7 @@ from apps.web_console_ng.auth.session_store import (
     extract_session_id,
     get_session_store,
 )
+from apps.web_console_ng.core.database import get_db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -350,8 +351,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 logger.debug("role_cache_miss_or_error", extra={"user_id": user_id})
 
             # Query DB with timeout
-            from apps.web_console_ng.core.database import get_db_pool
-
             db_pool = get_db_pool()
             if db_pool is None:
                 return  # Fail-open (ADR-0038): keep provider role when DB unavailable

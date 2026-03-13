@@ -187,12 +187,12 @@ def _stub_components(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _stub_verify_db_role(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub _verify_db_role to return True by default (tests use object() as db_pool)."""
+    """Stub verify_db_role to return True by default (tests use object() as db_pool)."""
 
     async def _always_pass(*_a: Any, **_kw: Any) -> bool:
         return True
 
-    monkeypatch.setattr(mod, "_verify_db_role", _always_pass)
+    monkeypatch.setattr(mod, "verify_db_role", _always_pass)
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +555,7 @@ async def test_force_logout_confirm_permission_denied(
 
     monkeypatch.setattr(mod, "get_current_user", lambda: admin)
     monkeypatch.setattr(mod, "has_permission", dynamic_permission)
-    monkeypatch.setattr(mod, "_verify_db_role", dynamic_verify)
+    monkeypatch.setattr(mod, "verify_db_role", dynamic_verify)
     monkeypatch.setattr(mod, "get_db_pool", lambda: object())
 
     async def fake_list_users(_pool: Any) -> list[SimpleNamespace]:

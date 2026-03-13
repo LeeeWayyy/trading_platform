@@ -13,6 +13,7 @@ from nicegui import ui
 from psycopg.rows import dict_row
 from redis.exceptions import RedisError
 
+from apps.web_console_ng.auth.db_role import verify_db_role
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.auth.session_store import (
     invalidate_redis_sessions_for_user,
@@ -36,27 +37,6 @@ from libs.web_console_services.user_management import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-async def _verify_db_role(db_pool: Any, user_id: str, required_permission: Permission) -> bool:
-    """Fresh DB role check for mutation callbacks (WebSocket sessions bypass middleware).
-
-    Returns True if the user's current DB role has the required permission.
-    Returns False on DB error (fail-closed for mutations, unlike middleware fail-open).
-    """
-    try:
-        async with db_pool.connection() as conn:
-            cursor = await conn.execute(
-                "SELECT role FROM user_roles WHERE user_id = %s", (user_id,)
-            )
-            row = await cursor.fetchone()
-            if not row:
-                return False
-            mock_user: dict[str, Any] = {"role": row[0]}
-            return has_permission(mock_user, required_permission)
-    except Exception:
-        logger.warning("db_role_verify_failed", extra={"user_id": user_id})
-        return False  # Fail-closed for mutations
 
 
 @ui.page("/admin/users")
@@ -90,7 +70,7 @@ async def admin_users_page() -> None:
         async def _provision_user() -> None:
             current = get_current_user()
             current_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
                 db_pool, current_uid, Permission.MANAGE_USERS
             ):
                 try:
@@ -138,7 +118,7 @@ async def admin_users_page() -> None:
     async def _on_role_change(target_user_id: str) -> None:
         current = get_current_user()
         current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
             db_pool, current_uid, Permission.MANAGE_USERS
         ):
             ui.notify("Permission denied", type="negative")
@@ -166,7 +146,7 @@ async def admin_users_page() -> None:
         async def _do_role_change(uid: str, new_role: str, reason: str) -> None:
             current = get_current_user()
             current_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
                 db_pool, current_uid, Permission.MANAGE_USERS
             ):
                 ui.notify("Permission denied", type="negative")
@@ -217,7 +197,7 @@ async def admin_users_page() -> None:
     async def _on_view_strategies(target_user_id: str) -> None:
         current = get_current_user()
         current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
             db_pool, current_uid, Permission.MANAGE_USERS
         ):
             try:
@@ -244,7 +224,7 @@ async def admin_users_page() -> None:
         async def _grant(uid: str, sid: str) -> None:
             current = get_current_user()
             cur_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
                 db_pool, cur_uid, Permission.MANAGE_USERS
             ):
                 ui.notify("Permission denied", type="negative")
@@ -260,7 +240,7 @@ async def admin_users_page() -> None:
         async def _revoke(uid: str, sid: str) -> None:
             current = get_current_user()
             cur_uid = current.get("user_id", "unknown")
-            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
                 db_pool, cur_uid, Permission.MANAGE_USERS
             ):
                 ui.notify("Permission denied", type="negative")
@@ -281,7 +261,7 @@ async def admin_users_page() -> None:
     async def _on_view_activity(target_user_id: str) -> None:
         current = get_current_user()
         current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
             db_pool, current_uid, Permission.MANAGE_USERS
         ):
             try:
@@ -311,7 +291,7 @@ async def admin_users_page() -> None:
     async def _on_force_logout(target_user_id: str) -> None:
         current = get_current_user()
         current_uid = current.get("user_id", "unknown")
-        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+        if not has_permission(current, Permission.MANAGE_USERS) or not await verify_db_role(
             db_pool, current_uid, Permission.MANAGE_USERS
         ):
             ui.notify("Permission denied", type="negative")
@@ -339,7 +319,7 @@ async def admin_users_page() -> None:
             async def _confirm_logout() -> None:
                 cur = get_current_user()
                 cur_uid = cur.get("user_id", "unknown")
-                if not has_permission(cur, Permission.MANAGE_USERS) or not await _verify_db_role(
+                if not has_permission(cur, Permission.MANAGE_USERS) or not await verify_db_role(
                     db_pool, cur_uid, Permission.MANAGE_USERS
                 ):
                     try:
