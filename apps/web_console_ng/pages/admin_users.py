@@ -381,7 +381,7 @@ async def admin_users_page() -> None:
 
 
 async def _fetch_user_activity(
-    db_pool: Any, target_user_id: str, limit: int = 100
+    db_pool: Any, target_user_id: str, limit: int = 100, offset: int = 0,
 ) -> list[dict[str, Any]] | None:
     """Fetch audit log events related to a user.
 
@@ -406,9 +406,9 @@ async def _fetch_user_activity(
                        OR resource_id = %s
                        OR resource_id LIKE %s ESCAPE '\\'
                     ORDER BY timestamp DESC
-                    LIMIT %s
+                    LIMIT %s OFFSET %s
                     """,
-                    (target_user_id, target_user_id, like_pattern, limit),
+                    (target_user_id, target_user_id, like_pattern, limit, offset),
                 )
                 return list(await cur.fetchall())
     except Exception:

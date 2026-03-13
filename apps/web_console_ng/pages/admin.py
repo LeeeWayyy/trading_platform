@@ -334,6 +334,27 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
 
     await fetch_keys()
 
+    async def _handle_api_key_db_error(
+        action: str, key_id: str, dialog: Any,
+    ) -> None:
+        """Handle psycopg.Error for API key operations (revoke/rotate)."""
+        logger.exception("api_key_%s_failed", action, extra={"key_id": key_id})
+        try:
+            actor_id = get_current_user().get("user_id", "unknown")
+            audit_logger = AuditLogger(db_pool)
+            await audit_logger.log_action(
+                user_id=actor_id,
+                action=f"api_key_{action}_failed",
+                resource_type="api_key",
+                resource_id=key_id,
+                outcome="failed",
+                details={"error": "db_failure"},
+            )
+        except Exception:
+            logger.debug("audit_log_%s_failed_error", action)
+        ui.notify(f"Failed to {action} key — please try again", type="negative")
+        dialog.close()
+
     async def _revoke_key(key_id: str, key_prefix: str) -> None:
         """Revoke an API key with confirmation dialog."""
         if not await _check_api_key_permission(db_pool, "revoke", key_id):
@@ -367,22 +388,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                             return
                         db_prefix = row[0]
                 except psycopg.Error:
-                    logger.exception("api_key_revoke_failed", extra={"key_id": key_id})
-                    try:
-                        actor_id = get_current_user().get("user_id", "unknown")
-                        audit = AuditLogger(db_pool)
-                        await audit.log_action(
-                            user_id=actor_id,
-                            action="api_key_revoke_failed",
-                            resource_type="api_key",
-                            resource_id=key_id,
-                            outcome="failed",
-                            details={"error": "db_failure"},
-                        )
-                    except Exception:
-                        logger.debug("audit_log_revoke_failed_error")
-                    ui.notify("Failed to revoke key — please try again", type="negative")
-                    dialog.close()
+                    await _handle_api_key_db_error("revoke", key_id, dialog)
                     return
                 # Cache revoked state in Redis (best-effort)
                 try:
@@ -472,22 +478,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                     dialog.close()
                     return
                 except psycopg.Error:
-                    logger.exception("api_key_rotate_failed", extra={"key_id": key_id})
-                    try:
-                        actor_id = get_current_user().get("user_id", "unknown")
-                        audit = AuditLogger(db_pool)
-                        await audit.log_action(
-                            user_id=actor_id,
-                            action="api_key_rotate_failed",
-                            resource_type="api_key",
-                            resource_id=key_id,
-                            outcome="failed",
-                            details={"error": "db_failure"},
-                        )
-                    except Exception:
-                        logger.debug("audit_log_rotate_failed_error")
-                    ui.notify("Failed to rotate key — please try again", type="negative")
-                    dialog.close()
+                    await _handle_api_key_db_error("rotate", key_id, dialog)
                     return
                 # Cache old key revocation in Redis (best-effort)
                 try:
