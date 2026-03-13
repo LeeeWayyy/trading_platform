@@ -38,6 +38,27 @@ from libs.web_console_services.user_management import (
 logger = logging.getLogger(__name__)
 
 
+async def _verify_db_role(db_pool: Any, user_id: str, required_permission: Permission) -> bool:
+    """Fresh DB role check for mutation callbacks (WebSocket sessions bypass middleware).
+
+    Returns True if the user's current DB role has the required permission.
+    Returns False on DB error (fail-closed for mutations, unlike middleware fail-open).
+    """
+    try:
+        async with db_pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT role FROM user_roles WHERE user_id = %s", (user_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            mock_user: dict[str, Any] = {"role": row[0]}
+            return has_permission(mock_user, required_permission)
+    except Exception:
+        logger.warning("db_role_verify_failed", extra={"user_id": user_id})
+        return False  # Fail-closed for mutations
+
+
 @ui.page("/admin/users")
 @requires_auth
 @main_layout
@@ -68,10 +89,13 @@ async def admin_users_page() -> None:
 
         async def _provision_user() -> None:
             current = get_current_user()
-            if not has_permission(current, Permission.MANAGE_USERS):
+            current_uid = current.get("user_id", "unknown")
+            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+                db_pool, current_uid, Permission.MANAGE_USERS
+            ):
                 try:
                     await audit.log_action(
-                        user_id=current.get("user_id", "unknown"),
+                        user_id=current_uid,
                         action="provision_user_denied",
                         resource_type="user",
                         resource_id="",
@@ -113,7 +137,10 @@ async def admin_users_page() -> None:
     # Role change callback
     async def _on_role_change(target_user_id: str) -> None:
         current = get_current_user()
-        if not has_permission(current, Permission.MANAGE_USERS):
+        current_uid = current.get("user_id", "unknown")
+        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            db_pool, current_uid, Permission.MANAGE_USERS
+        ):
             ui.notify("Permission denied", type="negative")
             return
         current_uid = current.get("user_id", "unknown")
@@ -138,10 +165,12 @@ async def admin_users_page() -> None:
 
         async def _do_role_change(uid: str, new_role: str, reason: str) -> None:
             current = get_current_user()
-            if not has_permission(current, Permission.MANAGE_USERS):
+            current_uid = current.get("user_id", "unknown")
+            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+                db_pool, current_uid, Permission.MANAGE_USERS
+            ):
                 ui.notify("Permission denied", type="negative")
                 return
-            current_uid = current.get("user_id", "unknown")
             nonlocal users
             # Last-admin guard (page-level check)
             admin_count = sum(1 for u in users if u.role == "admin")
@@ -187,10 +216,13 @@ async def admin_users_page() -> None:
     # Strategy grants callback
     async def _on_view_strategies(target_user_id: str) -> None:
         current = get_current_user()
-        if not has_permission(current, Permission.MANAGE_USERS):
+        current_uid = current.get("user_id", "unknown")
+        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            db_pool, current_uid, Permission.MANAGE_USERS
+        ):
             try:
                 await audit.log_action(
-                    user_id=current.get("user_id", "unknown"),
+                    user_id=current_uid,
                     action="view_strategies_denied",
                     resource_type="user",
                     resource_id=target_user_id,
@@ -211,11 +243,14 @@ async def admin_users_page() -> None:
 
         async def _grant(uid: str, sid: str) -> None:
             current = get_current_user()
-            if not has_permission(current, Permission.MANAGE_USERS):
+            cur_uid = current.get("user_id", "unknown")
+            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+                db_pool, cur_uid, Permission.MANAGE_USERS
+            ):
                 ui.notify("Permission denied", type="negative")
                 return
             success, msg = await grant_strategy(
-                db_pool, uid, sid, current.get("user_id", "unknown"), audit
+                db_pool, uid, sid, cur_uid, audit
             )
             if success:
                 ui.notify(msg, type="positive")
@@ -224,11 +259,14 @@ async def admin_users_page() -> None:
 
         async def _revoke(uid: str, sid: str) -> None:
             current = get_current_user()
-            if not has_permission(current, Permission.MANAGE_USERS):
+            cur_uid = current.get("user_id", "unknown")
+            if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+                db_pool, cur_uid, Permission.MANAGE_USERS
+            ):
                 ui.notify("Permission denied", type="negative")
                 return
             success, msg = await revoke_strategy(
-                db_pool, uid, sid, current.get("user_id", "unknown"), audit
+                db_pool, uid, sid, cur_uid, audit
             )
             if success:
                 ui.notify(msg, type="positive")
@@ -242,10 +280,13 @@ async def admin_users_page() -> None:
     # Activity log callback
     async def _on_view_activity(target_user_id: str) -> None:
         current = get_current_user()
-        if not has_permission(current, Permission.MANAGE_USERS):
+        current_uid = current.get("user_id", "unknown")
+        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            db_pool, current_uid, Permission.MANAGE_USERS
+        ):
             try:
                 await audit.log_action(
-                    user_id=current.get("user_id", "unknown"),
+                    user_id=current_uid,
                     action="view_activity_denied",
                     resource_type="user",
                     resource_id=target_user_id,
@@ -269,10 +310,12 @@ async def admin_users_page() -> None:
     # privilege escalation via stale WebSocket sessions.
     async def _on_force_logout(target_user_id: str) -> None:
         current = get_current_user()
-        if not has_permission(current, Permission.MANAGE_USERS):
+        current_uid = current.get("user_id", "unknown")
+        if not has_permission(current, Permission.MANAGE_USERS) or not await _verify_db_role(
+            db_pool, current_uid, Permission.MANAGE_USERS
+        ):
             ui.notify("Permission denied", type="negative")
             return
-        current_uid = current.get("user_id", "unknown")
 
         if target_user_id == current_uid:
             try:
@@ -295,10 +338,13 @@ async def admin_users_page() -> None:
 
             async def _confirm_logout() -> None:
                 cur = get_current_user()
-                if not has_permission(cur, Permission.MANAGE_USERS):
+                cur_uid = cur.get("user_id", "unknown")
+                if not has_permission(cur, Permission.MANAGE_USERS) or not await _verify_db_role(
+                    db_pool, cur_uid, Permission.MANAGE_USERS
+                ):
                     try:
                         await audit.log_action(
-                            user_id=cur.get("user_id", "unknown"),
+                            user_id=cur_uid,
                             action="force_logout_denied",
                             resource_type="user",
                             resource_id=target_user_id,

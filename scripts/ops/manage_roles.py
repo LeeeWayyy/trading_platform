@@ -52,7 +52,11 @@ def set_role(args: argparse.Namespace) -> None:
     # Invalidate Redis role cache and sessions so middleware picks up change immediately
     try:
         import redis as _redis
+    except ImportError as exc:
+        print(f"WARNING: redis package not installed, cannot invalidate cache/sessions: {exc}", file=sys.stderr)
+        sys.exit(2)
 
+    try:
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/1")
         r = _redis.from_url(redis_url)  # type: ignore[no-untyped-call]
         r.delete(f"ng_role_cache:{args.user_id}")
@@ -76,7 +80,7 @@ def set_role(args: argparse.Namespace) -> None:
         count = r.eval(lua, 1, index_key, "ng_session:")
         if count and int(count) > 0:
             print(f"Invalidated {count} sessions for {args.user_id}")
-    except Exception as exc:
+    except _redis.RedisError as exc:
         print(f"WARNING: could not invalidate role cache/sessions: {exc}", file=sys.stderr)
         print(
             "Role was set in DB successfully but stale sessions may persist. "

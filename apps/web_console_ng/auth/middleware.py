@@ -367,9 +367,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         return await cursor.fetchone()
 
                 row = await asyncio.wait_for(_db_role_lookup(), timeout=0.5)
-            except (TimeoutError, Exception):
+            except Exception as exc:
                 # Fail-open (ADR-0038): keep provider role on DB timeout/error
-                logger.debug("db_role_lookup_timeout_or_error", extra={"user_id": user_id})
+                logger.debug(
+                    "db_role_lookup_timeout_or_error",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
                 return
 
             if not row:
