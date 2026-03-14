@@ -370,7 +370,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                     return
                 cur = get_current_user()
                 cur_uid = cur.get("user_id", "unknown")
-                if confirm_input.value != "REVOKE":
+                if confirm_input.value.strip().upper() != "REVOKE":
                     ui.notify("Type REVOKE to confirm", type="warning")
                     return
                 try:
@@ -432,12 +432,16 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
             ui.label(f"Rotate API key {key_prefix}?").classes("text-lg font-bold")
             ui.label(
                 "This will revoke the current key and generate a new one. "
-                "The old key will stop working immediately."
+                "The old key will stop working immediately. Type ROTATE to confirm."
             )
+            rotate_confirm_input = ui.input("Type ROTATE").props("outlined")
 
             async def on_confirm() -> None:
                 if not await _check_api_key_permission(db_pool, "rotate", key_id):
                     dialog.close()
+                    return
+                if rotate_confirm_input.value.strip().upper() != "ROTATE":
+                    ui.notify("Type ROTATE to confirm", type="warning")
                     return
                 cur = get_current_user()
                 cur_uid = cur.get("user_id", "unknown")

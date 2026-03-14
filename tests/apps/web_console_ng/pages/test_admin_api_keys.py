@@ -387,6 +387,11 @@ async def test_rotate_key_creates_new(dummy_ui: DummyUI, monkeypatch: pytest.Mon
     assert len(rotate_buttons) >= 1
     await _call(rotate_buttons[0]._on_click, None)
 
+    # Set the type-to-confirm input value
+    rotate_confirm = next((i for i in dummy_ui.inputs if i.label == "Type ROTATE"), None)
+    assert rotate_confirm is not None
+    rotate_confirm.value = "ROTATE"
+
     # Find the inner Rotate confirm button (color="orange")
     inner_rotate_buttons = [
         b for b in dummy_ui.buttons if b.label == "Rotate" and b.kwargs.get("color") == "orange"

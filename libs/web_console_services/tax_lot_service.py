@@ -317,12 +317,18 @@ class TaxLotService:
                             remaining_quantity = new_quantity
                         closed_at = None
 
-                    # Always cap remaining_quantity to new_quantity to prevent
-                    # impossible state (remaining > quantity) after quantity edits.
+                    # Validate and cap remaining_quantity when quantity changes.
                     if "quantity" in updates:
-                        remaining_quantity = min(
-                            _to_decimal(remaining_quantity), new_quantity
+                        current_remaining = _to_decimal(remaining_quantity)
+                        disposed = current_quantity - _to_decimal(
+                            row.get("remaining_quantity", current_quantity)
                         )
+                        if disposed > Decimal("0") and new_quantity < disposed:
+                            raise ValueError(
+                                f"Cannot reduce quantity below disposed shares "
+                                f"({disposed}); would erase disposition history"
+                            )
+                        remaining_quantity = min(current_remaining, new_quantity)
 
                     set_clauses: list[str] = []
                     values: list[Any] = []
