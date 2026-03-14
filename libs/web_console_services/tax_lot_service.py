@@ -328,7 +328,7 @@ class TaxLotService:
                                 f"Cannot reduce quantity below disposed shares "
                                 f"({disposed}); would erase disposition history"
                             )
-                        remaining_quantity = min(current_remaining, new_quantity)
+                        remaining_quantity = new_quantity - disposed
 
                     set_clauses: list[str] = []
                     values: list[Any] = []
