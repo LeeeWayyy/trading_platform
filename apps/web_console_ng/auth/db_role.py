@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import psycopg
 
 from libs.platform.web_console_auth.permissions import Permission, has_permission
+
+if TYPE_CHECKING:
+    from psycopg_pool import AsyncConnectionPool
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ _DB_ROLE_VERIFY_TIMEOUT_S = 5
 
 
 async def verify_db_role(
-    db_pool: Any, user_id: str, required_permission: Permission
+    db_pool: AsyncConnectionPool, user_id: str, required_permission: Permission
 ) -> bool:
     """Check the user's *current* DB role for *required_permission*.
 

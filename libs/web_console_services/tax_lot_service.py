@@ -318,6 +318,8 @@ class TaxLotService:
                         closed_at = None
 
                     # Validate and cap remaining_quantity when quantity changes.
+                    # Skip recalculation when explicitly closing (remaining is
+                    # already set to 0 above; overwriting would re-open shares).
                     if "quantity" in updates:
                         disposed = current_quantity - _to_decimal(
                             row.get("remaining_quantity", current_quantity)
@@ -327,7 +329,8 @@ class TaxLotService:
                                 f"Cannot reduce quantity below disposed shares "
                                 f"({disposed}); would erase disposition history"
                             )
-                        remaining_quantity = new_quantity - disposed
+                        if status_normalized != "closed":
+                            remaining_quantity = new_quantity - disposed
 
                     set_clauses: list[str] = []
                     values: list[Any] = []
