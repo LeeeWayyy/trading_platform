@@ -1,0 +1,5 @@
+docs/CONCEPTS/
+docs/LESSONS_LEARNED/
+docs/TEMPLATES/
+docs/INCIDENTS/
+data/*.parquet

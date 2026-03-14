@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /Users/wei/Documents/SourceCode/trading_platform/docs/ARCHIVE/TASKS_HISTORY/*.md 2>/dev/null | tail -1)",
+      "Bash(code /Users/wei/Documents/SourceCode/trading_platform/)",
+      "Bash(gemini)",
+      "Bash(cat /tmp/review-plan-XXXXXX.txt | codex exec -)"
+    ]
+  }
+}

@@ -39,10 +39,10 @@ jobs:
       - name: Install markdown-link-check
         run: npm install -g markdown-link-check
 
-      - name: Check links in markdown files (excluding root symlinks and archive)
+      - name: Check links in markdown files (excluding root symlinks)
         run: |
-          # Exclude .venv, ARCHIVE (historical docs with stale links), and root symlinks
-          find . -path "./.venv" -prune -o -path "./docs/ARCHIVE" -prune -o \
+          # Exclude .venv and root symlinks
+          find . -path "./.venv" -prune -o \
             -type f -name "*.md" \
             ! -path "./CLAUDE.md" \
             ! -path "./AGENTS.md" \

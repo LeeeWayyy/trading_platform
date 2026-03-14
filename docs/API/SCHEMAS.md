@@ -1,25 +1,25 @@
 # API Schemas (OpenAPI)
 
-This document summarizes FastAPI service contracts and points to the generated OpenAPI JSON artifacts in `docs/SPECS/openapi/`.
+This document summarizes FastAPI service contracts and points to the generated OpenAPI JSON artifacts in `docs/API/`.
 
 ## Service Index
 
 | Service | Entry Point | Default Port | Base URL (dev/local) | OpenAPI JSON |
 | --- | --- | --- | --- | --- |
-| signal_service | `apps/signal_service/main.py` | 8001 | `http://localhost:8001` | `docs/SPECS/openapi/signal_service.json` |
-| execution_gateway | `apps/execution_gateway/main.py` | 8002 | `http://localhost:8002` | `docs/SPECS/openapi/execution_gateway.json` |
-| orchestrator | `apps/orchestrator/main.py` | 8003 | `http://localhost:8003` | `docs/SPECS/openapi/orchestrator.json` |
-| market_data_service | `apps/market_data_service/main.py` | 8004 | `http://localhost:8004` | `docs/SPECS/openapi/market_data_service.json` |
-| model_registry | `apps/model_registry/main.py` | 8003 | `http://localhost:8003` (default) | `docs/SPECS/openapi/model_registry.json` |
-| auth_service | `apps/auth_service/main.py` | 8001 | internal-only (Docker network) | `docs/SPECS/openapi/auth_service.json` |
-| web_console (metrics sidecar) | `apps/web_console/metrics_server.py` | (not fixed) | sidecar-only | `docs/SPECS/openapi/web_console_metrics.json` |
-| web_console_ng (NiceGUI) | `apps/web_console_ng/main.py` | 8080 | `http://localhost:8080` | `docs/SPECS/openapi/web_console_ng.json` |
+| signal_service | `apps/signal_service/main.py` | 8001 | `http://localhost:8001` | `docs/API/signal_service.json` |
+| execution_gateway | `apps/execution_gateway/main.py` | 8002 | `http://localhost:8002` | `docs/API/execution_gateway.json` |
+| orchestrator | `apps/orchestrator/main.py` | 8003 | `http://localhost:8003` | `docs/API/orchestrator.json` |
+| market_data_service | `apps/market_data_service/main.py` | 8004 | `http://localhost:8004` | `docs/API/market_data_service.json` |
+| model_registry | `apps/model_registry/main.py` | 8003 | `http://localhost:8003` (default) | `docs/API/model_registry.json` |
+| auth_service | `apps/auth_service/main.py` | 8001 | internal-only (Docker network) | `docs/API/auth_service.json` |
+| web_console (metrics sidecar) | `apps/web_console_ng/main.py` | (not fixed) | sidecar-only | `docs/API/web_console_metrics.json` |
+| web_console_ng (NiceGUI) | `apps/web_console_ng/main.py` | 8080 | `http://localhost:8080` | `docs/API/web_console_ng.json` |
 
 Notes:
 - Ports/URLs are derived from `docker-compose.yml` and service configs (`apps/*/main.py`, `apps/*/config.py`).
 - `model_registry` defaults to port 8003, which conflicts with `orchestrator` in dev; override `MODEL_REGISTRY_PORT` if running both.
 - `auth_service` is not exposed on the host in `docker-compose.yml`; access via nginx routes (e.g., `/login`, `/callback`).
-- `web_console` is Streamlit; only the metrics sidecar is FastAPI.
+- `web_console_ng` uses NiceGUI; the metrics sidecar exposes a FastAPI `/metrics` endpoint.
 
 ## Key Schemas by Service
 
@@ -34,7 +34,7 @@ Key request/response schemas:
 - `PrecomputeRequest` → `PrecomputeResponse`
 - `HealthResponse`
 
-OpenAPI: `docs/SPECS/openapi/signal_service.json`
+OpenAPI: `docs/API/signal_service.json`
 
 ### execution_gateway
 Key endpoints:
@@ -52,7 +52,7 @@ Key request/response schemas:
 - `KillSwitchEngageRequest` / `KillSwitchDisengageRequest`
 - `FatFingerThresholdsUpdateRequest` → `FatFingerThresholdsResponse`
 
-OpenAPI: `docs/SPECS/openapi/execution_gateway.json`
+OpenAPI: `docs/API/execution_gateway.json`
 
 ### orchestrator
 Key endpoints:
@@ -67,7 +67,7 @@ Key request/response schemas:
 - `KillSwitchEngageRequest` / `KillSwitchDisengageRequest`
 - `HealthResponse`
 
-OpenAPI: `docs/SPECS/openapi/orchestrator.json`
+OpenAPI: `docs/API/orchestrator.json`
 
 ### market_data_service
 Key endpoints:
@@ -82,7 +82,7 @@ Key request/response schemas:
 - `UnsubscribeResponse`
 - `HealthResponse`
 
-OpenAPI: `docs/SPECS/openapi/market_data_service.json`
+OpenAPI: `docs/API/market_data_service.json`
 
 ### model_registry
 Key endpoints:
@@ -98,7 +98,7 @@ Key request/response schemas:
 - `ValidationResultResponse`
 - `ErrorResponse`
 
-OpenAPI: `docs/SPECS/openapi/model_registry.json`
+OpenAPI: `docs/API/model_registry.json`
 
 ### auth_service
 Key endpoints:
@@ -108,7 +108,7 @@ Key endpoints:
 Key request/response schemas:
 - No domain-specific schemas defined in OpenAPI (only validation error schemas).
 
-OpenAPI: `docs/SPECS/openapi/auth_service.json`
+OpenAPI: `docs/API/auth_service.json`
 
 ### web_console (metrics sidecar)
 Key endpoints:
@@ -118,7 +118,7 @@ Key endpoints:
 Key request/response schemas:
 - None (plain text metrics response).
 
-OpenAPI: `docs/SPECS/openapi/web_console_metrics.json`
+OpenAPI: `docs/API/web_console_metrics.json`
 
 ### web_console_ng (NiceGUI)
 Key endpoints:
@@ -130,7 +130,7 @@ Key endpoints:
 Key request/response schemas:
 - None beyond validation error schemas (NiceGUI endpoints are primarily static/stream resources).
 
-OpenAPI: `docs/SPECS/openapi/web_console_ng.json`
+OpenAPI: `docs/API/web_console_ng.json`
 
 ## OpenAPI Extraction Notes
 

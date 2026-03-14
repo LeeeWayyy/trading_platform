@@ -80,4 +80,4 @@ All AI-related content lives here to:
 
 ## Navigation
 
-Return to [main documentation index](../INDEX.md)
+Return to [project root](../../README.md)

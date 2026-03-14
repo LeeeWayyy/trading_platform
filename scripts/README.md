@@ -36,7 +36,6 @@ Scripts for code generation, testing, and documentation.
 | `check_links.py` | Check documentation links |
 | `check-markdown-links.sh` | Shell script to check markdown links |
 | `check_doc_freshness.py` | Check documentation freshness |
-| `validate_doc_index.sh` | Validate documentation index |
 | `migrate_implementation_guides.py` | Migrate implementation guides |
 | `renumber_phase.py` | Renumber phase identifiers |
 

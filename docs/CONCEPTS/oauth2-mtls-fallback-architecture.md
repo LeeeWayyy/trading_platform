@@ -543,7 +543,7 @@ docs/RUNBOOKS/
 ## Related Documentation
 
 - **ADR-015:** OAuth2/OIDC Authentication Architecture (decision record)
-- **P2T3 Phase 3 Plan:** `docs/ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md` (implementation plan)
+- **P2T3 Phase 3 Plan:** Available in git history at tag `archive-pre-ai-company`
 - **Runbooks:** `docs/RUNBOOKS/auth0-idp-outage.md` and related
 - **Prometheus Alerts:** `infra/prometheus/alerts/oauth2.yml`
 - **Grafana Dashboard:** `infra/grafana/dashboards/oauth2-sessions-spec.md`

@@ -217,16 +217,16 @@ The trading platform has successfully completed both P0 MVP (100%) and P1 Harden
 For detailed task information and completion summaries, see:
 
 **Phase Planning:**
-- [P0_TASKS_DONE.md](../ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - Completed MVP tasks
-- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - Completed P1 roadmap
-- [P2_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 roadmap and progress (archived)
+- P0_TASKS_DONE.md - Completed MVP tasks (available in git history at tag archive-pre-ai-company)
+- P1_PLANNING_DONE.md - Completed P1 roadmap (available in git history at tag archive-pre-ai-company)
+- P2_PLANNING_DONE.md - P2 roadmap and progress (available in git history at tag archive-pre-ai-company)
 
 **Recent Completed Tasks:**
-- [P2T0_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T0_DONE.md) - TWAP Order Slicer
-- [P2T1_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T1_DONE.md) - Web Console
-- [P2T2_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T2_DONE.md) - Secrets Management
-- [P1T13_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T13_DONE.md) - AI Workflow Intelligence
-- [P1T13-F5_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T13-F5_DONE.md) - Workflow Meta-Optimization
+- P2T0_DONE.md - TWAP Order Slicer (available in git history at tag archive-pre-ai-company)
+- P2T1_DONE.md - Web Console (available in git history at tag archive-pre-ai-company)
+- P2T2_DONE.md - Secrets Management (available in git history at tag archive-pre-ai-company)
+- P1T13_DONE.md - AI Workflow Intelligence (available in git history at tag archive-pre-ai-company)
+- P1T13-F5_DONE.md - Workflow Meta-Optimization (available in git history at tag archive-pre-ai-company)
 
 **Architecture Decisions:**
 - [ADRs/](../ADRs/) - 17+ architecture decision records

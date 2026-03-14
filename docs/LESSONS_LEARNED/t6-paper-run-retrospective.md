@@ -515,5 +515,5 @@ T6 successfully completed P0 MVP (100%) with high-quality implementation:
 **Related Documents:**
 - [ADR-0007: Paper Run Architecture](../ADRs/0007-paper-run-automation.md)
 - [P&L Calculation Concept](../CONCEPTS/pnl-calculation.md)
-- [P0T6: Paper Trading Runner](../ARCHIVE/TASKS_HISTORY/P0T6_DONE.md)
-- [P0 Tasks](../ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md)
+- P0T6: Paper Trading Runner (available in git history at tag archive-pre-ai-company)
+- P0 Tasks (available in git history at tag archive-pre-ai-company)

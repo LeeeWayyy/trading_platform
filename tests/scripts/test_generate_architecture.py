@@ -31,8 +31,8 @@ def minimal_config() -> architecture.Config:
             {"id": "domain", "label": "Domain Logic", "order": 2},
         ],
         components={
-            "apps/service_a": {"layer": "core", "spec": "../SPECS/services/service_a.md"},
-            "libs/lib_b": {"layer": "domain", "spec": "../SPECS/libs/lib_b.md"},
+            "apps/service_a": {"layer": "core"},
+            "libs/lib_b": {"layer": "domain"},
         },
         external_nodes=[],
         virtual_edges=[],
@@ -99,11 +99,9 @@ def test_build_dependency_graph_internal_and_circular_edges(
 
     components = [
         architecture.Component(
-            category="Services", name="service_a", path=service_dir, layer="core", spec=""
-        ),
+            category="Services", name="service_a", path=service_dir, layer="core"        ),
         architecture.Component(
-            category="Libraries", name="lib_b", path=library_dir, layer="domain", spec=""
-        ),
+            category="Libraries", name="lib_b", path=library_dir, layer="domain"        ),
     ]
 
     edges = architecture.build_dependency_graph(components, minimal_config)
@@ -128,8 +126,8 @@ def test_build_dependency_graph_with_filtering(
             {"id": "infra", "label": "Infra", "order": 2},
         ],
         components={
-            "apps/service_a": {"layer": "core", "spec": ""},
-            "libs/common": {"layer": "infra", "spec": ""},
+            "apps/service_a": {"layer": "core"},
+            "libs/common": {"layer": "infra"},
         },
         filtering={
             "hide_to_common_libs": True,
@@ -140,11 +138,9 @@ def test_build_dependency_graph_with_filtering(
 
     components = [
         architecture.Component(
-            category="Services", name="service_a", path=service_dir, layer="core", spec=""
-        ),
+            category="Services", name="service_a", path=service_dir, layer="core"        ),
         architecture.Component(
-            category="Libraries", name="common", path=common_dir, layer="infra", spec=""
-        ),
+            category="Libraries", name="common", path=common_dir, layer="infra"        ),
     ]
 
     edges = architecture.build_dependency_graph(components, config)
@@ -169,8 +165,8 @@ def test_build_dependency_graph_allowlist_preserves_edges(
             {"id": "infra", "label": "Infra", "order": 2},
         ],
         components={
-            "apps/execution_gateway": {"layer": "core", "spec": ""},
-            "libs/core": {"layer": "infra", "spec": ""},
+            "apps/execution_gateway": {"layer": "core"},
+            "libs/core": {"layer": "infra"},
         },
         filtering={
             "hide_to_common_libs": True,
@@ -185,14 +181,12 @@ def test_build_dependency_graph_allowlist_preserves_edges(
             name="execution_gateway",
             path=service_dir,
             layer="core",
-            spec="",
         ),
         architecture.Component(
             category="Libraries",
             name="core",
             path=core_dir,
             layer="infra",
-            spec="",
         ),
     ]
 
@@ -209,14 +203,12 @@ def test_generate_obsidian_canvas_structure(minimal_config: architecture.Config)
             name="service_a",
             path=Path("apps/service_a"),
             layer="core",
-            spec="../SPECS/services/service_a.md",
         ),
         architecture.Component(
             category="Libraries",
             name="lib_b",
             path=Path("libs/lib_b"),
             layer="domain",
-            spec="../SPECS/libs/lib_b.md",
         ),
     ]
     edges: set[tuple[str, str]] = {("svc_service_a", "lib_lib_b")}
@@ -238,7 +230,6 @@ def test_generate_mermaid_flow_format(minimal_config: architecture.Config) -> No
             name="service_a",
             path=Path("apps/service_a"),
             layer="core",
-            spec="../SPECS/services/service_a.md",
         ),
     ]
     diagram = architecture.render_mermaid_flow(components, minimal_config)
@@ -247,7 +238,6 @@ def test_generate_mermaid_flow_format(minimal_config: architecture.Config) -> No
     assert "flowchart TB" in diagram
     assert 'subgraph core["Core Services"]' in diagram
     assert 'svc_service_a["Service A"]' in diagram
-    assert 'click svc_service_a "../SPECS/services/service_a.md"' in diagram
 
 
 def test_generate_mermaid_deps_format(minimal_config: architecture.Config) -> None:
@@ -257,14 +247,12 @@ def test_generate_mermaid_deps_format(minimal_config: architecture.Config) -> No
             name="service_a",
             path=Path("apps/service_a"),
             layer="core",
-            spec="../SPECS/services/service_a.md",
         ),
         architecture.Component(
             category="Libraries",
             name="lib_b",
             path=Path("libs/lib_b"),
             layer="domain",
-            spec="../SPECS/libs/lib_b.md",
         ),
     ]
     edges: set[tuple[str, str]] = {("svc_service_a", "lib_lib_b")}
@@ -284,8 +272,8 @@ def test_virtual_edges_in_flow_diagram() -> None:
             {"id": "core", "label": "Core", "order": 2},
         ],
         components={
-            "apps/orchestrator": {"layer": "orchestration", "spec": ""},
-            "apps/signal_service": {"layer": "core", "spec": ""},
+            "apps/orchestrator": {"layer": "orchestration"},
+            "apps/signal_service": {"layer": "core"},
         },
         virtual_edges=[
             architecture.VirtualEdge(
@@ -303,14 +291,12 @@ def test_virtual_edges_in_flow_diagram() -> None:
             name="orchestrator",
             path=Path("apps/orchestrator"),
             layer="orchestration",
-            spec="",
         ),
         architecture.Component(
             category="Services",
             name="signal_service",
             path=Path("apps/signal_service"),
             layer="core",
-            spec="",
         ),
     ]
 
@@ -333,7 +319,6 @@ def test_external_nodes_in_flow_diagram() -> None:
                 label="Redis",
                 layer="infra",
                 node_type="database",
-                spec="../SPECS/infrastructure/redis.md",
             ),
         ],
     )
@@ -341,58 +326,7 @@ def test_external_nodes_in_flow_diagram() -> None:
     diagram = architecture.render_mermaid_flow([], config)
 
     assert 'ext_redis[("Redis")]' in diagram
-    assert 'click ext_redis "../SPECS/infrastructure/redis.md"' in diagram
     assert "class ext_redis external" in diagram
-
-
-def test_check_spec_files_detects_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that missing spec files are detected."""
-    arch_dir = tmp_path / "docs" / "ARCHITECTURE"
-    arch_dir.mkdir(parents=True)
-    monkeypatch.setattr(architecture, "ARCH_DIR", arch_dir)
-
-    components = [
-        architecture.Component(
-            category="Services",
-            name="service_a",
-            path=Path("apps/service_a"),
-            layer="core",
-            spec="../SPECS/services/service_a.md",
-        ),
-    ]
-    external_nodes: list[architecture.ExternalNode] = []
-
-    missing = architecture.check_spec_files(components, external_nodes)
-
-    assert len(missing) == 1
-    assert "service_a" in missing[0]
-
-
-def test_check_spec_files_passes_when_exist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test that existing spec files pass validation."""
-    arch_dir = tmp_path / "docs" / "ARCHITECTURE"
-    arch_dir.mkdir(parents=True)
-    monkeypatch.setattr(architecture, "ARCH_DIR", arch_dir)
-
-    # Create the spec file
-    spec_path = arch_dir / ".." / "SPECS" / "services" / "service_a.md"
-    _write_file(spec_path, "# Service A Spec\n")
-
-    components = [
-        architecture.Component(
-            category="Services",
-            name="service_a",
-            path=Path("apps/service_a"),
-            layer="core",
-            spec="../SPECS/services/service_a.md",
-        ),
-    ]
-
-    missing = architecture.check_spec_files(components, [])
-
-    assert missing == []
 
 
 def test_check_drift_reports_mismatch(tmp_path: Path) -> None:
@@ -412,7 +346,6 @@ def test_resolve_virtual_edge_id() -> None:
             name="signal_service",
             path=Path("apps/signal_service"),
             layer="core",
-            spec="",
         ),
     ]
     external_nodes = [
@@ -447,8 +380,8 @@ def test_canvas_edge_colors_by_type() -> None:
             {"id": "core", "label": "Core", "order": 1},
         ],
         components={
-            "apps/orchestrator": {"layer": "core", "spec": ""},
-            "apps/signal_service": {"layer": "core", "spec": ""},
+            "apps/orchestrator": {"layer": "core"},
+            "apps/signal_service": {"layer": "core"},
         },
         virtual_edges=[
             architecture.VirtualEdge(
@@ -472,14 +405,12 @@ def test_canvas_edge_colors_by_type() -> None:
             name="orchestrator",
             path=Path("apps/orchestrator"),
             layer="core",
-            spec="",
         ),
         architecture.Component(
             category="Services",
             name="signal_service",
             path=Path("apps/signal_service"),
             layer="core",
-            spec="",
         ),
     ]
 

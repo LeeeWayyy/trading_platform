@@ -355,7 +355,7 @@ See `tests/strategies/alpha_baseline/README.md` for details.
 
 ### Implementation Guides (How-To)
 
-- **[/docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md](../../docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)** - Complete T2 implementation guide
+- T2 implementation guide available in git history at tag `archive-pre-ai-company`
 
 ### Architecture Decision Records (Why)
 

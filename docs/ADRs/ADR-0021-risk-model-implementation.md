@@ -185,6 +185,6 @@ Results can be stored in Parquet format:
 
 ## Related Documentation
 
-- [P4T2_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T2_DONE.md): Task specification
+- P4T2_TASK.md: Task specification (available in git history at tag archive-pre-ai-company)
 - [risk-models.md](../CONCEPTS/risk-models.md): Risk model theory
 - [covariance-estimation.md](../CONCEPTS/covariance-estimation.md): Covariance methodology

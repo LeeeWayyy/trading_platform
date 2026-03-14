@@ -214,9 +214,9 @@ features: []
 - `ADR-YYY: Another Decision` at `docs/ADRs/<adr-file>.md`
 
 **Tasks:**
-- Depends on: `P0Tx_DONE` at `docs/ARCHIVE/TASKS_HISTORY/<task>_DONE.md` ✅
+- Depends on: `P0Tx_DONE` (available in git history at tag `archive-pre-ai-company`) ✅
 - Blocks: `P0Tx_DONE` (now unblocked)
-- Related: `P0Ty_DONE` at `docs/ARCHIVE/TASKS_HISTORY/<task>_DONE.md`
+- Related: `P0Ty_DONE` (available in git history at tag `archive-pre-ai-company`)
 
 **PRs:**
 - [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/123) - Main implementation PR
@@ -329,7 +329,7 @@ curl -X POST http://localhost:8000/api/endpoint \
 
 **Documentation:**
 - Trading Concept: `docs/CONCEPTS/<concept>.md`
-- API Reference: `docs/SPECS/openapi/<service>.json`
+- API Reference: `docs/API/<service>.json`
 - Database Schema: `db/migrations/<schema>.sql`
 
 **External:**

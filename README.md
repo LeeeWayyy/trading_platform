@@ -100,8 +100,6 @@ trading_platform/
 
 ## Documentation
 
-**📖 Start Here:** [docs/INDEX.md](./docs/INDEX.md) - **Canonical entry point for all documentation**
-
 ### Getting Started
 - **[docs/GETTING_STARTED/SETUP.md](./docs/GETTING_STARTED/SETUP.md)** - Environment setup and installation guide
 - [CLAUDE.md](./CLAUDE.md) / [GEMINI.md](./GEMINI.md) / [AGENTS.md](./AGENTS.md) - AI assistant guide (all symlink to same source)
@@ -116,16 +114,7 @@ trading_platform/
 
 ### Implementation Guides
 
-**Phase 0 (Core MVP):**
-- **[P0T1_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)** - T1: Data ETL implementation
-- **[P0T2_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)** - T2: Baseline strategy
-- **[P0T3_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T3_DONE.md)** - T3: Signal service (complete guide with all phases)
-- **[P0T4_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T4_DONE.md)** - T4: Execution gateway
-- **[P0T5_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T5_DONE.md)** - T5: Orchestrator service
-
-**Phase 1 (Advanced Features):**
-- **[P1T9_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P1T9_DONE.md)** - T9: Centralized Logging with Loki/Promtail/Grafana
-- **[P1T10_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P1T10_DONE.md)** - T10: CI/CD Pipeline with Docker & Staging Automation
+Implementation guides for completed tasks are available in git history at tag `archive-pre-ai-company`.
 
 ### Architecture Decisions
 - [docs/ADRs/0001-data-pipeline-architecture.md](./docs/ADRs/0001-data-pipeline-architecture.md) - T1: Data pipeline decisions
@@ -177,7 +166,7 @@ trading_platform/
 - `libs/data_pipeline/quality_gate.py` - Outlier detection
 
 **Tests:** 53 tests, 100% passing
-**Documentation:** [P0T1_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)
+**Documentation:** Available in git history at tag `archive-pre-ai-company`
 
 ---
 
@@ -197,7 +186,7 @@ trading_platform/
 - `strategies/alpha_baseline/mock_features.py` - Mock features for testing
 
 **Tests:** Unit tests for all components
-**Documentation:** [P0T2_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)
+**Documentation:** Available in git history at tag `archive-pre-ai-company`
 
 ---
 
@@ -241,7 +230,7 @@ trading_platform/
 - Zero downtime during updates ✅
 
 **Documentation:**
-- [P0T3_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T3_DONE.md) - Complete implementation guide (includes FastAPI, hot reload, and testing)
+- Implementation guide available in git history at tag `archive-pre-ai-company`
 - [docs/ADRs/0004-signal-service-architecture.md](./docs/ADRs/0004-signal-service-architecture.md) - Architecture decisions
 
 **Deployment Scripts:**
@@ -300,7 +289,7 @@ trading_platform/
 - Health check: < 10ms ✅
 
 **Documentation:**
-- [P0T4_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T4_DONE.md) - Complete implementation guide
+- Implementation guide available in git history at tag `archive-pre-ai-company`
 - [docs/ADRs/0014-execution-gateway-architecture.md](./docs/ADRs/0014-execution-gateway-architecture.md) - Architecture decisions (690 lines)
 
 **Deployment Scripts:**
@@ -360,7 +349,7 @@ trading_platform/
 - Partial failure support (some orders succeed, some fail) ✅
 
 **Documentation:**
-- [P0T5_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T5_DONE.md) - Complete implementation guide
+- Implementation guide available in git history at tag `archive-pre-ai-company`
 - [docs/ADRs/0006-orchestrator-service.md](./docs/ADRs/0006-orchestrator-service.md) - Architecture decisions (900+ lines)
 
 **Deployment Scripts:**
@@ -398,25 +387,25 @@ trading_platform/
 **Usage:**
 ```bash
 # Basic run with defaults from .env
-python scripts/paper_run.py
+python scripts/ops/paper_run.py
 
 # Custom parameters
-python scripts/paper_run.py --symbols AAPL MSFT --capital 50000
+python scripts/ops/paper_run.py --symbols AAPL MSFT --capital 50000
 
 # Save results to JSON
-python scripts/paper_run.py --output results/run_$(date +%Y%m%d).json
+python scripts/ops/paper_run.py --output results/run_$(date +%Y%m%d).json
 
 # Dry run (health checks only)
-python scripts/paper_run.py --dry-run
+python scripts/ops/paper_run.py --dry-run
 
 # Verbose mode for debugging
-python scripts/paper_run.py --verbose
+python scripts/ops/paper_run.py --verbose
 ```
 
 **Key files:**
-- `scripts/paper_run.py` (872 lines) - Main CLI automation script
-- `scripts/test_paper_run.py` (605 lines) - Comprehensive test suite
-- `docs/ARCHIVE/TASKS_HISTORY/P0T6_DONE.md` - Implementation guide
+- `scripts/ops/paper_run.py` - Main CLI automation script
+- `scripts/testing/validate_paper_run.py` - Paper run validation test suite
+- Implementation guide available in git history at tag `archive-pre-ai-company`
 - `docs/CONCEPTS/pnl-calculation.md` (407 lines) - P&L explanation
 - `docs/ADRs/0007-paper-run-automation.md` (451 lines) - Architecture decisions
 
@@ -436,7 +425,7 @@ python scripts/paper_run.py --verbose
 - P&L calculation: < 1ms ✅
 
 **Documentation:**
-- [docs/ARCHIVE/TASKS_HISTORY/P0T6_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T6_DONE.md) - Complete implementation guide
+- Implementation guide available in git history at tag `archive-pre-ai-company`
 - [docs/ADRs/0007-paper-run-automation.md](./docs/ADRs/0007-paper-run-automation.md) - Architecture decisions (CLI script vs microservice)
 - [docs/CONCEPTS/pnl-calculation.md](./docs/CONCEPTS/pnl-calculation.md) - P&L types and calculation methods
 
@@ -673,14 +662,14 @@ All 6 tasks (T1-T6) successfully delivered:
 ### P1: Advanced Features (In Progress - 83% Complete)
 
 **Completed:**
-- ✅ **P1T9:** [Centralized Logging](./docs/ARCHIVE/TASKS_HISTORY/P1T9_DONE.md) - Loki/Promtail/Grafana observability stack
-- ✅ **P1T10:** [CI/CD Pipeline](./docs/ARCHIVE/TASKS_HISTORY/P1T10_DONE.md) - Docker builds, integration tests, staging deployment
+- P1T9: Centralized Logging - Loki/Promtail/Grafana observability stack
+- P1T10: CI/CD Pipeline - Docker builds, integration tests, staging deployment
 
 **In Progress:**
 - 🔄 **P1T11:** Production deployment automation
 - 🔄 **P1T12:** Enhanced monitoring and alerting
 
-**See:** [P0_TASKS_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) for complete roadmap
+**See:** git history at tag `archive-pre-ai-company` for complete roadmap
 
 ---
 

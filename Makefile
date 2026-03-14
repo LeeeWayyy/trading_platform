@@ -1,4 +1,4 @@
-.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -85,9 +85,6 @@ lint: ## Run linters (black, ruff, mypy --strict)
 	poetry run ruff check .
 	poetry run mypy libs/ apps/ strategies/ tools/ --strict
 
-validate-docs: ## Validate that all markdown files are indexed in docs/INDEX.md
-	@./scripts/dev/validate_doc_index.sh
-
 check-doc-freshness: ## Validate documentation freshness and coverage
 	@poetry run python scripts/dev/check_doc_freshness.py
 
@@ -157,16 +154,14 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	echo "If this passes, CI should pass too."; \
 	echo ""; \
 	echo "$(SEPARATOR)"; \
-	echo "Step 0/10: Validating local environment matches pyproject.toml"; \
+	echo "Step 0/9: Validating local environment matches pyproject.toml"; \
 	echo "$(SEPARATOR)"
 	@poetry run python scripts/testing/validate_env.py || { $(call ci_error,Environment validation failed!,Your local environment is missing packages. Run: poetry install); }
-	$(call ci_step_header,Step 1/10,Validating documentation index)
-	@./scripts/dev/validate_doc_index.sh || { $(call ci_error,Documentation index validation failed!,All markdown files must be indexed in docs/INDEX.md. See error output above for missing files.); }
-	$(call ci_step_header,Step 2/10,Checking documentation freshness)
-	@poetry run python scripts/dev/check_doc_freshness.py || { $(call ci_error,Documentation freshness check failed!,Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories.); }
-	$(call ci_step_header,Step 3/10,Checking architecture map is up to date)
-	@poetry run python scripts/dev/generate_architecture.py --check || { $(call ci_error,Architecture map is out of date!,Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate.); }
-	$(call ci_step_header,Step 4/10,Checking markdown links (timeout: 1min))
+	$(call ci_step_header,Step 1/9,Checking documentation freshness)
+	@poetry run python scripts/dev/check_doc_freshness.py || { $(call ci_error,Documentation freshness check failed!,Update docs/GETTING_STARTED/REPO_MAP.md to match current source directories.); }
+	$(call ci_step_header,Step 2/9,Checking architecture map is up to date)
+	@poetry run python scripts/dev/generate_architecture.py --check || { $(call ci_error,Architecture map is out of date!,Run 'make check-architecture' or 'python scripts/dev/generate_architecture.py' to regenerate.); }
+	$(call ci_step_header,Step 3/9,Checking markdown links (timeout: 1min))
 	@command -v markdown-link-check >/dev/null 2>&1 || { echo "❌ markdown-link-check not found. Installing..."; npm install -g markdown-link-check; }
 	@HANG_TIMEOUT=60 ./scripts/hooks/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./GEMINI.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
 		EXIT_CODE=$$?; \
@@ -179,17 +174,17 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		fi; \
 		exit 1; \
 	}
-	$(call ci_step_header,Step 5/10,Type checking with mypy --strict)
+	$(call ci_step_header,Step 4/9,Type checking with mypy --strict)
 	poetry run mypy libs/ apps/ strategies/ tools/ --strict
-	$(call ci_step_header,Step 6/10,Linting with ruff)
+	$(call ci_step_header,Step 5/9,Linting with ruff)
 	poetry run ruff check .
-	$(call ci_step_header,Step 7/10,Checking layer violations)
+	$(call ci_step_header,Step 6/9,Checking layer violations)
 	@poetry run python scripts/dev/check_layering.py || { $(call ci_error,Layer violation detected!,libs/ should never import from apps/. Use dependency injection or move shared code to libs/.); }
-	$(call ci_step_header,Step 8/10,Checking AI instruction drift)
+	$(call ci_step_header,Step 7/9,Checking AI instruction drift)
 	@./scripts/dev/lint_instruction_drift.sh || { $(call ci_error,Instruction drift detected!,Nested context files are duplicating root AI_GUIDE.md content. See output above.); }
-	$(call ci_step_header,Step 9/10,Checking AI terminology consistency (informational))
+	$(call ci_step_header,Step 8/9,Checking AI terminology consistency (informational))
 	@./scripts/dev/lint_terminology.sh || true
-	$(call ci_step_header,Step 10/10,Running tests (parallel with pytest-xdist; integration/e2e skipped; timeout: 2 min per stall))
+	$(call ci_step_header,Step 9/9,Running tests (parallel with pytest-xdist; integration/e2e skipped; timeout: 2 min per stall))
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
 	# Exclude quarantined tests dynamically from tests/quarantine.txt
 	@DESELECT_ARGS=""; \
