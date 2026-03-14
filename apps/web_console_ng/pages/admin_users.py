@@ -188,19 +188,21 @@ async def admin_users_page() -> None:
                 ui.notify("Cannot remove the last admin", type="negative")
                 return
 
+            # Obtain Redis client for cache invalidation (best-effort)
+            try:
+                from apps.web_console_ng.core.redis_ha import get_redis_store
+
+                store = get_redis_store()
+                redis_client = await store.get_master()
+            except Exception:
+                redis_client = None
+
             success, msg = await change_user_role(
-                db_pool, uid, new_role, current_uid, audit, reason
+                db_pool, uid, new_role, current_uid, audit, reason,
+                redis_client=redis_client,
             )
             if success:
-                # Best-effort: invalidate Redis role cache + sessions
-                try:
-                    from apps.web_console_ng.core.redis_ha import get_redis_store
-
-                    store = get_redis_store()
-                    redis_client = await store.get_master()
-                    await redis_client.delete(f"ng_role_cache:{uid}")
-                except Exception:
-                    logger.warning("role_cache_invalidation_failed", extra={"user_id": uid})
+                # Best-effort: invalidate sessions
                 try:
                     count = await invalidate_redis_sessions_for_user(uid)
                     logger.info("sessions_invalidated_after_role_change", extra={"user_id": uid, "count": count})

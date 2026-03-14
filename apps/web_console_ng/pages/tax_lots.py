@@ -377,7 +377,12 @@ async def _render_summary_metrics(
     db_pool: Any,
 ) -> None:
     """Render summary header cards."""
-    total_cost = sum(lot.cost_basis for lot in lots)
+    # Pro-rate cost basis for partially sold lots (remaining < quantity)
+    total_cost = sum(
+        lot.cost_basis * (lot.remaining_quantity / lot.quantity) if lot.quantity > 0
+        else lot.cost_basis
+        for lot in lots
+    )
     total_value = Decimal("0")
     priced_cost = Decimal("0")
     has_prices = bool(current_prices)

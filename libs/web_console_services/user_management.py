@@ -108,17 +108,19 @@ async def change_user_role(
     admin_user_id: str,
     audit_logger: AuditLogger,
     reason: str,
+    *,
+    redis_client: Any = None,
 ) -> tuple[bool, str]:
     """Change user role with session invalidation and audit logging.
 
     [v1.1] Now logs DENIED attempts to audit trail, not just successes.
     Returns (success, message).
 
-    **Caller responsibility:** After a successful role change, callers must
-    invalidate the role cache key ``ng_role_cache:{user_id}`` in Redis so the
-    middleware picks up the new role immediately (ADR-0038).  The UI layer
-    (``admin_users.py``) handles this; non-UI callers (ops scripts, future API
-    endpoints) must do the same.
+    Args:
+        redis_client: Optional async Redis client.  When provided, the role
+            cache key ``ng_role_cache:{user_id}`` is invalidated automatically
+            after a successful DB update (ADR-0038).  Callers that omit this
+            parameter must invalidate the cache themselves.
     """
 
     # [T16.2] Self-edit guard: cannot change own role
@@ -235,6 +237,16 @@ async def change_user_role(
                 "role_change_audit_log_failed",
                 extra={"user_id": user_id, "admin": admin_user_id, "new_role": new_role, "error": str(exc)},
             )
+
+        # Best-effort: invalidate Redis role cache so middleware picks up change
+        if redis_client is not None:
+            try:
+                await redis_client.delete(f"ng_role_cache:{user_id}")
+            except Exception:
+                logger.warning(
+                    "role_cache_invalidation_failed",
+                    extra={"user_id": user_id},
+                )
 
         logger.info(
             "role_changed",
@@ -464,6 +476,8 @@ async def bulk_change_roles(
     admin_user_id: str,
     audit_logger: AuditLogger,
     reason: str,
+    *,
+    redis_client: Any = None,
 ) -> dict[str, tuple[bool, str]]:
     """Change roles for multiple users.
 
@@ -474,7 +488,8 @@ async def bulk_change_roles(
     results: dict[str, tuple[bool, str]] = {}
     for user_id in user_ids:
         success, msg = await change_user_role(
-            db_pool, user_id, new_role, admin_user_id, audit_logger, reason
+            db_pool, user_id, new_role, admin_user_id, audit_logger, reason,
+            redis_client=redis_client,
         )
         results[user_id] = (success, msg)
     return results
