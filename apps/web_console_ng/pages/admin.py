@@ -262,7 +262,8 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
         set_expiry.on_value_change(toggle_expiry)
 
         async def create_key() -> None:
-            if not await _check_api_key_permission(db_pool, "create", user_id):
+            proposed_name = name_input.value.strip() or "unnamed"
+            if not await _check_api_key_permission(db_pool, "create", proposed_name):
                 return
             name = name_input.value
             if not name or len(name.strip()) < 3:
