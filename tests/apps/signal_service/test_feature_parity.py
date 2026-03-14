@@ -276,6 +276,10 @@ class TestFeatureDimensions:
 class TestFeatureModelCompatibility:
     """Validate features are compatible with model."""
 
+    @pytest.mark.skipif(
+        not Path("artifacts/models/alpha_baseline.txt").exists(),
+        reason="Requires trained alpha_baseline model from T2",
+    )
     def test_features_match_model_input_dimensions(self, data_dir, test_symbols, test_date):
         """Test that features match model's expected input dimensions."""
         from apps.signal_service.model_registry import ModelRegistry

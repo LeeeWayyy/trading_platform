@@ -45,6 +45,7 @@ def _mock_cursor_conn(mock_cursor: AsyncMock) -> Mock:
     """Create a mock connection with proper cursor async context manager."""
     mock_conn = Mock()
     mock_conn.cursor.return_value = AsyncContextManager(mock_cursor)
+    mock_conn.transaction.return_value = AsyncContextManager(None)
     mock_conn.commit = AsyncMock()  # conn.commit() is awaited
     return mock_conn
 
@@ -1275,3 +1276,220 @@ class TestToDecimalAdditional:
         """Test _to_decimal with string."""
         result = _to_decimal("100.25")
         assert result == Decimal("100.25")
+
+
+class TestListLotsOpenOnly:
+    """Tests for list_lots open_only filtering."""
+
+    @pytest.mark.asyncio()
+    async def test_list_lots_open_only_adds_where_clauses(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test list_lots with open_only=True adds remaining_quantity and closed_at filters."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn = _mock_cursor_conn(mock_cursor)
+
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+        ):
+            result = await service.list_lots(open_only=True)
+
+        assert result == []
+        # Verify the SQL contained the open_only filters
+        executed_sql = mock_cursor.execute.call_args[0][0]
+        assert "remaining_quantity > 0" in executed_sql
+        assert "closed_at IS NULL" in executed_sql
+
+    @pytest.mark.asyncio()
+    async def test_list_lots_no_open_only_no_extra_filters(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test list_lots without open_only does not add extra filters."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn = _mock_cursor_conn(mock_cursor)
+
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+        ):
+            result = await service.list_lots(open_only=False)
+
+        assert result == []
+        executed_sql = mock_cursor.execute.call_args[0][0]
+        assert "remaining_quantity > 0" not in executed_sql
+        assert "closed_at IS NULL" not in executed_sql
+
+
+class TestCostBasisMethods:
+    """Tests for get_cost_basis_method and set_cost_basis_method."""
+
+    @pytest.mark.asyncio()
+    async def test_get_cost_basis_method_returns_stored_value(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test get_cost_basis_method returns DB value when valid."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value={"cost_basis_method": "lifo"})
+        mock_conn = _mock_cursor_conn(mock_cursor)
+
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+        ):
+            method = await service.get_cost_basis_method()
+
+        assert method == "lifo"
+
+    @pytest.mark.asyncio()
+    async def test_get_cost_basis_method_defaults_to_fifo(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test get_cost_basis_method returns 'fifo' when no setting exists."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=None)
+        mock_conn = _mock_cursor_conn(mock_cursor)
+
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+        ):
+            method = await service.get_cost_basis_method()
+
+        assert method == "fifo"
+
+    @pytest.mark.asyncio()
+    async def test_get_cost_basis_method_no_user_context(
+        self, mock_db_pool: Mock
+    ) -> None:
+        """Test get_cost_basis_method returns 'fifo' when no user context."""
+        service = TaxLotService(db_pool=mock_db_pool, user={"role": "viewer"})
+
+        with patch(
+            "libs.web_console_services.tax_lot_service.has_permission",
+            return_value=True,
+        ):
+            method = await service.get_cost_basis_method()
+
+        assert method == "fifo"
+
+    @pytest.mark.asyncio()
+    async def test_get_cost_basis_method_cross_user_requires_permission(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test get_cost_basis_method for another user requires MANAGE_TAX_SETTINGS."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        def _perm_check(_user: Any, perm: Permission) -> bool:
+            # Allow VIEW_TAX_LOTS but deny MANAGE_TAX_SETTINGS
+            return perm != Permission.MANAGE_TAX_SETTINGS
+
+        with patch(
+            "libs.web_console_services.tax_lot_service.has_permission",
+            side_effect=_perm_check,
+        ):
+            with pytest.raises(PermissionError, match="manage_tax_settings"):
+                await service.get_cost_basis_method(user_id="other-user")
+
+    @pytest.mark.asyncio()
+    async def test_set_cost_basis_method_success(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test set_cost_basis_method upserts the method."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        mock_cursor = AsyncMock()
+        mock_conn = _mock_cursor_conn(mock_cursor)
+
+        with (
+            patch(
+                "libs.web_console_services.tax_lot_service.has_permission",
+                return_value=True,
+            ),
+            patch(
+                "libs.web_console_services.tax_lot_service.acquire_connection",
+                return_value=_mock_acquire_connection(mock_conn),
+            ),
+        ):
+            await service.set_cost_basis_method("lifo")
+
+        # Verify execute was called with the upsert query
+        mock_cursor.execute.assert_called_once()
+        sql = mock_cursor.execute.call_args[0][0]
+        assert "ON CONFLICT" in sql
+
+    @pytest.mark.asyncio()
+    async def test_set_cost_basis_method_invalid_method(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test set_cost_basis_method rejects invalid methods."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        with patch(
+            "libs.web_console_services.tax_lot_service.has_permission",
+            return_value=True,
+        ):
+            with pytest.raises(ValueError, match="Invalid cost basis method"):
+                await service.set_cost_basis_method("average_cost")
+
+    @pytest.mark.asyncio()
+    async def test_set_cost_basis_method_requires_permission(
+        self, mock_db_pool: Mock, viewer_user: dict[str, Any]
+    ) -> None:
+        """Test set_cost_basis_method requires MANAGE_TAX_SETTINGS."""
+        service = TaxLotService(db_pool=mock_db_pool, user=viewer_user)
+
+        with patch(
+            "libs.web_console_services.tax_lot_service.has_permission",
+            return_value=False,
+        ):
+            with pytest.raises(PermissionError):
+                await service.set_cost_basis_method("fifo")
+
+    @pytest.mark.asyncio()
+    async def test_set_cost_basis_method_no_user_context(
+        self, mock_db_pool: Mock
+    ) -> None:
+        """Test set_cost_basis_method raises when no user context."""
+        service = TaxLotService(db_pool=mock_db_pool, user={"role": "admin"})
+
+        with patch(
+            "libs.web_console_services.tax_lot_service.has_permission",
+            return_value=True,
+        ):
+            with pytest.raises(PermissionError, match="User context required"):
+                await service.set_cost_basis_method("fifo")

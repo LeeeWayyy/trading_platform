@@ -339,6 +339,8 @@ def test_navigation_item_structure() -> None:
         ("Backtest", "/backtest", "science", None),
         ("Strategies", "/strategies", "model_training", None),  # P6T17
         ("Models", "/models", "hub", None),  # P6T17
+        ("Tax Lots", "/tax-lots", "receipt_long", None),  # P6T16
+        ("Users", "/admin/users", "people", None),  # P6T16
         ("Alerts", "/alerts", "notifications", None),  # P5T7/P6T17
         ("Admin", "/admin", "settings", None),
     ]

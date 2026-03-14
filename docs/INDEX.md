@@ -140,10 +140,10 @@ Step-by-step procedures for development workflows:
 - [CURRENT, 2026-02-27, Skill] [.claude/skills/pr-fix/SKILL.md](../.claude/skills/pr-fix/SKILL.md) - Batch PR comment resolution skill
 - [CURRENT, 2026-02-27, Skill] [.claude/skills/analyze/SKILL.md](../.claude/skills/analyze/SKILL.md) - Pre-implementation analysis skill
 - [CURRENT, 2026-02-27, Command] [.claude/commands/review.md](../.claude/commands/review.md) - Code review command (Gemini + Codex)
+- [CURRENT, 2026-03-12, Command] [.claude/commands/review-code.md](../.claude/commands/review-code.md) - Code review command for source files
+- [CURRENT, 2026-03-12, Command] [.claude/commands/review-plan.md](../.claude/commands/review-plan.md) - Plan/doc review command
 - [CURRENT, 2026-02-27, Command] [.claude/commands/pr-fix.md](../.claude/commands/pr-fix.md) - PR fix command
 - [CURRENT, 2026-02-27, Command] [.claude/commands/analyze.md](../.claude/commands/analyze.md) - Analysis command
-- [CURRENT, 2026-03-02, Command] [.claude/commands/review-code.md](../.claude/commands/review-code.md) - Code review command (source files)
-- [CURRENT, 2026-03-02, Command] [.claude/commands/review-plan.md](../.claude/commands/review-plan.md) - Plan/doc review command
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
 
@@ -286,6 +286,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0036](./ADRs/ADR-0036-ai-context-architecture.md) | AI context architecture — shared skills, nested context, cross-platform | ✅ Accepted |
 | [ADR-0037](./ADRs/ADR-0037-file-based-universe-persistence.md) | File-based universe persistence for custom universe definitions | ✅ Accepted |
 | [ADR-0038](./ADRs/ADR-0038-strategy-model-management.md) | Strategy & model management with fail-closed gating | ✅ Accepted |
+| [ADR-0039](./ADRs/ADR-0039-db-role-authority-override.md) | DB as role authority with middleware override and fail-open design | ✅ Accepted |
 | [ADR-025](./ADRs/ADR-025-monorepo-build-systems.md) | Monorepo build systems evaluation deferred (Bazel/Pants/Nx) | ✅ Accepted |
 
 **How to use ADRs:**

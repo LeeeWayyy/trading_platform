@@ -14,6 +14,7 @@ Add imports as pages are implemented:
 # P5T7 pages (add as implemented):
 from apps.web_console_ng.pages import (
     admin,  # noqa: F401
+    admin_users,  # noqa: F401 - P6T16
     alerts,  # noqa: F401
     alpha_explorer,  # noqa: F401 - P5T8
     attribution,  # noqa: F401 - P6T10
@@ -43,5 +44,6 @@ from apps.web_console_ng.pages import (
     shadow_results,  # noqa: F401 - P6T14
     sql_explorer,  # noqa: F401 - P6T14
     strategies,  # noqa: F401 - P6T17
+    tax_lots,  # noqa: F401 - P6T16
     universes,  # noqa: F401 - P6T15
 )

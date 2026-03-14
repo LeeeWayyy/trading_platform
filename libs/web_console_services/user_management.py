@@ -108,12 +108,32 @@ async def change_user_role(
     admin_user_id: str,
     audit_logger: AuditLogger,
     reason: str,
+    *,
+    redis_client: Any = None,
 ) -> tuple[bool, str]:
     """Change user role with session invalidation and audit logging.
 
     [v1.1] Now logs DENIED attempts to audit trail, not just successes.
     Returns (success, message).
+
+    Args:
+        redis_client: Optional async Redis client.  When provided, the role
+            cache key ``ng_role_cache:{user_id}`` is invalidated automatically
+            after a successful DB update (ADR-0038).  Callers that omit this
+            parameter must invalidate the cache themselves.
     """
+
+    # [T16.2] Self-edit guard: cannot change own role
+    if user_id == admin_user_id:
+        await audit_logger.log_action(
+            user_id=admin_user_id,
+            action="role_change_denied",
+            resource_type="user",
+            resource_id=user_id,
+            outcome="denied",
+            details={"reason": "self_edit", "attempted_role": new_role},
+        )
+        return False, "Cannot change own role"
 
     valid_roles = {r.value for r in Role}
     if new_role not in valid_roles:
@@ -132,12 +152,19 @@ async def change_user_role(
         async with acquire_connection(db_pool) as conn:
             # [v1.4] Use explicit transaction for atomicity
             async with conn.transaction():
-                # Get old role for audit
+                # Lock ALL admin rows + target row in one query, ordered by user_id
+                # to prevent deadlocks between concurrent admin demotions.
                 cursor = await conn.execute(
-                    "SELECT role FROM user_roles WHERE user_id = %s FOR UPDATE",
+                    """SELECT user_id, role FROM user_roles
+                       WHERE user_id = %s OR role = 'admin'
+                       ORDER BY user_id
+                       FOR UPDATE""",
                     (user_id,),
                 )
-                old_row = await cursor.fetchone()
+                locked_rows = await cursor.fetchall()
+
+                # Find the target user's row
+                old_row = next((r for r in locked_rows if r[0] == user_id), None)
                 if not old_row:
                     # [v1.1] Log denied attempt
                     await audit_logger.log_action(
@@ -150,7 +177,7 @@ async def change_user_role(
                     )
                     return False, f"User not found: {user_id}"
 
-                old_role = old_row[0]
+                old_role = old_row[1]
                 if old_role == new_role:
                     # [v1.1] Log denied (no-op)
                     await audit_logger.log_action(
@@ -162,6 +189,23 @@ async def change_user_role(
                         details={"reason": "no_change", "current_role": old_role},
                     )
                     return False, f"User already has role: {new_role}"
+
+                # [T16.2] Last-admin guard: prevent removing the sole admin
+                if old_role == "admin" and new_role != "admin":
+                    admin_count = sum(1 for r in locked_rows if r[1] == "admin")
+                    if admin_count <= 1:
+                        await audit_logger.log_action(
+                            user_id=admin_user_id,
+                            action="role_change_denied",
+                            resource_type="user",
+                            resource_id=user_id,
+                            outcome="denied",
+                            details={
+                                "reason": "last_admin",
+                                "attempted_role": new_role,
+                            },
+                        )
+                        return False, "Cannot remove the last admin"
 
                 # Update role and increment session_version
                 await conn.execute(
@@ -176,17 +220,33 @@ async def change_user_role(
                     (new_role, admin_user_id, user_id),
                 )
 
-        # Audit log success
-        await audit_logger.log_admin_change(
-            admin_user_id=admin_user_id,
-            action="role_change",
-            target_user_id=user_id,
-            details={
-                "old_role": old_role,
-                "new_role": new_role,
-                "reason": reason,
-            },
-        )
+        # Audit log success (best-effort: must not block cache/session invalidation)
+        try:
+            await audit_logger.log_admin_change(
+                admin_user_id=admin_user_id,
+                action="role_change",
+                target_user_id=user_id,
+                details={
+                    "old_role": old_role,
+                    "new_role": new_role,
+                    "reason": reason,
+                },
+            )
+        except (psycopg.Error, OSError) as exc:
+            logger.warning(
+                "role_change_audit_log_failed",
+                extra={"user_id": user_id, "admin": admin_user_id, "new_role": new_role, "error": str(exc)},
+            )
+
+        # Best-effort: invalidate Redis role cache so middleware picks up change
+        if redis_client is not None:
+            try:
+                await redis_client.delete(f"ng_role_cache:{user_id}")
+            except Exception:
+                logger.warning(
+                    "role_cache_invalidation_failed",
+                    extra={"user_id": user_id},
+                )
 
         logger.info(
             "role_changed",
@@ -416,6 +476,8 @@ async def bulk_change_roles(
     admin_user_id: str,
     audit_logger: AuditLogger,
     reason: str,
+    *,
+    redis_client: Any = None,
 ) -> dict[str, tuple[bool, str]]:
     """Change roles for multiple users.
 
@@ -426,7 +488,8 @@ async def bulk_change_roles(
     results: dict[str, tuple[bool, str]] = {}
     for user_id in user_ids:
         success, msg = await change_user_role(
-            db_pool, user_id, new_role, admin_user_id, audit_logger, reason
+            db_pool, user_id, new_role, admin_user_id, audit_logger, reason,
+            redis_client=redis_client,
         )
         results[user_id] = (success, msg)
     return results
@@ -475,11 +538,78 @@ async def bulk_revoke_strategy(
     return results
 
 
+async def ensure_user_provisioned(
+    db_pool: Any,
+    user_id: str,
+    default_role: str,
+    admin_user_id: str,
+    audit_logger: AuditLogger,
+) -> tuple[bool, str]:
+    """Bootstrap a user_roles row for users not yet provisioned.
+
+    Auth providers do NOT insert into user_roles at login. This function
+    creates the row so that change_user_role() and grant_strategy() work.
+
+    Returns (created, message). created=False if row already existed.
+    """
+    # Validate default_role against DB CHECK constraint
+    valid_roles = {r.value for r in Role}
+    if default_role not in valid_roles:
+        default_role = "viewer"  # Safest canonical default
+
+    try:
+        async with acquire_connection(db_pool) as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO user_roles (user_id, role, updated_by)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO NOTHING
+                RETURNING user_id
+                """,
+                (user_id, default_role, admin_user_id),
+            )
+            row = await cursor.fetchone()
+
+        if row:
+            # Best-effort audit: provisioning already committed, so audit
+            # failure must not mask success or trigger the DB-error path.
+            try:
+                await audit_logger.log_admin_change(
+                    admin_user_id=admin_user_id,
+                    action="user_provisioned",
+                    target_user_id=user_id,
+                    details={"default_role": default_role},
+                )
+            except (psycopg.Error, OSError) as exc:
+                logger.warning(
+                    "user_provision_audit_failed",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
+            return True, f"User provisioned with role {default_role}"
+        return False, "User already provisioned"
+
+    except psycopg.Error as e:
+        try:
+            await audit_logger.log_action(
+                user_id=admin_user_id,
+                action="user_provision_failed",
+                resource_type="user",
+                resource_id=user_id,
+                outcome="failed",
+                details={"reason": "db_error", "error": str(e)},
+            )
+        except (psycopg.Error, OSError):
+            pass  # Audit is best-effort; DB error already logged below
+        logger.exception("user_provision_failed", extra={"user_id": user_id, "error": str(e)})
+        return False, f"Database error: {str(e)}"
+
+
 __all__ = [
     "UserInfo",
     "StrategyInfo",
     "list_users",
     "change_user_role",
+    "ensure_user_provisioned",
     "list_strategies",
     "get_user_strategies",
     "grant_strategy",

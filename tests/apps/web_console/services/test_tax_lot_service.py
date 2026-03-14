@@ -48,6 +48,16 @@ class MockAsyncCursorCM:
         return None
 
 
+class MockAsyncTransactionCM:
+    """Mock async transaction context manager."""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *args):
+        return None
+
+
 class MockAsyncConnection:
     """Mock async connection."""
 
@@ -57,6 +67,9 @@ class MockAsyncConnection:
 
     def cursor(self, *_args, **_kwargs):
         return MockAsyncCursorCM(self._cursor)
+
+    def transaction(self):
+        return MockAsyncTransactionCM()
 
 
 class MockAsyncPool:
@@ -142,7 +155,6 @@ async def test_create_lot_success() -> None:
 
     assert lot.lot_id == "lot-2"
     assert lot.symbol == "MSFT"
-    conn.commit.assert_awaited()
 
 
 @pytest.mark.asyncio()
@@ -272,7 +284,7 @@ async def test_update_lot_success() -> None:
     lot = await service.update_lot("lot-7", {"symbol": "NVDA"})
 
     assert lot.symbol == "NVDA"
-    conn.commit.assert_awaited()
+
 
 
 @pytest.mark.asyncio()
@@ -300,7 +312,7 @@ async def test_close_lot_success() -> None:
 
     assert lot is not None
     assert lot.status == "closed"
-    conn.commit.assert_awaited()
+
 
 
 @pytest.mark.asyncio()
@@ -429,4 +441,4 @@ async def test_update_lot_ignores_null_status() -> None:
     assert lot.symbol == "META_UPDATED"
     # Status should remain "open" since closed_at is still None
     assert lot.status == "open"
-    conn.commit.assert_awaited()
+
