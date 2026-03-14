@@ -9,6 +9,7 @@ import ipaddress
 import json
 import logging
 import secrets
+from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -159,16 +160,16 @@ class ServerSessionStore:
                 index_key = f"{self.user_sessions_prefix}{uid}"
                 # Lazy prune: remove stale session IDs whose keys have expired
                 try:
-                    existing_ids = await self.redis.smembers(index_key)
+                    existing_ids = await cast(Awaitable[set[Any]], self.redis.smembers(index_key))
                     if existing_ids:
                         stale = []
                         for sid in existing_ids:
                             sid_str = sid.decode() if isinstance(sid, bytes) else str(sid)
-                            exists = await self.redis.exists(f"{self.session_prefix}{sid_str}")
+                            exists = await cast(Awaitable[int], self.redis.exists(f"{self.session_prefix}{sid_str}"))
                             if not exists:
                                 stale.append(sid)
                         if stale:
-                            await self.redis.srem(index_key, *stale)
+                            await cast(Awaitable[int], self.redis.srem(index_key, *stale))
                 except Exception:
                     pass  # Best-effort pruning; don't block login
                 async with self.redis.pipeline(transaction=True) as pipe:
