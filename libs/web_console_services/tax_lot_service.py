@@ -317,6 +317,13 @@ class TaxLotService:
                             remaining_quantity = new_quantity
                         closed_at = None
 
+                    # Always cap remaining_quantity to new_quantity to prevent
+                    # impossible state (remaining > quantity) after quantity edits.
+                    if "quantity" in updates:
+                        remaining_quantity = min(
+                            _to_decimal(remaining_quantity), new_quantity
+                        )
+
                     set_clauses: list[str] = []
                     values: list[Any] = []
 
@@ -354,16 +361,13 @@ class TaxLotService:
                             )
                         set_clauses.append("acquired_at = %s")
                         values.append(new_acquired_at)
-                    # Update remaining_quantity when quantity changes without an explicit status string
+                    # Write remaining_quantity when quantity changes without an explicit status
                     status_is_explicit = "status" in updates and isinstance(status_override, str)
                     if "quantity" in updates and not status_is_explicit:
-                        # Cap remaining_quantity to new quantity if it exceeds
-                        current_remaining = _to_decimal(row.get("remaining_quantity", current_quantity))
-                        remaining_quantity = min(current_remaining, new_quantity)
                         set_clauses.append("remaining_quantity = %s")
                         values.append(remaining_quantity)
                     # Only update status if a valid string was provided (ignore null/non-string values)
-                    if "status" in updates and isinstance(status_override, str):
+                    if status_is_explicit:
                         set_clauses.append("remaining_quantity = %s")
                         values.append(remaining_quantity)
                         set_clauses.append("closed_at = %s")

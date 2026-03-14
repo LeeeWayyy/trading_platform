@@ -230,10 +230,10 @@ async def change_user_role(
                     "reason": reason,
                 },
             )
-        except Exception:
+        except (psycopg.Error, OSError) as exc:
             logger.error(
                 "role_change_audit_log_failed",
-                extra={"user_id": user_id, "admin": admin_user_id, "new_role": new_role},
+                extra={"user_id": user_id, "admin": admin_user_id, "new_role": new_role, "error": str(exc)},
             )
 
         logger.info(
