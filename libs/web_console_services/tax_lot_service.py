@@ -319,7 +319,6 @@ class TaxLotService:
 
                     # Validate and cap remaining_quantity when quantity changes.
                     if "quantity" in updates:
-                        current_remaining = _to_decimal(remaining_quantity)
                         disposed = current_quantity - _to_decimal(
                             row.get("remaining_quantity", current_quantity)
                         )

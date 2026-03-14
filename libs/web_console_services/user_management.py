@@ -556,24 +556,35 @@ async def ensure_user_provisioned(
             row = await cursor.fetchone()
 
         if row:
-            await audit_logger.log_admin_change(
-                admin_user_id=admin_user_id,
-                action="user_provisioned",
-                target_user_id=user_id,
-                details={"default_role": default_role},
-            )
+            # Best-effort audit: provisioning already committed, so audit
+            # failure must not mask success or trigger the DB-error path.
+            try:
+                await audit_logger.log_admin_change(
+                    admin_user_id=admin_user_id,
+                    action="user_provisioned",
+                    target_user_id=user_id,
+                    details={"default_role": default_role},
+                )
+            except (psycopg.Error, OSError) as exc:
+                logger.warning(
+                    "user_provision_audit_failed",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
             return True, f"User provisioned with role {default_role}"
         return False, "User already provisioned"
 
     except psycopg.Error as e:
-        await audit_logger.log_action(
-            user_id=admin_user_id,
-            action="user_provision_failed",
-            resource_type="user",
-            resource_id=user_id,
-            outcome="failed",
-            details={"reason": "db_error", "error": str(e)},
-        )
+        try:
+            await audit_logger.log_action(
+                user_id=admin_user_id,
+                action="user_provision_failed",
+                resource_type="user",
+                resource_id=user_id,
+                outcome="failed",
+                details={"reason": "db_error", "error": str(e)},
+            )
+        except (psycopg.Error, OSError):
+            pass  # Audit is best-effort; DB error already logged below
         logger.exception("user_provision_failed", extra={"user_id": user_id, "error": str(e)})
         return False, f"Database error: {str(e)}"
 

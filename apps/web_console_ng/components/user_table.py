@@ -60,55 +60,56 @@ def render_user_table(
         .style("height: 400px")
     )
 
+    async def _get_single_selected(action: str = "this action") -> str | None:
+        """Return user_id of the single selected row, or None with a warning."""
+        selected = await grid.get_selected_rows()
+        if not selected:
+            ui.notify("Select a user first", type="warning")
+            return None
+        if len(selected) > 1:
+            ui.notify(f"Select one user for {action}", type="warning")
+            return None
+        return str(selected[0]["user_id"])
+
     # Action buttons row
     with ui.row().classes("w-full gap-2 mt-2"):
         if on_role_change:
 
             async def _role_change() -> None:
-                selected = await grid.get_selected_rows()
-                if selected and len(selected) == 1:
-                    await on_role_change(selected[0]["user_id"])
-                elif selected and len(selected) > 1:
-                    ui.notify("Select one user for role change", type="warning")
-                else:
-                    ui.notify("Select a user first", type="warning")
+                uid = await _get_single_selected("role change")
+                if uid:
+                    await on_role_change(uid)
 
             ui.button("Change Role", on_click=_role_change, icon="edit").props("flat")
 
         if on_view_strategies:
 
             async def _strategies() -> None:
-                selected = await grid.get_selected_rows()
-                if selected and len(selected) == 1:
-                    await on_view_strategies(selected[0]["user_id"])
-                else:
-                    ui.notify("Select one user", type="warning")
+                uid = await _get_single_selected("strategies")
+                if uid:
+                    await on_view_strategies(uid)
 
             ui.button("Strategies", on_click=_strategies, icon="key").props("flat")
 
         if on_view_activity:
 
             async def _activity() -> None:
-                selected = await grid.get_selected_rows()
-                if selected and len(selected) == 1:
-                    await on_view_activity(selected[0]["user_id"])
-                else:
-                    ui.notify("Select one user", type="warning")
+                uid = await _get_single_selected("activity")
+                if uid:
+                    await on_view_activity(uid)
 
             ui.button("Activity", on_click=_activity, icon="history").props("flat")
 
         if on_force_logout:
 
             async def _force_logout() -> None:
-                selected = await grid.get_selected_rows()
-                if selected and len(selected) == 1:
-                    target = selected[0]["user_id"]
-                    if target == current_user_id:
-                        ui.notify("Cannot force-logout yourself", type="warning")
-                        return
-                    await on_force_logout(target)
-                else:
-                    ui.notify("Select one user", type="warning")
+                uid = await _get_single_selected("force logout")
+                if not uid:
+                    return
+                if uid == current_user_id:
+                    ui.notify("Cannot force-logout yourself", type="warning")
+                    return
+                await on_force_logout(uid)
 
             ui.button("Force Logout", on_click=_force_logout, icon="logout", color="orange").props(
                 "flat"

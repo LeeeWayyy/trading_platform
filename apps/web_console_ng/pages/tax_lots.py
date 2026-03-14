@@ -393,7 +393,9 @@ async def _render_summary_metrics(
                 else:
                     priced_cost += lot.cost_basis
 
-    all_priced = has_prices and priced_cost == total_cost
+    all_priced = has_prices and all(
+        current_prices.get(lot.symbol) is not None for lot in lots
+    )
 
     now = datetime.now(UTC)
     short_term = [lot for lot in lots if (now - lot.acquisition_date).days <= 365]

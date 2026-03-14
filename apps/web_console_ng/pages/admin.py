@@ -16,7 +16,7 @@ import csv
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from io import StringIO
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -529,6 +529,20 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                 ui.button("Cancel", on_click=dialog.close)
         dialog.open()
 
+    def _humanize_timedelta(delta: timedelta) -> str:
+        """Format a timedelta into a human-readable relative time string."""
+        if delta.days > 365:
+            return f"{delta.days // 365}y ago"
+        if delta.days > 30:
+            return f"{delta.days // 30}mo ago"
+        if delta.days > 0:
+            return f"{delta.days}d ago"
+        if delta.seconds >= 3600:
+            return f"{delta.seconds // 3600}h ago"
+        if delta.seconds >= 60:
+            return f"{delta.seconds // 60}m ago"
+        return "just now"
+
     def _render_key_card(
         key: dict[str, Any], now: datetime,
     ) -> None:
@@ -572,22 +586,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                         ui.label(f"Created: {created}")
 
                         last_used = key.get("last_used_at")
-                        if last_used:
-                            delta = now - last_used
-                            if delta.days > 365:
-                                used_str = f"{delta.days // 365}y ago"
-                            elif delta.days > 30:
-                                used_str = f"{delta.days // 30}mo ago"
-                            elif delta.days > 0:
-                                used_str = f"{delta.days}d ago"
-                            elif delta.seconds >= 3600:
-                                used_str = f"{delta.seconds // 3600}h ago"
-                            elif delta.seconds >= 60:
-                                used_str = f"{delta.seconds // 60}m ago"
-                            else:
-                                used_str = "just now"
-                        else:
-                            used_str = "never"
+                        used_str = _humanize_timedelta(now - last_used) if last_used else "never"
                         ui.label(f"Last used: {used_str}")
 
                 if is_active:
