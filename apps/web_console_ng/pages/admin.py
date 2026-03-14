@@ -529,6 +529,82 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
                 ui.button("Cancel", on_click=dialog.close)
         dialog.open()
 
+    def _render_key_card(
+        key: dict[str, Any], now: datetime,
+    ) -> None:
+        """Render a single API key card with status, metadata, and action buttons."""
+        is_revoked = bool(key.get("revoked_at"))
+        is_expired = (
+            not is_revoked and key.get("expires_at") and key["expires_at"] < now
+        )
+        is_active = not is_revoked and not is_expired
+        row_classes = "opacity-50" if is_revoked else ""
+
+        with ui.card().classes(f"w-full p-3 mb-2 {row_classes}"):
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.column().classes("gap-0"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label(key["name"]).classes("font-bold")
+                        ui.label(key["key_prefix"]).classes("text-gray-500 text-sm font-mono")
+                        if is_revoked:
+                            revoked_str = key["revoked_at"].strftime("%Y-%m-%d %H:%M")
+                            ui.badge(f"Revoked {revoked_str}", color="red")
+                        elif is_expired:
+                            ui.badge("Expired", color="yellow")
+                        else:
+                            ui.badge("Active", color="green")
+
+                    with ui.row().classes("gap-4 text-xs text-gray-400"):
+                        scopes = key.get("scopes", [])
+                        if isinstance(scopes, list):
+                            scopes_str = ", ".join(scopes[:3])
+                            if len(scopes) > 3:
+                                scopes_str += "..."
+                        else:
+                            scopes_str = str(scopes)
+                        ui.label(f"Scopes: {scopes_str}")
+
+                        created = (
+                            key["created_at"].strftime("%Y-%m-%d")
+                            if key.get("created_at")
+                            else "-"
+                        )
+                        ui.label(f"Created: {created}")
+
+                        last_used = key.get("last_used_at")
+                        if last_used:
+                            delta = now - last_used
+                            if delta.days > 365:
+                                used_str = f"{delta.days // 365}y ago"
+                            elif delta.days > 30:
+                                used_str = f"{delta.days // 30}mo ago"
+                            elif delta.days > 0:
+                                used_str = f"{delta.days}d ago"
+                            elif delta.seconds >= 3600:
+                                used_str = f"{delta.seconds // 3600}h ago"
+                            elif delta.seconds >= 60:
+                                used_str = f"{delta.seconds // 60}m ago"
+                            else:
+                                used_str = "just now"
+                        else:
+                            used_str = "never"
+                        ui.label(f"Last used: {used_str}")
+
+                if is_active:
+                    key_id = str(key["id"])
+                    key_prefix = key["key_prefix"]
+                    with ui.row().classes("gap-1"):
+                        ui.button(
+                            "Revoke",
+                            on_click=lambda _e, kid=key_id, kp=key_prefix: _revoke_key(kid, kp),
+                            color="red",
+                        ).props("flat dense").classes("text-xs")
+                        ui.button(
+                            "Rotate",
+                            on_click=lambda _e, kid=key_id, kp=key_prefix: _rotate_key(kid, kp),
+                            color="orange",
+                        ).props("flat dense").classes("text-xs")
+
     @ui.refreshable
     def keys_list() -> None:
         ui.label("Existing Keys").classes("text-lg font-bold mb-2")
@@ -539,82 +615,7 @@ async def _render_api_key_manager(user: dict[str, Any], db_pool: AsyncConnection
 
         now = datetime.now(UTC)
         for key in keys_data:
-            is_revoked = bool(key.get("revoked_at"))
-            is_expired = (
-                not is_revoked and key.get("expires_at") and key["expires_at"] < now
-            )
-            is_active = not is_revoked and not is_expired
-            row_classes = "opacity-50" if is_revoked else ""
-
-            with ui.card().classes(f"w-full p-3 mb-2 {row_classes}"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.column().classes("gap-0"):
-                        with ui.row().classes("items-center gap-2"):
-                            ui.label(key["name"]).classes("font-bold")
-                            ui.label(key["key_prefix"]).classes("text-gray-500 text-sm font-mono")
-                            # Status badge
-                            if is_revoked:
-                                revoked_str = key["revoked_at"].strftime("%Y-%m-%d %H:%M")
-                                ui.badge(f"Revoked {revoked_str}", color="red")
-                            elif is_expired:
-                                ui.badge("Expired", color="yellow")
-                            else:
-                                ui.badge("Active", color="green")
-
-                        with ui.row().classes("gap-4 text-xs text-gray-400"):
-                            # Scopes
-                            scopes = key.get("scopes", [])
-                            if isinstance(scopes, list):
-                                scopes_str = ", ".join(scopes[:3])
-                                if len(scopes) > 3:
-                                    scopes_str += "..."
-                            else:
-                                scopes_str = str(scopes)
-                            ui.label(f"Scopes: {scopes_str}")
-
-                            # Created
-                            created = (
-                                key["created_at"].strftime("%Y-%m-%d")
-                                if key.get("created_at")
-                                else "-"
-                            )
-                            ui.label(f"Created: {created}")
-
-                            # Last used
-                            last_used = key.get("last_used_at")
-                            if last_used:
-                                delta = now - last_used
-                                if delta.days > 365:
-                                    used_str = f"{delta.days // 365}y ago"
-                                elif delta.days > 30:
-                                    used_str = f"{delta.days // 30}mo ago"
-                                elif delta.days > 0:
-                                    used_str = f"{delta.days}d ago"
-                                elif delta.seconds >= 3600:
-                                    used_str = f"{delta.seconds // 3600}h ago"
-                                elif delta.seconds >= 60:
-                                    used_str = f"{delta.seconds // 60}m ago"
-                                else:
-                                    used_str = "just now"
-                            else:
-                                used_str = "never"
-                            ui.label(f"Last used: {used_str}")
-
-                    # Action buttons (only for active keys)
-                    if is_active:
-                        key_id = str(key["id"])
-                        key_prefix = key["key_prefix"]
-                        with ui.row().classes("gap-1"):
-                            ui.button(
-                                "Revoke",
-                                on_click=lambda _e, kid=key_id, kp=key_prefix: _revoke_key(kid, kp),
-                                color="red",
-                            ).props("flat dense").classes("text-xs")
-                            ui.button(
-                                "Rotate",
-                                on_click=lambda _e, kid=key_id, kp=key_prefix: _rotate_key(kid, kp),
-                                color="orange",
-                            ).props("flat dense").classes("text-xs")
+            _render_key_card(key, now)
 
     keys_list()
 
