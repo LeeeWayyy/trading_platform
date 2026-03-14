@@ -8,6 +8,7 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+import psycopg
 import pytest
 
 import apps.web_console_ng.pages.admin_users as mod
@@ -716,7 +717,7 @@ async def test_fetch_user_activity_returns_none_on_error(
         def connection(self) -> Any:
             class Conn:
                 async def __aenter__(self) -> Any:
-                    raise Exception("db down")
+                    raise psycopg.Error("db down")
 
                 async def __aexit__(self, *a: Any) -> bool:
                     return False

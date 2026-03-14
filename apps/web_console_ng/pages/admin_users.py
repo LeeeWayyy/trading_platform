@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import psycopg
 from nicegui import ui
 from psycopg.rows import dict_row
 from redis.exceptions import RedisError
@@ -411,6 +412,6 @@ async def _fetch_user_activity(
                     (target_user_id, target_user_id, like_pattern, limit, offset),
                 )
                 return list(await cur.fetchall())
-    except Exception:
-        logger.warning("user_activity_query_failed", extra={"user_id": target_user_id})
+    except (psycopg.Error, OSError) as exc:
+        logger.warning("user_activity_query_failed", extra={"user_id": target_user_id, "error": str(exc)})
         return None

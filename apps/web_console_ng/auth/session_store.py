@@ -170,7 +170,7 @@ class ServerSessionStore:
                                 stale.append(sid)
                         if stale:
                             await cast(Awaitable[int], self.redis.srem(index_key, *stale))
-                except Exception:
+                except (redis.RedisError, OSError, TimeoutError):
                     pass  # Best-effort pruning; don't block login
                 async with self.redis.pipeline(transaction=True) as pipe:
                     pipe.setex(session_key, self.absolute_timeout, encrypted)

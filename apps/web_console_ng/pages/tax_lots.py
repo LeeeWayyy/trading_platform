@@ -387,7 +387,11 @@ async def _render_summary_metrics(
             price = current_prices.get(lot.symbol)
             if price is not None:
                 total_value += price * lot.remaining_quantity
-                priced_cost += lot.cost_basis
+                # Pro-rate cost basis for partially sold lots
+                if lot.quantity > 0:
+                    priced_cost += lot.cost_basis * (lot.remaining_quantity / lot.quantity)
+                else:
+                    priced_cost += lot.cost_basis
 
     all_priced = has_prices and priced_cost == total_cost
 
