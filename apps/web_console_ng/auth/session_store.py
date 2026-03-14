@@ -162,12 +162,17 @@ class ServerSessionStore:
                 try:
                     existing_ids = await cast(Awaitable[set[Any]], self.redis.smembers(index_key))
                     if existing_ids:
-                        stale = []
-                        for sid in existing_ids:
-                            sid_str = sid.decode() if isinstance(sid, bytes) else str(sid)
-                            exists = await cast(Awaitable[int], self.redis.exists(f"{self.session_prefix}{sid_str}"))
-                            if not exists:
-                                stale.append(sid)
+                        sid_list = list(existing_ids)
+                        keys = [
+                            f"{self.session_prefix}{(s.decode() if isinstance(s, bytes) else str(s))}"
+                            for s in sid_list
+                        ]
+                        # Batch EXISTS via pipeline to avoid N round-trips
+                        async with self.redis.pipeline(transaction=False) as pipe:
+                            for k in keys:
+                                pipe.exists(k)
+                            results = await pipe.execute()
+                        stale = [s for s, alive in zip(sid_list, results, strict=True) if not alive]
                         if stale:
                             await cast(Awaitable[int], self.redis.srem(index_key, *stale))
                 except (redis.RedisError, OSError, TimeoutError):

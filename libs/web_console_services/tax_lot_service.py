@@ -310,7 +310,11 @@ class TaxLotService:
                         remaining_quantity = Decimal("0")
                         closed_at = datetime.now(UTC)
                     elif status_normalized == "open" and isinstance(updates.get("status"), str):
-                        remaining_quantity = new_quantity
+                        # Only reset remaining_quantity when re-opening a closed lot;
+                        # confirming an already-open lot must preserve partial-sale state.
+                        current_status = self._derive_status(row)
+                        if current_status == "closed":
+                            remaining_quantity = new_quantity
                         closed_at = None
 
                     set_clauses: list[str] = []
