@@ -90,4 +90,3 @@ SHADOW_MAX_DIVERGENCE_PCT = 0.5   # 50% max difference
 ## Related
 
 - [ADR-0004: Signal Service Architecture](./0004-signal-service-architecture.md)
-- [BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](../TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md)

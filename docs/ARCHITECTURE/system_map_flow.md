@@ -54,33 +54,6 @@ flowchart TB
   svc_web_console_ng -->|strategy/model management| lib_web_console_services
   svc_signal_service -->|strategy active check| ext_postgres
 
-  %% Click links to documentation
-  click svc_alert_worker "../SPECS/services/alert_worker.md"
-  click svc_auth_service "../SPECS/services/auth_service.md"
-  click svc_backtest_worker "../SPECS/services/backtest_worker.md"
-  click svc_execution_gateway "../SPECS/services/execution_gateway.md"
-  click svc_market_data_service "../SPECS/services/market_data_service.md"
-  click svc_model_registry "../SPECS/services/model_registry.md"
-  click svc_orchestrator "../SPECS/services/orchestrator.md"
-  click svc_signal_service "../SPECS/services/signal_service.md"
-  click svc_web_console_ng "../SPECS/services/web_console_ng.md"
-  click lib_analytics "../SPECS/libs/analytics.md"
-  click lib_common "../SPECS/libs/common.md"
-  click lib_core "../SPECS/libs/core.md"
-  click lib_data "../SPECS/libs/data.md"
-  click lib_models "../SPECS/libs/models.md"
-  click lib_platform "../SPECS/libs/platform.md"
-  click lib_trading "../SPECS/libs/trading.md"
-  click lib_web_console_data "../SPECS/libs/web_console_data.md"
-  click lib_web_console_services "../SPECS/libs/web_console_services.md"
-  click strat_alpha_baseline "../SPECS/strategies/alpha_baseline.md"
-  click strat_backtest "../SPECS/strategies/backtest.md"
-  click strat_ensemble "../SPECS/strategies/ensemble.md"
-  click ext_redis "../SPECS/infrastructure/redis.md"
-  click ext_postgres "../SPECS/infrastructure/postgres.md"
-  click ext_prometheus "../SPECS/infrastructure/prometheus.md"
-  click ext_grafana "../SPECS/infrastructure/grafana.md"
-
   %% Styling
   classDef external fill:#f9f,stroke:#333,stroke-width:2px
   class ext_alpaca external
@@ -95,5 +68,4 @@ flowchart TB
 - **Boxes**: Internal services and libraries
 - **Cylinders**: External systems (databases, APIs)
 - **Arrows**: Data flow direction
-- Click any node to view its specification
 

@@ -27,13 +27,12 @@ The system is organized into 5 layers (top to bottom):
 
 ### Mermaid (GitHub/VSCode)
 Open `system_map_flow.md` or `system_map_deps.md` in any Markdown viewer that supports Mermaid.
-- **Click any node** to navigate to its specification in `../SPECS/`
+- Nodes represent internal services, libraries, and external systems
 
 ### Obsidian Canvas
 1. Open the repository in Obsidian.
 2. Navigate to `docs/ARCHITECTURE/system_map.canvas`.
 3. Use the Canvas UI to pan, zoom, and explore nodes.
-4. Nodes link to their spec files (e.g., `[[../SPECS/services/orchestrator.md|Orchestrator]]`)
 
 ## Regenerating the Map
 
@@ -57,19 +56,17 @@ When adding a new service, library, or strategy:
    ```json
    "components": {
      "apps/new_service": {
-       "layer": "core",
-       "spec": "../SPECS/services/new_service.md"
+       "layer": "core"
      }
    }
    ```
 
-2. **Create spec file** — Add `docs/SPECS/services/new_service.md` using the template.
+2. **Optionally add a CLAUDE.md** — Per-folder `CLAUDE.md` files provide AI agent context (planned for Phase 3 of OpenClaw optimization).
 
 3. **Regenerate** — Run `python3 scripts/dev/generate_architecture.py --generate`
 
 4. **CI enforces** — The `--check` mode will fail if:
    - A component exists but is not in the config
-   - A spec file referenced in the config is missing
 
 ## Virtual Edges (Data Flows)
 
@@ -94,7 +91,7 @@ To reduce noise, the dependency diagram filters edges to common infrastructure l
 ```json
 "filtering": {
   "hide_to_common_libs": true,
-  "common_libs": ["libs/common", "libs/secrets", "libs/health"],
+  "common_libs": ["libs/core", "libs/common"],
   "allowlist": ["apps/execution_gateway", "apps/signal_service", "apps/orchestrator", ...]
 }
 ```
@@ -107,4 +104,4 @@ To reduce noise, the dependency diagram filters edges to common infrastructure l
 - The graph only includes **internal** imports (`apps.*`, `libs.*`, `strategies.*`).
 - Parse errors are logged as warnings and skipped so a single broken file does not block generation.
 - External nodes (Redis, Postgres, Alpaca API) are shown in the flow diagram with cylinder shapes.
-- All nodes link to their specification documents for documentation navigation.
+- Component documentation will live in per-folder CLAUDE.md files (planned for Phase 3 of OpenClaw optimization).

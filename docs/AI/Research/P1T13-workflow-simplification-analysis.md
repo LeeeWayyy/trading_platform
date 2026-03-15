@@ -585,7 +585,6 @@ Individual workflow files (03-reviews.md, etc.)
 - Test all 40+ workflow links still resolve
 
 **Phase 4: Validation**
-- Run `scripts/validate_doc_index.sh` to verify all files indexed
 - Manual click-through test of key workflow paths:
   - Quick Start → 00-analysis-checklist → 03-zen-review → 01-git-commit
   - Development Process → 03-zen-review → 04-zen-review-deep → 02-git-pr

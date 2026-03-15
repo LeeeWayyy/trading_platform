@@ -73,5 +73,5 @@ print(f"Is Overfit: {result.is_overfit}")
 - Export of per-window returns (Pandas) for `qlib.contrib.evaluate` post-processing is deferred for a later enhancement.
 
 ## 9. Related Documents
-- [P4T4_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T4_DONE.md)
+- P4T4_TASK.md (available in git history at tag archive-pre-ai-company)
 - [PITBacktester (libs/trading/alpha/research_platform.py)](../../libs/trading/alpha/research_platform.py)

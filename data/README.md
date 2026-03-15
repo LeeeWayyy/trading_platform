@@ -425,8 +425,8 @@ python scripts/data/reexport_with_schema.py --date 2026-01-14
 ## Related Documentation
 
 - [DuckDB Basics](../docs/CONCEPTS/duckdb-basics.md) - DuckDB concepts and query patterns
-- [Market Data Service Spec](../docs/SPECS/services/market_data_service.md) - API for data access
-- [Backtest Service Spec](../docs/SPECS/libs/backtest.md) - Backtest result schema
+- Market Data Service - see `apps/market_data_service/`
+- Backtest Library - see `libs/trading/backtest/`
 
 ---
 

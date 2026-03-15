@@ -90,9 +90,9 @@ These documents provide comprehensive phase-level planning, progress tracking, a
 | Phase | Planning Document | Description | Tasks |
 |-------|-------------------|-------------|-------|
 | **P0** | _Not yet created_ | MVP Core planning | 0 tasks |
-| **P1** | [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) | Hardening & Automation | 11 tasks (T0-T10) |
+| **P1** | P1_PLANNING_DONE.md (archived) | Hardening & Automation | 11 tasks (T0-T10) |
 | **P2** | _Not yet created_ | Advanced Features | 0 tasks |
-| **P5** | [P5_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P5_PLANNING_DONE.md) | Web Console NiceGUI Migration | 52 tasks (8 phases) |
+| **P5** | P5_PLANNING_DONE.md (archived) | Web Console NiceGUI Migration | 52 tasks (8 phases) |
 | **P6** | [P6_PLANNING.md](./P6_PLANNING.md) | Professional Trading Terminal & Research Platform | 70 tasks (18 tracks) |
 
 ### Existing Task Files by Phase
@@ -103,14 +103,14 @@ _No task files created yet. Use `./scripts/admin/tasks.py create-phase P0` to ge
 #### P1: Hardening & Automation
 
 **Completed Tasks (8):**
-- [P1T1_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T1_DONE.md) - Redis Integration (T1 in planning: "Redis Integration ⭐ HIGH PRIORITY")
-- [P1T2_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T2_DONE.md) - DuckDB Analytics (T2 in planning: "DuckDB Analytics Layer 🔶 MEDIUM PRIORITY")
-- [P1T3_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T3_DONE.md) - Timezone & Timestamps (T3 in planning: "Timezone-Aware Timestamps 🔶 MEDIUM PRIORITY")
-- [P1T4_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T4_DONE.md) - Operational Status Dashboard (T4 in planning: "Operational Status Command 🔷 LOW PRIORITY")
-- [P1T5-F1_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T5-F1_DONE.md) - Real-time Market Data - Phase 1 (T5-F1 in planning: "Real-Time Market Data Streaming")
-- [P1T5-F3_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T5-F3_DONE.md) - Real-time Market Data - Phase 3 (T5-F3 in planning: "Real-Time Market Data Streaming")
-- [P1T7_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T7_DONE.md) - Risk Management System (T7 in planning: "Risk Management System")
-- [P1T8_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T8_DONE.md) - Monitoring and Alerting (T8 in planning: "Monitoring and Alerting")
+- P1T1_DONE.md - Redis Integration (T1 in planning: "Redis Integration") (available in git history at tag archive-pre-ai-company)
+- P1T2_DONE.md - DuckDB Analytics (T2 in planning: "DuckDB Analytics Layer") (available in git history at tag archive-pre-ai-company)
+- P1T3_DONE.md - Timezone & Timestamps (T3 in planning: "Timezone-Aware Timestamps") (available in git history at tag archive-pre-ai-company)
+- P1T4_DONE.md - Operational Status Dashboard (T4 in planning: "Operational Status Command") (available in git history at tag archive-pre-ai-company)
+- P1T5-F1_DONE.md - Real-time Market Data - Phase 1 (T5-F1 in planning: "Real-Time Market Data Streaming") (available in git history at tag archive-pre-ai-company)
+- P1T5-F3_DONE.md - Real-time Market Data - Phase 3 (T5-F3 in planning: "Real-Time Market Data Streaming") (available in git history at tag archive-pre-ai-company)
+- P1T7_DONE.md - Risk Management System (T7 in planning: "Risk Management System") (available in git history at tag archive-pre-ai-company)
+- P1T8_DONE.md - Monitoring and Alerting (T8 in planning: "Monitoring and Alerting") (available in git history at tag archive-pre-ai-company)
 
 **Remaining Tasks (3 tasks not started):**
 - T0: Enhanced P&L Calculation ⭐ HIGH PRIORITY
@@ -145,7 +145,7 @@ P1T5-F1_DONE.md        → Feature 1 completed
 
 **Phase Planning:**
 ```
-P1_PLANNING_DONE.md     → Phase-level planning (archived: ../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md)
+P1_PLANNING_DONE.md     → Phase-level planning (available in git history at tag archive-pre-ai-company)
 ```
 
 ### Quick Commands
@@ -216,7 +216,7 @@ P1_PLANNING_DONE.md     → Phase-level planning (archived: ../ARCHIVE/TASKS_HIS
 
 ### P0T2: Task Title
 **Status:** DONE (Completed)
-**File:** [P0T2_DONE.md](../ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)
+**File:** P0T2_DONE.md (available in git history at tag archive-pre-ai-company)
 **Owner:** @development-team
 **Completed:** YYYY-MM-DD
 **Duration:** 2 days
@@ -242,7 +242,7 @@ P1_PLANNING_DONE.md     → Phase-level planning (archived: ../ARCHIVE/TASKS_HIS
 
 ### P1T0: Enhanced P&L Calculation
 **Status:** DONE (Completed)
-**File:** [P1T0_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T0_DONE.md)
+**File:** P1T0_DONE.md (available in git history at tag archive-pre-ai-company)
 
 [Details...]
 

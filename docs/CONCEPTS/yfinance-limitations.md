@@ -154,7 +154,7 @@ prod_provider = YFinanceProvider(
 
 ## References
 
-- [P4T1_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T1_DONE.md) - Task specification
+- P4T1_TASK.md - Task specification (available in git history at tag archive-pre-ai-company)
 - [CRSPLocalProvider](./crsp-data.md) - Production-grade alternative
 - [Yahoo Finance Terms](https://policies.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.htm) - Data usage terms
 

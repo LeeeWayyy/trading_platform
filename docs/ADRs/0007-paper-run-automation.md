@@ -446,6 +446,6 @@ async def test_paper_run_against_real_services():
 
 ## References
 
-- [P0_TICKETS.md - T6 Requirements](../ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md#t6)
+- P0_TICKETS.md - T6 Requirements (available in git history at tag archive-pre-ai-company)
 - [Trading Platform Realization Plan](../trading_platform_realization_plan.md)
 - [GIT_WORKFLOW.md](../STANDARDS/GIT_WORKFLOW.md) - Commit and PR guidelines

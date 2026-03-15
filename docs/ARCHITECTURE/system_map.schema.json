@@ -41,8 +41,7 @@
           "id": {"type": "string", "pattern": "^ext_[a-z_]+$"},
           "label": {"type": "string"},
           "layer": {"type": "string"},
-          "type": {"type": "string", "enum": ["api", "database", "monitoring"]},
-          "spec": {"type": "string"}
+          "type": {"type": "string", "enum": ["api", "database", "monitoring"]}
         },
         "additionalProperties": false
       }
@@ -51,10 +50,9 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["layer", "spec"],
+        "required": ["layer"],
         "properties": {
-          "layer": {"type": "string"},
-          "spec": {"type": "string"}
+          "layer": {"type": "string"}
         },
         "additionalProperties": false
       }

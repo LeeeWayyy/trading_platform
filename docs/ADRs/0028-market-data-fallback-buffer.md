@@ -105,4 +105,3 @@ FALLBACK_ENABLED = True           # default
 
 - [ADR-0010: Realtime Market Data](./0010-realtime-market-data.md)
 - [ADR-0009: Redis Integration](./0009-redis-integration.md)
-- [BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](../TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md)

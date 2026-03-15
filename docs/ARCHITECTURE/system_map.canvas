@@ -304,7 +304,7 @@
     {
       "height": 60,
       "id": "svc_auth_service",
-      "text": "[[../SPECS/services/auth_service.md|Auth Service]]",
+      "text": "Auth Service",
       "type": "text",
       "width": 320,
       "x": 40,
@@ -313,7 +313,7 @@
     {
       "height": 60,
       "id": "svc_web_console_ng",
-      "text": "[[../SPECS/services/web_console_ng.md|Web Console Ng]]",
+      "text": "Web Console Ng",
       "type": "text",
       "width": 320,
       "x": 380,
@@ -322,7 +322,7 @@
     {
       "height": 60,
       "id": "svc_orchestrator",
-      "text": "[[../SPECS/services/orchestrator.md|Orchestrator]]",
+      "text": "Orchestrator",
       "type": "text",
       "width": 320,
       "x": 40,
@@ -331,7 +331,7 @@
     {
       "height": 60,
       "id": "svc_execution_gateway",
-      "text": "[[../SPECS/services/execution_gateway.md|Execution Gateway]]",
+      "text": "Execution Gateway",
       "type": "text",
       "width": 320,
       "x": 70,
@@ -340,7 +340,7 @@
     {
       "height": 60,
       "id": "svc_market_data_service",
-      "text": "[[../SPECS/services/market_data_service.md|Market Data Service]]",
+      "text": "Market Data Service",
       "type": "text",
       "width": 320,
       "x": 410,
@@ -349,7 +349,7 @@
     {
       "height": 60,
       "id": "svc_signal_service",
-      "text": "[[../SPECS/services/signal_service.md|Signal Service]]",
+      "text": "Signal Service",
       "type": "text",
       "width": 320,
       "x": 750,
@@ -358,7 +358,7 @@
     {
       "height": 60,
       "id": "svc_alert_worker",
-      "text": "[[../SPECS/services/alert_worker.md|Alert Worker]]",
+      "text": "Alert Worker",
       "type": "text",
       "width": 320,
       "x": 1170,
@@ -367,7 +367,7 @@
     {
       "height": 60,
       "id": "svc_backtest_worker",
-      "text": "[[../SPECS/services/backtest_worker.md|Backtest Worker]]",
+      "text": "Backtest Worker",
       "type": "text",
       "width": 320,
       "x": 1510,
@@ -376,7 +376,7 @@
     {
       "height": 60,
       "id": "svc_model_registry",
-      "text": "[[../SPECS/services/model_registry.md|Model Registry]]",
+      "text": "Model Registry",
       "type": "text",
       "width": 320,
       "x": 1850,
@@ -385,7 +385,7 @@
     {
       "height": 60,
       "id": "lib_data",
-      "text": "[[../SPECS/libs/data.md|Data]]",
+      "text": "Data",
       "type": "text",
       "width": 320,
       "x": 70,
@@ -394,7 +394,7 @@
     {
       "height": 60,
       "id": "lib_analytics",
-      "text": "[[../SPECS/libs/analytics.md|Analytics]]",
+      "text": "Analytics",
       "type": "text",
       "width": 320,
       "x": 490,
@@ -403,7 +403,7 @@
     {
       "height": 60,
       "id": "lib_models",
-      "text": "[[../SPECS/libs/models.md|Models]]",
+      "text": "Models",
       "type": "text",
       "width": 320,
       "x": 830,
@@ -412,7 +412,7 @@
     {
       "height": 60,
       "id": "strat_alpha_baseline",
-      "text": "[[../SPECS/strategies/alpha_baseline.md|Alpha Baseline]]",
+      "text": "Alpha Baseline",
       "type": "text",
       "width": 320,
       "x": 1250,
@@ -421,7 +421,7 @@
     {
       "height": 60,
       "id": "strat_backtest",
-      "text": "[[../SPECS/strategies/backtest.md|Backtest]]",
+      "text": "Backtest",
       "type": "text",
       "width": 320,
       "x": 1590,
@@ -430,7 +430,7 @@
     {
       "height": 60,
       "id": "strat_ensemble",
-      "text": "[[../SPECS/strategies/ensemble.md|Ensemble]]",
+      "text": "Ensemble",
       "type": "text",
       "width": 320,
       "x": 1930,
@@ -439,7 +439,7 @@
     {
       "height": 60,
       "id": "lib_web_console_data",
-      "text": "[[../SPECS/libs/web_console_data.md|Web Console Data]]",
+      "text": "Web Console Data",
       "type": "text",
       "width": 320,
       "x": 70,
@@ -448,7 +448,7 @@
     {
       "height": 60,
       "id": "lib_web_console_services",
-      "text": "[[../SPECS/libs/web_console_services.md|Web Console Services]]",
+      "text": "Web Console Services",
       "type": "text",
       "width": 320,
       "x": 410,
@@ -457,7 +457,7 @@
     {
       "height": 60,
       "id": "lib_common",
-      "text": "[[../SPECS/libs/common.md|Common]]",
+      "text": "Common",
       "type": "text",
       "width": 320,
       "x": 830,
@@ -466,7 +466,7 @@
     {
       "height": 60,
       "id": "lib_core",
-      "text": "[[../SPECS/libs/core.md|Core]]",
+      "text": "Core",
       "type": "text",
       "width": 320,
       "x": 1170,
@@ -486,7 +486,7 @@
       "color": "6",
       "height": 60,
       "id": "ext_grafana",
-      "text": "[[../SPECS/infrastructure/grafana.md|Grafana]]",
+      "text": "Grafana",
       "type": "text",
       "width": 320,
       "x": 1930,
@@ -496,7 +496,7 @@
       "color": "6",
       "height": 60,
       "id": "ext_postgres",
-      "text": "[[../SPECS/infrastructure/postgres.md|PostgreSQL]]",
+      "text": "PostgreSQL",
       "type": "text",
       "width": 320,
       "x": 2270,
@@ -506,7 +506,7 @@
       "color": "6",
       "height": 60,
       "id": "ext_prometheus",
-      "text": "[[../SPECS/infrastructure/prometheus.md|Prometheus]]",
+      "text": "Prometheus",
       "type": "text",
       "width": 320,
       "x": 2610,
@@ -516,7 +516,7 @@
       "color": "6",
       "height": 60,
       "id": "ext_redis",
-      "text": "[[../SPECS/infrastructure/redis.md|Redis]]",
+      "text": "Redis",
       "type": "text",
       "width": 320,
       "x": 2950,

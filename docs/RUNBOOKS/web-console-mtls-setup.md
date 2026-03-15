@@ -291,7 +291,7 @@ docker exec trading_platform_nginx_mtls nginx -s reload
 **Option 2: Certificate Revocation List (CRL) - Future Enhancement**
 - Planned for Phase 3: OAuth2 integration
 - Will support granular certificate revocation
-- See `docs/ARCHIVE/TASKS_HISTORY/P2T3_Phase3_PLANNING_SUMMARY.md` for details
+- Details available in git history at tag `archive-pre-ai-company`
 
 ---
 
@@ -639,7 +639,7 @@ fi
 
 ## References
 
-- **Implementation Plan:** `docs/ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md`
+- **Implementation Plan:** Available in git history at tag `archive-pre-ai-company`
 - **Certificate Generation:** `scripts/dev/generate_certs.py`
 - **nginx Configuration:** `apps/web_console_ng/nginx/nginx.conf`
 - **Docker Compose:** `docker-compose.yml`

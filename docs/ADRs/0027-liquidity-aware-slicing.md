@@ -94,4 +94,3 @@ ADV_LOOKBACK_DAYS = 20            # 20-day average
 ## Related
 
 - [ADR-0015: TWAP Order Slicer](./0015-twap-order-slicer.md)
-- [BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](../TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md)

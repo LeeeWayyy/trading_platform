@@ -100,4 +100,3 @@ Implement a reconciliation service with startup gating and orphan handling:
 
 - [ADR-0014: Execution Gateway Architecture](./0014-execution-gateway-architecture.md)
 - [ADR-0015: TWAP Order Slicer](./0015-twap-order-slicer.md)
-- [BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](../TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md)

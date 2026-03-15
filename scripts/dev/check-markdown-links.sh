@@ -3,7 +3,7 @@
 # Check markdown links locally before pushing
 #
 # Usage:
-#   ./scripts/check-markdown-links.sh [path]
+#   ./scripts/dev/check-markdown-links.sh [path]
 #
 # Examples:
 #   ./scripts/check-markdown-links.sh                    # Check all markdown files
@@ -37,12 +37,11 @@ if ! command -v markdown-link-check &> /dev/null; then
 fi
 
 # Find all markdown files in target path
-# Exclude: .venv (dependencies), qlib (external), docs/ARCHIVE (historical docs with stale links)
+# Exclude: .venv (dependencies), qlib (external)
 echo -e "${YELLOW}Searching for markdown files in: ${TARGET_PATH}${NC}"
 MARKDOWN_FILES=$(find "$TARGET_PATH" \
     -path "./.venv" -prune -o \
     -path "./qlib" -prune -o \
-    -path "./docs/ARCHIVE" -prune -o \
     -name "*.md" -type f -print \
     | sort)
 

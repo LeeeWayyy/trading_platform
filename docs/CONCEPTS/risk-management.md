@@ -721,7 +721,7 @@ RISK_DAILY_LOSS_LIMIT=500
 ## Further Reading
 
 - [ADR-0011: Risk Management System](../ADRs/0011-risk-management-system.md) - Technical architecture
-- [Implementation Guide: P1T7](../ARCHIVE/TASKS_HISTORY/P1T7_DONE.md) - Step-by-step guide
+- Implementation Guide: P1T7 - Step-by-step guide (available in git history at tag archive-pre-ai-company)
 - [Operational Runbook](../RUNBOOKS/ops.md) - Deployment and troubleshooting procedures
 - [CLAUDE.md](../../CLAUDE.md) - Risk management patterns (Circuit Breakers section)
 

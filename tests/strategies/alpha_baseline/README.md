@@ -172,6 +172,6 @@ Integration tests require:
 
 ## Questions or Issues?
 
-- Review [/docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md](../../../docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md) for implementation guide
+- Implementation guide available in git history at tag `archive-pre-ai-company`
 - Check `/docs/CONCEPTS/` for conceptual explanations
 - File issues in GitHub issue tracker

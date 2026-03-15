@@ -55,7 +55,6 @@ class Component:
     name: str
     path: Path
     layer: str = ""
-    spec: str = ""
 
     @property
     def module_prefix(self) -> str:
@@ -88,7 +87,6 @@ class ExternalNode:
     label: str
     layer: str
     node_type: str
-    spec: str = ""
 
 
 @dataclass
@@ -140,7 +138,6 @@ def load_config() -> Config:
             label=n["label"],
             layer=n["layer"],
             node_type=n["type"],
-            spec=n.get("spec", ""),
         )
         for n in data.get("external_nodes", [])
     ]
@@ -218,10 +215,8 @@ def discover_components(config: Config) -> tuple[list[Component], list[str]]:
             if not comp_config:
                 unmapped.append(config_key)
                 layer = "domain"  # Default layer for unmapped
-                spec = ""
             else:
                 layer = comp_config.get("layer", "domain")
-                spec = comp_config.get("spec", "")
 
             components.append(
                 Component(
@@ -229,29 +224,10 @@ def discover_components(config: Config) -> tuple[list[Component], list[str]]:
                     name=child.name,
                     path=child,
                     layer=layer,
-                    spec=spec,
                 )
             )
 
     return components, unmapped
-
-
-def check_spec_files(components: list[Component], external_nodes: list[ExternalNode]) -> list[str]:
-    missing: list[str] = []
-
-    for comp in components:
-        if comp.spec:
-            spec_path = ARCH_DIR / comp.spec
-            if not spec_path.exists():
-                missing.append(f"{comp.config_key}: {comp.spec}")
-
-    for node in external_nodes:
-        if node.spec:
-            spec_path = ARCH_DIR / node.spec
-            if not spec_path.exists():
-                missing.append(f"{node.id}: {node.spec}")
-
-    return missing
 
 
 def module_name_for_path(path: Path) -> str:
@@ -434,17 +410,6 @@ def render_mermaid_flow(
         else:
             lines.append(f"  {from_id} --> {to_id}")
 
-    # Add click links to specs
-    lines.append("")
-    lines.append("  %% Click links to documentation")
-    for comp in components:
-        if comp.spec:
-            lines.append(f'  click {comp.node_id} "{comp.spec}"')
-
-    for ext in config.external_nodes:
-        if ext.spec:
-            lines.append(f'  click {ext.id} "{ext.spec}"')
-
     # Add legend
     lines.append("")
     lines.append("  %% Styling")
@@ -459,7 +424,6 @@ def render_mermaid_flow(
     lines.append("- **Boxes**: Internal services and libraries")
     lines.append("- **Cylinders**: External systems (databases, APIs)")
     lines.append("- **Arrows**: Data flow direction")
-    lines.append("- Click any node to view its specification")
     lines.append("")
 
     return "\n".join(lines) + "\n"
@@ -500,13 +464,6 @@ def render_mermaid_deps(
     for src, dst in sorted(edges):
         lines.append(f"  {src} -.-> {dst}")
 
-    # Add click links
-    lines.append("")
-    lines.append("  %% Click links to documentation")
-    for comp in components:
-        if comp.spec:
-            lines.append(f'  click {comp.node_id} "{comp.spec}"')
-
     lines.append("```")
     lines.append("")
     lines.append("## Legend")
@@ -515,7 +472,6 @@ def render_mermaid_deps(
     lines.append(
         "- Edges to common infrastructure libs (common, secrets, health) are hidden for clarity"
     )
-    lines.append("- Click any node to view its specification")
     lines.append("")
 
     return "\n".join(lines) + "\n"
@@ -608,7 +564,7 @@ def render_canvas(
                         node_y + NODE_HEIGHT // 2,
                     )
 
-                    text = f"[[{comp.spec}|{comp.label}]]" if comp.spec else comp.label
+                    text = comp.label
                     nodes.append(
                         {
                             "id": comp.node_id,
@@ -629,7 +585,7 @@ def render_canvas(
 
                     node_positions[ext.id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
 
-                    text = f"[[{ext.spec}|{ext.label}]]" if ext.spec else ext.label
+                    text = ext.label
                     nodes.append(
                         {
                             "id": ext.id,
@@ -707,7 +663,7 @@ def render_canvas(
 
                 node_positions[comp.node_id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
 
-                text = f"[[{comp.spec}|{comp.label}]]" if comp.spec else comp.label
+                text = comp.label
                 nodes.append(
                     {
                         "id": comp.node_id,
@@ -727,7 +683,7 @@ def render_canvas(
 
                 node_positions[ext.id] = (node_x + NODE_WIDTH // 2, node_y + NODE_HEIGHT // 2)
 
-                text = f"[[{ext.spec}|{ext.label}]]" if ext.spec else ext.label
+                text = ext.label
                 nodes.append(
                     {
                         "id": ext.id,
@@ -846,15 +802,6 @@ def main() -> int:
             warn(f"Unmapped component (add to config): {comp}")
         if args.check:
             warn("ERROR: Unmapped components found. Update system_map.config.json.")
-            return 1
-
-    # Check for missing spec files
-    missing_specs = check_spec_files(components, config.external_nodes)
-    if missing_specs:
-        for spec in missing_specs:
-            warn(f"Missing spec file: {spec}")
-        if args.check:
-            warn("ERROR: Missing spec files found.")
             return 1
 
     edges = build_dependency_graph(components, config)

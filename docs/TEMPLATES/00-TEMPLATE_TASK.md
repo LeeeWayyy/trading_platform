@@ -161,8 +161,8 @@ Break this task into components, each following the 6-step pattern:
 - [Related concept](../CONCEPTS/corporate-actions.md)
 
 **Tasks:**
-- Depends on: [P0T1](../ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)
-- Blocks: [P0T2](../ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)
+- Depends on: P0T1 (available in git history at tag archive-pre-ai-company)
+- Blocks: P0T2 (available in git history at tag archive-pre-ai-company)
 
 ---
 

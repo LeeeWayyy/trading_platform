@@ -225,7 +225,6 @@ on:
 
 **Exclusions:**
 - `.venv/` (virtual environment)
-- `docs/ARCHIVE/` (historical docs with stale links)
 - `CLAUDE.md` and `AGENTS.md` (root symlinks)
 
 **Configuration:** `.github/markdown-link-check-config.json`

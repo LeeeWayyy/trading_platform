@@ -61,8 +61,8 @@ Template for completed task documentation.
 
 **Usage:**
 ```bash
-cp docs/TEMPLATES/00-TEMPLATE_DONE.md docs/ARCHIVE/TASKS_HISTORY/P7T1_DONE.md
-# Fill in completion details, learnings, follow-ups
+# Note: docs/ARCHIVE/ has been removed. Completed task history is
+# available in git history at tag archive-pre-ai-company.
 ```
 
 **When to use:** Archiving completed tasks with lessons learned.

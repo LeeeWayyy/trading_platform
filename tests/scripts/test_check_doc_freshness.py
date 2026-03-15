@@ -89,25 +89,20 @@ def test_main_exit_code_bitmask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             "stale": False,
             "last_doc_update": "2026-01-01T00:00:00+00:00",
             "last_source_change": "2026-01-15T00:00:00+00:00",
-            "missing_specs": [],
+            "missing_docs": [],
+            "files_added": [],
+            "files_deleted": [],
+            "files_modified": [],
         }
 
     monkeypatch.setattr(freshness, "check_freshness", fake_check)
-
-    specs_dir = tmp_path / "docs/SPECS"
-    specs_dir.mkdir(parents=True)
-    monkeypatch.setattr(freshness, "SPECS_DIR", specs_dir)
-    monkeypatch.setattr(
-        freshness,
-        "_expected_spec_files",
-        lambda: (["docs/SPECS/services/foo.md"], ["docs/SPECS/services/foo.md"]),
-    )
 
     monkeypatch.setattr(sys, "argv", ["check_doc_freshness.py"])
 
     exit_code = freshness.main()
 
-    assert exit_code == 15
+    # exit_code = 1 (missing) | 2 (orphaned) = 3
+    assert exit_code == 3
 
 
 def test_main_exit_code_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,13 +122,13 @@ def test_main_exit_code_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
             "stale": False,
             "last_doc_update": "2026-01-10T00:00:00+00:00",
             "last_source_change": "2026-01-10T00:00:00+00:00",
-            "missing_specs": [],
+            "missing_docs": [],
+            "files_added": [],
+            "files_deleted": [],
+            "files_modified": [],
         }
 
     monkeypatch.setattr(freshness, "check_freshness", fake_check)
-
-    specs_dir = tmp_path / "docs/SPECS"
-    monkeypatch.setattr(freshness, "SPECS_DIR", specs_dir)
 
     monkeypatch.setattr(sys, "argv", ["check_doc_freshness.py"])
 
