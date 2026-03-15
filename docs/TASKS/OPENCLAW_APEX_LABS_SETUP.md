@@ -7,6 +7,13 @@
 **Author:** CTO (via Claude Code)
 **Depends on:** Phase 1 of OPENCLAW_REPO_OPTIMIZATION_PLAN.md (completed)
 
+**IMPORTANT — Path Resolution:**
+This document uses `/Users/wei/Documents/SourceCode/trading_platform` as the repo root throughout. Before applying any config, resolve the actual repo root:
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+```
+Then replace all occurrences of `/Users/wei/Documents/SourceCode/trading_platform` with `$REPO_ROOT` when generating `openclaw.json` and agent workspace files. This ensures portability if the repo moves.
+
 ---
 
 ## Overview
