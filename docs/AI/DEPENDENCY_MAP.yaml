@@ -1,0 +1,140 @@
+# Apex Labs — Dependency Notification Map
+# When files in a path change (via merged PR), notify these roles.
+# Atlas reads changed files from the PR and cross-references this map.
+#
+# Agent ID Resolution for split roles:
+#   core_trading_eng → [core_trading_eng_gateway, core_trading_eng_orchestrator, core_trading_eng_signal]
+#   platform_services → [platform_services_auth, platform_services_alert, platform_services_registry]
+#   lead_quant → [lead_quant_strategies, lead_quant_research]
+#   All other names map 1:1 to agent IDs.
+#
+# "ALL" resolves to every agent in the role_agents mapping below.
+# Atlas expands ALL → [lead_trader, cto, lead_quant, data_engineer, core_trading_eng,
+#                       platform_services, frontend_eng, qa_engineer, devops_sre]
+
+role_agents:
+  lead_trader: [lead_trader]
+  cto: [cto]
+  lead_quant: [lead_quant_strategies, lead_quant_research]
+  data_engineer: [data_engineer]
+  core_trading_eng: [core_trading_eng_gateway, core_trading_eng_orchestrator, core_trading_eng_signal]
+  platform_services: [platform_services_auth, platform_services_alert, platform_services_registry]
+  frontend_eng: [frontend_eng]
+  qa_engineer: [qa_engineer]
+  devops_sre: [devops_sre]
+
+# === Library Dependencies ===
+
+libs/data/schemas/:
+  notify: [core_trading_eng, lead_quant, frontend_eng]
+  reason: "Schema changes affect data consumers"
+
+libs/trading/risk_management/:
+  notify: [core_trading_eng, devops_sre]
+  reason: "Risk logic changes need execution + monitoring updates"
+
+libs/trading/alpha/:
+  notify: [lead_quant, core_trading_eng]
+  reason: "Alpha signal changes affect strategy + execution"
+
+libs/trading/backtest/:
+  notify: [lead_quant]
+  reason: "Backtest engine changes affect strategy research"
+
+libs/trading/risk/:
+  notify: [core_trading_eng, lead_quant]
+  reason: "Risk module changes affect trading and strategy evaluation"
+
+libs/models/:
+  notify: [lead_quant, core_trading_eng]
+  reason: "Model changes affect predictions + signal generation"
+
+libs/platform/alerts/:
+  notify: [platform_services, devops_sre]
+  reason: "Alert routing changes need infra awareness"
+
+libs/platform/web_console_auth/:
+  notify: [ALL]
+  reason: "Auth module is used by almost every service"
+
+libs/platform/analytics/:
+  notify: [frontend_eng, lead_quant, devops_sre]
+  reason: "Analytics changes affect dashboards and monitoring"
+
+libs/platform/security/:
+  notify: [core_trading_eng, platform_services, frontend_eng]
+  reason: "Security changes affect all consumer services"
+
+libs/web_console_data/:
+  notify: [frontend_eng]
+  reason: "Data layer changes affect UI rendering"
+
+libs/web_console_services/:
+  notify: [frontend_eng]
+  reason: "Service layer changes affect UI logic"
+
+libs/core/:
+  notify: [ALL]
+  reason: "Core lib changes affect every service"
+
+libs/common/:
+  notify: [ALL]
+  reason: "Common lib changes affect every service"
+
+libs/analytics/:
+  notify: [frontend_eng, lead_quant]
+  reason: "Analytics lib changes affect dashboards and research"
+
+# === Strategy & Research ===
+
+strategies/:
+  notify: [lead_quant, core_trading_eng]
+  reason: "Strategy changes affect signal pipeline"
+
+# === App-Level Dependencies ===
+
+apps/execution_gateway/:
+  notify: [core_trading_eng, qa_engineer]
+  reason: "Execution engine changes need testing"
+
+apps/web_console_ng/:
+  notify: [frontend_eng, qa_engineer]
+  reason: "UI changes need testing"
+
+apps/orchestrator/:
+  notify: [core_trading_eng]
+  reason: "Orchestration logic changes"
+
+apps/signal_service/:
+  notify: [core_trading_eng, lead_quant]
+  reason: "Signal pipeline changes"
+
+apps/auth_service/:
+  notify: [platform_services]
+  reason: "Auth changes"
+
+apps/alert_worker/:
+  notify: [platform_services, devops_sre]
+  reason: "Alert routing changes"
+
+apps/market_data_service/:
+  notify: [data_engineer]
+  reason: "Data service changes"
+
+apps/model_registry/:
+  notify: [platform_services]
+  reason: "Model registry changes"
+
+apps/backtest_worker/:
+  notify: [lead_quant]
+  reason: "Backtest worker changes"
+
+# === Infrastructure ===
+
+infra/:
+  notify: [devops_sre]
+  reason: "Infrastructure config changes"
+
+.github/workflows/:
+  notify: [devops_sre]
+  reason: "CI/CD pipeline changes"

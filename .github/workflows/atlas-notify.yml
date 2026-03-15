@@ -1,0 +1,35 @@
+name: Notify Atlas on PR Events
+
+on:
+  pull_request:
+    types: [opened, closed, synchronize]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  notify:
+    runs-on: self-hosted
+    steps:
+      - name: Notify Jarvis on PR opened
+        if: github.event_name == 'pull_request' && github.event.action == 'opened'
+        run: |
+          openclaw agent --agent jarvis --message \
+            "PR #${{ github.event.pull_request.number }} opened by ${{ github.actor }}: '${{ github.event.pull_request.title }}'. Changed files: $(gh pr diff ${{ github.event.pull_request.number }} --name-only | tr '\n' ', ')"
+
+      - name: Notify Jarvis on PR merged
+        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+        run: |
+          openclaw agent --agent jarvis --message \
+            "PR #${{ github.event.pull_request.number }} merged: '${{ github.event.pull_request.title }}'. Changed files: $(gh pr diff ${{ github.event.pull_request.number }} --name-only | tr '\n' ', ')"
+
+      - name: Notify Jarvis on PR review
+        if: github.event_name == 'pull_request_review'
+        run: |
+          openclaw agent --agent jarvis --message \
+            "PR #${{ github.event.pull_request.number }} review by ${{ github.event.review.user.login }}: ${{ github.event.review.state }}"
+
+      - name: Notify Jarvis on PR updated
+        if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+        run: |
+          openclaw agent --agent jarvis --message \
+            "PR #${{ github.event.pull_request.number }} updated with new commits by ${{ github.actor }}"

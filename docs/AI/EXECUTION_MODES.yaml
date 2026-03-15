@@ -1,0 +1,110 @@
+# Apex Labs — Execution Modes
+# Defines how each agent role is launched by Atlas.
+#
+# This is a DESIGN document for humans. The actual runtime enforcement
+# is in openclaw.json. They should stay in sync — openclaw.json is the
+# source of truth for runtime behavior.
+#
+# IMPORTANT: can_read lists are approximate architectural boundaries.
+# Before enforcing, run import analysis per service:
+#   rg "from libs\." apps/<service>/ | sed 's/.*from //' | cut -d. -f1-3 | sort -u
+#
+# Agent ID Resolution for split roles:
+#   core_trading_eng → [core_trading_eng_gateway, core_trading_eng_orchestrator, core_trading_eng_signal]
+#   platform_services → [platform_services_auth, platform_services_alert, platform_services_registry]
+#   lead_quant → [lead_quant_strategies, lead_quant_research]
+
+lead_trader:
+  type: native
+  executor: file_writer_only
+  cwd: /Users/wei/Documents/SourceCode/trading_platform/docs/BUSINESS/
+  can_write: ["docs/BUSINESS/**"]
+  can_read: ["docs/TASKS/BACKLOG.md", "docs/TASKS/ACTIVE_SPRINT.md"]
+
+cto:
+  type: native
+  executor: claude_code
+  mode: read_only
+  cwd: /Users/wei/Documents/SourceCode/trading_platform
+  can_write: ["docs/TASKS/**", "docs/ADRs/**", "docs/ARCHITECTURE/**"]
+  can_read: ["**"]
+  forbidden_extensions: [".py", ".js", ".ts"]
+
+lead_quant:
+  type: acp
+  executor: claude_code
+  cwd_strategies: /Users/wei/Documents/SourceCode/trading_platform/strategies
+  cwd_research: /Users/wei/Documents/SourceCode/trading_platform/research
+  can_write: ["strategies/**", "research/**", "libs/models/**"]
+  can_read: ["libs/data/**", "libs/trading/**", "libs/core/**"]
+
+data_engineer:
+  type: acp
+  executor: claude_code
+  cwd: /Users/wei/Documents/SourceCode/trading_platform/apps/market_data_service
+  can_write: ["apps/market_data_service/**", "libs/data/**", "scripts/data/**"]
+  can_read: ["libs/core/**", "libs/platform/web_console_auth/**", "libs/platform/secrets/**"]
+
+core_trading_eng:
+  type: acp
+  executor: claude_code
+  cwd_gateway: /Users/wei/Documents/SourceCode/trading_platform/apps/execution_gateway
+  cwd_orchestrator: /Users/wei/Documents/SourceCode/trading_platform/apps/orchestrator
+  cwd_signal: /Users/wei/Documents/SourceCode/trading_platform/apps/signal_service
+  can_write:
+    - "apps/execution_gateway/**"
+    - "apps/orchestrator/**"
+    - "apps/signal_service/**"
+    - "libs/trading/**"
+  can_read: ["libs/core/**", "libs/models/**", "libs/platform/security/**", "libs/platform/web_console_auth/**", "libs/platform/analytics/**"]
+
+platform_services:
+  type: acp
+  executor: claude_code
+  cwd_auth: /Users/wei/Documents/SourceCode/trading_platform/apps/auth_service
+  cwd_alert: /Users/wei/Documents/SourceCode/trading_platform/apps/alert_worker
+  cwd_registry: /Users/wei/Documents/SourceCode/trading_platform/apps/model_registry
+  can_write:
+    - "apps/auth_service/**"
+    - "apps/alert_worker/**"
+    - "apps/model_registry/**"
+    - "libs/platform/**"
+  can_read: ["libs/core/**", "libs/platform/**"]
+
+frontend_eng:
+  type: acp
+  executor: claude_code
+  cwd: /Users/wei/Documents/SourceCode/trading_platform/apps/web_console_ng
+  can_write:
+    - "apps/web_console_ng/**"
+    - "libs/web_console_data/**"
+    - "libs/web_console_services/**"
+  can_read:
+    - "libs/core/**"
+    - "libs/platform/web_console_auth/**"
+    - "libs/platform/security/**"
+    - "libs/platform/admin/**"
+    - "libs/platform/alerts/**"
+    - "libs/platform/analytics/**"
+    - "libs/platform/tax/**"
+    - "libs/data/**"
+    - "libs/trading/**"
+    - "libs/models/**"
+
+qa_engineer:
+  type: native
+  executor: claude_code
+  cwd: /Users/wei/Documents/SourceCode/trading_platform
+  can_write: ["tests/**", "scripts/testing/**"]
+  can_read: ["**"]
+
+devops_sre:
+  type: acp
+  executor: claude_code
+  cwd: /Users/wei/Documents/SourceCode/trading_platform/infra
+  can_write:
+    - "infra/**"
+    - ".github/workflows/**"
+    - "docker-compose*.yml"
+    - "scripts/ops/**"
+  can_read: ["apps/**/Dockerfile", "apps/**/config.py", "Makefile"]
