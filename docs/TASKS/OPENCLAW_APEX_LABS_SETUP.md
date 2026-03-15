@@ -3214,6 +3214,6 @@ and convert valid issues into new tickets in BACKLOG.md. Delete the discovery fi
 Sources:
 - [OpenClaw Multi-Agent Routing](https://docs.openclaw.ai/concepts/multi-agent)
 - [OpenClaw Sub-Agents](https://docs.openclaw.ai/tools/subagents)
-- [OpenClaw ACP Integration](https://docs.openclaw.ai/acp)
+- [OpenClaw ACP Agents](https://docs.openclaw.ai/tools/acp-agents)
 - [OpenClaw GitHub](https://github.com/openclaw/openclaw)
 - [OpenClaw CLI Reference](https://docs.openclaw.ai/cli)

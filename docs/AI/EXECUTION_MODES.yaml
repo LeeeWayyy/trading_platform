@@ -5,6 +5,11 @@
 # is in openclaw.json. They should stay in sync — openclaw.json is the
 # source of truth for runtime behavior.
 #
+# NOTE: Absolute paths (/Users/wei/...) are INTENTIONAL.
+# OpenClaw ACP agents require absolute cwd paths in their runtime config.
+# If the repo moves, update all paths below AND in openclaw.json.
+# REPO_ROOT: /Users/wei/Documents/SourceCode/trading_platform
+#
 # IMPORTANT: can_read lists are approximate architectural boundaries.
 # Before enforcing, run import analysis per service:
 #   rg "from libs\." apps/<service>/ | sed 's/.*from //' | cut -d. -f1-3 | sort -u
