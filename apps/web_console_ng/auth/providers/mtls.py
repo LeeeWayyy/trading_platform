@@ -153,6 +153,50 @@ class MTLSAuthHandler(AuthProvider):
         if not user_data:
             return AuthResult(success=False, error_message="Invalid certificate DN format")
 
+        # P6T19: CN allowlist — reject users not in MTLS_ADMIN_CN_ALLOWLIST
+        from libs.platform.web_console_auth.mtls_fallback import get_admin_cn_allowlist
+
+        allowed_cns = get_admin_cn_allowlist()
+        cn = user_data.get("user_id", "")
+        if not allowed_cns:
+            logger.error("MTLS_ADMIN_CN_ALLOWLIST is empty — denying all mTLS logins (fail-closed)")
+            return AuthResult(
+                success=False,
+                error_message="mTLS login is not configured. Contact administrator.",
+            )
+        if cn not in allowed_cns:
+            logger.warning(
+                "mtls_identity_denied",
+                extra={"cn": cn, "allowed_count": len(allowed_cns)},
+            )
+            return AuthResult(
+                success=False,
+                error_message="You are not authorized to access this application.",
+            )
+
+        # P6T19: Single-admin role + load all strategies from DB
+        user_data["role"] = "admin"
+        try:
+            from apps.web_console_ng.core.dependencies import get_sync_db_pool
+
+            db_pool = get_sync_db_pool()
+            if db_pool:
+                async with db_pool.connection() as conn:
+                    rows = await conn.execute("SELECT strategy_id FROM strategies ORDER BY strategy_id")
+                    user_data["strategies"] = [row[0] for row in await rows.fetchall()]
+            else:
+                logger.error("No DB pool available — denying mTLS login (fail-closed)")
+                return AuthResult(
+                    success=False,
+                    error_message="Service temporarily unavailable. Please try again later.",
+                )
+        except Exception:
+            logger.exception("Failed to load strategies for mTLS session")
+            return AuthResult(
+                success=False,
+                error_message="Service temporarily unavailable. Please try again later.",
+            )
+
         session_store = get_session_store()
         user_data["auth_method"] = "mtls"
         user_data["client_dn"] = dn

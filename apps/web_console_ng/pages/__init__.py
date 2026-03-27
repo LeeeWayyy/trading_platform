@@ -14,7 +14,7 @@ Add imports as pages are implemented:
 # P5T7 pages (add as implemented):
 from apps.web_console_ng.pages import (
     admin,  # noqa: F401
-    admin_users,  # noqa: F401 - P6T16
+    # P6T19: admin_users removed (single-admin model)
     alerts,  # noqa: F401
     alpha_explorer,  # noqa: F401 - P5T8
     attribution,  # noqa: F401 - P6T10

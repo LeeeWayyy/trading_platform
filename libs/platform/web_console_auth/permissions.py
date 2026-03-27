@@ -1,7 +1,7 @@
-"""RBAC roles and permission helpers shared across services.
+"""Permission helpers shared across services.
 
-Default‑deny: any unknown role or missing mapping returns False.
-Designed for lightweight use in Streamlit as well as backend services.
+P6T19: Simplified to single-admin model — all permission checks return True.
+Enums and function signatures preserved to avoid breaking 170+ call sites.
 """
 
 from __future__ import annotations
@@ -15,6 +15,9 @@ from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# P6T19: _normalize_role, _extract_role, _normalize_dataset_key kept for
+# any external callers but no longer used by simplified check functions.
 
 
 class Role(str, Enum):
@@ -120,87 +123,12 @@ class DatasetPermission(str, Enum):
     FAMA_FRENCH_ACCESS = "dataset:fama_french"
 
 
-ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
-    Role.VIEWER: {
-        Permission.VIEW_POSITIONS,
-        Permission.VIEW_PNL,
-        Permission.VIEW_TRADES,
-        Permission.VIEW_DATA_SYNC,
-        Permission.VIEW_DATA_QUALITY,
-        Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
-        Permission.VIEW_ALERTS,
-        Permission.VIEW_REPORTS,
-        Permission.VIEW_TAX_LOTS,
-    },
-    Role.RESEARCHER: {
-        Permission.VIEW_ALPHA_SIGNALS,
-        Permission.VIEW_FACTOR_ANALYTICS,
-        Permission.LAUNCH_NOTEBOOKS,
-        Permission.VIEW_REPORTS,
-        Permission.VIEW_TAX_LOTS,
-        Permission.VIEW_TAX_REPORTS,
-        Permission.VIEW_FEATURES,
-        Permission.VIEW_SHADOW_RESULTS,
-        Permission.QUERY_DATA,  # P6T14: SQL Explorer access for alpha research
-        Permission.VIEW_UNIVERSES,  # T15.1/T15.2: Browse universes for research
-        Permission.VIEW_STRATEGY_EXPOSURE,  # T15.3: View exposure for research
-    },
-    Role.OPERATOR: {
-        Permission.VIEW_POSITIONS,
-        Permission.VIEW_PNL,
-        Permission.VIEW_TRADES,
-        Permission.VIEW_MARKET_DATA,
-        Permission.CANCEL_ORDER,
-        Permission.MODIFY_ORDER,
-        Permission.CLOSE_POSITION,
-        Permission.ADJUST_POSITION,
-        Permission.FLATTEN_ALL,
-        Permission.EXPORT_DATA,
-        Permission.QUERY_DATA,
-        Permission.VIEW_DATA_SYNC,
-        Permission.TRIGGER_DATA_SYNC,
-        Permission.VIEW_DATA_QUALITY,
-        Permission.ACKNOWLEDGE_ALERTS,
-        Permission.MANAGE_STRATEGIES,  # [v1.5] Operators can manage strategies
-        Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
-        Permission.TRIP_CIRCUIT,  # T7.1: Can manually trip CB
-        Permission.RESET_CIRCUIT,  # T7.1: Can reset CB (with rate limit)
-        Permission.VIEW_ALERTS,
-        Permission.CREATE_ALERT_RULE,
-        Permission.UPDATE_ALERT_RULE,
-        Permission.TEST_NOTIFICATION,
-        Permission.ACKNOWLEDGE_ALERT,
-        Permission.SUBMIT_ORDER,  # C6: Trading API access
-        Permission.GENERATE_SIGNALS,  # C6: Signal generation access
-        Permission.VIEW_REPORTS,
-        Permission.VIEW_TAX_LOTS,
-        Permission.VIEW_TCA,  # P6T8: TCA dashboard access
-        Permission.VIEW_AUDIT,  # P6T8: Audit trail access
-        Permission.VIEW_FEATURES,
-        Permission.VIEW_SHADOW_RESULTS,
-        Permission.VIEW_UNIVERSES,  # T15.1/T15.2: Browse universes
-        Permission.MANAGE_UNIVERSES,  # T15.1: Operators manage custom universes
-        Permission.VIEW_STRATEGY_EXPOSURE,  # T15.3: Strategy exposure dashboard
-        Permission.VIEW_MODELS,  # P6T17: Model registry browser access
-    },
-    Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
-}
+# P6T19: Emptied — single-admin model, all checks return True.
+# Kept as importable empty dicts for backwards compatibility.
+ROLE_PERMISSIONS: dict[Role, set[Permission]] = {}
 
-ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {
-    Role.VIEWER: {DatasetPermission.FAMA_FRENCH_ACCESS},
-    Role.RESEARCHER: {
-        DatasetPermission.FAMA_FRENCH_ACCESS,
-        DatasetPermission.CRSP_ACCESS,  # P6T14: Academic datasets for alpha research
-        DatasetPermission.COMPUSTAT_ACCESS,
-    },
-    Role.OPERATOR: {
-        DatasetPermission.FAMA_FRENCH_ACCESS,
-        DatasetPermission.CRSP_ACCESS,
-        DatasetPermission.COMPUSTAT_ACCESS,
-        DatasetPermission.TAQ_ACCESS,  # P6T8: TCA requires TAQ data
-    },
-    Role.ADMIN: set(DatasetPermission),  # All datasets
-}
+# P6T19: Emptied — single-admin model, all checks return True.
+ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {}
 
 
 def _normalize_role(role_value: Any) -> Role | None:
@@ -239,47 +167,15 @@ def _normalize_dataset_key(dataset: str) -> str:
 
 
 def has_permission(user_or_role: Any, permission: Permission) -> bool:
-    """Check if role grants a permission (default‑deny on unknown)."""
+    """P6T19: Single-admin model — always grants permission."""
 
-    role = _extract_role(user_or_role)
-    if role is None:
-        return False
-
-    if role is Role.ADMIN:
-        return True
-
-    return permission in ROLE_PERMISSIONS.get(role, set())
+    return True
 
 
 def has_dataset_permission(user_or_role: Any, dataset: str) -> bool:
-    """Check if user has access to specific dataset."""
+    """P6T19: Single-admin model — always grants dataset access."""
 
-    if not dataset:
-        return False
-
-    role = _extract_role(user_or_role)
-    if role is None:
-        return False
-
-    if role is Role.ADMIN:
-        return True
-
-    permission: DatasetPermission | None
-    if isinstance(dataset, DatasetPermission):
-        permission = dataset
-    else:
-        dataset_key = _normalize_dataset_key(str(dataset))
-        permission = {
-            "crsp": DatasetPermission.CRSP_ACCESS,
-            "compustat": DatasetPermission.COMPUSTAT_ACCESS,
-            "taq": DatasetPermission.TAQ_ACCESS,
-            "fama_french": DatasetPermission.FAMA_FRENCH_ACCESS,
-        }.get(dataset_key)
-
-    if permission is None:
-        return False
-
-    return permission in ROLE_DATASET_PERMISSIONS.get(role, set())
+    return True
 
 
 def require_permission(
@@ -396,54 +292,27 @@ def require_permission(
 
 
 def is_admin(user_or_role: Any) -> bool:
-    """Check if user has admin role.
+    """P6T19: Single-admin model — always returns True."""
 
-    Use this for security-sensitive checks where only true admins should
-    have access (e.g., PII visibility). Prefer this over permission-based
-    checks when Role.ADMIN exclusivity is required.
-
-    Args:
-        user_or_role: User object, role string, or dict with 'role' key
-
-    Returns:
-        True if user has Role.ADMIN, False otherwise
-    """
-    role = _extract_role(user_or_role)
-    return role is Role.ADMIN
+    return True
 
 
 def get_authorized_strategies(user: Any | None) -> list[str]:
-    """Return list of strategies user may access (default-deny).
+    """P6T19: Return all strategies from user's session data.
 
-    Admins (with VIEW_ALL_STRATEGIES) are expected to receive the full list of
-    strategy IDs from provisioning. Callers without VIEW_ALL_STRATEGIES get
-    only their explicitly assigned strategies. Unknown roles or missing
-    strategies return an empty list to fail closed.
-
-    .. warning::
-
-        An empty return value does NOT always mean "no access". Admins with
-        ``VIEW_ALL_STRATEGIES`` may have an empty provisioned list. Callers
-        MUST check ``has_permission(user, Permission.VIEW_ALL_STRATEGIES)``
-        separately before denying access based on an empty strategy list.
+    Single-admin model — no role-based filtering. Returns the sanitized
+    strategies list populated by the auth provider at login time.
     """
 
     if not user:
         return []
 
-    role = _extract_role(user)
     raw_strategies: Any
     if isinstance(user, dict):
         raw_strategies = user.get("strategies", [])
     else:
-        # Support ORM/user objects that expose a ``strategies`` attribute
         raw_strategies = getattr(user, "strategies", []) or []
 
-    if role is None:
-        return []
-
-    # Fail closed: reject non-list/tuple containers (e.g. bare str would
-    # iterate characters, which is almost certainly a bug).
     if not isinstance(raw_strategies, list | tuple):
         return []
 
@@ -457,10 +326,6 @@ def get_authorized_strategies(user: Any | None) -> list[str]:
         if s and s not in seen:
             seen.add(s)
             strategies_list.append(s)
-
-    if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
-        # Fail closed: only return explicitly assigned strategies
-        return strategies_list
 
     return strategies_list
 

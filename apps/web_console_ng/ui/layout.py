@@ -174,7 +174,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Strategies", "/strategies", "model_training", None),  # P6T17
                     ("Models", "/models", "hub", None),  # P6T17
                     ("Tax Lots", "/tax-lots", "receipt_long", None),  # P6T16
-                    ("Users", "/admin/users", "people", None),  # P6T16
+                    # P6T19: User management removed (single-admin model)
                     ("Alerts", "/alerts", "notifications", None),  # P5T7
                     (
                         "Admin",
@@ -199,12 +199,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # Tax Lots link requires VIEW_TAX_LOTS
                     if path == "/tax-lots" and not has_permission(
                         user, Permission.VIEW_TAX_LOTS
-                    ):
-                        continue
-
-                    # Users link requires MANAGE_USERS
-                    if path == "/admin/users" and not has_permission(
-                        user, Permission.MANAGE_USERS
                     ):
                         continue
 

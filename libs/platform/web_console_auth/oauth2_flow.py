@@ -288,16 +288,47 @@ class OAuth2FlowHandler:
         user_id: str,
         db_pool: Any | None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
-        """Fetch role and strategy data when a DB pool is available."""
+        """P6T19: Identity allowlist check + load all strategies.
 
-        if db_pool is None:
-            return None, []
+        Replaces the previous user_roles DB lookup with an env-based
+        identity allowlist. All strategies are loaded (no per-user filtering).
+        """
+        import os
 
-        role_data = await _fetch_user_role_data(user_id, db_pool)
-        if role_data is None:
-            raise ValueError("User not provisioned. Contact administrator.")
+        # P6T19: Identity allowlist — check OAUTH2_ALLOWED_SUBS env var
+        allowed_subs_raw = os.getenv("OAUTH2_ALLOWED_SUBS", "")
+        allowed_subs = [s.strip() for s in allowed_subs_raw.split(",") if s.strip()]
 
-        strategies = await _fetch_user_strategies(user_id, db_pool)
+        if not allowed_subs:
+            logger.error("OAUTH2_ALLOWED_SUBS is empty — denying all logins (fail-closed)")
+            raise ValueError("OAuth2 login is not configured. Contact administrator.")
+
+        if user_id not in allowed_subs:
+            logger.warning(
+                "oauth2_identity_denied",
+                extra={"user_id": user_id, "allowed_count": len(allowed_subs)},
+            )
+            raise ValueError("You are not authorized to access this application.")
+
+        # P6T19: Single-admin role data
+        role_data = {"role": "admin", "user_id": user_id}
+
+        # Load all strategies (no per-user filtering)
+        strategies: list[str] = []
+        if db_pool is not None:
+            try:
+                async with db_pool.connection() as conn:
+                    rows = await conn.execute(
+                        "SELECT strategy_id FROM strategies ORDER BY strategy_id"
+                    )
+                    strategies = [row[0] for row in await rows.fetchall()]
+            except Exception:
+                logger.exception("Failed to load strategies for session")
+                raise ValueError("Service temporarily unavailable. Please try again later.")
+        else:
+            logger.error("No DB pool — denying login (fail-closed for strategy loading)")
+            raise ValueError("Service temporarily unavailable. Please try again later.")
+
         return role_data, strategies
 
     def _build_session_data(

@@ -229,14 +229,55 @@ class OAuth2AuthHandler(AuthProvider):
                 error_message="Identity provider did not return valid user identifier",
             )
 
+        # P6T19: Identity allowlist — reject users not in OAUTH2_ALLOWED_SUBS
+        if not config.OAUTH2_ALLOWED_SUBS:
+            logger.error("OAUTH2_ALLOWED_SUBS is empty — denying all OAuth2 logins (fail-closed)")
+            return AuthResult(
+                success=False,
+                error_message="OAuth2 login is not configured. Contact administrator.",
+            )
+        if user_id not in config.OAUTH2_ALLOWED_SUBS:
+            logger.warning(
+                "oauth2_identity_denied",
+                extra={"user_id": user_id, "allowed_count": len(config.OAUTH2_ALLOWED_SUBS)},
+            )
+            return AuthResult(
+                success=False,
+                error_message="You are not authorized to access this application.",
+            )
+
+        # P6T19: Load all strategies from DB for single-admin session
+        strategies: list[str] = []
+        try:
+            from apps.web_console_ng.core.dependencies import get_sync_db_pool
+
+            db_pool = get_sync_db_pool()
+            if db_pool:
+                async with db_pool.connection() as conn:
+                    rows = await conn.execute("SELECT strategy_id FROM strategies ORDER BY strategy_id")
+                    strategies = [row[0] for row in await rows.fetchall()]
+            else:
+                logger.error("No DB pool available — denying OAuth2 login (fail-closed)")
+                return AuthResult(
+                    success=False,
+                    error_message="Service temporarily unavailable. Please try again later.",
+                )
+        except Exception:
+            logger.exception("Failed to load strategies for OAuth2 session")
+            return AuthResult(
+                success=False,
+                error_message="Service temporarily unavailable. Please try again later.",
+            )
+
         # Map user info - store id_token for RP-initiated logout
         user_data = {
             "user_id": user_id,
             "username": userinfo.get("email", userinfo.get("name")),
             "email": userinfo.get("email"),
-            "role": self._map_role(userinfo),
+            "role": "admin",  # P6T19: Single-admin model
             "auth_method": "oauth2",
             "id_token": tokens.get("id_token"),  # For RP-initiated logout
+            "strategies": strategies,  # P6T19: Full strategy list
         }
 
         session_store = get_session_store()

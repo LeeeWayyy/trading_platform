@@ -280,6 +280,13 @@ OAUTH2_TOKEN_URL = os.getenv("OAUTH2_TOKEN_URL", "")
 OAUTH2_USERINFO_URL = os.getenv("OAUTH2_USERINFO_URL", "")
 OAUTH2_CALLBACK_URL = os.getenv("OAUTH2_CALLBACK_URL", "")
 OAUTH2_ISSUER = os.getenv("OAUTH2_ISSUER", "")
+# P6T19: Identity allowlist — comma-separated list of allowed OAuth2 `sub` values.
+# If empty, all authenticated OAuth2 users are denied (fail-closed).
+OAUTH2_ALLOWED_SUBS: list[str] = [
+    s.strip()
+    for s in os.getenv("OAUTH2_ALLOWED_SUBS", "").split(",")
+    if s.strip()
+]
 # Optional - for RP-initiated logout
 OAUTH2_LOGOUT_URL = os.getenv("OAUTH2_LOGOUT_URL", "")
 OAUTH2_POST_LOGOUT_REDIRECT_URL = os.getenv("OAUTH2_POST_LOGOUT_REDIRECT_URL", "")

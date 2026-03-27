@@ -7,7 +7,6 @@ ALLOWED_REDIRECT_PATHS = {
     "/risk",
     "/backtest",
     "/admin",
-    "/admin/users",
     "/tax-lots",
     "/mfa-verify",
 }
