@@ -14,14 +14,14 @@ from libs.platform.web_console_auth.db import acquire_connection
 from libs.platform.web_console_auth.exceptions import (
     InvalidTokenError,
     MissingJtiError,
-    SessionExpiredError,
     SubjectMismatchError,
     TokenReplayedError,
     TokenRevokedError,
 )
 from libs.platform.web_console_auth.jwt_manager import JWTManager
 from libs.platform.web_console_auth.permissions import Role
-from libs.platform.web_console_auth.session_validation import validate_session_version
+
+# P6T19: SessionExpiredError, validate_session_version removed (single-admin model)
 
 logger = logging.getLogger(__name__)
 
@@ -83,14 +83,9 @@ class GatewayAuthenticator:
         if claims.get("sub") != x_user_id:
             raise SubjectMismatchError("Token subject does not match X-User-ID")
 
-        role = await self.get_user_role(x_user_id)
-        strategies = await self.get_user_strategies(x_user_id)
-
-        is_valid_session = await validate_session_version(
-            x_user_id, x_session_version, self.db_pool
-        )
-        if not is_valid_session:
-            raise SessionExpiredError("Session invalidated")
+        # P6T19: Single-admin model — always admin, all strategies
+        role = Role.ADMIN
+        strategies = await self.get_user_strategies()
 
         return AuthenticatedUser(
             user_id=x_user_id,
@@ -113,28 +108,11 @@ class GatewayAuthenticator:
         if not was_set:
             raise TokenReplayedError(f"Token already used: {jti}")
 
-    async def get_user_role(self, user_id: str) -> Role | None:
-        """Fetch user role from user_roles table."""
-        query = "SELECT role FROM user_roles WHERE user_id = %s"
+    async def get_user_strategies(self) -> list[str]:
+        """P6T19: Fetch all strategies from strategies table (no per-user filtering)."""
+        query = "SELECT strategy_id FROM strategies ORDER BY strategy_id"
         async with acquire_connection(self.db_pool) as conn:
-            cursor = await conn.execute(query, (user_id,))
-            row = await cursor.fetchone()
-        if not row:
-            return None
-        role_value = row["role"] if isinstance(row, dict) else row[0]
-        try:
-            return Role(role_value)
-        except ValueError:
-            logger.warning("unknown_role_value", extra={"role": role_value})
-            return None
-
-    async def get_user_strategies(self, user_id: str) -> list[str]:
-        """Fetch authorized strategies from user_strategy_access table."""
-        query = (
-            "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s ORDER BY strategy_id"
-        )
-        async with acquire_connection(self.db_pool) as conn:
-            cursor = await conn.execute(query, (user_id,))
+            cursor = await conn.execute(query)
             rows = await cursor.fetchall()
         strategies: list[str] = []
         for row in rows or []:

@@ -32,7 +32,7 @@ from .pkce import (
     generate_session_id,
     generate_state,
 )
-from .session_invalidation import validate_session_version
+# P6T19: validate_session_version import removed (always returns True now)
 from .session_store import RedisSessionStore, SessionData
 
 logger = logging.getLogger(__name__)
@@ -461,22 +461,7 @@ class OAuth2FlowHandler:
             if not session_data:
                 raise ValueError("Session not found or invalid")
 
-            if db_pool is not None and hasattr(session_data, "session_version"):
-                is_current = await validate_session_version(
-                    session_data.user_id,
-                    session_data.session_version,
-                    db_pool,
-                )
-                if not is_current:
-                    logger.warning(
-                        "session_version_mismatch_on_refresh",
-                        extra={
-                            "user_id": session_data.user_id,
-                            "session_version": session_data.session_version,
-                        },
-                    )
-                    await self.session_store.delete_session(session_id)
-                    raise ValueError("Session invalidated. Please sign in again.")
+            # P6T19: session_version validation removed (single-admin model)
 
             # Refresh token exchange
             try:

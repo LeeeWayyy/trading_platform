@@ -25,7 +25,7 @@ import psycopg
 from nicegui import ui
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 
-from apps.web_console_ng.auth.db_role import verify_db_role
+# P6T19: verify_db_role removed (single-admin model)
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.database import get_db_pool
@@ -205,9 +205,7 @@ async def _check_api_key_permission(
     """
     cur_user = get_current_user()
     cur_uid = cur_user.get("user_id", "unknown")
-    if has_permission(cur_user, Permission.MANAGE_API_KEYS) and await verify_db_role(
-        db_pool, cur_uid, Permission.MANAGE_API_KEYS
-    ):
+    if has_permission(cur_user, Permission.MANAGE_API_KEYS):
         return True
     try:
         audit = AuditLogger(db_pool)
@@ -748,7 +746,6 @@ async def _render_reconciliation_tools(user: dict[str, Any]) -> None:
             if (
                 pool is None
                 or not has_permission(current, Permission.MANAGE_RECONCILIATION)
-                or not await verify_db_role(pool, current_uid, Permission.MANAGE_RECONCILIATION)
             ):
                 ui.notify("Permission denied", type="negative")
                 return
@@ -872,9 +869,7 @@ async def _render_trading_hours_form(user: dict[str, Any], db_pool: AsyncConnect
         async def save() -> None:
             cur = get_current_user()
             cur_uid = cur.get("user_id", "unknown")
-            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG) or not await verify_db_role(
-                db_pool, cur_uid, Permission.MANAGE_SYSTEM_CONFIG
-            ):
+            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG):
                 ui.notify("Permission denied", type="negative")
                 return
             try:
@@ -923,9 +918,7 @@ async def _render_position_limits_form(user: dict[str, Any], db_pool: AsyncConne
         async def save() -> None:
             cur = get_current_user()
             cur_uid = cur.get("user_id", "unknown")
-            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG) or not await verify_db_role(
-                db_pool, cur_uid, Permission.MANAGE_SYSTEM_CONFIG
-            ):
+            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG):
                 ui.notify("Permission denied", type="negative")
                 return
             try:
@@ -963,9 +956,7 @@ async def _render_system_defaults_form(user: dict[str, Any], db_pool: AsyncConne
         async def save() -> None:
             cur = get_current_user()
             cur_uid = cur.get("user_id", "unknown")
-            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG) or not await verify_db_role(
-                db_pool, cur_uid, Permission.MANAGE_SYSTEM_CONFIG
-            ):
+            if not has_permission(cur, Permission.MANAGE_SYSTEM_CONFIG):
                 ui.notify("Permission denied", type="negative")
                 return
             try:
@@ -1117,9 +1108,7 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
         async def _check_audit_permission() -> bool:
             cur = get_current_user()
             cur_uid = cur.get("user_id", "unknown")
-            if not has_permission(cur, Permission.VIEW_AUDIT) or not await verify_db_role(
-                db_pool, cur_uid, Permission.VIEW_AUDIT
-            ):
+            if not has_permission(cur, Permission.VIEW_AUDIT):
                 ui.notify("Permission denied", type="negative")
                 return False
             return True
@@ -1160,9 +1149,7 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
     async def export_csv() -> None:
         cur = get_current_user()
         cur_uid = cur.get("user_id", "unknown")
-        if not has_permission(cur, Permission.VIEW_AUDIT) or not await verify_db_role(
-            db_pool, cur_uid, Permission.VIEW_AUDIT
-        ):
+        if not has_permission(cur, Permission.VIEW_AUDIT):
             ui.notify("Permission denied", type="negative")
             return
         filters = get_filters()

@@ -11,7 +11,8 @@ import jwt
 
 from .jwks_validator import JWKSValidator
 from .mfa_verification import get_amr_method, verify_step_up_auth
-from .session_invalidation import validate_session_version
+# P6T19: validate_session_version import kept for reference but no longer used
+# (session versioning removed in single-admin model)
 
 logger = logging.getLogger(__name__)
 
@@ -57,41 +58,8 @@ async def handle_step_up_callback(
             "redirect_to": "/login",
         }
 
-    # Fail closed: require db_pool for session_version validation
-    if db_pool is None:
-        await session_store.delete_session(session_id)
-        await session_store.clear_step_up_state(session_id)
-        if audit_logger:
-            await audit_logger.log_auth_event(
-                user_id=session_data.user_id,
-                action="step_up_callback_failed",
-                outcome="denied",
-                details={"reason": "db_pool_unavailable"},
-            )
-        return {
-            "error": "session_validation_unavailable",
-            "message": "Unable to verify session. Please sign in again.",
-            "redirect_to": "/login",
-        }
-
-    is_current = await validate_session_version(
-        session_data.user_id, session_data.session_version, db_pool
-    )
-    if not is_current:
-        await session_store.delete_session(session_id)
-        await session_store.clear_step_up_state(session_id)
-        if audit_logger:
-            await audit_logger.log_auth_event(
-                user_id=session_data.user_id,
-                action="step_up_session_invalidated",
-                outcome="denied",
-                details={"reason": "session_version_mismatch"},
-            )
-        return {
-            "error": "session_invalidated",
-            "message": "Your session has been revoked. Please sign in again.",
-            "redirect_to": "/login",
-        }
+    # P6T19: session_version validation removed (single-admin model).
+    # db_pool parameter kept for backward compatibility but unused here.
 
     # Timeout enforcement
     if session_data.step_up_requested_at:

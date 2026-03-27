@@ -263,9 +263,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     )
                 # For HTML requests, proceed without user - decorators will handle error UI
 
-        # [T16.2] DB role override: make admin role changes authoritative
-        if user and isinstance(user, dict) and user.get("user_id"):
-            await self._override_role_from_db(request, user)
+        # P6T19: Single-admin model — hardcode admin role for all authenticated users
+        if user and isinstance(user, dict):
+            user["role"] = "admin"
 
         if not user:
             # For browser requests (Accept: text/html), redirect to login
@@ -304,134 +304,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         return cast(Response, await call_next(request))
 
-    async def _override_role_from_db(self, request: Request, user: dict[str, Any]) -> None:
-        """Override provider-derived session role with DB role from user_roles.
-
-        Fail-open by design (ADR-0038): on any error (DB/Redis timeout, network
-        partition), keep the provider-derived role unchanged so the user is not
-        blocked.  The DB role is authoritative when reachable; when not, the
-        provider role is the best available signal.
-        Uses optional Redis cache (ng_role_cache:{user_id}, TTL 60s) to minimize DB load.
-        """
-        user_id = user.get("user_id")
-        if not user_id:
-            return
-
-        redis_client = None
-        cache_key = f"ng_role_cache:{user_id}"
-
-        try:
-            # Check Redis cache first
-            try:
-                store = get_redis_store()
-                redis_client = await store.get_master()
-                cached_role = await redis_client.get(cache_key)
-                if cached_role is not None:
-                    db_role = (
-                        cached_role.decode("utf-8")
-                        if isinstance(cached_role, bytes)
-                        else str(cached_role)
-                    )
-                    # Sentinel: no DB row exists — keep provider role
-                    if db_role == "__none__":
-                        return
-                    if db_role != user.get("role"):
-                        self._apply_role_override(request, user, db_role)
-                        # Best-effort: also persist role change in Redis session
-                        try:
-                            await self._update_session_payload(request, db_role)
-                        except (RedisError, OSError, TimeoutError, ValueError) as exc:
-                            logger.debug("session_role_update_on_cache_hit_failed", extra={"user_id": user_id, "error": str(exc)})
-                    return
-            except (RedisError, OSError, TimeoutError) as exc:
-                logger.debug("role_cache_miss_or_error", extra={"user_id": user_id, "error": str(exc)})
-
-            # Query DB with timeout
-            db_pool = get_db_pool()
-            if db_pool is None:
-                return  # Fail-open (ADR-0038): keep provider role when DB unavailable
-
-            try:
-
-                async def _db_role_lookup() -> Any:
-                    async with db_pool.connection() as conn:
-                        cursor = await conn.execute(
-                            "SELECT role FROM user_roles WHERE user_id = %s",
-                            (user_id,),
-                        )
-                        return await cursor.fetchone()
-
-                row = await asyncio.wait_for(_db_role_lookup(), timeout=0.5)
-            except (TimeoutError, OSError) as exc:
-                # Fail-open (ADR-0038): keep provider role on DB timeout/error
-                logger.debug(
-                    "db_role_lookup_timeout_or_error",
-                    extra={"user_id": user_id, "error": str(exc)},
-                )
-                return
-
-            if not row:
-                # Cache "no row" sentinel to avoid repeated DB queries for
-                # unprovisioned users (P6T16 feedback).
-                if redis_client is not None:
-                    try:
-                        await redis_client.setex(cache_key, 60, "__none__")
-                    except (RedisError, OSError, TimeoutError) as exc:
-                        logger.debug("role_cache_write_none_failed", extra={"user_id": user_id, "error": str(exc)})
-                return  # No DB row — keep provider role
-
-            db_role = row[0]
-            if db_role == user.get("role"):
-                # Same role — still cache it to avoid repeated DB queries
-                if redis_client is not None:
-                    try:
-                        await redis_client.setex(cache_key, 60, db_role)
-                    except (RedisError, OSError, TimeoutError) as exc:
-                        logger.debug("role_cache_write_failed", extra={"user_id": user_id, "error": str(exc)})
-                return
-
-            # Role differs — apply override
-            self._apply_role_override(request, user, db_role)
-
-            # Cache the DB role
-            if redis_client is not None:
-                try:
-                    await redis_client.setex(cache_key, 60, db_role)
-                except (RedisError, OSError, TimeoutError) as exc:
-                    logger.debug("role_cache_write_failed_post_override", extra={"user_id": user_id, "error": str(exc)})
-
-            # Update Redis session payload
-            try:
-                await self._update_session_payload(request, db_role)
-            except (RedisError, OSError, TimeoutError, ValueError) as exc:
-                logger.debug("session_role_update_failed", extra={"user_id": user_id, "error": str(exc)})
-
-        except Exception as exc:
-            # Fail-open: never block requests due to role override errors
-            logger.debug("role_override_failed", extra={"user_id": user_id, "error": str(exc)})
-
-    @staticmethod
-    def _apply_role_override(request: Request, user: dict[str, Any], db_role: str) -> None:
-        """Apply DB role to all in-memory locations."""
-        user["role"] = db_role
-        request.state.user = user
-        try:
-            stored = app.storage.user.get("user")
-            if isinstance(stored, dict):
-                stored["role"] = db_role
-                app.storage.user["user"] = stored
-        except (RuntimeError, AttributeError, KeyError):
-            pass  # Storage not available
-
-    @staticmethod
-    async def _update_session_payload(request: Request, db_role: str) -> None:
-        """Best-effort: persist role change in Redis session payload."""
-        cookie_name = CookieConfig.from_env().get_cookie_name()
-        signed_cookie = request.cookies.get(cookie_name)
-        if signed_cookie:
-            session_id = extract_session_id(signed_cookie)
-            session_store = get_session_store()
-            await session_store.update_session_role(session_id, db_role)
+    # P6T19: _override_role_from_db, _apply_role_override, _update_session_payload
+    # removed — single-admin model hardcodes role="admin" in dispatch above.
 
 
 class SessionMiddleware(BaseHTTPMiddleware):
