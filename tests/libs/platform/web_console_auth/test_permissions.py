@@ -45,9 +45,10 @@ def test_has_permission_admin_allows_everything():
     assert has_permission({"role": "admin"}, Permission.VIEW_TRADES) is True
 
 
-def test_has_permission_unknown_role_denied():
-    assert has_permission("unknown-role", Permission.VIEW_PNL) is False
-    assert has_permission({"role": "not-a-role"}, Permission.VIEW_PNL) is False
+def test_has_permission_unknown_role_granted():
+    """P6T19: Single-admin model — has_permission always returns True."""
+    assert has_permission("unknown-role", Permission.VIEW_PNL) is True
+    assert has_permission({"role": "not-a-role"}, Permission.VIEW_PNL) is True
 
 
 def test_get_authorized_strategies_default_deny_without_user():
@@ -64,7 +65,8 @@ def test_get_authorized_strategies_viewer_returns_assigned_only():
     assert get_authorized_strategies(user) == ["alpha"]
 
 
-def test_require_permission_sync_allows_and_denies():
+def test_require_permission_sync_always_allows():
+    """P6T19: Single-admin model — require_permission always allows."""
     calls: list[str] = []
 
     @require_permission(Permission.VIEW_PNL)
@@ -76,8 +78,9 @@ def test_require_permission_sync_allows_and_denies():
     assert fn(user=viewer) == "allowed"
     assert calls == ["ok"]
 
-    with pytest.raises(PermissionError):
-        fn()  # missing user defaults to denial
+    # Previously denied without user, now always granted
+    assert fn() == "allowed"
+    assert calls == ["ok", "ok"]
 
 
 def test_require_permission_async_supports_request_like_objects():
@@ -90,14 +93,15 @@ def test_require_permission_async_supports_request_like_objects():
             self.user = {"role": "viewer"}
 
     request = RequestLike()
-    result = asyncio.get_event_loop().run_until_complete(fn(request))
+    result = asyncio.run(fn(request))
     assert result == "async-ok"
 
 
-def test_require_permission_raises_when_subject_missing():
+def test_require_permission_allows_when_subject_missing():
+    """P6T19: Single-admin model — no subject still grants permission."""
+
     @require_permission(Permission.VIEW_PNL)
     def fn():
-        return "should-not-run"
+        return "always-runs"
 
-    with pytest.raises(PermissionError):
-        fn()
+    assert fn() == "always-runs"

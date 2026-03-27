@@ -316,11 +316,10 @@ class TestHandleCallback:
         mock_response.json.return_value = sample_tokens
         mock_response.raise_for_status = Mock()
 
-        # Mock database queries
+        # P6T19: Mock db_pool.connection() for strategies table query
         mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(return_value={"role": "operator", "session_version": 1})
         mock_cursor.fetchall = AsyncMock(
-            return_value=[{"strategy_id": "strategy_1"}, {"strategy_id": "strategy_2"}]
+            return_value=[("strategy_1",), ("strategy_2",)]
         )
 
         mock_conn = Mock()
@@ -328,11 +327,12 @@ class TestHandleCallback:
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=None)
 
+        mock_db_pool.connection = Mock(return_value=mock_conn)
+
         with (
-            patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire,
+            patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|12345"}),
             patch("httpx.AsyncClient") as mock_http_client,
         ):
-            mock_acquire.return_value = mock_conn
             mock_http_client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=mock_response
             )
@@ -362,7 +362,7 @@ class TestHandleCallback:
             mock_session_store.create_session.assert_called_once()
             assert session_data.user_id == "auth0|12345"
             assert session_data.email == "user@example.com"
-            assert session_data.role == "operator"
+            assert session_data.role == "admin"  # P6T19: always admin
             assert session_data.strategies == ["strategy_1", "strategy_2"]
 
             # Verify audit log
@@ -519,7 +519,7 @@ class TestHandleCallback:
                 )
 
     @pytest.mark.asyncio()
-    async def test_handle_callback_user_not_provisioned(
+    async def test_handle_callback_user_not_in_allowlist(
         self,
         oauth2_handler: OAuth2FlowHandler,
         mock_state_store: Mock,
@@ -530,7 +530,7 @@ class TestHandleCallback:
         sample_tokens: dict[str, Any],
         sample_id_token_claims: dict[str, Any],
     ):
-        """Test callback fails when user not provisioned in database."""
+        """P6T19: Test callback fails when user not in OAUTH2_ALLOWED_SUBS."""
         mock_state_store.get_and_delete_state.return_value = sample_oauth_state
         mock_jwks_validator.validate_id_token.return_value = sample_id_token_claims
 
@@ -538,25 +538,15 @@ class TestHandleCallback:
         mock_response.json.return_value = sample_tokens
         mock_response.raise_for_status = Mock()
 
-        # Mock database returning no role data
-        mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(return_value=None)
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
         with (
-            patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire,
+            patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|other_user"}),
             patch("httpx.AsyncClient") as mock_http_client,
         ):
-            mock_acquire.return_value = mock_conn
             mock_http_client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=mock_response
             )
 
-            with pytest.raises(ValueError, match="User not provisioned"):
+            with pytest.raises(ValueError, match="not authorized"):
                 await oauth2_handler.handle_callback(
                     code="test_code",
                     state="test_state_123",
@@ -566,15 +556,8 @@ class TestHandleCallback:
                     audit_logger=mock_audit_logger,
                 )
 
-            # Verify audit log for denied login
-            assert mock_audit_logger.log_auth_event.call_count == 1
-            call_args = mock_audit_logger.log_auth_event.call_args[1]
-            assert call_args["action"] == "login"
-            assert call_args["outcome"] == "denied"
-            assert call_args["details"]["reason"] == "user_not_provisioned"
-
     @pytest.mark.asyncio()
-    async def test_handle_callback_without_db_pool(
+    async def test_handle_callback_without_db_pool_raises(
         self,
         mock_state_store: Mock,
         mock_jwks_validator: Mock,
@@ -584,7 +567,7 @@ class TestHandleCallback:
         sample_tokens: dict[str, Any],
         sample_id_token_claims: dict[str, Any],
     ):
-        """Test callback succeeds without database pool (default role/strategies)."""
+        """P6T19: Test callback fails without database pool (fail-closed)."""
         # Create handler without db_pool
         handler = OAuth2FlowHandler(
             config=oauth2_config,
@@ -602,25 +585,24 @@ class TestHandleCallback:
         mock_response.json.return_value = sample_tokens
         mock_response.raise_for_status = Mock()
 
-        with patch("httpx.AsyncClient") as mock_http_client:
+        with (
+            patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|12345"}),
+            patch("httpx.AsyncClient") as mock_http_client,
+        ):
             mock_http_client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=mock_response
             )
 
-            # Execute without db_pool
-            session_id, session_data = await handler.handle_callback(
-                code="test_code",
-                state="test_state_123",
-                ip_address="192.168.1.1",
-                user_agent="Mozilla/5.0",
-                db_pool=None,
-                audit_logger=None,
-            )
-
-            # Verify default values used
-            assert session_data.role == "viewer"
-            assert session_data.strategies == []
-            assert session_data.session_version == 1
+            # P6T19: Without db_pool, _load_rbac_data fails closed
+            with pytest.raises(ValueError, match="temporarily unavailable"):
+                await handler.handle_callback(
+                    code="test_code",
+                    state="test_state_123",
+                    ip_address="192.168.1.1",
+                    user_agent="Mozilla/5.0",
+                    db_pool=None,
+                    audit_logger=None,
+                )
 
 
 class TestConsumeState:
@@ -689,7 +671,11 @@ class TestAssertRequiredTokens:
 
 
 class TestLoadRBACData:
-    """Tests for _load_rbac_data() internal method."""
+    """Tests for _load_rbac_data() internal method.
+
+    P6T19: Now checks OAUTH2_ALLOWED_SUBS env var instead of user_roles table.
+    Loads all strategies from strategies table (no per-user filtering).
+    """
 
     @pytest.mark.asyncio()
     async def test_load_rbac_data_success(
@@ -697,58 +683,50 @@ class TestLoadRBACData:
         oauth2_handler: OAuth2FlowHandler,
         mock_db_pool: Mock,
     ):
-        """Test RBAC data loading returns role and strategies."""
-        # Mock database queries
-        mock_cursor_role = Mock()
-        mock_cursor_role.fetchone = AsyncMock(return_value={"role": "admin", "session_version": 2})
-
-        mock_cursor_strategies = Mock()
-        mock_cursor_strategies.fetchall = AsyncMock(
-            return_value=[{"strategy_id": "s1"}, {"strategy_id": "s2"}]
-        )
-
-        mock_conn = Mock()
-
-        async def mock_execute(query, params):
-            if "user_roles" in query:
-                return mock_cursor_role
-            else:
-                return mock_cursor_strategies
-
-        mock_conn.execute = AsyncMock(side_effect=mock_execute)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            role_data, strategies = await oauth2_handler._load_rbac_data(
-                user_id="auth0|12345",
-                db_pool=mock_db_pool,
-            )
-
-            assert role_data == {"role": "admin", "session_version": 2}
-            assert strategies == ["s1", "s2"]
-
-    @pytest.mark.asyncio()
-    async def test_load_rbac_data_user_not_found(
-        self,
-        oauth2_handler: OAuth2FlowHandler,
-        mock_db_pool: Mock,
-    ):
-        """Test RBAC data loading raises when user not found."""
+        """Test RBAC data loading returns admin role and strategies."""
+        # Mock strategies query via db_pool.connection()
         mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(return_value=None)
+        mock_cursor.fetchall = AsyncMock(return_value=[("s1",), ("s2",)])
 
         mock_conn = Mock()
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
+        mock_db_pool.connection = Mock(return_value=mock_conn)
 
-            with pytest.raises(ValueError, match="User not provisioned"):
+        with patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|12345,auth0|other"}):
+            role_data, strategies = await oauth2_handler._load_rbac_data(
+                user_id="auth0|12345",
+                db_pool=mock_db_pool,
+            )
+
+        assert role_data == {"role": "admin", "user_id": "auth0|12345"}
+        assert strategies == ["s1", "s2"]
+
+    @pytest.mark.asyncio()
+    async def test_load_rbac_data_user_not_in_allowlist(
+        self,
+        oauth2_handler: OAuth2FlowHandler,
+        mock_db_pool: Mock,
+    ):
+        """Test RBAC data loading raises when user not in OAUTH2_ALLOWED_SUBS."""
+        with patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|other"}):
+            with pytest.raises(ValueError, match="not authorized"):
+                await oauth2_handler._load_rbac_data(
+                    user_id="auth0|12345",
+                    db_pool=mock_db_pool,
+                )
+
+    @pytest.mark.asyncio()
+    async def test_load_rbac_data_empty_allowlist(
+        self,
+        oauth2_handler: OAuth2FlowHandler,
+        mock_db_pool: Mock,
+    ):
+        """Test RBAC data loading raises when OAUTH2_ALLOWED_SUBS is empty."""
+        with patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": ""}):
+            with pytest.raises(ValueError, match="not configured"):
                 await oauth2_handler._load_rbac_data(
                     user_id="auth0|12345",
                     db_pool=mock_db_pool,
@@ -759,14 +737,13 @@ class TestLoadRBACData:
         self,
         oauth2_handler: OAuth2FlowHandler,
     ):
-        """Test RBAC data loading returns defaults when pool is None."""
-        role_data, strategies = await oauth2_handler._load_rbac_data(
-            user_id="auth0|12345",
-            db_pool=None,
-        )
-
-        assert role_data is None
-        assert strategies == []
+        """Test RBAC data loading raises when pool is None (fail-closed)."""
+        with patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|12345"}):
+            with pytest.raises(ValueError, match="temporarily unavailable"):
+                await oauth2_handler._load_rbac_data(
+                    user_id="auth0|12345",
+                    db_pool=None,
+                )
 
 
 class TestBuildSessionData:
@@ -1250,34 +1227,6 @@ class TestRefreshTokens:
 
             # Verify session deleted
             mock_session_store.delete_session.assert_called_once_with("test_session")
-
-    @pytest.mark.asyncio()
-    async def test_refresh_tokens_session_version_mismatch(
-        self,
-        oauth2_handler: OAuth2FlowHandler,
-        mock_session_store: Mock,
-        mock_db_pool: Mock,
-        sample_session_data: SessionData,
-    ):
-        """Test refresh fails when session version doesn't match database."""
-        mock_session_store.get_session.return_value = sample_session_data
-
-        with patch(
-            "libs.platform.web_console_auth.oauth2_flow.validate_session_version"
-        ) as mock_validate:
-            mock_validate.return_value = False  # Version mismatch
-
-            with pytest.raises(ValueError, match="Session invalidated"):
-                await oauth2_handler.refresh_tokens(
-                    session_id="test_session",
-                    ip_address="192.168.1.1",
-                    user_agent="Mozilla/5.0",
-                    db_pool=mock_db_pool,
-                )
-
-            # Verify session deleted
-            mock_session_store.delete_session.assert_called_once_with("test_session")
-
 
 class TestHandleLogout:
     """Tests for handle_logout() method."""

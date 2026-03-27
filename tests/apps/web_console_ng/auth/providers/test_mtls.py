@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -102,10 +102,22 @@ async def test_try_auto_login_success_with_expiry_warning(
         client_host="10.0.0.10",
     )
 
+    # P6T19: Mock identity allowlist and strategy DB query
+    mock_db_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[("alpha_baseline",)])
+    mock_conn.execute = AsyncMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_db_pool.connection = MagicMock(return_value=mock_conn)
+
     with (
         patch.object(mtls_module, "is_trusted_ip", return_value=True),
         patch.object(mtls_module, "extract_trusted_client_ip", return_value="203.0.113.5"),
         patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="alice"),
+        patch("apps.web_console_ng.core.dependencies.get_sync_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.try_auto_login(request)
 
@@ -114,6 +126,7 @@ async def test_try_auto_login_success_with_expiry_warning(
     assert "expires in" in result.warning_message
     assert result.user_data
     assert result.user_data["auth_method"] == "mtls"
+    assert result.user_data["role"] == "admin"  # P6T19
 
 
 def test_check_certificate_expiry_expired() -> None:
@@ -219,9 +232,21 @@ async def test_authenticate_success(
         client_host="10.0.0.9",
     )
 
+    # P6T19: Mock identity allowlist and strategy DB query
+    mock_db_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[("alpha_baseline",)])
+    mock_conn.execute = AsyncMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_db_pool.connection = MagicMock(return_value=mock_conn)
+
     with (
         patch.object(mtls_module, "is_trusted_ip", return_value=True),
         patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="alice"),
+        patch("apps.web_console_ng.core.dependencies.get_sync_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.authenticate(
             request=request,
@@ -234,7 +259,7 @@ async def test_authenticate_success(
     assert result.csrf_token == "csrf-token"
     assert result.user_data
     assert result.user_data["username"] == "alice"
-    assert result.user_data["role"] == "trader"
+    assert result.user_data["role"] == "admin"  # P6T19: always admin
     assert result.user_data["client_dn"] == "/CN=alice/OU=trader/O=TradingPlatform"
     assert result.user_data["client_serial"] == "abc123"
 

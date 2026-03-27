@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -102,16 +102,30 @@ async def test_mtls_auth_uses_client_dn(monkeypatch: pytest.MonkeyPatch) -> None
         lambda: mock_store,
     )
 
-    result = await handler.authenticate(
-        request=request,
-        client_dn="/CN=trader-user/OU=trader/O=TradingPlatform",
-    )
+    # P6T19: Mock identity allowlist and strategy DB query
+    mock_db_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[("alpha_baseline",)])
+    mock_conn.execute = AsyncMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_db_pool.connection = MagicMock(return_value=mock_conn)
+
+    with (
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="trader-user"),
+        patch("apps.web_console_ng.core.dependencies.get_sync_db_pool", return_value=mock_db_pool),
+    ):
+        result = await handler.authenticate(
+            request=request,
+            client_dn="/CN=trader-user/OU=trader/O=TradingPlatform",
+        )
 
     assert result.success
     assert result.cookie_value == "cookie_mtls"
     assert result.user_data is not None
     assert result.user_data["username"] == "trader-user"
-    assert result.user_data["role"] == "trader"
+    assert result.user_data["role"] == "admin"  # P6T19: always admin
 
 
 @pytest.mark.asyncio()

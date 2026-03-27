@@ -1,8 +1,10 @@
 """
 Unit tests for libs.platform.web_console_auth.step_up_callback.
 
+P6T19: session_version validation and db_pool checks removed (single-admin model).
+
 Tests cover:
-- handle_step_up_callback() error paths (session not found, db unavailable, version mismatch, timeout, etc.)
+- handle_step_up_callback() error paths (session not found, timeout, etc.)
 - handle_step_up_callback() success path (valid MFA step-up)
 - State validation (missing validator, invalid state)
 - Token exchange (missing exchange_code, missing id_token)
@@ -11,8 +13,6 @@ Tests cover:
 - Audit logging at all decision points
 - Error message mapping
 - clear_step_up_state() wrapper
-
-Target: 85%+ branch coverage (baseline from 0%)
 """
 
 from datetime import UTC, datetime, timedelta
@@ -76,72 +76,6 @@ class TestHandleStepUpCallbackErrorPaths:
         # Should not raise exception with audit_logger=None
 
     @pytest.mark.asyncio()
-    async def test_db_pool_unavailable_fail_closed(self):
-        """Test handle_step_up_callback() fails closed when db_pool unavailable."""
-        mock_session_data = Mock()
-        mock_session_data.user_id = "user123"
-        mock_session_data.session_version = 1
-
-        mock_session_store = AsyncMock()
-        mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
-        mock_session_store.delete_session = AsyncMock()
-        mock_session_store.clear_step_up_state = AsyncMock()
-        mock_audit_logger = AsyncMock()
-
-        result = await handle_step_up_callback(
-            code="test_code",
-            state="test_state",
-            session_store=mock_session_store,
-            session_id="session123",
-            audit_logger=mock_audit_logger,
-            db_pool=None,  # Fail-closed: missing db_pool
-        )
-
-        assert result["error"] == "session_validation_unavailable"
-        assert result["redirect_to"] == "/login"
-        mock_session_store.delete_session.assert_called_once_with("session123")
-        mock_session_store.clear_step_up_state.assert_called_once_with("session123")
-        audit_call = mock_audit_logger.log_auth_event.call_args[1]
-        assert audit_call["user_id"] == "user123"
-        assert audit_call["details"]["reason"] == "db_pool_unavailable"
-
-    @pytest.mark.asyncio()
-    async def test_session_version_mismatch(self):
-        """Test handle_step_up_callback() invalidates session on version mismatch."""
-        mock_session_data = Mock()
-        mock_session_data.user_id = "user456"
-        mock_session_data.session_version = 2
-
-        mock_session_store = AsyncMock()
-        mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
-        mock_session_store.delete_session = AsyncMock()
-        mock_session_store.clear_step_up_state = AsyncMock()
-        mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
-
-        # Mock validate_session_version to return False (mismatch)
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=False,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="test_state",
-                session_store=mock_session_store,
-                session_id="session456",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-            )
-
-        assert result["error"] == "session_invalidated"
-        assert result["redirect_to"] == "/login"
-        mock_session_store.delete_session.assert_called_once_with("session456")
-        mock_session_store.clear_step_up_state.assert_called_once_with("session456")
-        audit_call = mock_audit_logger.log_auth_event.call_args[1]
-        assert audit_call["action"] == "step_up_session_invalidated"
-        assert audit_call["details"]["reason"] == "session_version_mismatch"
-
-    @pytest.mark.asyncio()
     async def test_step_up_timeout_exceeded(self):
         """Test handle_step_up_callback() times out after 300 seconds."""
         mock_session_data = Mock()
@@ -154,20 +88,14 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="test_state",
-                session_store=mock_session_store,
-                session_id="session789",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="test_state",
+            session_store=mock_session_store,
+            session_id="session789",
+            audit_logger=mock_audit_logger,
+        )
 
         assert result["error"] == "step_up_timeout"
         assert result["redirect_to"] == "/dashboard"
@@ -189,24 +117,18 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store = AsyncMock()
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
-        mock_db_pool = Mock()
 
         # Mock validate_state to return False (will fail before success path)
         mock_validate_state = Mock(return_value=False)
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="test_state",
-                session_store=mock_session_store,
-                session_id="session999",
-                audit_logger=None,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="test_state",
+            session_store=mock_session_store,
+            session_id="session999",
+            audit_logger=None,
+            validate_state=mock_validate_state,
+        )
 
         # Should proceed past timeout check (failed on state validation instead)
         assert result["error"] == "invalid_state"
@@ -224,21 +146,15 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="test_state",
-                session_store=mock_session_store,
-                session_id="session111",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=None,  # Missing validator
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="test_state",
+            session_store=mock_session_store,
+            session_id="session111",
+            audit_logger=mock_audit_logger,
+            validate_state=None,  # Missing validator
+        )
 
         assert result["error"] == "state_validation_required"
         assert result["redirect_to"] == "/alerts"
@@ -259,23 +175,17 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
 
         mock_validate_state = Mock(return_value=False)  # State invalid
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="bad_state",
-                session_store=mock_session_store,
-                session_id="session222",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="bad_state",
+            session_store=mock_session_store,
+            session_id="session222",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+        )
 
         assert result["error"] == "invalid_state"
         assert result["redirect_to"] == "/login"  # Falls back to /login when no pending_action
@@ -296,23 +206,17 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session333",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=None,  # Missing exchange_code
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session333",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=None,  # Missing exchange_code
+        )
 
         assert result["error"] == "step_up_configuration_error"
         assert result["redirect_to"] == "/dashboard"
@@ -332,25 +236,19 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock()
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session444",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=mock_exchange_code,
-                jwks_validator=None,  # Missing validator
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session444",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=mock_exchange_code,
+            jwks_validator=None,  # Missing validator
+        )
 
         assert result["error"] == "step_up_configuration_error"
         assert result["redirect_to"] == "/login"
@@ -370,29 +268,23 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock()
         mock_jwks_validator = Mock()
         mock_jwks_validator.auth0_domain = "test.auth0.com"
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session555",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=mock_exchange_code,
-                jwks_validator=mock_jwks_validator,
-                expected_audience=None,  # Missing audience
-                expected_issuer="https://test.auth0.com/",
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session555",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=mock_exchange_code,
+            jwks_validator=mock_jwks_validator,
+            expected_audience=None,  # Missing audience
+            expected_issuer="https://test.auth0.com/",
+        )
 
         assert result["error"] == "step_up_configuration_error"
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
@@ -412,28 +304,22 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock()
         mock_jwks_validator = Mock(spec=[])  # No auth0_domain attribute
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session666",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=mock_exchange_code,
-                jwks_validator=mock_jwks_validator,
-                expected_audience="test-audience",
-                expected_issuer=None,  # Missing issuer, and validator has no auth0_domain
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session666",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=mock_exchange_code,
+            jwks_validator=mock_jwks_validator,
+            expected_audience="test-audience",
+            expected_issuer=None,  # Missing issuer, and validator has no auth0_domain
+        )
 
         assert result["error"] == "step_up_configuration_error"
         audit_call = mock_audit_logger.log_auth_event.call_args[1]
@@ -452,29 +338,23 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"access_token": "xxx"})  # No id_token
         mock_jwks_validator = Mock()
         mock_jwks_validator.auth0_domain = "test.auth0.com"
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session777",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=mock_exchange_code,
-                jwks_validator=mock_jwks_validator,
-                expected_audience="test-aud",
-                expected_issuer="https://test.auth0.com/",
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session777",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=mock_exchange_code,
+            jwks_validator=mock_jwks_validator,
+            expected_audience="test-aud",
+            expected_issuer="https://test.auth0.com/",
+        )
 
         assert result["error"] == "id_token_missing"
         assert result["redirect_to"] == "/dashboard"
@@ -494,7 +374,6 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"id_token": "invalid.jwt.token"})
         mock_jwks_validator = Mock()
@@ -503,23 +382,18 @@ class TestHandleStepUpCallbackErrorPaths:
             side_effect=jwt.InvalidTokenError("Token expired")
         )
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session888",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=mock_exchange_code,
-                jwks_validator=mock_jwks_validator,
-                expected_audience="test-aud",
-                expected_issuer="https://test.auth0.com/",
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session888",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=mock_exchange_code,
+            jwks_validator=mock_jwks_validator,
+            expected_audience="test-aud",
+            expected_issuer="https://test.auth0.com/",
+        )
 
         assert result["error"] == "id_token_validation_failed"
         assert result["redirect_to"] == "/dashboard"
@@ -540,7 +414,6 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.delete_session = AsyncMock()
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"id_token": "valid.jwt.token"})
         mock_jwks_validator = Mock()
@@ -549,23 +422,18 @@ class TestHandleStepUpCallbackErrorPaths:
             return_value={"sub": "different_user", "auth_time": 1234567890, "amr": ["mfa"]}
         )
 
-        with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
-        ):
-            result = await handle_step_up_callback(
-                code="test_code",
-                state="valid_state",
-                session_store=mock_session_store,
-                session_id="session999",
-                audit_logger=mock_audit_logger,
-                db_pool=mock_db_pool,
-                validate_state=mock_validate_state,
-                exchange_code=mock_exchange_code,
-                jwks_validator=mock_jwks_validator,
-                expected_audience="test-aud",
-                expected_issuer="https://test.auth0.com/",
-            )
+        result = await handle_step_up_callback(
+            code="test_code",
+            state="valid_state",
+            session_store=mock_session_store,
+            session_id="session999",
+            audit_logger=mock_audit_logger,
+            validate_state=mock_validate_state,
+            exchange_code=mock_exchange_code,
+            jwks_validator=mock_jwks_validator,
+            expected_audience="test-aud",
+            expected_issuer="https://test.auth0.com/",
+        )
 
         assert result["error"] == "subject_mismatch"
         assert result["redirect_to"] == "/login"
@@ -589,7 +457,6 @@ class TestHandleStepUpCallbackErrorPaths:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.clear_step_up_state = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"id_token": "valid.jwt.token"})
         mock_jwks_validator = Mock()
@@ -599,26 +466,21 @@ class TestHandleStepUpCallbackErrorPaths:
         )
 
         with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
+            "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
+            return_value=(False, "mfa_not_performed"),
         ):
-            with patch(
-                "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
-                return_value=(False, "mfa_not_performed"),
-            ):
-                result = await handle_step_up_callback(
-                    code="test_code",
-                    state="valid_state",
-                    session_store=mock_session_store,
-                    session_id="session101",
-                    audit_logger=mock_audit_logger,
-                    db_pool=mock_db_pool,
-                    validate_state=mock_validate_state,
-                    exchange_code=mock_exchange_code,
-                    jwks_validator=mock_jwks_validator,
-                    expected_audience="test-aud",
-                    expected_issuer="https://test.auth0.com/",
-                )
+            result = await handle_step_up_callback(
+                code="test_code",
+                state="valid_state",
+                session_store=mock_session_store,
+                session_id="session101",
+                audit_logger=mock_audit_logger,
+                validate_state=mock_validate_state,
+                exchange_code=mock_exchange_code,
+                jwks_validator=mock_jwks_validator,
+                expected_audience="test-aud",
+                expected_issuer="https://test.auth0.com/",
+            )
 
         assert result["error"] == "mfa_not_performed"
         assert result["redirect_to"] == "/dashboard"
@@ -644,7 +506,6 @@ class TestHandleStepUpCallbackSuccess:
         mock_session_store.update_step_up_claims = AsyncMock()
         mock_session_store.clear_step_up_request_timestamp = AsyncMock()
         mock_audit_logger = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"id_token": "valid.jwt.token"})
         mock_jwks_validator = Mock()
@@ -657,26 +518,21 @@ class TestHandleStepUpCallbackSuccess:
         mock_jwks_validator.validate_id_token = AsyncMock(return_value=mock_id_token_claims)
 
         with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
+            "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
+            return_value=(True, None),
         ):
-            with patch(
-                "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
-                return_value=(True, None),
-            ):
-                result = await handle_step_up_callback(
-                    code="valid_code",
-                    state="valid_state",
-                    session_store=mock_session_store,
-                    session_id="session_success",
-                    audit_logger=mock_audit_logger,
-                    db_pool=mock_db_pool,
-                    validate_state=mock_validate_state,
-                    exchange_code=mock_exchange_code,
-                    jwks_validator=mock_jwks_validator,
-                    expected_audience="test-aud",
-                    expected_issuer="https://test.auth0.com/",
-                )
+            result = await handle_step_up_callback(
+                code="valid_code",
+                state="valid_state",
+                session_store=mock_session_store,
+                session_id="session_success",
+                audit_logger=mock_audit_logger,
+                validate_state=mock_validate_state,
+                exchange_code=mock_exchange_code,
+                jwks_validator=mock_jwks_validator,
+                expected_audience="test-aud",
+                expected_issuer="https://test.auth0.com/",
+            )
 
         assert "error" not in result
         assert result["redirect_to"] == "/alerts/acknowledge"
@@ -703,7 +559,6 @@ class TestHandleStepUpCallbackSuccess:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.update_step_up_claims = AsyncMock()
         mock_session_store.clear_step_up_request_timestamp = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"id_token": "valid.jwt.token"})
         mock_jwks_validator = Mock()
@@ -716,26 +571,21 @@ class TestHandleStepUpCallbackSuccess:
         mock_jwks_validator.validate_id_token = AsyncMock(return_value=mock_id_token_claims)
 
         with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
+            "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
+            return_value=(True, None),
         ):
-            with patch(
-                "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
-                return_value=(True, None),
-            ):
-                result = await handle_step_up_callback(
-                    code="valid_code",
-                    state="valid_state",
-                    session_store=mock_session_store,
-                    session_id="session_default",
-                    audit_logger=None,  # No audit logger
-                    db_pool=mock_db_pool,
-                    validate_state=mock_validate_state,
-                    exchange_code=mock_exchange_code,
-                    jwks_validator=mock_jwks_validator,
-                    expected_audience="test-aud",
-                    expected_issuer="https://test.auth0.com/",
-                )
+            result = await handle_step_up_callback(
+                code="valid_code",
+                state="valid_state",
+                session_store=mock_session_store,
+                session_id="session_default",
+                audit_logger=None,  # No audit logger
+                validate_state=mock_validate_state,
+                exchange_code=mock_exchange_code,
+                jwks_validator=mock_jwks_validator,
+                expected_audience="test-aud",
+                expected_issuer="https://test.auth0.com/",
+            )
 
         assert result["redirect_to"] == "/dashboard"
 
@@ -752,7 +602,6 @@ class TestHandleStepUpCallbackSuccess:
         mock_session_store.get_session = AsyncMock(return_value=mock_session_data)
         mock_session_store.update_step_up_claims = AsyncMock()
         mock_session_store.clear_step_up_request_timestamp = AsyncMock()
-        mock_db_pool = Mock()
         mock_validate_state = Mock(return_value=True)
         mock_exchange_code = AsyncMock(return_value={"id_token": "valid.jwt.token"})
         mock_jwks_validator = Mock()
@@ -765,26 +614,21 @@ class TestHandleStepUpCallbackSuccess:
         mock_jwks_validator.validate_id_token = AsyncMock(return_value=mock_id_token_claims)
 
         with patch(
-            "libs.platform.web_console_auth.step_up_callback.validate_session_version",
-            return_value=True,
+            "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
+            return_value=(True, None),
         ):
-            with patch(
-                "libs.platform.web_console_auth.step_up_callback.verify_step_up_auth",
-                return_value=(True, None),
-            ):
-                await handle_step_up_callback(
-                    code="valid_code",
-                    state="valid_state",
-                    session_store=mock_session_store,
-                    session_id="session_derived",
-                    audit_logger=None,
-                    db_pool=mock_db_pool,
-                    validate_state=mock_validate_state,
-                    exchange_code=mock_exchange_code,
-                    jwks_validator=mock_jwks_validator,
-                    expected_audience="test-aud",
-                    expected_issuer=None,  # Will be derived from jwks_validator
-                )
+            await handle_step_up_callback(
+                code="valid_code",
+                state="valid_state",
+                session_store=mock_session_store,
+                session_id="session_derived",
+                audit_logger=None,
+                validate_state=mock_validate_state,
+                exchange_code=mock_exchange_code,
+                jwks_validator=mock_jwks_validator,
+                expected_audience="test-aud",
+                expected_issuer=None,  # Will be derived from jwks_validator
+            )
 
         # Verify validator called with derived issuer
         mock_jwks_validator.validate_id_token.assert_called_once()

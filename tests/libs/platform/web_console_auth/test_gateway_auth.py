@@ -22,7 +22,6 @@ from libs.platform.web_console_auth.exceptions import (
     InvalidSignatureError,
     InvalidTokenError,
     MissingJtiError,
-    SessionExpiredError,
     SubjectMismatchError,
     TokenExpiredError,
     TokenReplayedError,
@@ -68,21 +67,19 @@ class _FakeCursor:
 
 
 class _FakeDB:
-    def __init__(
-        self, role: str = "operator", strategies: list[str] | None = None, session_version: int = 1
-    ):
-        self.role = role
-        self.strategies = strategies or ["alpha"]
-        self.session_version = session_version
+    """Fake DB pool/connection for P6T19 single-admin model.
 
-    async def execute(self, query: str, params: tuple[Any, ...]) -> _FakeCursor:
+    acquire_connection sees .execute and yields db_pool directly.
+    Only responds to strategies table queries (no user_roles/user_strategy_access).
+    """
+
+    def __init__(self, strategies: list[str] | None = None):
+        self.strategies = strategies or ["alpha"]
+
+    async def execute(self, query: str, *args: Any) -> _FakeCursor:
         lowered = query.lower()
-        if "session_version" in lowered:
-            return _FakeCursor([{"session_version": self.session_version}])
         if "strategy_id" in lowered:
             return _FakeCursor([{"strategy_id": s} for s in self.strategies])
-        if "role" in lowered:
-            return _FakeCursor([{"role": self.role}])
         raise ValueError(f"Unexpected query: {query}")
 
 
@@ -149,7 +146,7 @@ async def test_authenticate_success(gateway_auth):
     )
 
     assert user.user_id == "user-123"
-    assert user.role is Role.OPERATOR
+    assert user.role is Role.ADMIN
     assert user.strategies == ["alpha"]
     assert user.request_id == "req-1"
 
@@ -226,23 +223,14 @@ async def test_missing_jti_rejected(jwt_manager, async_redis):
 
 
 @pytest.mark.asyncio()
-async def test_session_version_mismatch(jwt_manager, async_redis):
-    authenticator = GatewayAuthenticator(jwt_manager, _FakeDB(session_version=2), async_redis)
-    token = _make_service_token(jwt_manager)
-
-    with pytest.raises(SessionExpiredError):
-        await authenticator.authenticate(token, "user-123", "req-8", 1)
-
-
-@pytest.mark.asyncio()
 async def test_strategy_fetching(jwt_manager, async_redis):
-    db = _FakeDB(role="viewer", strategies=["strat_a", "strat_b"], session_version=1)
+    db = _FakeDB(strategies=["strat_a", "strat_b"])
     authenticator = GatewayAuthenticator(jwt_manager, db, async_redis)
     token = _make_service_token(jwt_manager)
 
     user = await authenticator.authenticate(token, "user-123", "req-9", 1)
 
-    assert user.role is Role.VIEWER
+    assert user.role is Role.ADMIN
     assert user.strategies == ["strat_a", "strat_b"]
 
 

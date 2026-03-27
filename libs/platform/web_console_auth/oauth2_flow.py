@@ -361,7 +361,7 @@ class OAuth2FlowHandler:
             user_agent=user_agent,
             access_token_expires_at=access_token_expires_at,
             role=role_data["role"] if role_data else "viewer",
-            session_version=int(role_data["session_version"]) if role_data else 1,
+            session_version=int(role_data.get("session_version", 1)) if role_data else 1,
             strategies=strategies,
         )
 

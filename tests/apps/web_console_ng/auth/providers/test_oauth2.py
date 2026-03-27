@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -329,6 +329,21 @@ async def test_handle_callback_success(
     monkeypatch.setattr(oauth2_module.httpx, "AsyncClient", lambda: mock_client)
     monkeypatch.setattr(handler, "_validate_id_token", AsyncMock(return_value=(True, None)))
     monkeypatch.setattr(oauth2_module, "get_session_store", lambda: session_store)
+
+    # P6T19: Mock identity allowlist and strategy DB query
+    monkeypatch.setattr(oauth2_module.config, "OAUTH2_ALLOWED_SUBS", ["user-1"])
+    mock_db_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[("alpha_baseline",)])
+    mock_conn.execute = AsyncMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_db_pool.connection = MagicMock(return_value=mock_conn)
+    monkeypatch.setattr(
+        "apps.web_console_ng.core.dependencies.get_sync_db_pool",
+        lambda: mock_db_pool,
+    )
 
     result = await handler.handle_callback(
         code="code",
