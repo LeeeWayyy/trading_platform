@@ -262,7 +262,7 @@ class OAuth2AuthHandler(AuthProvider):
                     success=False,
                     error_message="Service temporarily unavailable. Please try again later.",
                 )
-        except (OSError, TimeoutError) as exc:
+        except Exception as exc:
             logger.exception("Failed to load strategies for OAuth2 session", extra={"error": str(exc)})
             return AuthResult(
                 success=False,
