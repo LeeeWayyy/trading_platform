@@ -4,23 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
-# P6T19: sys.modules stubs removed — permissions.py no longer needs jwt/session
-# imports and the stubs were leaking into subsequent test modules.
-from libs.platform.web_console_auth.permissions import (
-    ROLE_DATASET_PERMISSIONS,
-    ROLE_PERMISSIONS,
-    DatasetPermission,
-    Permission,
-    Role,
-    get_authorized_strategies,
-    has_dataset_permission,
-    has_permission,
-    is_admin,
-    require_permission,
-)
-
 # Keep backward-compatible alias for existing test references
 import libs.platform.web_console_auth.permissions as perms
+
+# P6T19: sys.modules stubs removed — permissions.py no longer needs jwt/session
+# imports and the stubs were leaking into subsequent test modules.
 
 
 def test_has_permission_unknown_role_returns_true():

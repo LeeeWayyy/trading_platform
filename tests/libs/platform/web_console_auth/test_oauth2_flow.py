@@ -29,6 +29,7 @@ from libs.platform.web_console_auth.oauth2_flow import (
     OAuth2Config,
     OAuth2FlowHandler,
 )
+
 # P6T19: _fetch_user_role_data, _fetch_user_strategies removed (single-admin model)
 from libs.platform.web_console_auth.oauth2_state import OAuth2State
 from libs.platform.web_console_auth.session_store import SessionData
