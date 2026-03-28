@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -102,10 +102,22 @@ async def test_try_auto_login_success_with_expiry_warning(
         client_host="10.0.0.10",
     )
 
+    # P6T19: Mock identity allowlist and strategy DB query
+    mock_db_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[("alpha_baseline",)])
+    mock_conn.execute = AsyncMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_db_pool.connection = MagicMock(return_value=mock_conn)
+
     with (
         patch.object(mtls_module, "is_trusted_ip", return_value=True),
         patch.object(mtls_module, "extract_trusted_client_ip", return_value="203.0.113.5"),
         patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="alice"),
+        patch("apps.web_console_ng.core.database.get_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.try_auto_login(request)
 
@@ -114,6 +126,7 @@ async def test_try_auto_login_success_with_expiry_warning(
     assert "expires in" in result.warning_message
     assert result.user_data
     assert result.user_data["auth_method"] == "mtls"
+    assert result.user_data["role"] == "admin"  # P6T19
 
 
 def test_check_certificate_expiry_expired() -> None:
@@ -219,9 +232,21 @@ async def test_authenticate_success(
         client_host="10.0.0.9",
     )
 
+    # P6T19: Mock identity allowlist and strategy DB query
+    mock_db_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[("alpha_baseline",)])
+    mock_conn.execute = AsyncMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_db_pool.connection = MagicMock(return_value=mock_conn)
+
     with (
         patch.object(mtls_module, "is_trusted_ip", return_value=True),
         patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="alice"),
+        patch("apps.web_console_ng.core.database.get_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.authenticate(
             request=request,
@@ -234,7 +259,7 @@ async def test_authenticate_success(
     assert result.csrf_token == "csrf-token"
     assert result.user_data
     assert result.user_data["username"] == "alice"
-    assert result.user_data["role"] == "trader"
+    assert result.user_data["role"] == "admin"  # P6T19: always admin
     assert result.user_data["client_dn"] == "/CN=alice/OU=trader/O=TradingPlatform"
     assert result.user_data["client_serial"] == "abc123"
 
@@ -242,3 +267,57 @@ async def test_authenticate_success(
     _, kwargs = session_store.create_session.await_args
     assert kwargs.get("client_ip") == "198.51.100.9"
     assert kwargs.get("device_info", {}).get("user_agent") == "pytest"
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_rejects_unlisted_cn(
+    monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock
+) -> None:
+    """P6T19: CNs not in MTLS_ADMIN_CN_ALLOWLIST are denied."""
+    _set_mtls_config(monkeypatch)
+
+    handler = mtls_module.MTLSAuthHandler()
+    request = _DummyRequest(
+        headers={
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-DN": "/CN=unauthorized-user/OU=viewer/O=TradingPlatform",
+        },
+        client_host="10.0.0.9",
+    )
+
+    with (
+        patch.object(mtls_module, "is_trusted_ip", return_value=True),
+        patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="allowed-admin-only"),
+    ):
+        result = await handler.authenticate(request=request)
+
+    assert result.success is False
+    assert "not authorized" in result.error_message.lower()
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_denies_when_cn_allowlist_empty(
+    monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock
+) -> None:
+    """P6T19: Empty MTLS_ADMIN_CN_ALLOWLIST denies all mTLS logins."""
+    _set_mtls_config(monkeypatch)
+
+    handler = mtls_module.MTLSAuthHandler()
+    request = _DummyRequest(
+        headers={
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-DN": "/CN=alice/OU=admin/O=TradingPlatform",
+        },
+        client_host="10.0.0.9",
+    )
+
+    with (
+        patch.object(mtls_module, "is_trusted_ip", return_value=True),
+        patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value=""),
+    ):
+        result = await handler.authenticate(request=request)
+
+    assert result.success is False
+    assert "not configured" in result.error_message.lower()

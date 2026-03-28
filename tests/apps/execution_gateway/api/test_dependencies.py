@@ -1036,8 +1036,8 @@ class TestEnsurePermission:
         # Should not raise
         ensure_permission(user, Permission.VIEW_POSITIONS)
 
-    def test_permission_denied_raises_403(self) -> None:
-        """Test 403 when user lacks permission."""
+    def test_permission_always_granted_single_admin(self) -> None:
+        """P6T19: Single-admin model — ensure_permission never raises."""
         from apps.execution_gateway.api.dependencies import ensure_permission
         from libs.platform.web_console_auth.gateway_auth import AuthenticatedUser
         from libs.platform.web_console_auth.permissions import Permission, Role
@@ -1050,11 +1050,8 @@ class TestEnsurePermission:
             request_id="req1",
         )
 
-        with pytest.raises(HTTPException) as exc_info:
-            ensure_permission(user, Permission.MANAGE_USERS)
-
-        assert exc_info.value.status_code == 403
-        assert "permission_denied" in str(exc_info.value.detail)
+        # Should not raise — has_permission() always returns True
+        ensure_permission(user, Permission.MANAGE_USERS)
 
 
 class TestAdditionalCoverage:

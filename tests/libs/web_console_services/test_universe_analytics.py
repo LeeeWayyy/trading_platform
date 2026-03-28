@@ -170,13 +170,14 @@ class TestGetUniverseAnalytics:
         assert set(result.factor_exposure.keys()) == expected_keys
 
     @pytest.mark.asyncio()
-    async def test_analytics_denied_for_viewer(
+    async def test_analytics_viewer_allowed_single_admin(
         self, service: UniverseService
     ) -> None:
-        with pytest.raises(PermissionError, match="view_universes"):
-            await service.get_universe_analytics(
-                _viewer_user(), "SP500", date(2026, 1, 10)
-            )
+        """P6T19: Viewer can view analytics — single-admin model."""
+        result = await service.get_universe_analytics(
+            _viewer_user(), "SP500", date(2026, 1, 10)
+        )
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_analytics_not_found_returns_error_dto(
@@ -334,13 +335,14 @@ class TestCompareUniverses:
         assert result.universe_b_stats.universe_id == "R1000"
 
     @pytest.mark.asyncio()
-    async def test_comparison_denied_for_viewer(
+    async def test_comparison_viewer_allowed_single_admin(
         self, service: UniverseService
     ) -> None:
-        with pytest.raises(PermissionError, match="view_universes"):
-            await service.compare_universes(
-                _viewer_user(), "SP500", "R1000", date(2026, 1, 10)
-            )
+        """P6T19: Viewer can compare universes — single-admin model."""
+        result = await service.compare_universes(
+            _viewer_user(), "SP500", "R1000", date(2026, 1, 10)
+        )
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_comparison_not_found_returns_error_dto(

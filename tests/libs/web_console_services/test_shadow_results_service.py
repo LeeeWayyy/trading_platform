@@ -94,14 +94,15 @@ async def test_get_trend_clamps_days(researcher_user: DummyUser) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied_without_view_shadow_results(viewer_user: DummyUser) -> None:
+async def test_viewer_can_view_shadow_results_single_admin(viewer_user: DummyUser) -> None:
+    """P6T19: Viewer can view shadow results — single-admin model."""
     service = ShadowResultsService(_rng_seed=42)
 
-    with pytest.raises(PermissionError, match="view_shadow_results"):
-        await service.get_recent_results(viewer_user)
+    results = await service.get_recent_results(viewer_user)
+    assert isinstance(results, list)
 
-    with pytest.raises(PermissionError, match="view_shadow_results"):
-        await service.get_trend(viewer_user)
+    trend = await service.get_trend(viewer_user)
+    assert trend is not None
 
 
 @pytest.mark.asyncio()

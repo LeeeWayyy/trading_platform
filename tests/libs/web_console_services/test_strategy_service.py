@@ -75,12 +75,21 @@ class TestGetStrategies:
     """Tests for get_strategies with RBAC scoping."""
 
     @pytest.mark.asyncio()
-    async def test_viewer_denied(
+    async def test_viewer_can_get_strategies_single_admin(
         self, strategy_service: StrategyService, viewer_user: dict[str, Any]
     ) -> None:
-        """Viewer lacks MANAGE_STRATEGIES permission."""
-        with pytest.raises(PermissionError, match="MANAGE_STRATEGIES"):
-            await strategy_service.get_strategies(viewer_user)
+        """P6T19: Viewer can get strategies — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.strategy_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await strategy_service.get_strategies(viewer_user)
+        assert isinstance(result, list)
 
     @pytest.mark.asyncio()
     async def test_operator_gets_scoped_strategies(
@@ -148,22 +157,79 @@ class TestToggleStrategy:
     """Tests for toggle_strategy with admin-only gate."""
 
     @pytest.mark.asyncio()
-    async def test_viewer_denied(
-        self, strategy_service: StrategyService, viewer_user: dict[str, Any]
+    async def test_viewer_can_toggle_single_admin(
+        self,
+        strategy_service: StrategyService,
+        viewer_user: dict[str, Any],
+        mock_audit_logger: Mock,
     ) -> None:
-        """Viewer lacks admin role."""
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await strategy_service.toggle_strategy("alpha_baseline", active=False, user=viewer_user)
+        """P6T19: Viewer can toggle strategies — single-admin model."""
+        mock_conn = AsyncMock()
+        call_count = 0
+
+        async def execute_side_effect(*args: Any, **kwargs: Any) -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            mock_cursor = AsyncMock()
+            if call_count == 1:
+                # SELECT active (current state)
+                mock_cursor.fetchone = AsyncMock(return_value=(True,))
+            elif call_count == 2:
+                # UPDATE
+                mock_cursor.fetchone = AsyncMock(return_value=None)
+            else:
+                # SELECT updated row
+                mock_cursor.fetchone = AsyncMock(
+                    return_value=("alpha_baseline", "Alpha", "desc", False, None, "viewer-789")
+                )
+            return mock_cursor
+
+        mock_conn.execute = AsyncMock(side_effect=execute_side_effect)
+
+        with patch("libs.web_console_services.strategy_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await strategy_service.toggle_strategy(
+                "alpha_baseline", active=False, user=viewer_user
+            )
+        assert result is not None
 
     @pytest.mark.asyncio()
-    async def test_operator_denied(
-        self, strategy_service: StrategyService, operator_user: dict[str, Any]
+    async def test_operator_can_toggle_single_admin(
+        self,
+        strategy_service: StrategyService,
+        operator_user: dict[str, Any],
+        mock_audit_logger: Mock,
     ) -> None:
-        """Operator lacks admin role — toggle is admin-only per ADR."""
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await strategy_service.toggle_strategy(
+        """P6T19: Operator can toggle strategies — single-admin model."""
+        mock_conn = AsyncMock()
+        call_count = 0
+
+        async def execute_side_effect(*args: Any, **kwargs: Any) -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            mock_cursor = AsyncMock()
+            if call_count == 1:
+                mock_cursor.fetchone = AsyncMock(return_value=(True,))
+            elif call_count == 2:
+                mock_cursor.fetchone = AsyncMock(return_value=None)
+            else:
+                mock_cursor.fetchone = AsyncMock(
+                    return_value=("alpha_baseline", "Alpha", "desc", False, None, "op-456")
+                )
+            return mock_cursor
+
+        mock_conn.execute = AsyncMock(side_effect=execute_side_effect)
+
+        with patch("libs.web_console_services.strategy_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await strategy_service.toggle_strategy(
                 "alpha_baseline", active=False, user=operator_user
             )
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_toggle_deactivate_success(
@@ -246,19 +312,38 @@ class TestGetOpenExposure:
     """Tests for get_open_exposure (admin-only)."""
 
     @pytest.mark.asyncio()
-    async def test_viewer_denied(
+    async def test_viewer_can_get_exposure_single_admin(
         self, strategy_service: StrategyService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await strategy_service.get_open_exposure("alpha_baseline", viewer_user)
+        """P6T19: Viewer can get exposure — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=(0, 0))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.strategy_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await strategy_service.get_open_exposure("alpha_baseline", viewer_user)
+        assert result is not None
 
     @pytest.mark.asyncio()
-    async def test_operator_denied(
+    async def test_operator_can_get_exposure_single_admin(
         self, strategy_service: StrategyService, operator_user: dict[str, Any]
     ) -> None:
-        """Operator lacks admin role — exposure check is admin-only."""
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await strategy_service.get_open_exposure("alpha_baseline", operator_user)
+        """P6T19: Operator can get exposure — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=(0, 0))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("libs.web_console_services.strategy_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await strategy_service.get_open_exposure("alpha_baseline", operator_user)
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_returns_exposure_data(

@@ -13,6 +13,7 @@ References:
 """
 
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -20,8 +21,6 @@ from urllib.parse import urlencode
 import httpx
 import jwt
 from pydantic import BaseModel
-
-from libs.core.common.db import acquire_connection
 
 from .audit_log import AuditLogger
 from .jwks_validator import JWKSValidator
@@ -32,7 +31,8 @@ from .pkce import (
     generate_session_id,
     generate_state,
 )
-from .session_invalidation import validate_session_version
+
+# P6T19: validate_session_version import removed (always returns True now)
 from .session_store import RedisSessionStore, SessionData
 
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ class OAuth2FlowHandler:
                         user_id=user_id,
                         action="login",
                         outcome="denied",
-                        details={"reason": "user_not_provisioned"},
+                        details={"reason": "identity_check_failed"},
                     )
                     audit_logged = True
                 raise
@@ -288,16 +288,45 @@ class OAuth2FlowHandler:
         user_id: str,
         db_pool: Any | None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
-        """Fetch role and strategy data when a DB pool is available."""
+        """P6T19: Identity allowlist check + load all strategies.
 
+        Replaces the previous user_roles DB lookup with an env-based
+        identity allowlist. All strategies are loaded (no per-user filtering).
+        """
+        # P6T19: Identity allowlist — check OAUTH2_ALLOWED_SUBS env var
+        allowed_subs_raw = os.getenv("OAUTH2_ALLOWED_SUBS", "")
+        allowed_subs = [s.strip() for s in allowed_subs_raw.split(",") if s.strip()]
+
+        if not allowed_subs:
+            logger.error("OAUTH2_ALLOWED_SUBS is empty — denying all logins (fail-closed)")
+            raise ValueError("OAuth2 login is not configured. Contact administrator.")
+
+        if user_id not in allowed_subs:
+            logger.warning(
+                "oauth2_identity_denied",
+                extra={"user_id": user_id, "allowed_count": len(allowed_subs)},
+            )
+            raise ValueError("You are not authorized to access this application.")
+
+        # P6T19: Single-admin role data
+        role_data = {"role": "admin", "user_id": user_id}
+
+        # Load all strategies (no per-user filtering, fail-closed)
+        strategies: list[str]
         if db_pool is None:
-            return None, []
+            logger.error("No DB pool available for strategy loading — denying login (fail-closed)")
+            raise ValueError("Service temporarily unavailable. Please try again later.")
 
-        role_data = await _fetch_user_role_data(user_id, db_pool)
-        if role_data is None:
-            raise ValueError("User not provisioned. Contact administrator.")
+        try:
+            async with db_pool.connection() as conn:
+                rows = await conn.execute(
+                    "SELECT strategy_id FROM strategies ORDER BY strategy_id"
+                )
+                strategies = [row[0] for row in await rows.fetchall()]
+        except Exception as exc:
+            logger.exception("Failed to load strategies for session — denying login (fail-closed)", extra={"error": str(exc)})
+            raise ValueError("Service temporarily unavailable. Please try again later.") from exc
 
-        strategies = await _fetch_user_strategies(user_id, db_pool)
         return role_data, strategies
 
     def _build_session_data(
@@ -330,7 +359,7 @@ class OAuth2FlowHandler:
             user_agent=user_agent,
             access_token_expires_at=access_token_expires_at,
             role=role_data["role"] if role_data else "viewer",
-            session_version=int(role_data["session_version"]) if role_data else 1,
+            session_version=int(role_data.get("session_version", 1)) if role_data else 1,
             strategies=strategies,
         )
 
@@ -430,22 +459,7 @@ class OAuth2FlowHandler:
             if not session_data:
                 raise ValueError("Session not found or invalid")
 
-            if db_pool is not None and hasattr(session_data, "session_version"):
-                is_current = await validate_session_version(
-                    session_data.user_id,
-                    session_data.session_version,
-                    db_pool,
-                )
-                if not is_current:
-                    logger.warning(
-                        "session_version_mismatch_on_refresh",
-                        extra={
-                            "user_id": session_data.user_id,
-                            "session_version": session_data.session_version,
-                        },
-                    )
-                    await self.session_store.delete_session(session_id)
-                    raise ValueError("Session invalidated. Please sign in again.")
+            # P6T19: session_version validation removed (single-admin model)
 
             # Refresh token exchange
             try:
@@ -692,28 +706,5 @@ class OAuth2FlowHandler:
             response.raise_for_status()
 
 
-async def _fetch_user_role_data(user_id: str, db_pool: Any) -> dict[str, Any] | None:
-    async with acquire_connection(db_pool) as conn:
-        cursor = await conn.execute(
-            "SELECT role, session_version FROM user_roles WHERE user_id = %s",
-            (user_id,),
-        )
-        row = await cursor.fetchone()
-
-    if not row:
-        return None
-
-    role = row["role"] if isinstance(row, dict) else row[0]
-    session_version = row["session_version"] if isinstance(row, dict) else row[1]
-    return {"role": role, "session_version": session_version}
-
-
-async def _fetch_user_strategies(user_id: str, db_pool: Any) -> list[str]:
-    async with acquire_connection(db_pool) as conn:
-        cursor = await conn.execute(
-            "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s",
-            (user_id,),
-        )
-        rows = await cursor.fetchall()
-
-    return [row["strategy_id"] if isinstance(row, dict) else row[0] for row in rows]
+# P6T19: _fetch_user_role_data and _fetch_user_strategies removed
+# (user_roles and user_strategy_access tables dropped in single-admin model)

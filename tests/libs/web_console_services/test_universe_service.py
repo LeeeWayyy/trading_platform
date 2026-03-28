@@ -95,9 +95,10 @@ class TestGetUniverseList:
         assert len(result) >= 2
 
     @pytest.mark.asyncio()
-    async def test_viewer_denied(self, service: UniverseService) -> None:
-        with pytest.raises(PermissionError, match="view_universes"):
-            await service.get_universe_list(_viewer_user())
+    async def test_viewer_allowed_single_admin(self, service: UniverseService) -> None:
+        """P6T19: Viewer can list universes — single-admin model."""
+        result = await service.get_universe_list(_viewer_user())
+        assert isinstance(result, list)
 
     @pytest.mark.asyncio()
     async def test_list_with_symbol_count(
@@ -146,14 +147,14 @@ class TestGetUniverseDetail:
         assert result.constituents[0].ticker is not None
 
     @pytest.mark.asyncio()
-    async def test_detail_denied_for_viewer(
+    async def test_detail_viewer_allowed_single_admin(
         self, service: UniverseService
     ) -> None:
-        """Viewer lacks VIEW_UNIVERSES — raises PermissionError."""
-        with pytest.raises(PermissionError, match="view_universes"):
-            await service.get_universe_detail(
-                _viewer_user(), "SP500", date(2026, 1, 10)
-            )
+        """P6T19: Viewer can get universe detail — single-admin model."""
+        result = await service.get_universe_detail(
+            _viewer_user(), "SP500", date(2026, 1, 10)
+        )
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_detail_crsp_unavailable(
@@ -237,13 +238,14 @@ class TestPreviewFilter:
         assert count < 3
 
     @pytest.mark.asyncio()
-    async def test_preview_denied_for_viewer(
+    async def test_preview_viewer_allowed_single_admin(
         self, service: UniverseService
     ) -> None:
-        with pytest.raises(PermissionError):
-            await service.preview_filter(
-                _viewer_user(), "SP500", [], date(2026, 1, 10)
-            )
+        """P6T19: Viewer can preview filters — single-admin model."""
+        result = await service.preview_filter(
+            _viewer_user(), "SP500", [], date(2026, 1, 10)
+        )
+        assert result is not None
 
 
 @pytest.mark.unit()
@@ -264,17 +266,18 @@ class TestCreateCustom:
         assert uid == "test_custom"
 
     @pytest.mark.asyncio()
-    async def test_create_denied_for_researcher(
+    async def test_create_researcher_allowed_single_admin(
         self, service: UniverseService
     ) -> None:
-        with pytest.raises(PermissionError, match="manage_universes"):
-            await service.create_custom_universe(
-                _researcher_user(),
-                CustomUniverseDefinitionDTO(
-                    name="Should Fail",
-                    base_universe_id="SP500",
-                ),
-            )
+        """P6T19: Researcher can create universes — single-admin model."""
+        uid = await service.create_custom_universe(
+            _researcher_user(),
+            CustomUniverseDefinitionDTO(
+                name="Should Succeed",
+                base_universe_id="SP500",
+            ),
+        )
+        assert uid == "should_succeed"
 
     @pytest.mark.asyncio()
     async def test_create_with_auth0_user_succeeds(
@@ -334,13 +337,27 @@ class TestDeleteCustom:
         assert "delete_me" not in ids
 
     @pytest.mark.asyncio()
-    async def test_delete_denied_for_researcher(
+    async def test_delete_researcher_allowed_single_admin(
         self, service: UniverseService
     ) -> None:
-        with pytest.raises(PermissionError, match="manage_universes"):
-            await service.delete_custom_universe(
-                _researcher_user(), "some_universe"
-            )
+        """P6T19: Researcher can delete universes — single-admin model."""
+        # First create with operator, then delete with researcher
+        uid = await service.create_custom_universe(
+            _operator_user(),
+            CustomUniverseDefinitionDTO(
+                name="Delete Me Research",
+                base_universe_id="SP500",
+            ),
+        )
+        # Single-admin: researcher can delete (has_permission always True)
+        # delete_custom_universe returns None (no exception means success)
+        await service.delete_custom_universe(
+            _researcher_user(), uid
+        )
+        # Verify it's actually deleted
+        result = await service.get_universe_list(_researcher_user())
+        ids = [u.id for u in result]
+        assert uid not in ids
 
     @pytest.mark.asyncio()
     async def test_delete_by_different_operator_succeeds(

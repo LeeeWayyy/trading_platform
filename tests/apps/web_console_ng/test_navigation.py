@@ -340,7 +340,7 @@ def test_navigation_item_structure() -> None:
         ("Strategies", "/strategies", "model_training", None),  # P6T17
         ("Models", "/models", "hub", None),  # P6T17
         ("Tax Lots", "/tax-lots", "receipt_long", None),  # P6T16
-        ("Users", "/admin/users", "people", None),  # P6T16
+        # P6T19: ("Users", "/admin/users") removed (single-admin model)
         ("Alerts", "/alerts", "notifications", None),  # P5T7/P6T17
         ("Admin", "/admin", "settings", None),
     ]

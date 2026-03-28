@@ -54,26 +54,27 @@ async def test_list_datasets_filters_by_permissions(
 
 
 @pytest.mark.asyncio()
-async def test_execute_query_permission_denied(
+async def test_execute_query_viewer_allowed_single_admin(
     service: DataExplorerService, viewer_user: DummyUser
 ) -> None:
-    """Viewer lacks QUERY_DATA permission."""
-    with pytest.raises(PermissionError):
-        await service.execute_query(viewer_user, dataset="fama_french", query="select 1")
+    """P6T19: Viewer can execute queries — single-admin model."""
+    result = await service.execute_query(viewer_user, dataset="fama_french", query="select 1")
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_export_data_dataset_access_denied(
+async def test_export_data_any_dataset_allowed_single_admin(
     service: DataExplorerService, operator_user: DummyUser
 ) -> None:
-    """Operator lacks access to unlicensed datasets (default-deny)."""
-    with pytest.raises(PermissionError):
-        await service.export_data(
-            operator_user,
-            dataset="proprietary_internal",  # Not in ROLE_DATASET_PERMISSIONS
-            query="select * from trades",
-            format="csv",
-        )
+    """P6T19: All datasets accessible — single-admin model."""
+    # Use crsp dataset with crsp_daily table (valid combination)
+    result = await service.export_data(
+        operator_user,
+        dataset="crsp",
+        query="select * from crsp_daily",
+        format="csv",
+    )
+    assert result is not None
 
 
 @pytest.mark.asyncio()

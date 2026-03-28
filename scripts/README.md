@@ -54,7 +54,7 @@ Scripts for system operations, paper trading, and monitoring.
 | `register_model.sh` | Register model in registry |
 | `ensure_web_console_jwt_keys.py` | Ensure JWT keys for web console |
 | `disable_mtls_fallback.sh` | Disable mTLS fallback |
-| `manage_roles.py` | Manage user roles |
+| ~~`manage_roles.py`~~ | ~~Removed in P6T19 (single-admin model)~~ |
 
 **Common Usage:**
 ```bash

@@ -79,23 +79,24 @@ async def test_update_sync_schedule_happy_path(
 
 
 @pytest.mark.asyncio()
-async def test_update_sync_schedule_denied_without_permission(
+async def test_update_sync_schedule_viewer_allowed_single_admin(
     service: DataSyncService, viewer_user: DummyUser
 ) -> None:
-    """Viewer lacks MANAGE_SYNC_SCHEDULE permission."""
+    """P6T19: Viewer can update sync schedule — single-admin model."""
     update = SyncScheduleUpdateDTO(enabled=True, cron_expression="0 1 * * *")
 
-    with pytest.raises(PermissionError):
-        await service.update_sync_schedule(viewer_user, dataset="fama_french", schedule=update)
+    result = await service.update_sync_schedule(viewer_user, dataset="fama_french", schedule=update)
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_update_sync_schedule_denied_without_dataset_access(
+async def test_update_sync_schedule_any_dataset_allowed_single_admin(
     service: DataSyncService, operator_user: DummyUser
 ) -> None:
-    """Operator lacks access to unlicensed datasets (default-deny)."""
+    """P6T19: All datasets accessible — single-admin model."""
     update = SyncScheduleUpdateDTO(enabled=True, cron_expression="0 1 * * *")
 
-    with pytest.raises(PermissionError):
-        # Use a dataset not in ROLE_DATASET_PERMISSIONS
-        await service.update_sync_schedule(operator_user, dataset="proprietary_internal", schedule=update)
+    result = await service.update_sync_schedule(
+        operator_user, dataset="proprietary_internal", schedule=update
+    )
+    assert result is not None

@@ -1,51 +1,20 @@
-"""Unit tests for shared RBAC permission helpers."""
+"""Unit tests for shared permission helpers (P6T19: single-admin model)."""
 
 from __future__ import annotations
 
 import asyncio
-import sys
-from types import ModuleType
 
-# Stub jwt to avoid crypto dependency
-jwt_stub = ModuleType("jwt")
-jwt_stub.api_jwk = ModuleType("jwt.api_jwk")
-jwt_stub.algorithms = ModuleType("jwt.algorithms")
-jwt_stub.utils = ModuleType("jwt.utils")
-sys.modules.setdefault("jwt", jwt_stub)
-sys.modules.setdefault("jwt.api_jwk", jwt_stub.api_jwk)
-sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)
-sys.modules.setdefault("jwt.utils", jwt_stub.utils)
+# Keep backward-compatible alias for existing test references
+import libs.platform.web_console_auth.permissions as perms
 
-# Stub jwt_manager to avoid cryptography dependency
-jwt_mgr_stub = ModuleType("libs.platform.web_console_auth.jwt_manager")
+# P6T19: sys.modules stubs removed — permissions.py no longer needs jwt/session
+# imports and the stubs were leaking into subsequent test modules.
 
 
-class _DummyJWTManager:
-    def __init__(self, *args, **kwargs): ...
-
-
-jwt_mgr_stub.JWTManager = _DummyJWTManager
-sys.modules.setdefault("libs.platform.web_console_auth.jwt_manager", jwt_mgr_stub)
-
-# Stub session module to avoid redis dependency
-session_stub = ModuleType("libs.platform.web_console_auth.session")
-
-
-class _DummySessionManager:
-    def __init__(self, *args, **kwargs): ...
-
-
-session_stub.SessionManager = _DummySessionManager
-sys.modules.setdefault("libs.platform.web_console_auth.session", session_stub)
-
-import pytest
-
-from libs.platform.web_console_auth import permissions as perms
-
-
-def test_has_permission_unknown_role_defaults_deny():
-    assert perms.has_permission({"role": "unknown"}, perms.Permission.VIEW_PNL) is False
-    assert perms.has_permission(None, perms.Permission.VIEW_PNL) is False
+def test_has_permission_unknown_role_returns_true():
+    """P6T19: Single-admin model — has_permission always returns True."""
+    assert perms.has_permission({"role": "unknown"}, perms.Permission.VIEW_PNL) is True
+    assert perms.has_permission(None, perms.Permission.VIEW_PNL) is True
 
 
 def test_has_permission_admin_allows_everything():
@@ -54,25 +23,26 @@ def test_has_permission_admin_allows_everything():
 
 
 def test_has_permission_operator_subset():
+    """P6T19: Single-admin model — all permissions granted regardless of role."""
     op = {"role": "operator"}
     assert perms.has_permission(op, perms.Permission.CANCEL_ORDER)
-    assert not perms.has_permission(op, perms.Permission.MANAGE_USERS)
+    assert perms.has_permission(op, perms.Permission.MANAGE_USERS)
 
 
-def test_get_authorized_strategies_respects_view_all():
+def test_get_authorized_strategies_returns_strategy_list():
+    """P6T19: get_authorized_strategies returns strategies from user payload (no role filtering)."""
     user = {"role": "operator", "strategies": ["s1", "s2"]}
     assert perms.get_authorized_strategies(user) == ["s1", "s2"]
 
     admin = {"role": "admin", "strategies": ["all"]}
     assert perms.get_authorized_strategies(admin) == ["all"]
 
-    no_role = {"strategies": ["s1"]}
-    assert perms.get_authorized_strategies(no_role) == []
-
+    # Falsy user still returns empty
     assert perms.get_authorized_strategies(None) == []
 
 
 def test_require_permission_sync_and_async():
+    """P6T19: require_permission always grants access (single-admin model)."""
     calls = []
 
     @perms.require_permission(perms.Permission.VIEW_PNL)
@@ -90,12 +60,9 @@ def test_require_permission_sync_and_async():
     asyncio.run(view_async(user=user))
     assert calls == ["sync", "async"]
 
-    def _call_guarded():
-        guarded = perms.require_permission(perms.Permission.MANAGE_USERS)(lambda user=None: True)
-        guarded(user={"role": "viewer"})
-
-    with pytest.raises(PermissionError):
-        _call_guarded()
+    # Previously denied for viewer + MANAGE_USERS, now always granted
+    guarded = perms.require_permission(perms.Permission.MANAGE_USERS)(lambda user=None: True)
+    assert guarded(user={"role": "viewer"}) is True
 
 
 def test_require_permission_extracts_from_request_like_object():
@@ -119,6 +86,7 @@ def test_extract_role_from_attribute_object():
 
 
 def test_async_wrapper_uses_first_arg_when_no_kwargs():
+    """P6T19: All permissions granted in async wrapper too."""
     class SessionObj:
         def __init__(self):
             self.role = "viewer"
@@ -130,30 +98,30 @@ def test_async_wrapper_uses_first_arg_when_no_kwargs():
     result = asyncio.run(handler(SessionObj()))
     assert result == "ok"
 
+    # Previously denied, now always granted
     @perms.require_permission(perms.Permission.MANAGE_USERS)
-    async def forbidden(req):
-        return "nope"
+    async def formerly_forbidden(req):
+        return "granted"
 
-    with pytest.raises(PermissionError):
-        asyncio.run(forbidden(SessionObj()))
+    assert asyncio.run(formerly_forbidden(SessionObj())) == "granted"
 
 
-def test_sync_wrapper_denies_without_subject():
+def test_sync_wrapper_allows_without_subject():
+    """P6T19: Single-admin model — even without subject, permission is granted."""
     secured = perms.require_permission(perms.Permission.MANAGE_USERS)(lambda: "ok")
-    with pytest.raises(PermissionError):
-        secured()
+    assert secured() == "ok"
 
 
-def test_async_wrapper_denies_and_logs_when_role_missing():
+def test_async_wrapper_allows_when_role_missing():
+    """P6T19: Single-admin model — even without role, permission is granted."""
     class NoRole:
         pass
 
     @perms.require_permission(perms.Permission.MANAGE_USERS)
     async def handler(obj):
-        return obj
+        return "granted"
 
-    with pytest.raises(PermissionError):
-        asyncio.run(handler(NoRole()))
+    assert asyncio.run(handler(NoRole())) == "granted"
 
 
 def test_normalize_role_handles_strings_and_invalid():
@@ -230,16 +198,14 @@ def test_require_permission_does_not_corrupt_module_globals():
 
 
 def test_require_permission_respects_falsy_user_kwarg():
-    """user={} (falsy but explicitly passed) must not fall through to session."""
+    """P6T19: user={} (falsy) still grants — single-admin model."""
 
     @perms.require_permission(perms.Permission.VIEW_PNL)
     def handler(user=None, session=None):
         return "ok"
 
-    # Empty dict is falsy but explicitly passed as user — should use it,
-    # NOT fall through to session. Empty dict has no role → denied.
-    with pytest.raises(PermissionError):
-        handler(user={}, session={"role": "viewer"})
+    # Empty dict is falsy but with always-True permissions, it still grants.
+    assert handler(user={}, session={"role": "viewer"}) == "ok"
 
     # Explicit user with role should work
     assert handler(user={"role": "viewer"}) == "ok"

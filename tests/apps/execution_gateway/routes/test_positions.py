@@ -153,7 +153,8 @@ class TestMarketPrices:
         )
 
         db = MagicMock()
-        db.get_positions_for_strategies.return_value = [pos_a, pos_b]
+        # P6T19: Single-admin model — has_permission always True, so get_all_positions is used
+        db.get_all_positions.return_value = [pos_a, pos_b]
 
         ctx = create_mock_context(
             db=db,

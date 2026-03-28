@@ -59,12 +59,12 @@ async def test_acknowledge_alert_idempotent(
 
 
 @pytest.mark.asyncio()
-async def test_acknowledge_alert_denied_without_permission(
+async def test_acknowledge_alert_viewer_allowed_single_admin(
     service: DataQualityService, viewer_user: DummyUser
 ) -> None:
-    """Viewer lacks ACKNOWLEDGE_ALERTS permission."""
-    with pytest.raises(PermissionError):
-        await service.acknowledge_alert(viewer_user, alert_id="alert-1", reason="triage")
+    """P6T19: Viewer can acknowledge alerts — single-admin model."""
+    result = await service.acknowledge_alert(viewer_user, alert_id="alert-1", reason="triage")
+    assert result is not None
 
 
 @pytest.mark.asyncio()

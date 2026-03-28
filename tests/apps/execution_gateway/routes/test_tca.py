@@ -1336,86 +1336,75 @@ class TestTruncation:
 class TestAuthorizationDenial:
     """Tests for strategy-scoped access control."""
 
-    def test_analysis_unauthorized_strategy(
+    def test_analysis_any_strategy_allowed_single_admin(
         self, test_client: TestClient, mock_db: MagicMock
     ) -> None:
-        """Request for unauthorized strategy returns 403."""
+        """P6T19: Any strategy accessible — single-admin model."""
         today = date.today()
         start = today - timedelta(days=7)
+        mock_db.get_trades_for_tca.return_value = create_sample_trades(
+            strategy_id="unauthorized_strategy"
+        )
 
-        # Mock returns alpha_baseline but we request different strategy
+        response = test_client.get(
+            "/api/v1/tca/analysis",
+            params={
+                "start_date": str(start),
+                "end_date": str(today),
+                "strategy_id": "unauthorized_strategy",
+            },
+        )
+
+        assert response.status_code == 200
+
+    def test_analysis_empty_strategies_allowed_single_admin(
+        self, test_client: TestClient, mock_db: MagicMock
+    ) -> None:
+        """P6T19: Empty strategy list still grants access — single-admin model."""
+        today = date.today()
+        start = today - timedelta(days=7)
+        mock_db.get_trades_for_tca.return_value = create_sample_trades()
+
         with patch(
             "apps.execution_gateway.routes.tca.get_authorized_strategies",
-            return_value=["alpha_baseline"],  # Only authorized for alpha_baseline
+            return_value=[],
         ):
             response = test_client.get(
                 "/api/v1/tca/analysis",
                 params={
                     "start_date": str(start),
                     "end_date": str(today),
-                    "strategy_id": "unauthorized_strategy",  # Not authorized
                 },
             )
 
-        assert response.status_code == 403
-        assert "not authorized" in response.json()["detail"].lower()
+        # has_permission returns True (view_all), so access granted
+        assert response.status_code == 200
 
-    def test_analysis_no_authorized_strategies(
+    def test_order_tca_any_strategy_allowed_single_admin(
         self, test_client: TestClient, mock_db: MagicMock
     ) -> None:
-        """User with no authorized strategies returns 403."""
-        today = date.today()
-        start = today - timedelta(days=7)
-
-        with patch(
-            "apps.execution_gateway.routes.tca.get_authorized_strategies",
-            return_value=[],  # No authorized strategies
-        ):
-            response = test_client.get(
-                "/api/v1/tca/analysis",
-                params={
-                    "start_date": str(start),
-                    "end_date": str(today),
-                },
-            )
-
-        assert response.status_code == 403
-        assert "no authorized strategies" in response.json()["detail"].lower()
-
-    def test_order_tca_unauthorized_strategy(
-        self, test_client: TestClient, mock_db: MagicMock
-    ) -> None:
-        """Order TCA for unauthorized strategy returns 403."""
-        # Create trades with a different strategy
+        """P6T19: Order TCA for any strategy succeeds — single-admin model."""
         trades = create_sample_trades(strategy_id="unauthorized_strategy")
         mock_db.get_trades_for_tca.return_value = trades
 
-        with patch(
-            "apps.execution_gateway.routes.tca.get_authorized_strategies",
-            return_value=["alpha_baseline"],  # Only authorized for alpha_baseline
-        ):
-            response = test_client.get("/api/v1/tca/analysis/order-123")
+        response = test_client.get("/api/v1/tca/analysis/order-123")
 
-        assert response.status_code == 403
-        assert "not authorized" in response.json()["detail"].lower()
+        # Single-admin: all strategies accessible
+        assert response.status_code != 403
 
-    def test_benchmarks_unauthorized_strategy(
+    def test_benchmarks_any_strategy_allowed_single_admin(
         self, test_client: TestClient, mock_db: MagicMock
     ) -> None:
-        """Benchmarks for unauthorized strategy returns 403."""
+        """P6T19: Benchmarks for any strategy succeeds — single-admin model."""
         trades = create_sample_trades(strategy_id="unauthorized_strategy")
         mock_db.get_trades_for_tca.return_value = trades
 
-        with patch(
-            "apps.execution_gateway.routes.tca.get_authorized_strategies",
-            return_value=["alpha_baseline"],
-        ):
-            response = test_client.get(
-                "/api/v1/tca/benchmarks",
-                params={"client_order_id": "order-123"},
-            )
+        response = test_client.get(
+            "/api/v1/tca/benchmarks",
+            params={"client_order_id": "order-123"},
+        )
 
-        assert response.status_code == 403
+        assert response.status_code != 403
 
     def test_analysis_view_all_empty_strategies_allowed(
         self, test_client: TestClient, mock_db: MagicMock

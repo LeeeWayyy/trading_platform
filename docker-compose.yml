@@ -547,6 +547,10 @@ services:
       - AUTH0_AUDIENCE=${AUTH0_AUDIENCE:-https://api.trading-platform.local}
       - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-https://web-console.trading-platform.local/callback}
       - OAUTH2_LOGOUT_REDIRECT_URI=${OAUTH2_LOGOUT_REDIRECT_URI:-https://web-console.trading-platform.local}
+      # P6T19: Identity allowlist (comma-separated OAuth2 sub values)
+      - OAUTH2_ALLOWED_SUBS=${OAUTH2_ALLOWED_SUBS:-}
+      # P6T19: Database URL for strategy loading at login (must use Docker-internal hostname)
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}
       # Cookie domain (must match web console domain)
       - COOKIE_DOMAIN=${COOKIE_DOMAIN:-.trading-platform.local}
       # Redis connection for session storage

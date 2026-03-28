@@ -309,10 +309,20 @@ class TestBiasWarning:
 
 class TestExposureServicePermission:
     @pytest.mark.asyncio()
-    async def test_viewer_denied(self, viewer_user: dict[str, Any]) -> None:
+    async def test_viewer_allowed_single_admin(self, viewer_user: dict[str, Any]) -> None:
+        """P6T19: Viewer can view exposure — single-admin model."""
         service = ExposureService()
-        with pytest.raises(PermissionError):
-            await service.get_strategy_exposure(viewer_user, AsyncMock())
+        mock_result = ExposureQueryResult(positions=[], excluded_symbol_count=0)
+
+        with patch(
+            "libs.web_console_services.exposure_service.get_strategy_positions",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            exposures, total = await service.get_strategy_exposure(
+                viewer_user, AsyncMock()
+            )
+        assert total is not None
 
     @pytest.mark.asyncio()
     async def test_operator_allowed(self, operator_user: dict[str, Any]) -> None:
@@ -514,8 +524,8 @@ class TestUnmappedPositions:
 
 class TestNoStrategiesAssigned:
     @pytest.mark.asyncio()
-    async def test_no_strategies_shows_distinct_warning(self) -> None:
-        """User with permission but no strategies gets a configuration warning."""
+    async def test_no_strategies_treated_as_admin_single_admin(self) -> None:
+        """P6T19: Empty strategies treated as VIEW_ALL — single-admin model."""
         user = {"role": "operator", "user_id": "op-1", "strategies": []}
         service = ExposureService()
         mock_result = ExposureQueryResult(positions=[], excluded_symbol_count=0)
@@ -527,15 +537,16 @@ class TestNoStrategiesAssigned:
         ):
             exposures, total = await service.get_strategy_exposure(user, AsyncMock())
 
+        # Single-admin: strategies=None (VIEW_ALL), so no "no strategies" warning
         assert total.is_placeholder is True
-        assert total.data_quality_warning == "No authorized strategies assigned"
-        assert total.strategy_count == 0
+        # Warning is NOT set because strategies is None (VIEW_ALL path)
+        assert total.data_quality_warning is None or "No authorized" not in (total.data_quality_warning or "")
 
 
 class TestUnmappedScopedToAdmin:
     @pytest.mark.asyncio()
-    async def test_non_admin_does_not_see_unmapped(self) -> None:
-        """Operator (no VIEW_ALL_STRATEGIES) should not see global unmapped counts."""
+    async def test_all_users_see_unmapped_single_admin(self) -> None:
+        """P6T19: All users see unmapped counts — single-admin model."""
         user = {"role": "operator", "user_id": "op-1", "strategies": ["alpha1"]}
         service = ExposureService()
         positions = [_make_position("AAPL", 100, 150.0)]
@@ -550,16 +561,12 @@ class TestUnmappedScopedToAdmin:
         ):
             _, total = await service.get_strategy_exposure(user, AsyncMock())
 
-        assert total.unmapped_position_count == 0
-        assert total.data_quality_warning is None
+        # Single-admin: has_view_all is True, unmapped counts visible
+        assert total.unmapped_position_count == 5
 
     @pytest.mark.asyncio()
-    async def test_non_admin_empty_positions_with_global_unmapped_gets_mock(self) -> None:
-        """Non-admin with no positions but global unmapped still sees mock data.
-
-        This ensures the mock-fallback gate uses scoped (not global) unmapped
-        counts, so restricted users cannot infer global portfolio state.
-        """
+    async def test_empty_positions_with_unmapped_shows_unmapped_single_admin(self) -> None:
+        """P6T19: Empty positions with unmapped shows real unmapped count — single-admin model."""
         user = {"role": "operator", "user_id": "op-1", "strategies": ["alpha1"]}
         service = ExposureService()
         mock_result = ExposureQueryResult(
@@ -573,10 +580,9 @@ class TestUnmappedScopedToAdmin:
         ):
             exposures, total = await service.get_strategy_exposure(user, AsyncMock())
 
-        # Non-admin should see mock data (scoped_unmapped=0 → no gate)
-        assert total.is_placeholder is True
-        assert len(exposures) == 3  # Mock strategies
-        assert total.unmapped_position_count == 0
+        # Single-admin: has_view_all True, scoped_unmapped=5, so mock fallback may trigger
+        # but unmapped_position_count is the real count
+        assert total.unmapped_position_count == 5
 
     @pytest.mark.asyncio()
     async def test_admin_sees_unmapped(self) -> None:

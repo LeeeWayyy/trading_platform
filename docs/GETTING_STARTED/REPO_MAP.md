@@ -384,7 +384,7 @@ libs/
 
 ### libs/web_console_services/ - Web Console Services
 
-**Purpose:** Backend services for web console application (migrated from apps/web_console)
+**Purpose:** Backend services for web console application (P6T19: user_management.py removed)
 **Key Services:**
 - `alert_service.py` - Alert configuration and management
 - `alpha_explorer_service.py` - Alpha signal exploration

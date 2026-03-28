@@ -89,20 +89,23 @@ async def test_get_all_sources_returns_all_for_admin(admin_user: DummyUser) -> N
 
 
 @pytest.mark.asyncio()
-async def test_get_all_sources_permission_denied(researcher_user: DummyUser) -> None:
+async def test_get_all_sources_researcher_allowed_single_admin(researcher_user: DummyUser) -> None:
+    """P6T19: Researcher can view all sources — single-admin model."""
     service = DataSourceStatusService()
 
-    with pytest.raises(PermissionError, match="view_data_sync"):
-        await service.get_all_sources(researcher_user)
+    sources = await service.get_all_sources(researcher_user)
+    assert len(sources) == 5
 
 
 @pytest.mark.asyncio()
-async def test_get_all_sources_filters_by_entitlement(viewer_user: DummyUser) -> None:
+async def test_get_all_sources_viewer_sees_all_single_admin(viewer_user: DummyUser) -> None:
+    """P6T19: Viewer sees all sources — single-admin model."""
     service = DataSourceStatusService()
 
     sources = await service.get_all_sources(viewer_user)
 
-    assert {s.name for s in sources} == {"fama_french", "yfinance"}
+    # Single-admin: has_dataset_permission always True, all sources visible
+    assert len(sources) == 5
 
 
 @pytest.mark.asyncio()
@@ -126,11 +129,12 @@ async def test_refresh_source_success(operator_user: DummyUser) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_refresh_source_requires_trigger_permission(viewer_user: DummyUser) -> None:
-    service = DataSourceStatusService()
+async def test_refresh_source_viewer_allowed_single_admin(viewer_user: DummyUser) -> None:
+    """P6T19: Viewer can refresh sources — single-admin model."""
+    service = DataSourceStatusService(redis_client_factory=None)
 
-    with pytest.raises(PermissionError, match="trigger_data_sync"):
-        await service.refresh_source(viewer_user, "crsp")
+    refreshed = await service.refresh_source(viewer_user, "crsp")
+    assert refreshed.name == "crsp"
 
 
 @pytest.mark.asyncio()

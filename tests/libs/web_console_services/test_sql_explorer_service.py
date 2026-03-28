@@ -200,11 +200,15 @@ def test_service_init_dev_mode_forbidden_in_production(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio()
-async def test_execute_query_permission_denied(viewer_user: dict[str, str]) -> None:
-    service = SqlExplorerService(rate_limiter=None)
+async def test_execute_query_viewer_allowed_single_admin(
+    viewer_user: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P6T19: Viewer can execute queries — single-admin model."""
+    service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
+    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: _DummyConn())
 
-    with pytest.raises(PermissionError):
-        await service.execute_query(viewer_user, "crsp", "SELECT * FROM crsp_daily")
+    result = await service.execute_query(viewer_user, "crsp", "SELECT * FROM crsp_daily")
+    assert result is not None
 
 
 @pytest.mark.asyncio()
@@ -275,9 +279,7 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
     monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: _DummyConn())
     await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
-    # authorization_denied
-    with pytest.raises(PermissionError):
-        await service.execute_query({"role": "viewer", "user_id": "v"}, "crsp", "SELECT * FROM crsp_daily")
+    # P6T19: authorization_denied path removed — has_permission always True
 
     # validation_error
     monkeypatch.setattr(service._validator, "validate", lambda query, dataset: (False, "bad query"))
@@ -322,7 +324,7 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
 
     assert set(statuses) >= {
         "success",
-        "authorization_denied",
+        # P6T19: "authorization_denied" removed — has_permission always True
         "validation_error",
         "security_blocked",
         "rate_limited",
@@ -333,15 +335,17 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
 
 
 @pytest.mark.asyncio()
-async def test_export_csv_permission_and_dataset_checks(
+async def test_export_csv_all_users_allowed_single_admin(
     operator_user: dict[str, str],
     viewer_user: dict[str, str],
 ) -> None:
+    """P6T19: All users can export CSV — single-admin model."""
     service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
     df = pl.DataFrame({"a": [1]})
 
-    with pytest.raises(PermissionError):
-        await service.export_csv(viewer_user, "crsp", df)
+    # Viewer can export (single-admin: all permissions granted)
+    csv_bytes_viewer = await service.export_csv(viewer_user, "crsp", df)
+    assert b"a" in csv_bytes_viewer
 
     csv_bytes = await service.export_csv(operator_user, "crsp", df)
     assert b"a" in csv_bytes
