@@ -11,6 +11,7 @@ import jwt
 
 from .jwks_validator import JWKSValidator
 from .mfa_verification import get_amr_method, verify_step_up_auth
+
 # P6T19: validate_session_version import kept for reference but no longer used
 # (session versioning removed in single-admin model)
 

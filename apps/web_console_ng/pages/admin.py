@@ -741,7 +741,6 @@ async def _render_reconciliation_tools(user: dict[str, Any]) -> None:
 
         async def run_backfill() -> None:
             current = get_current_user()
-            current_uid = current.get("user_id", "unknown")
             pool = get_db_pool()
             if (
                 pool is None
@@ -1107,7 +1106,6 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
 
         async def _check_audit_permission() -> bool:
             cur = get_current_user()
-            cur_uid = cur.get("user_id", "unknown")
             if not has_permission(cur, Permission.VIEW_AUDIT):
                 ui.notify("Permission denied", type="negative")
                 return False
@@ -1148,7 +1146,6 @@ async def _render_audit_log_viewer(user: dict[str, Any], db_pool: AsyncConnectio
     # Export button
     async def export_csv() -> None:
         cur = get_current_user()
-        cur_uid = cur.get("user_id", "unknown")
         if not has_permission(cur, Permission.VIEW_AUDIT):
             ui.notify("Permission denied", type="negative")
             return

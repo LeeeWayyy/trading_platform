@@ -38,7 +38,6 @@ class _DummySessionManager:
 session_stub.SessionManager = _DummySessionManager
 sys.modules.setdefault("libs.platform.web_console_auth.session", session_stub)
 
-import pytest
 
 from libs.platform.web_console_auth import permissions as perms
 

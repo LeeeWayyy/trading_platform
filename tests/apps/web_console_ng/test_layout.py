@@ -319,7 +319,7 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
         "/reports",
         "/backtest",
         "/tax-lots",
-        "/admin/users",
+        # P6T19: "/admin/users" removed (single-admin model)
         "/admin",
     ]
     for path in expected_paths:

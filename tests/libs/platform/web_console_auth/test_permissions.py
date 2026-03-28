@@ -5,8 +5,6 @@ import sys
 import types
 from types import ModuleType
 
-import pytest
-
 # Stub jwt before importing library to avoid cryptography/PyO3 issues in test env
 jwt_stub = ModuleType("jwt")
 jwt_stub.api_jwk = types.SimpleNamespace(PyJWK=None, PyJWKSet=None)

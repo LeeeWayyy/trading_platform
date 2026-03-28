@@ -137,6 +137,21 @@ After reset, verify:
 2. Use filters: date range, action type, user
 3. Export to CSV if needed (max 10,000 rows)
 
+### Session Purge (P6T19 — Identity Allowlist Changes)
+
+When changing identity allowlists (`OAUTH2_ALLOWED_SUBS` or `MTLS_ADMIN_CN_ALLOWLIST`), flush ALL Redis sessions to force re-authentication:
+
+```bash
+# Flush web console sessions (data + reverse index)
+redis-cli --scan --pattern 'ng_session:*' | xargs -r redis-cli DEL
+redis-cli --scan --pattern 'ng_user_sessions:*' | xargs -r redis-cli DEL
+
+# Flush auth-service sessions
+redis-cli --scan --pattern 'session:*' | xargs -r redis-cli DEL
+```
+
+**Why:** Session validation does not re-check identity allowlists. Stale sessions for removed users would retain admin access until they expire naturally.
+
 ---
 
 ## SLA Monitoring

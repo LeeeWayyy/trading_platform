@@ -21,8 +21,6 @@ import httpx
 import jwt
 from pydantic import BaseModel
 
-from libs.core.common.db import acquire_connection
-
 from .audit_log import AuditLogger
 from .jwks_validator import JWKSValidator
 from .oauth2_state import OAuth2State, OAuth2StateStore
@@ -32,6 +30,7 @@ from .pkce import (
     generate_session_id,
     generate_state,
 )
+
 # P6T19: validate_session_version import removed (always returns True now)
 from .session_store import RedisSessionStore, SessionData
 
@@ -324,7 +323,7 @@ class OAuth2FlowHandler:
                     strategies = [row[0] for row in await rows.fetchall()]
             except Exception:
                 logger.exception("Failed to load strategies for session")
-                raise ValueError("Service temporarily unavailable. Please try again later.")
+                raise ValueError("Service temporarily unavailable. Please try again later.") from None
         else:
             logger.error("No DB pool — denying login (fail-closed for strategy loading)")
             raise ValueError("Service temporarily unavailable. Please try again later.")

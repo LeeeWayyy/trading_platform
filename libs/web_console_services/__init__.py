@@ -10,7 +10,6 @@ Provides backend services for the Web Console including:
 - Notebook launcher
 - Risk analysis
 - Scheduled reports
-- User management
 """
 
 from libs.web_console_services.alert_service import AlertConfigService

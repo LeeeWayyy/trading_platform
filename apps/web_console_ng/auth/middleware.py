@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import functools
 import hmac
 import logging
@@ -9,7 +8,6 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from nicegui import app, ui
-from redis.exceptions import RedisError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -20,11 +18,8 @@ from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
 from apps.web_console_ng.auth.session_store import (
     SessionValidationError,
-    extract_session_id,
     get_session_store,
 )
-from apps.web_console_ng.core.database import get_db_pool
-from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
