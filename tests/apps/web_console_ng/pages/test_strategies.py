@@ -193,11 +193,11 @@ class TestFeatureFlagGating:
 class TestPermissionChecks:
     """RBAC checks for strategy page access."""
 
-    def test_viewer_lacks_manage_strategies(self, viewer_user: dict[str, Any]) -> None:
-        """Viewer role does not have MANAGE_STRATEGIES permission."""
+    def test_viewer_has_manage_strategies_single_admin(self, viewer_user: dict[str, Any]) -> None:
+        """P6T19: All roles have MANAGE_STRATEGIES — single-admin model."""
         from libs.platform.web_console_auth.permissions import Permission, has_permission
 
-        assert not has_permission(viewer_user, Permission.MANAGE_STRATEGIES)
+        assert has_permission(viewer_user, Permission.MANAGE_STRATEGIES)
 
     def test_operator_has_manage_strategies(self, operator_user: dict[str, Any]) -> None:
         """Operator role has MANAGE_STRATEGIES permission."""
@@ -211,14 +211,14 @@ class TestPermissionChecks:
 
         assert has_permission(admin_user, Permission.MANAGE_STRATEGIES)
 
-    def test_toggle_is_admin_only(
+    def test_toggle_all_users_are_admin_single_admin(
         self, admin_user: dict[str, Any], operator_user: dict[str, Any]
     ) -> None:
-        """Toggle button visibility requires admin role, not just MANAGE_STRATEGIES."""
+        """P6T19: All roles are admin — single-admin model."""
         from libs.platform.web_console_auth.permissions import is_admin
 
         assert is_admin(admin_user)
-        assert not is_admin(operator_user)
+        assert is_admin(operator_user)
 
 
 class TestStrategyServiceInteraction:

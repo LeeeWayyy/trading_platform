@@ -41,11 +41,12 @@ def test_create_notebook_with_mocked_subprocess(monkeypatch: pytest.MonkeyPatch)
     mock_popen.assert_called_once()
 
 
-def test_permission_denied_without_launch_notebooks() -> None:
+def test_viewer_can_list_templates_single_admin() -> None:
+    """P6T19: Viewer can list templates — single-admin model."""
     service = NotebookLauncherService(user={"role": "viewer"})
 
-    with pytest.raises(PermissionError):
-        service.list_templates()
+    templates = service.list_templates()
+    assert isinstance(templates, list)
 
 
 def test_terminate_session_updates_status(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,20 +109,42 @@ def test_get_session_status_detects_dead_process(monkeypatch: pytest.MonkeyPatch
     assert status == SessionStatus.STOPPED
 
 
-def test_permission_denied_for_create_notebook() -> None:
-    """Verify create_notebook requires LAUNCH_NOTEBOOKS permission."""
+def test_viewer_can_create_notebook_single_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P6T19: Viewer can create notebooks — single-admin model."""
+    monkeypatch.setenv("NOTEBOOK_LAUNCH_COMMAND", "echo launch {template_id}")
     service = NotebookLauncherService(user={"role": "viewer"})
+    template_id = service.list_templates()[0].template_id
 
-    with pytest.raises(PermissionError):
-        service.create_notebook("alpha_research", parameters={})
+    mock_process = MagicMock()
+    mock_process.pid = 1234
+
+    with patch(
+        "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
+        return_value=mock_process,
+    ):
+        session = service.create_notebook(template_id, parameters={})
+    assert session is not None
 
 
-def test_permission_denied_for_terminate_session() -> None:
-    """Verify terminate_session requires LAUNCH_NOTEBOOKS permission."""
+def test_viewer_can_terminate_session_single_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P6T19: Viewer can terminate sessions — single-admin model."""
+    monkeypatch.setenv("NOTEBOOK_LAUNCH_COMMAND", "echo launch {template_id}")
     service = NotebookLauncherService(user={"role": "viewer"})
+    template_id = service.list_templates()[0].template_id
 
-    with pytest.raises(PermissionError):
-        service.terminate_session("some-session-id")
+    mock_process = MagicMock()
+    mock_process.pid = 1234
+
+    with patch(
+        "libs.web_console_services.notebook_launcher_service.subprocess.Popen",
+        return_value=mock_process,
+    ):
+        session = service.create_notebook(template_id, parameters={})
+
+    with patch("os.kill") as mock_kill:
+        mock_kill.return_value = None
+        result = service.terminate_session(session.session_id)
+    assert result is True
 
 
 def test_port_allocation_skips_bound_port(monkeypatch: pytest.MonkeyPatch) -> None:

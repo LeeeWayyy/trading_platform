@@ -689,8 +689,8 @@ class TestOutOfOrderWebhooks:
 
 
 class TestRealtimePnlRbac:
-    def test_realtime_pnl_requires_strategy_access(self, test_client, mock_db):
-        # No authorized strategies -> 403
+    def test_realtime_pnl_empty_strategies_allowed_single_admin(self, test_client, mock_db):
+        """P6T19: Empty strategies still grants access — single-admin model."""
         main.app.dependency_overrides[build_user_context] = make_override(
             {
                 "role": "viewer",
@@ -700,8 +700,10 @@ class TestRealtimePnlRbac:
                 "user": {"role": "viewer", "strategies": [], "user_id": "u1"},
             }
         )
+        mock_db.get_all_positions.return_value = []
         resp = test_client.get("/api/v1/positions/pnl/realtime")
-        assert resp.status_code == 403
+        # Single-admin: has_permission always True, access granted
+        assert resp.status_code == 200
 
     def test_realtime_pnl_allows_authorized_viewer(self, test_client, mock_db):
         main.app.dependency_overrides[build_user_context] = make_override(

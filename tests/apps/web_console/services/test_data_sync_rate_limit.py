@@ -54,23 +54,24 @@ async def test_trigger_sync_rate_limit_blocks(operator_user: DummyUser) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_trigger_sync_permission_denied(viewer_user: DummyUser) -> None:
-    """Viewer lacks TRIGGER_DATA_SYNC permission."""
+async def test_trigger_sync_viewer_allowed_single_admin(viewer_user: DummyUser) -> None:
+    """P6T19: Viewer can trigger sync — single-admin model."""
     rate_limiter = AsyncMock()
     rate_limiter.check_rate_limit = AsyncMock(return_value=(True, 0))
     service = DataSyncService(rate_limiter=rate_limiter)
 
-    with pytest.raises(PermissionError):
-        await service.trigger_sync(viewer_user, dataset="fama_french", reason="manual")
+    result = await service.trigger_sync(viewer_user, dataset="fama_french", reason="manual")
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_trigger_sync_dataset_access_denied(operator_user: DummyUser) -> None:
-    """Operator lacks access to unlicensed datasets (default-deny)."""
+async def test_trigger_sync_any_dataset_allowed_single_admin(operator_user: DummyUser) -> None:
+    """P6T19: All datasets accessible — single-admin model."""
     rate_limiter = AsyncMock()
     rate_limiter.check_rate_limit = AsyncMock(return_value=(True, 0))
     service = DataSyncService(rate_limiter=rate_limiter)
 
-    with pytest.raises(PermissionError):
-        # Use a dataset not in ROLE_DATASET_PERMISSIONS
-        await service.trigger_sync(operator_user, dataset="proprietary_internal", reason="manual")
+    result = await service.trigger_sync(
+        operator_user, dataset="proprietary_internal", reason="manual"
+    )
+    assert result is not None

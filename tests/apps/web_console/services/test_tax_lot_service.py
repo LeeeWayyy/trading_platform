@@ -158,29 +158,29 @@ async def test_create_lot_success() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied_without_view_tax_lots() -> None:
-    """list_lots should raise without VIEW_TAX_LOTS permission."""
+async def test_any_role_can_list_lots_single_admin() -> None:
+    """P6T19: Any role can list lots — single-admin model."""
     cursor = MockAsyncCursor(rows=[])
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
     service = TaxLotService(db_pool=pool, user=make_user("user-3", "unknown"))
 
-    with pytest.raises(PermissionError):
-        await service.list_lots()
+    result = await service.list_lots()
+    assert isinstance(result, list)
 
 
 @pytest.mark.asyncio()
-async def test_user_scoped_list_requires_manage_for_other_user() -> None:
-    """list_lots should deny cross-user access without MANAGE_TAX_LOTS."""
+async def test_viewer_can_list_other_user_lots_single_admin() -> None:
+    """P6T19: Viewer can access other user's lots — single-admin model."""
     cursor = MockAsyncCursor(rows=[])
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
     service = TaxLotService(db_pool=pool, user=make_user("user-4", Role.VIEWER))
 
-    with pytest.raises(PermissionError):
-        await service.list_lots(user_id="user-5")
+    result = await service.list_lots(user_id="user-5")
+    assert isinstance(result, list)
 
 
 @pytest.mark.asyncio()
@@ -330,52 +330,91 @@ async def test_close_lot_returns_none_for_other_user() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_create_lot_requires_manage_permission() -> None:
-    """create_lot should raise PermissionError without MANAGE_TAX_LOTS."""
-    cursor = MockAsyncCursor()
+async def test_viewer_can_create_lot_single_admin() -> None:
+    """P6T19: Viewer can create lots — single-admin model."""
+    now = datetime.now(UTC)
+    row = {
+        "id": "lot-new",
+        "user_id": "user-10",
+        "symbol": "TEST",
+        "quantity": Decimal("1"),
+        "cost_basis": Decimal("100"),
+        "acquisition_date": now,
+        "strategy_id": None,
+        "status": "open",
+        "closed_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    cursor = MockAsyncCursor(row=row)
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
-    # VIEWER role has VIEW_TAX_LOTS but not MANAGE_TAX_LOTS
     service = TaxLotService(db_pool=pool, user=make_user("user-10", Role.VIEWER))
 
-    with pytest.raises(PermissionError):
-        await service.create_lot(
-            symbol="TEST",
-            quantity=Decimal("1"),
-            cost_basis=Decimal("100"),
-            acquisition_date=datetime.now(UTC),
-            strategy_id=None,
-            status="open",
-        )
+    result = await service.create_lot(
+        symbol="TEST",
+        quantity=Decimal("1"),
+        cost_basis=Decimal("100"),
+        acquisition_date=now,
+        strategy_id=None,
+        status="open",
+    )
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_update_lot_requires_manage_permission() -> None:
-    """update_lot should raise PermissionError without MANAGE_TAX_LOTS."""
-    cursor = MockAsyncCursor()
+async def test_viewer_can_update_lot_single_admin() -> None:
+    """P6T19: Viewer can update lots — single-admin model."""
+    now = datetime.now(UTC)
+    row = {
+        "id": "lot-11",
+        "user_id": "user-11",
+        "symbol": "UPDATED",
+        "quantity": Decimal("1"),
+        "cost_basis": Decimal("100"),
+        "acquisition_date": now,
+        "strategy_id": None,
+        "status": "open",
+        "closed_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    cursor = MockAsyncCursor(row=row)
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
-    # VIEWER role has VIEW_TAX_LOTS but not MANAGE_TAX_LOTS
     service = TaxLotService(db_pool=pool, user=make_user("user-11", Role.VIEWER))
 
-    with pytest.raises(PermissionError):
-        await service.update_lot("lot-11", {"symbol": "UPDATED"})
+    result = await service.update_lot("lot-11", {"symbol": "UPDATED"})
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_close_lot_requires_manage_permission() -> None:
-    """close_lot should raise PermissionError without MANAGE_TAX_LOTS."""
-    cursor = MockAsyncCursor()
+async def test_viewer_can_close_lot_single_admin() -> None:
+    """P6T19: Viewer can close lots — single-admin model."""
+    now = datetime.now(UTC)
+    row = {
+        "id": "lot-12",
+        "user_id": "user-12",
+        "symbol": "TEST",
+        "quantity": Decimal("1"),
+        "cost_basis": Decimal("100"),
+        "acquisition_date": now,
+        "strategy_id": None,
+        "status": "closed",
+        "closed_at": now,
+        "created_at": now,
+        "updated_at": now,
+    }
+    cursor = MockAsyncCursor(row=row)
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
-    # VIEWER role has VIEW_TAX_LOTS but not MANAGE_TAX_LOTS
     service = TaxLotService(db_pool=pool, user=make_user("user-12", Role.VIEWER))
 
-    with pytest.raises(PermissionError):
-        await service.close_lot("lot-12")
+    result = await service.close_lot("lot-12")
+    assert result is not None
 
 
 @pytest.mark.asyncio()

@@ -313,7 +313,7 @@ class TestStrategyFilterAndPermissions:
 
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
-    def test_get_strategy_filter_success(
+    def test_get_strategy_filter_returns_none_single_admin(
         self,
         mock_get_key: Mock,
         mock_get_strategies: Mock,
@@ -322,18 +322,19 @@ class TestStrategyFilterAndPermissions:
         mock_user: dict[str, Any],
         sample_strategies: list[str],
     ) -> None:
-        """Should return authorized strategies."""
+        """P6T19: Strategy filter returns None (all access) — single-admin model."""
         mock_get_strategies.return_value = sample_strategies
         mock_get_key.return_value = None
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
         result = access._get_strategy_filter()
 
-        assert result == sample_strategies
+        # Single-admin: _view_all is True, so filter is None (no restriction)
+        assert result is None
 
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
-    def test_get_strategy_filter_no_access(
+    def test_get_strategy_filter_empty_returns_none_single_admin(
         self,
         mock_get_key: Mock,
         mock_get_strategies: Mock,
@@ -341,14 +342,15 @@ class TestStrategyFilterAndPermissions:
         mock_redis_client: AsyncMock,
         mock_user: dict[str, Any],
     ) -> None:
-        """Empty strategy list should raise PermissionError."""
+        """P6T19: Empty strategy list still returns None — single-admin model."""
         mock_get_strategies.return_value = []
         mock_get_key.return_value = None
 
         access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+        result = access._get_strategy_filter()
 
-        with pytest.raises(PermissionError, match="No strategy access"):
-            access._get_strategy_filter()
+        # Single-admin: _view_all is True, no PermissionError
+        assert result is None
 
 
 class TestViewAllScopingContract:
@@ -961,8 +963,10 @@ class TestGetPnlSummary:
         # Verify date parameters passed
         call_args = access._execute_fetchall.call_args
         params = call_args[0][2]
-        assert params[1] == date(2025, 1, 14)
-        assert params[2] == date(2025, 1, 15)
+        # P6T19: Single-admin model — _view_all is True, strategy clause is
+        # "TRUE" with no params, so dates start at index 0 instead of 1.
+        assert date(2025, 1, 14) in params
+        assert date(2025, 1, 15) in params
 
 
 class TestGetTrades:
@@ -1290,29 +1294,38 @@ class TestGetPortfolioReturns:
         assert "daily_return" in query
 
     @pytest.mark.asyncio()
+    @patch("libs.web_console_data.strategy_scoped_queries.acquire_connection")
     @patch("libs.web_console_data.strategy_scoped_queries.get_authorized_strategies")
     @patch("libs.web_console_data.strategy_scoped_queries._get_cache_encryption_key")
-    async def test_get_portfolio_returns_unauthorized_strategy(
+    async def test_get_portfolio_returns_any_strategy_allowed_single_admin(
         self,
         mock_get_key: Mock,
         mock_get_strategies: Mock,
+        mock_acquire: AsyncMock,
         mock_db_pool: AsyncMock,
         mock_redis_client: AsyncMock,
         mock_user: dict[str, Any],
         sample_strategies: list[str],
     ) -> None:
-        """Should raise PermissionError for unauthorized strategy."""
+        """P6T19: Any strategy accessible — single-admin model."""
         mock_get_strategies.return_value = sample_strategies
         mock_get_key.return_value = None
 
-        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+        mock_conn = AsyncMock()
+        mock_acquire.return_value = AsyncMock()
+        mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire.return_value.__aexit__ = AsyncMock()
 
-        with pytest.raises(PermissionError, match="Not authorized for strategy"):
-            await access.get_portfolio_returns(
-                strategy_id="unauthorized-strategy",
-                start_date=date(2025, 1, 15),
-                end_date=date(2025, 1, 16),
-            )
+        access = StrategyScopedDataAccess(mock_db_pool, mock_redis_client, mock_user)
+        access._execute_fetchall = AsyncMock(return_value=[])
+
+        # Single-admin: _view_all is True, so no PermissionError
+        result = await access.get_portfolio_returns(
+            strategy_id="unauthorized-strategy",
+            start_date=date(2025, 1, 15),
+            end_date=date(2025, 1, 16),
+        )
+        assert isinstance(result, list)
 
 
 class TestVerifyJobOwnership:

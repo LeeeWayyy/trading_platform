@@ -1615,13 +1615,12 @@ class TestApiAuthDependency:
         assert "insufficient_role" in str(exc_info.value.detail)
 
     @pytest.mark.asyncio()
-    async def test_jwt_auth_with_permission_requirement_denied(
+    async def test_jwt_auth_with_permission_requirement_always_granted(
         self, mock_request: MagicMock
     ) -> None:
-        """Test JWT auth fails when permission requirement is not met."""
+        """P6T19: Permission requirement always met — single-admin model."""
         from libs.core.common.api_auth_dependency import api_auth
 
-        # Create user with VIEWER role (no SUBMIT_ORDER permission)
         mock_authenticator = AsyncMock()
         user = AuthenticatedUser(
             user_id="user-123",
@@ -1636,23 +1635,22 @@ class TestApiAuthDependency:
         dependency = api_auth(config, authenticator_getter=lambda: mock_authenticator)
 
         with patch.dict(os.environ, {"API_AUTH_MODE": "enforce"}, clear=False):
-            with pytest.raises(HTTPException) as exc_info:
-                await dependency(
-                    request=mock_request,
-                    authorization="Bearer valid-token",
-                    x_user_id="user-123",
-                    x_request_id="req-123",
-                    x_session_version="1",
-                    x_internal_token=None,
-                    x_internal_timestamp=None,
-                    x_internal_nonce=None,
-                    x_service_id=None,
-                    x_strategy_id=None,
-                    x_body_hash=None,
-                )
+            # Single-admin: has_permission always True, no HTTPException raised
+            result = await dependency(
+                request=mock_request,
+                authorization="Bearer valid-token",
+                x_user_id="user-123",
+                x_request_id="req-123",
+                x_session_version="1",
+                x_internal_token=None,
+                x_internal_timestamp=None,
+                x_internal_nonce=None,
+                x_service_id=None,
+                x_strategy_id=None,
+                x_body_hash=None,
+            )
 
-        assert exc_info.value.status_code == 403
-        assert "permission_denied" in str(exc_info.value.detail)
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_jwt_auth_without_authenticator_in_enforce_mode(

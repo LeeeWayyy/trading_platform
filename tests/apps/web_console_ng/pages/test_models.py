@@ -234,11 +234,11 @@ class TestFeatureFlagGating:
 class TestPermissionChecks:
     """RBAC checks for models page access."""
 
-    def test_viewer_lacks_view_models(self, viewer_user: dict[str, Any]) -> None:
-        """Viewer role does not have VIEW_MODELS permission."""
+    def test_viewer_has_view_models_single_admin(self, viewer_user: dict[str, Any]) -> None:
+        """P6T19: All roles have VIEW_MODELS — single-admin model."""
         from libs.platform.web_console_auth.permissions import Permission, has_permission
 
-        assert not has_permission(viewer_user, Permission.VIEW_MODELS)
+        assert has_permission(viewer_user, Permission.VIEW_MODELS)
 
     def test_operator_has_view_models(self, operator_user: dict[str, Any]) -> None:
         """Operator role has VIEW_MODELS permission."""
@@ -258,11 +258,11 @@ class TestPermissionChecks:
 
         assert is_admin(admin_user)
 
-    def test_operator_is_not_admin(self, operator_user: dict[str, Any]) -> None:
-        """Operator does NOT have admin status (manage actions blocked)."""
+    def test_operator_is_admin_single_admin(self, operator_user: dict[str, Any]) -> None:
+        """P6T19: All roles are admin — single-admin model."""
         from libs.platform.web_console_auth.permissions import is_admin
 
-        assert not is_admin(operator_user)
+        assert is_admin(operator_user)
 
 
 class TestServiceInteraction:

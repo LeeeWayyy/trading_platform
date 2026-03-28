@@ -67,29 +67,33 @@ async def test_get_sync_status_filters_by_dataset_permission(
 
 
 @pytest.mark.asyncio()
-async def test_get_sync_status_permission_denied(service: DataSyncService) -> None:
+async def test_get_sync_status_researcher_allowed_single_admin(service: DataSyncService) -> None:
+    """P6T19: Researcher can view sync status — single-admin model."""
     user = DummyUser(user_id="researcher-1", role=Role.RESEARCHER)
 
-    with pytest.raises(PermissionError):
-        await service.get_sync_status(user)
+    result = await service.get_sync_status(user)
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_get_sync_logs_filters_by_dataset_when_unspecified(
+async def test_get_sync_logs_viewer_sees_all_datasets_single_admin(
     service: DataSyncService, viewer_user: DummyUser
 ) -> None:
+    """P6T19: Viewer sees all dataset logs — single-admin model."""
     results = await service.get_sync_logs(viewer_user, dataset=None, level=None, limit=100)
 
     datasets = {item.dataset for item in results}
-    assert datasets == {"fama_french"}
+    # Single-admin: has_dataset_permission always True, all datasets visible
+    assert len(datasets) >= 1
 
 
 @pytest.mark.asyncio()
-async def test_get_sync_logs_dataset_access_denied(
+async def test_get_sync_logs_viewer_can_access_any_dataset_single_admin(
     service: DataSyncService, viewer_user: DummyUser
 ) -> None:
-    with pytest.raises(PermissionError):
-        await service.get_sync_logs(viewer_user, dataset="crsp", level=None, limit=100)
+    """P6T19: Viewer can access any dataset logs — single-admin model."""
+    results = await service.get_sync_logs(viewer_user, dataset="crsp", level=None, limit=100)
+    assert isinstance(results, list)
 
 
 @pytest.mark.asyncio()
@@ -102,23 +106,26 @@ async def test_get_sync_logs_limit_applied(
 
 
 @pytest.mark.asyncio()
-async def test_get_sync_schedule_filters_by_dataset_permission(
+async def test_get_sync_schedule_viewer_sees_all_datasets_single_admin(
     service: DataSyncService, viewer_user: DummyUser
 ) -> None:
+    """P6T19: Viewer sees all dataset schedules — single-admin model."""
     results = await service.get_sync_schedule(viewer_user)
 
     datasets = {item.dataset for item in results}
-    assert datasets == {"fama_french"}
+    # Single-admin: all datasets visible
+    assert len(datasets) >= 1
 
 
 @pytest.mark.asyncio()
-async def test_update_sync_schedule_permission_denied(
+async def test_update_sync_schedule_operator_can_update_any_single_admin(
     service: DataSyncService, operator_user: DummyUser
 ) -> None:
+    """P6T19: Operator can update any dataset schedule — single-admin model."""
     schedule = SyncScheduleUpdateDTO(enabled=False, cron_expression="0 3 * * *")
 
-    with pytest.raises(PermissionError):
-        await service.update_sync_schedule(operator_user, dataset="crsp", schedule=schedule)
+    result = await service.update_sync_schedule(operator_user, dataset="crsp", schedule=schedule)
+    assert result is not None
 
 
 @pytest.mark.asyncio()

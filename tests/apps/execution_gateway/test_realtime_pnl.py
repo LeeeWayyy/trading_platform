@@ -90,8 +90,11 @@ def mock_redis_client():
 class TestRealtimePnLEndpoint:
     """Tests for real-time P&L endpoint."""
 
-    def test_endpoint_exists(self, test_client):
+    @patch("apps.execution_gateway.main.db_client")
+    def test_endpoint_exists(self, mock_db, test_client):
         """Test endpoint is accessible."""
+        # P6T19: Single-admin model uses get_all_positions (VIEW_ALL_STRATEGIES always True)
+        mock_db.get_all_positions.return_value = []
         response = test_client.get("/api/v1/positions/pnl/realtime")
         # Should return 200 even with no positions
         assert response.status_code == 200

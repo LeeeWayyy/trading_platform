@@ -70,11 +70,23 @@ def viewer_user() -> dict[str, Any]:
 
 class TestListStrategiesWithModels:
     @pytest.mark.asyncio()
-    async def test_viewer_denied(
+    async def test_viewer_allowed_single_admin(
         self, service: ModelRegistryBrowserService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="VIEW_MODELS"):
-            await service.list_strategies_with_models(viewer_user)
+        """P6T19: Viewer can list strategies — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.model_registry_browser_service.acquire_connection"
+        ) as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await service.list_strategies_with_models(viewer_user)
+        assert isinstance(result, list)
 
     @pytest.mark.asyncio()
     async def test_admin_gets_all(
@@ -118,19 +130,42 @@ class TestListStrategiesWithModels:
 
 class TestGetModelsForStrategy:
     @pytest.mark.asyncio()
-    async def test_viewer_denied(
+    async def test_viewer_allowed_single_admin(
         self, service: ModelRegistryBrowserService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="VIEW_MODELS"):
-            await service.get_models_for_strategy("alpha_baseline", viewer_user)
+        """P6T19: Viewer can get models — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.model_registry_browser_service.acquire_connection"
+        ) as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await service.get_models_for_strategy("alpha_baseline", viewer_user)
+        assert isinstance(result, list)
 
     @pytest.mark.asyncio()
-    async def test_operator_unauthorized_strategy(
+    async def test_operator_any_strategy_allowed_single_admin(
         self, service: ModelRegistryBrowserService, operator_user: dict[str, Any]
     ) -> None:
-        """Operator cannot access strategies they're not authorized for."""
-        with pytest.raises(PermissionError, match="Access denied"):
-            await service.get_models_for_strategy("alpha_v2", operator_user)
+        """P6T19: Operator can access any strategy — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.model_registry_browser_service.acquire_connection"
+        ) as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await service.get_models_for_strategy("alpha_v2", operator_user)
+        assert isinstance(result, list)
 
     @pytest.mark.asyncio()
     async def test_returns_models(
@@ -173,10 +208,33 @@ class TestGetModelsForStrategy:
 
 class TestActivateModel:
     @pytest.mark.asyncio()
-    async def test_non_admin_denied(
-        self, service: ModelRegistryBrowserService, operator_user: dict[str, Any]
+    async def test_operator_can_activate_single_admin(
+        self, service: ModelRegistryBrowserService, operator_user: dict[str, Any], mock_audit_logger: Mock
     ) -> None:
-        with pytest.raises(PermissionError, match="Admin role required"):
+        """P6T19: Operator can activate models — single-admin model."""
+        mock_conn = AsyncMock()
+        call_count = 0
+
+        async def execute_side_effect(*args: Any, **kwargs: Any) -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            mock_cursor = AsyncMock()
+            if call_count == 1:
+                mock_cursor.fetchall = AsyncMock(return_value=[])
+            elif call_count == 2:
+                mock_cursor.fetchone = AsyncMock(return_value=("inactive",))
+            else:
+                mock_cursor.fetchone = AsyncMock(return_value=None)
+            return mock_cursor
+
+        mock_conn.execute = AsyncMock(side_effect=execute_side_effect)
+
+        with patch(
+            "libs.web_console_services.model_registry_browser_service.acquire_connection"
+        ) as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
             await service.activate_model("alpha_baseline", "v1.0.0", operator_user)
 
     @pytest.mark.asyncio()
@@ -261,10 +319,21 @@ class TestActivateModel:
 
 class TestDeactivateModel:
     @pytest.mark.asyncio()
-    async def test_non_admin_denied(
-        self, service: ModelRegistryBrowserService, operator_user: dict[str, Any]
+    async def test_operator_can_deactivate_single_admin(
+        self, service: ModelRegistryBrowserService, operator_user: dict[str, Any], mock_audit_logger: Mock
     ) -> None:
-        with pytest.raises(PermissionError, match="Admin role required"):
+        """P6T19: Operator can deactivate models — single-admin model."""
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=("active",))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.model_registry_browser_service.acquire_connection"
+        ) as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
             await service.deactivate_model("alpha_baseline", "v1.0.0", operator_user)
 
     @pytest.mark.asyncio()
@@ -310,11 +379,25 @@ class TestValidateModel:
         assert result is None
 
     @pytest.mark.asyncio()
-    async def test_viewer_denied(
+    async def test_viewer_can_validate_single_admin(
         self, service: ModelRegistryBrowserService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="Admin role required"):
-            await service.validate_model("alpha_baseline", "v1.0.0", viewer_user)
+        """P6T19: Viewer can validate models — single-admin model."""
+        import httpx
+
+        with patch("libs.web_console_services.model_registry_browser_service.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(
+                return_value=AsyncMock(status_code=200, json=lambda: {"valid": True})
+            )
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_httpx.RequestError = httpx.RequestError
+
+            result = await service.validate_model("alpha_baseline", "v1.0.0", viewer_user)
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_api_unavailable_returns_none(

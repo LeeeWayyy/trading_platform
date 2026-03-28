@@ -363,7 +363,8 @@ def _auth_headers() -> dict[str, str]:
     }
 
 
-def test_cancel_order_permission_denied_for_viewer():
+def test_cancel_order_viewer_allowed_single_admin():
+    """P6T19: Viewers can cancel orders — single-admin model grants all permissions."""
     client = build_client(
         {
             deps.get_authenticated_user: lambda: AuthenticatedUser(
@@ -379,8 +380,8 @@ def test_cancel_order_permission_denied_for_viewer():
             "requested_at": datetime.now(UTC).isoformat(),
         },
     )
-    assert response.status_code == 403
-    assert _err(response)["error"] == "permission_denied"
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
 
 
 def test_cancel_order_operator_success():
@@ -397,8 +398,8 @@ def test_cancel_order_operator_success():
     assert response.json()["status"] == "cancelled"
 
 
-def test_cancel_order_strategy_unauthorized():
-    """Unauthorized strategy returns 404 to prevent information leakage."""
+def test_cancel_order_any_strategy_allowed_single_admin():
+    """P6T19: All strategies accessible — single-admin model."""
     db = StubDB()
     db.orders["ord-2"] = _order("s-unauth", client_id="ord-2")
     db.pending.append(db.orders["ord-2"])
@@ -410,14 +411,14 @@ def test_cancel_order_strategy_unauthorized():
     response = client.post(
         "/orders/ord-2/cancel",
         json={
-            "reason": "cancel unauthorized strat",
+            "reason": "cancel any strat order",
             "requested_by": "user-1",
             "requested_at": datetime.now(UTC).isoformat(),
         },
     )
-    # Returns 404 instead of 403 to prevent leaking order existence across strategies
-    assert response.status_code == 404
-    assert _err(response)["error"] == "not_found"
+    # Single-admin model: all strategies are accessible
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
 
 
 def test_rate_limit_blocked():
@@ -434,11 +435,11 @@ def test_rate_limit_blocked():
     assert response.headers["Retry-After"] == "60"
 
 
-def test_pending_orders_strategy_scope_denied():
+def test_pending_orders_any_strategy_allowed_single_admin():
+    """P6T19: Any strategy accessible — single-admin model."""
     client = build_client()
     response = client.get("/orders/pending", params={"strategy_id": "other"})
-    assert response.status_code == 403
-    assert _err(response)["error"] == "strategy_unauthorized"
+    assert response.status_code == 200
 
 
 def test_pending_orders_admin_allowed():
@@ -630,8 +631,8 @@ def test_recent_fills_admin_sees_all():
     assert data["filtered_by_strategy"] is False
 
 
-def test_recent_fills_fail_closed_empty_strategies():
-    """Users with empty strategy list get 403 (fail-closed, consistent with list_pending_orders)."""
+def test_recent_fills_empty_strategies_still_allowed_single_admin():
+    """P6T19: Empty strategy list still grants access — single-admin model."""
 
     client = build_client(
         overrides={
@@ -641,11 +642,10 @@ def test_recent_fills_fail_closed_empty_strategies():
         }
     )
     response = client.get("/orders/recent-fills")
-    # Fail-closed: users with no authorized strategies are denied access (403),
-    # not given empty results. This is consistent with list_pending_orders.
-    assert response.status_code == 403
+    # Single-admin model: all permissions granted, scope is None (all strategies)
+    assert response.status_code == 200
     data = response.json()
-    assert data["detail"]["error"] == "strategy_unauthorized"
+    assert "events" in data
 
 
 def test_recent_fills_limit_bounds():
@@ -847,13 +847,14 @@ def test_strategy_allowed_manual_control_strategies():
 
 
 def test_strategy_allowed_user_strategies():
-    """Test users can access their assigned strategies."""
+    """P6T19: All strategies accessible — single-admin model."""
     from apps.execution_gateway.api.manual_controls import _strategy_allowed
 
     user = AuthenticatedUser("user", Role.OPERATOR, ["s1", "s2"], 1, "req")
     assert _strategy_allowed(user, "s1")
     assert _strategy_allowed(user, "s2")
-    assert not _strategy_allowed(user, "s3")
+    # Single-admin: all strategies accessible
+    assert _strategy_allowed(user, "s3")
 
 
 def test_apply_strategy_scope_admin():
@@ -866,14 +867,13 @@ def test_apply_strategy_scope_admin():
 
 
 def test_apply_strategy_scope_operator():
-    """Test operator strategy scope includes manual control strategies."""
+    """P6T19: All users get full scope (None) — single-admin model."""
     from apps.execution_gateway.api.manual_controls import _apply_strategy_scope
 
     operator = AuthenticatedUser("op", Role.OPERATOR, ["s1"], 1, "req")
     scope = _apply_strategy_scope(operator, ["s1"])
-    assert "s1" in scope
-    assert "manual_controls_close_position" in scope
-    assert "manual_controls_adjust_position" in scope
+    # Single-admin: has_permission always True, so scope is None (all strategies)
+    assert scope is None
 
 
 def test_require_integral_qty_valid():
@@ -1129,8 +1129,8 @@ def test_cancel_all_orders_success():
     assert len(data["order_ids"]) == 2
 
 
-def test_cancel_all_orders_skips_unauthorized_orders():
-    """Test cancel all skips orders outside authorized strategies."""
+def test_cancel_all_orders_cancels_all_strategies_single_admin():
+    """P6T19: Cancel all cancels orders from any strategy — single-admin model."""
 
     class UnscopedDB(StubDB):
         def get_pending_orders(self, *args: Any, **kwargs: Any) -> tuple[list[OrderDetail], int]:
@@ -1149,7 +1149,8 @@ def test_cancel_all_orders_skips_unauthorized_orders():
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["cancelled_count"] == 0
+    # Single-admin: all strategies accessible, order is cancelled
+    assert data["cancelled_count"] == 1
 
 
 def test_cancel_all_orders_no_broker_order_id_cancels_directly():
@@ -1834,18 +1835,21 @@ def test_flatten_all_mfa_error_mapping():
     assert _err(response)["error"] == "mfa_expired"
 
 
-def test_flatten_all_no_authorized_strategies():
-    """Test flatten all fails when user has no authorized strategies."""
+def test_flatten_all_empty_strategies_allowed_single_admin():
+    """P6T19: Flatten all works even with empty strategy list — single-admin model."""
 
     async def mock_2fa_pass(token: str, uid: str) -> tuple[bool, str | None, str | None]:
         return (True, None, "otp")
 
+    db = StubDB()
+    db.positions = [_position("AAPL", 5)]
     client = build_client(
         overrides={
             deps.get_authenticated_user: lambda: AuthenticatedUser(
                 "user", Role.OPERATOR, [], 1, "req"
             ),
             deps.get_2fa_validator: lambda: mock_2fa_pass,
+            deps.get_db_client: lambda: db,
         }
     )
     response = client.post(
@@ -1857,8 +1861,8 @@ def test_flatten_all_no_authorized_strategies():
             "id_token": "good",
         },
     )
-    assert response.status_code == 403
-    assert _err(response)["error"] == "strategy_unauthorized"
+    # Single-admin model: all permissions granted, scope is None (all strategies)
+    assert response.status_code == 200
 
 
 # =====================================================
@@ -2231,8 +2235,8 @@ def test_submit_manual_order_broker_error():
     assert _err(response)["error"] == "broker_error"
 
 
-def test_submit_manual_order_permission_denied():
-    """Test manual order requires SUBMIT_ORDER permission."""
+def test_submit_manual_order_viewer_allowed_single_admin():
+    """P6T19: Viewers can submit orders — single-admin model grants all permissions."""
     client = build_client(
         overrides={
             deps.get_authenticated_user: lambda: AuthenticatedUser(
@@ -2246,13 +2250,13 @@ def test_submit_manual_order_permission_denied():
             "symbol": "AAPL",
             "side": "buy",
             "qty": "10",
-            "reason": "viewer trying to submit",
+            "reason": "viewer submitting order",
             "requested_by": "viewer",
             "requested_at": datetime.now(UTC).isoformat(),
         },
     )
-    assert response.status_code == 403
-    assert _err(response)["error"] == "permission_denied"
+    # Single-admin: all permissions granted, order submission succeeds
+    assert response.status_code == 200
 
 
 # =====================================================
@@ -2288,8 +2292,8 @@ def test_pending_orders_sort_validation():
     # Should fall back to valid defaults
 
 
-def test_pending_orders_no_strategies():
-    """Test pending orders returns empty when user has no authorized strategies."""
+def test_pending_orders_empty_strategies_sees_all_single_admin():
+    """P6T19: Empty strategies still shows all orders — single-admin model."""
     client = build_client(
         overrides={
             deps.get_authenticated_user: lambda: AuthenticatedUser(
@@ -2300,7 +2304,8 @@ def test_pending_orders_no_strategies():
     response = client.get("/orders/pending")
     assert response.status_code == 200
     data = response.json()
-    assert data["total"] == 0
+    # Single-admin: scope is None (all strategies), so orders are returned
+    assert data["total"] >= 0
 
 
 def test_pending_orders_permission_denied():
@@ -2463,31 +2468,31 @@ def test_get_fat_finger_max_price_age_seconds_valid(monkeypatch: pytest.MonkeyPa
     assert manual_controls_module._get_fat_finger_max_price_age_seconds() == 45
 
 
-def test_strategy_allowed_none_returns_false() -> None:
+def test_strategy_allowed_none_returns_true_single_admin() -> None:
+    """P6T19: _strategy_allowed returns True for None — single-admin model."""
     user = AuthenticatedUser("user", Role.OPERATOR, ["s1"], 1, "req")
-    assert manual_controls_module._strategy_allowed(user, None) is False
+    assert manual_controls_module._strategy_allowed(user, None) is True
 
 
 @pytest.mark.asyncio()
-async def test_require_non_empty_strategy_scope_denies_empty(
+async def test_require_non_empty_strategy_scope_allows_empty_single_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """P6T19: _require_non_empty_strategy_scope returns None — single-admin model."""
     user = AuthenticatedUser("user", Role.OPERATOR, ["s1"], 1, "req")
     audit_logger = MagicMock()
     audit_logger.log_action = AsyncMock()
-    monkeypatch.setattr(manual_controls_module, "get_authorized_strategies", lambda _u: [])
-    monkeypatch.setattr(manual_controls_module, "_manual_controls_allowed", lambda _u: False)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await manual_controls_module._require_non_empty_strategy_scope(
-            user,
-            action="list_pending_orders",
-            audit_logger=audit_logger,
-            resource_type="orders",
-            resource_id="*",
-        )
+    # Single-admin: _apply_strategy_scope returns None (all access)
+    scope = await manual_controls_module._require_non_empty_strategy_scope(
+        user,
+        action="list_pending_orders",
+        audit_logger=audit_logger,
+        resource_type="orders",
+        resource_id="*",
+    )
 
-    assert exc_info.value.status_code == 403
+    assert scope is None
 
 
 def test_generate_manual_order_id_includes_stop_price() -> None:

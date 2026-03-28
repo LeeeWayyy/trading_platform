@@ -1242,13 +1242,24 @@ class TestBulkAcknowledgeAlerts:
     """Tests for bulk_acknowledge_alerts method."""
 
     @pytest.mark.asyncio()
-    async def test_permission_denied(
+    async def test_viewer_can_bulk_acknowledge_single_admin(
         self, alert_service: AlertConfigService, viewer_user: dict[str, Any]
     ) -> None:
-        with pytest.raises(PermissionError, match="ACKNOWLEDGE_ALERT"):
-            await alert_service.bulk_acknowledge_alerts(
-                ["id1"], "This is a sufficient note for testing", viewer_user
+        """P6T19: Viewer can bulk acknowledge — single-admin model."""
+        import uuid
+
+        valid_uuid = str(uuid.uuid4())
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value=AsyncMock(rowcount=1))
+        mock_conn.fetchone = AsyncMock(return_value=None)
+
+        with patch("libs.web_console_services.alert_service.acquire_connection") as mock_acquire:
+            mock_acquire.return_value.__aenter__.return_value = mock_conn
+            # Single-admin: has_permission always True, no PermissionError
+            result = await alert_service.bulk_acknowledge_alerts(
+                [valid_uuid], "This is a sufficient note for testing", viewer_user
             )
+        assert result is not None
 
     @pytest.mark.asyncio()
     async def test_short_note_raises(

@@ -11,7 +11,6 @@ import pytest
 from libs.web_console_services.cb_service import (
     CircuitBreakerService,
     RateLimitExceeded,
-    RBACViolation,
     ValidationError,
 )
 from libs.web_console_services.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
@@ -81,14 +80,14 @@ class TestCircuitBreakerServiceTrip:
         assert result is True
         cb_service.breaker.trip.assert_called_once()
 
-    def test_trip_fails_without_permission(self, cb_service: CircuitBreakerService) -> None:
-        """trip should raise RBACViolation for user without permission."""
+    def test_trip_allowed_for_viewer_single_admin(self, cb_service: CircuitBreakerService) -> None:
+        """P6T19: Viewer can trip circuit breaker — single-admin model."""
         user = {"user_id": "test_user", "role": "viewer"}
 
-        with pytest.raises(RBACViolation, match="lacks TRIP_CIRCUIT permission"):
-            cb_service.trip("MANUAL", user, acknowledged=True)
+        result = cb_service.trip("MANUAL", user, acknowledged=True)
 
-        cb_service.breaker.trip.assert_not_called()
+        assert result is True
+        cb_service.breaker.trip.assert_called_once()
 
     def test_trip_increments_metric(self, cb_service: CircuitBreakerService) -> None:
         """trip should increment Prometheus counter."""
@@ -141,15 +140,15 @@ class TestCircuitBreakerServiceReset:
         cb_service.breaker.reset.assert_called_once()
         cb_service.breaker.update_history_with_reset.assert_called_once()
 
-    def test_reset_fails_without_permission(self, cb_service: CircuitBreakerService) -> None:
-        """reset should raise RBACViolation for user without permission."""
+    def test_reset_allowed_for_viewer_single_admin(self, cb_service: CircuitBreakerService) -> None:
+        """P6T19: Viewer can reset circuit breaker — single-admin model."""
         user = {"user_id": "test_user", "role": "viewer"}
         reason = "Conditions cleared, verified system health"
 
-        with pytest.raises(RBACViolation, match="lacks RESET_CIRCUIT permission"):
-            cb_service.reset(reason, user, acknowledged=True)
+        result = cb_service.reset(reason, user, acknowledged=True)
 
-        cb_service.breaker.reset.assert_not_called()
+        assert result is True
+        cb_service.breaker.reset.assert_called_once()
 
     def test_reset_fails_with_short_reason(self, cb_service: CircuitBreakerService) -> None:
         """reset should raise ValidationError if reason too short."""
@@ -416,12 +415,12 @@ class TestCircuitBreakerServiceRBAC:
 
         assert result is True
 
-    def test_trip_denied_for_viewer(self, cb_service: CircuitBreakerService) -> None:
-        """trip should be denied for viewer role."""
+    def test_trip_viewer_allowed_single_admin(self, cb_service: CircuitBreakerService) -> None:
+        """P6T19: Viewer can trip — single-admin model."""
         user = {"user_id": "test_user", "role": "viewer"}
 
-        with pytest.raises(RBACViolation):
-            cb_service.trip("MANUAL", user, acknowledged=True)
+        result = cb_service.trip("MANUAL", user, acknowledged=True)
+        assert result is True
 
     @pytest.mark.parametrize("role", ["operator", "admin"])
     def test_reset_allowed_for_authorized_roles(
@@ -435,13 +434,13 @@ class TestCircuitBreakerServiceRBAC:
 
         assert result is True
 
-    def test_reset_denied_for_viewer(self, cb_service: CircuitBreakerService) -> None:
-        """reset should be denied for viewer role."""
+    def test_reset_viewer_allowed_single_admin(self, cb_service: CircuitBreakerService) -> None:
+        """P6T19: Viewer can reset — single-admin model."""
         user = {"user_id": "test_user", "role": "viewer"}
         reason = "Conditions cleared, verified system health"
 
-        with pytest.raises(RBACViolation):
-            cb_service.reset(reason, user, acknowledged=True)
+        result = cb_service.reset(reason, user, acknowledged=True)
+        assert result is True
 
 
 class TestCircuitBreakerServiceErrorHandling:

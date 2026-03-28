@@ -62,24 +62,24 @@ async def test_acknowledge_alert_returns_existing_on_conflict(
 
 
 @pytest.mark.asyncio()
-async def test_acknowledge_alert_denied_without_permission(
+async def test_acknowledge_alert_allowed_for_viewer_single_admin(
     service: DataQualityService, viewer_user: DummyUser
 ) -> None:
-    """Viewer lacks ACKNOWLEDGE_ALERTS permission."""
-    with pytest.raises(PermissionError):
-        await service.acknowledge_alert(viewer_user, alert_id="alert-9", reason="triage")
+    """P6T19: Viewer can acknowledge alerts — single-admin model."""
+    # Use alert-1 which is within bounds of _SUPPORTED_DATASETS
+    result = await service.acknowledge_alert(viewer_user, alert_id="alert-1", reason="triage")
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_acknowledge_alert_denied_without_dataset_access(
+async def test_acknowledge_alert_allowed_for_any_dataset_single_admin(
     service: DataQualityService, operator_user: DummyUser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Dataset access is enforced for the resolved alert dataset."""
-    # Use a dataset not in ROLE_DATASET_PERMISSIONS (default-deny)
+    """P6T19: All datasets accessible — single-admin model."""
     monkeypatch.setattr(service, "_resolve_alert_dataset", lambda _alert_id: "proprietary_internal")
 
-    with pytest.raises(PermissionError):
-        await service.acknowledge_alert(operator_user, alert_id="alert-9", reason="triage")
+    result = await service.acknowledge_alert(operator_user, alert_id="alert-9", reason="triage")
+    assert result is not None
 
 
 @pytest.mark.asyncio()

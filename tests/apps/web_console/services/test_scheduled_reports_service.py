@@ -151,35 +151,50 @@ async def test_create_schedule_with_mock_db() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied_without_view_reports() -> None:
-    """list_schedules should raise without VIEW_REPORTS permission."""
+async def test_any_role_can_list_schedules_single_admin() -> None:
+    """P6T19: Any role can list schedules — single-admin model."""
     cursor = MockAsyncCursor(rows=[])
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
     service = ScheduledReportsService(db_pool=pool, user=make_user("user-3", "unknown"))
 
-    with pytest.raises(PermissionError):
-        await service.list_schedules()
+    result = await service.list_schedules()
+    assert isinstance(result, list)
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied_without_manage_reports() -> None:
-    """create_schedule should raise without MANAGE_REPORTS permission."""
-    cursor = MockAsyncCursor(row=None)
+async def test_any_role_can_create_schedule_single_admin() -> None:
+    """P6T19: Any role can create schedules — single-admin model."""
+    now = datetime.now(UTC)
+    row = {
+        "id": "schedule-new",
+        "user_id": "user-4",
+        "name": "Daily",
+        "template_type": "daily_summary",
+        "schedule_config": {"cron": "0 6 * * *", "params": {}},
+        "recipients": [],
+        "strategies": [],
+        "enabled": True,
+        "last_run_at": None,
+        "next_run_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    cursor = MockAsyncCursor(row=row)
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
     service = ScheduledReportsService(db_pool=pool, user=make_user("user-4", "unknown"))
 
-    with pytest.raises(PermissionError):
-        await service.create_schedule(
-            name="Daily",
-            report_type="daily_summary",
-            cron="0 6 * * *",
-            params={},
-            user_id="user-4",
-        )
+    result = await service.create_schedule(
+        name="Daily",
+        report_type="daily_summary",
+        cron="0 6 * * *",
+        params={},
+        user_id="user-4",
+    )
+    assert result is not None
 
 
 @pytest.mark.asyncio()
@@ -229,57 +244,70 @@ async def test_delete_schedule_success() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied_for_update_schedule() -> None:
-    """update_schedule should raise without MANAGE_REPORTS permission."""
-    cursor = MockAsyncCursor(row=None)
+async def test_any_role_can_update_schedule_single_admin() -> None:
+    """P6T19: Any role can update schedules — single-admin model."""
+    now = datetime.now(UTC)
+    row = {
+        "id": "schedule-7",
+        "user_id": "user-7",
+        "name": "New Name",
+        "template_type": "daily_summary",
+        "schedule_config": {"cron": "0 8 * * *", "params": {}},
+        "recipients": [],
+        "strategies": [],
+        "enabled": True,
+        "last_run_at": None,
+        "next_run_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    cursor = MockAsyncCursor(row=row)
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
     service = ScheduledReportsService(db_pool=pool, user=make_user("user-7", "unknown"))
 
-    with pytest.raises(PermissionError):
-        await service.update_schedule("schedule-7", {"name": "New Name"})
+    result = await service.update_schedule("schedule-7", {"name": "New Name"})
+    assert result is not None
 
 
 @pytest.mark.asyncio()
-async def test_permission_denied_for_delete_schedule() -> None:
-    """delete_schedule should raise without MANAGE_REPORTS permission."""
-    cursor = MockAsyncCursor(rowcount=0)
+async def test_any_role_can_delete_schedule_single_admin() -> None:
+    """P6T19: Any role can delete schedules — single-admin model."""
+    cursor = MockAsyncCursor(rowcount=1)
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
     service = ScheduledReportsService(db_pool=pool, user=make_user("user-8", "unknown"))
 
-    with pytest.raises(PermissionError):
-        await service.delete_schedule("schedule-8")
+    result = await service.delete_schedule("schedule-8")
+    assert result is True
 
 
 @pytest.mark.asyncio()
-async def test_list_schedules_all_users_requires_manage_reports() -> None:
-    """list_schedules with all_users=True requires MANAGE_REPORTS permission."""
+async def test_list_schedules_all_users_allowed_for_viewer_single_admin() -> None:
+    """P6T19: Viewer can list all users' schedules — single-admin model."""
     cursor = MockAsyncCursor(rows=[])
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
-    # VIEWER has VIEW_REPORTS but not MANAGE_REPORTS
     service = ScheduledReportsService(db_pool=pool, user=make_user("user-9", Role.VIEWER))
 
-    with pytest.raises(PermissionError):
-        await service.list_schedules(all_users=True)
+    result = await service.list_schedules(all_users=True)
+    assert isinstance(result, list)
 
 
 @pytest.mark.asyncio()
-async def test_list_schedules_other_user_requires_manage_reports() -> None:
-    """list_schedules with different user_id requires MANAGE_REPORTS permission."""
+async def test_list_schedules_other_user_allowed_for_viewer_single_admin() -> None:
+    """P6T19: Viewer can list other user's schedules — single-admin model."""
     cursor = MockAsyncCursor(rows=[])
     conn = MockAsyncConnection(cursor)
     pool = MockAsyncPool(conn)
 
-    # VIEWER has VIEW_REPORTS but not MANAGE_REPORTS
     service = ScheduledReportsService(db_pool=pool, user=make_user("user-10", Role.VIEWER))
 
-    with pytest.raises(PermissionError):
-        await service.list_schedules(user_id="other-user")
+    result = await service.list_schedules(user_id="other-user")
+    assert isinstance(result, list)
 
 
 @pytest.mark.asyncio()

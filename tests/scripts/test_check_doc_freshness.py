@@ -87,7 +87,7 @@ def test_main_exit_code_bitmask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             "orphaned": ["apps/orphaned/"],
             "deprecated": [],
             "stale": False,
-            "last_doc_update": "2026-01-01T00:00:00+00:00",
+            "last_doc_update": "2026-01-10T00:00:00+00:00",
             "last_source_change": "2026-01-15T00:00:00+00:00",
             "missing_docs": [],
             "files_added": [],
