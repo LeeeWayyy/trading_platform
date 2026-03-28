@@ -114,7 +114,7 @@ async def test_mtls_auth_uses_client_dn(monkeypatch: pytest.MonkeyPatch) -> None
 
     with (
         patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="trader-user"),
-        patch("apps.web_console_ng.core.dependencies.get_sync_db_pool", return_value=mock_db_pool),
+        patch("apps.web_console_ng.core.database.get_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.authenticate(
             request=request,

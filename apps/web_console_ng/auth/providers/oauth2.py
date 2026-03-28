@@ -249,9 +249,9 @@ class OAuth2AuthHandler(AuthProvider):
         # P6T19: Load all strategies from DB for single-admin session
         strategies: list[str] = []
         try:
-            from apps.web_console_ng.core.dependencies import get_sync_db_pool
+            from apps.web_console_ng.core.database import get_db_pool
 
-            db_pool = get_sync_db_pool()
+            db_pool = get_db_pool()
             if db_pool:
                 async with db_pool.connection() as conn:
                     rows = await conn.execute("SELECT strategy_id FROM strategies ORDER BY strategy_id")

@@ -341,7 +341,7 @@ async def test_handle_callback_success(
     mock_conn.__aexit__ = AsyncMock(return_value=False)
     mock_db_pool.connection = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
-        "apps.web_console_ng.core.dependencies.get_sync_db_pool",
+        "apps.web_console_ng.core.database.get_db_pool",
         lambda: mock_db_pool,
     )
 

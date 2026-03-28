@@ -28,9 +28,8 @@ import redis.asyncio
 from libs.platform.web_console_auth.oauth2_flow import (
     OAuth2Config,
     OAuth2FlowHandler,
-    _fetch_user_role_data,
-    _fetch_user_strategies,
 )
+# P6T19: _fetch_user_role_data, _fetch_user_strategies removed (single-admin model)
 from libs.platform.web_console_auth.oauth2_state import OAuth2State
 from libs.platform.web_console_auth.session_store import SessionData
 
@@ -1385,123 +1384,5 @@ class TestRevokeRefreshToken:
                 await oauth2_handler._revoke_refresh_token("test_refresh_token")
 
 
-class TestFetchUserRoleData:
-    """Tests for _fetch_user_role_data() standalone function."""
-
-    @pytest.mark.asyncio()
-    async def test_fetch_user_role_data_dict_row(self, mock_db_pool: Mock):
-        """Test fetching user role data when row is dict."""
-        mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(return_value={"role": "admin", "session_version": 5})
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            result = await _fetch_user_role_data("auth0|12345", mock_db_pool)
-
-            assert result == {"role": "admin", "session_version": 5}
-
-    @pytest.mark.asyncio()
-    async def test_fetch_user_role_data_tuple_row(self, mock_db_pool: Mock):
-        """Test fetching user role data when row is tuple."""
-        mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(return_value=("operator", 3))
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            result = await _fetch_user_role_data("auth0|12345", mock_db_pool)
-
-            assert result == {"role": "operator", "session_version": 3}
-
-    @pytest.mark.asyncio()
-    async def test_fetch_user_role_data_not_found(self, mock_db_pool: Mock):
-        """Test fetching user role data returns None when user not found."""
-        mock_cursor = Mock()
-        mock_cursor.fetchone = AsyncMock(return_value=None)
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            result = await _fetch_user_role_data("auth0|nonexistent", mock_db_pool)
-
-            assert result is None
-
-
-class TestFetchUserStrategies:
-    """Tests for _fetch_user_strategies() standalone function."""
-
-    @pytest.mark.asyncio()
-    async def test_fetch_user_strategies_dict_rows(self, mock_db_pool: Mock):
-        """Test fetching user strategies when rows are dicts."""
-        mock_cursor = Mock()
-        mock_cursor.fetchall = AsyncMock(
-            return_value=[
-                {"strategy_id": "strategy_1"},
-                {"strategy_id": "strategy_2"},
-                {"strategy_id": "strategy_3"},
-            ]
-        )
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            result = await _fetch_user_strategies("auth0|12345", mock_db_pool)
-
-            assert result == ["strategy_1", "strategy_2", "strategy_3"]
-
-    @pytest.mark.asyncio()
-    async def test_fetch_user_strategies_tuple_rows(self, mock_db_pool: Mock):
-        """Test fetching user strategies when rows are tuples."""
-        mock_cursor = Mock()
-        mock_cursor.fetchall = AsyncMock(return_value=[("strat_a",), ("strat_b",)])
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            result = await _fetch_user_strategies("auth0|12345", mock_db_pool)
-
-            assert result == ["strat_a", "strat_b"]
-
-    @pytest.mark.asyncio()
-    async def test_fetch_user_strategies_empty(self, mock_db_pool: Mock):
-        """Test fetching user strategies returns empty list when no strategies."""
-        mock_cursor = Mock()
-        mock_cursor.fetchall = AsyncMock(return_value=[])
-
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock(return_value=mock_cursor)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("libs.platform.web_console_auth.oauth2_flow.acquire_connection") as mock_acquire:
-            mock_acquire.return_value = mock_conn
-
-            result = await _fetch_user_strategies("auth0|12345", mock_db_pool)
-
-            assert result == []
+# P6T19: TestFetchUserRoleData and TestFetchUserStrategies removed
+# (functions deleted — user_roles and user_strategy_access tables dropped)

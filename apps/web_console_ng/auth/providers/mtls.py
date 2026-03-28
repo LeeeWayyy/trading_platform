@@ -177,9 +177,9 @@ class MTLSAuthHandler(AuthProvider):
         # P6T19: Single-admin role + load all strategies from DB
         user_data["role"] = "admin"
         try:
-            from apps.web_console_ng.core.dependencies import get_sync_db_pool
+            from apps.web_console_ng.core.database import get_db_pool
 
-            db_pool = get_sync_db_pool()
+            db_pool = get_db_pool()
             if db_pool:
                 async with db_pool.connection() as conn:
                     rows = await conn.execute("SELECT strategy_id FROM strategies ORDER BY strategy_id")

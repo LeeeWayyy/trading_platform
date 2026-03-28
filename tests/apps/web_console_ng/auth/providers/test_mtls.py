@@ -117,7 +117,7 @@ async def test_try_auto_login_success_with_expiry_warning(
         patch.object(mtls_module, "extract_trusted_client_ip", return_value="203.0.113.5"),
         patch.object(mtls_module, "get_session_store", return_value=session_store),
         patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="alice"),
-        patch("apps.web_console_ng.core.dependencies.get_sync_db_pool", return_value=mock_db_pool),
+        patch("apps.web_console_ng.core.database.get_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.try_auto_login(request)
 
@@ -246,7 +246,7 @@ async def test_authenticate_success(
         patch.object(mtls_module, "is_trusted_ip", return_value=True),
         patch.object(mtls_module, "get_session_store", return_value=session_store),
         patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="alice"),
-        patch("apps.web_console_ng.core.dependencies.get_sync_db_pool", return_value=mock_db_pool),
+        patch("apps.web_console_ng.core.database.get_db_pool", return_value=mock_db_pool),
     ):
         result = await handler.authenticate(
             request=request,

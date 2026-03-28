@@ -708,28 +708,5 @@ class OAuth2FlowHandler:
             response.raise_for_status()
 
 
-async def _fetch_user_role_data(user_id: str, db_pool: Any) -> dict[str, Any] | None:
-    async with acquire_connection(db_pool) as conn:
-        cursor = await conn.execute(
-            "SELECT role, session_version FROM user_roles WHERE user_id = %s",
-            (user_id,),
-        )
-        row = await cursor.fetchone()
-
-    if not row:
-        return None
-
-    role = row["role"] if isinstance(row, dict) else row[0]
-    session_version = row["session_version"] if isinstance(row, dict) else row[1]
-    return {"role": role, "session_version": session_version}
-
-
-async def _fetch_user_strategies(user_id: str, db_pool: Any) -> list[str]:
-    async with acquire_connection(db_pool) as conn:
-        cursor = await conn.execute(
-            "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s",
-            (user_id,),
-        )
-        rows = await cursor.fetchall()
-
-    return [row["strategy_id"] if isinstance(row, dict) else row[0] for row in rows]
+# P6T19: _fetch_user_role_data and _fetch_user_strategies removed
+# (user_roles and user_strategy_access tables dropped in single-admin model)
