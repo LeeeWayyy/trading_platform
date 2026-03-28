@@ -13,6 +13,7 @@ References:
 """
 
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -292,8 +293,6 @@ class OAuth2FlowHandler:
         Replaces the previous user_roles DB lookup with an env-based
         identity allowlist. All strategies are loaded (no per-user filtering).
         """
-        import os
-
         # P6T19: Identity allowlist — check OAUTH2_ALLOWED_SUBS env var
         allowed_subs_raw = os.getenv("OAUTH2_ALLOWED_SUBS", "")
         allowed_subs = [s.strip() for s in allowed_subs_raw.split(",") if s.strip()]
@@ -313,6 +312,8 @@ class OAuth2FlowHandler:
         role_data = {"role": "admin", "user_id": user_id}
 
         # Load all strategies (no per-user filtering)
+        # Graceful fallback: if DB pool unavailable, proceed with empty strategies
+        # (auth_service may not always have DATABASE_URL configured)
         strategies: list[str] = []
         if db_pool is not None:
             try:
@@ -322,11 +323,9 @@ class OAuth2FlowHandler:
                     )
                     strategies = [row[0] for row in await rows.fetchall()]
             except Exception:
-                logger.exception("Failed to load strategies for session")
-                raise ValueError("Service temporarily unavailable. Please try again later.") from None
+                logger.warning("Failed to load strategies for session — proceeding with empty list")
         else:
-            logger.error("No DB pool — denying login (fail-closed for strategy loading)")
-            raise ValueError("Service temporarily unavailable. Please try again later.")
+            logger.info("No DB pool available — proceeding with empty strategy list")
 
         return role_data, strategies
 
