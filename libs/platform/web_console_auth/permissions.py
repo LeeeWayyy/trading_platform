@@ -181,19 +181,13 @@ def has_dataset_permission(user_or_role: Any, dataset: str) -> bool:
 def require_permission(
     permission: Permission,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator enforcing the given permission.
+    """P6T19: Decorator preserved for FastAPI signature compatibility.
 
-    Looks for a ``user`` or ``session`` kwarg, or first positional argument
-    that is a mapping with ``role``. If the first positional argument is a
-    request-like object, a ``user`` or ``session`` attribute on that object
-    will be used. Default‑deny if none found.
-    Supports both sync and async callables. The decorated function must either
-    expose a ``user`` or ``session`` keyword argument, or accept a first
-    positional argument that is one of:
-    - a mapping containing ``role``
-    - an object with ``role`` attribute
-    - a request-like object exposing ``user`` or ``session`` attributes.
-    Calls that do not satisfy this contract will be denied.
+    Since ``has_permission()`` always returns True, this decorator is
+    effectively a no-op passthrough. Authentication is enforced at the
+    middleware/provider level, not here. Decorator mechanics (subject
+    extraction, wrapper signatures) are kept intact to avoid breaking
+    FastAPI parameter introspection.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:

@@ -1,45 +1,26 @@
-"""Unit tests for shared RBAC permission helpers."""
+"""Unit tests for shared permission helpers (P6T19: single-admin model)."""
 
 from __future__ import annotations
 
 import asyncio
-import sys
-from types import ModuleType
 
-# Stub jwt to avoid crypto dependency
-jwt_stub = ModuleType("jwt")
-jwt_stub.api_jwk = ModuleType("jwt.api_jwk")
-jwt_stub.algorithms = ModuleType("jwt.algorithms")
-jwt_stub.utils = ModuleType("jwt.utils")
-sys.modules.setdefault("jwt", jwt_stub)
-sys.modules.setdefault("jwt.api_jwk", jwt_stub.api_jwk)
-sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)
-sys.modules.setdefault("jwt.utils", jwt_stub.utils)
+# P6T19: sys.modules stubs removed — permissions.py no longer needs jwt/session
+# imports and the stubs were leaking into subsequent test modules.
+from libs.platform.web_console_auth.permissions import (
+    ROLE_DATASET_PERMISSIONS,
+    ROLE_PERMISSIONS,
+    DatasetPermission,
+    Permission,
+    Role,
+    get_authorized_strategies,
+    has_dataset_permission,
+    has_permission,
+    is_admin,
+    require_permission,
+)
 
-# Stub jwt_manager to avoid cryptography dependency
-jwt_mgr_stub = ModuleType("libs.platform.web_console_auth.jwt_manager")
-
-
-class _DummyJWTManager:
-    def __init__(self, *args, **kwargs): ...
-
-
-jwt_mgr_stub.JWTManager = _DummyJWTManager
-sys.modules.setdefault("libs.platform.web_console_auth.jwt_manager", jwt_mgr_stub)
-
-# Stub session module to avoid redis dependency
-session_stub = ModuleType("libs.platform.web_console_auth.session")
-
-
-class _DummySessionManager:
-    def __init__(self, *args, **kwargs): ...
-
-
-session_stub.SessionManager = _DummySessionManager
-sys.modules.setdefault("libs.platform.web_console_auth.session", session_stub)
-
-
-from libs.platform.web_console_auth import permissions as perms
+# Keep backward-compatible alias for existing test references
+import libs.platform.web_console_auth.permissions as perms
 
 
 def test_has_permission_unknown_role_returns_true():
