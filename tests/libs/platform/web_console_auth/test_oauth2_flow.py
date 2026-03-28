@@ -557,7 +557,7 @@ class TestHandleCallback:
                 )
 
     @pytest.mark.asyncio()
-    async def test_handle_callback_without_db_pool_succeeds_gracefully(
+    async def test_handle_callback_without_db_pool_fails_closed(
         self,
         mock_state_store: Mock,
         mock_jwks_validator: Mock,
@@ -567,7 +567,7 @@ class TestHandleCallback:
         sample_tokens: dict[str, Any],
         sample_id_token_claims: dict[str, Any],
     ):
-        """P6T19: Callback succeeds without DB pool (empty strategies)."""
+        """P6T19: Callback fails closed without DB pool."""
         handler = OAuth2FlowHandler(
             config=oauth2_config,
             session_store=mock_session_store,
@@ -592,17 +592,15 @@ class TestHandleCallback:
                 return_value=mock_response
             )
 
-            # P6T19: Without db_pool, proceeds with empty strategies
-            result = await handler.handle_callback(
-                code="test_code",
-                state="test_state_123",
-                ip_address="192.168.1.1",
-                user_agent="Mozilla/5.0",
-                db_pool=None,
-                audit_logger=None,
-            )
-            # Should succeed — session created with empty strategies
-            assert result is not None
+            with pytest.raises(ValueError, match="temporarily unavailable"):
+                await handler.handle_callback(
+                    code="test_code",
+                    state="test_state_123",
+                    ip_address="192.168.1.1",
+                    user_agent="Mozilla/5.0",
+                    db_pool=None,
+                    audit_logger=None,
+                )
 
 
 class TestConsumeState:
@@ -737,14 +735,13 @@ class TestLoadRBACData:
         self,
         oauth2_handler: OAuth2FlowHandler,
     ):
-        """P6T19: Proceeds with empty strategies when pool is None (graceful)."""
+        """P6T19: Fails closed when DB pool is None."""
         with patch.dict("os.environ", {"OAUTH2_ALLOWED_SUBS": "auth0|12345"}):
-            role_data, strategies = await oauth2_handler._load_rbac_data(
-                user_id="auth0|12345",
-                db_pool=None,
-            )
-            assert role_data == {"role": "admin", "user_id": "auth0|12345"}
-            assert strategies == []
+            with pytest.raises(ValueError, match="temporarily unavailable"):
+                await oauth2_handler._load_rbac_data(
+                    user_id="auth0|12345",
+                    db_pool=None,
+                )
 
 
 class TestBuildSessionData:

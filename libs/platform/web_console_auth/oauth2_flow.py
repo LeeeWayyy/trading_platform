@@ -311,21 +311,21 @@ class OAuth2FlowHandler:
         # P6T19: Single-admin role data
         role_data = {"role": "admin", "user_id": user_id}
 
-        # Load all strategies (no per-user filtering)
-        # Graceful fallback: if DB pool unavailable, proceed with empty strategies
-        # (auth_service may not always have DATABASE_URL configured)
-        strategies: list[str] = []
-        if db_pool is not None:
-            try:
-                async with db_pool.connection() as conn:
-                    rows = await conn.execute(
-                        "SELECT strategy_id FROM strategies ORDER BY strategy_id"
-                    )
-                    strategies = [row[0] for row in await rows.fetchall()]
-            except Exception:
-                logger.warning("Failed to load strategies for session — proceeding with empty list")
-        else:
-            logger.info("No DB pool available — proceeding with empty strategy list")
+        # Load all strategies (no per-user filtering, fail-closed)
+        strategies: list[str]
+        if db_pool is None:
+            logger.error("No DB pool available for strategy loading — denying login (fail-closed)")
+            raise ValueError("Service temporarily unavailable. Please try again later.")
+
+        try:
+            async with db_pool.connection() as conn:
+                rows = await conn.execute(
+                    "SELECT strategy_id FROM strategies ORDER BY strategy_id"
+                )
+                strategies = [row[0] for row in await rows.fetchall()]
+        except Exception as exc:
+            logger.exception("Failed to load strategies for session — denying login (fail-closed)", extra={"error": str(exc)})
+            raise ValueError("Service temporarily unavailable. Please try again later.") from exc
 
         return role_data, strategies
 

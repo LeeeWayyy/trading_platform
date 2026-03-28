@@ -190,8 +190,8 @@ class MTLSAuthHandler(AuthProvider):
                     success=False,
                     error_message="Service temporarily unavailable. Please try again later.",
                 )
-        except Exception:
-            logger.exception("Failed to load strategies for mTLS session")
+        except (OSError, TimeoutError) as exc:
+            logger.exception("Failed to load strategies for mTLS session", extra={"error": str(exc)})
             return AuthResult(
                 success=False,
                 error_message="Service temporarily unavailable. Please try again later.",
