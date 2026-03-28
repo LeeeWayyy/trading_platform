@@ -165,7 +165,7 @@ class OAuth2FlowHandler:
                         user_id=user_id,
                         action="login",
                         outcome="denied",
-                        details={"reason": "user_not_provisioned"},
+                        details={"reason": "identity_check_failed"},
                     )
                     audit_logged = True
                 raise

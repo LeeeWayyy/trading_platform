@@ -267,3 +267,57 @@ async def test_authenticate_success(
     _, kwargs = session_store.create_session.await_args
     assert kwargs.get("client_ip") == "198.51.100.9"
     assert kwargs.get("device_info", {}).get("user_agent") == "pytest"
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_rejects_unlisted_cn(
+    monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock
+) -> None:
+    """P6T19: CNs not in MTLS_ADMIN_CN_ALLOWLIST are denied."""
+    _set_mtls_config(monkeypatch)
+
+    handler = mtls_module.MTLSAuthHandler()
+    request = _DummyRequest(
+        headers={
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-DN": "/CN=unauthorized-user/OU=viewer/O=TradingPlatform",
+        },
+        client_host="10.0.0.9",
+    )
+
+    with (
+        patch.object(mtls_module, "is_trusted_ip", return_value=True),
+        patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value="allowed-admin-only"),
+    ):
+        result = await handler.authenticate(request=request)
+
+    assert result.success is False
+    assert "not authorized" in result.error_message.lower()
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_denies_when_cn_allowlist_empty(
+    monkeypatch: pytest.MonkeyPatch, session_store: AsyncMock
+) -> None:
+    """P6T19: Empty MTLS_ADMIN_CN_ALLOWLIST denies all mTLS logins."""
+    _set_mtls_config(monkeypatch)
+
+    handler = mtls_module.MTLSAuthHandler()
+    request = _DummyRequest(
+        headers={
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-DN": "/CN=alice/OU=admin/O=TradingPlatform",
+        },
+        client_host="10.0.0.9",
+    )
+
+    with (
+        patch.object(mtls_module, "is_trusted_ip", return_value=True),
+        patch.object(mtls_module, "get_session_store", return_value=session_store),
+        patch("libs.platform.web_console_auth.mtls_fallback.os.getenv", return_value=""),
+    ):
+        result = await handler.authenticate(request=request)
+
+    assert result.success is False
+    assert "not configured" in result.error_message.lower()

@@ -146,8 +146,8 @@ When changing identity allowlists (`OAUTH2_ALLOWED_SUBS` or `MTLS_ADMIN_CN_ALLOW
 redis-cli --scan --pattern 'ng_session:*' | xargs -r redis-cli DEL
 redis-cli --scan --pattern 'ng_user_sessions:*' | xargs -r redis-cli DEL
 
-# Flush auth-service sessions
-redis-cli --scan --pattern 'session:*' | xargs -r redis-cli DEL
+# Flush auth-service sessions (stored in Redis DB 1)
+redis-cli -n 1 --scan --pattern 'session:*' | xargs -r redis-cli -n 1 DEL
 ```
 
 **Why:** Session validation does not re-check identity allowlists. Stale sessions for removed users would retain admin access until they expire naturally.

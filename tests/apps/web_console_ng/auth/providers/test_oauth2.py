@@ -367,6 +367,74 @@ async def test_handle_callback_success(
 
 
 @pytest.mark.asyncio()
+async def test_handle_callback_rejects_unlisted_user(
+    monkeypatch: pytest.MonkeyPatch,
+    redis_client: AsyncMock,
+    session_store: AsyncMock,
+) -> None:
+    """P6T19: Users not in OAUTH2_ALLOWED_SUBS are denied."""
+    _set_oauth2_config_debug(monkeypatch)
+
+    handler = oauth2_module.OAuth2AuthHandler()
+    flow_data = {
+        "code_verifier": "verifier",
+        "nonce": "nonce",
+        "created_at": time.time(),
+        "redirect_uri": handler.callback_url,
+    }
+    redis_client.get.return_value = json.dumps(flow_data)
+    handler._redis = redis_client
+
+    mock_client = _MockAsyncClient(
+        _MockAsyncResponse(200, {"access_token": "token", "id_token": "id-token"}),
+        _MockAsyncResponse(200, {"sub": "unauthorized-user", "email": "bad@example.com"}),
+    )
+    monkeypatch.setattr(oauth2_module.httpx, "AsyncClient", lambda: mock_client)
+    monkeypatch.setattr(handler, "_validate_id_token", AsyncMock(return_value=(True, None)))
+    monkeypatch.setattr(oauth2_module, "get_session_store", lambda: session_store)
+    monkeypatch.setattr(oauth2_module.config, "OAUTH2_ALLOWED_SUBS", ["allowed-user-only"])
+
+    result = await handler.handle_callback(code="code", state="state")
+
+    assert result.success is False
+    assert "not authorized" in result.error_message.lower()
+
+
+@pytest.mark.asyncio()
+async def test_handle_callback_denies_when_allowlist_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    redis_client: AsyncMock,
+    session_store: AsyncMock,
+) -> None:
+    """P6T19: Empty OAUTH2_ALLOWED_SUBS denies all logins (fail-closed)."""
+    _set_oauth2_config_debug(monkeypatch)
+
+    handler = oauth2_module.OAuth2AuthHandler()
+    flow_data = {
+        "code_verifier": "verifier",
+        "nonce": "nonce",
+        "created_at": time.time(),
+        "redirect_uri": handler.callback_url,
+    }
+    redis_client.get.return_value = json.dumps(flow_data)
+    handler._redis = redis_client
+
+    mock_client = _MockAsyncClient(
+        _MockAsyncResponse(200, {"access_token": "token", "id_token": "id-token"}),
+        _MockAsyncResponse(200, {"sub": "any-user", "email": "user@example.com"}),
+    )
+    monkeypatch.setattr(oauth2_module.httpx, "AsyncClient", lambda: mock_client)
+    monkeypatch.setattr(handler, "_validate_id_token", AsyncMock(return_value=(True, None)))
+    monkeypatch.setattr(oauth2_module, "get_session_store", lambda: session_store)
+    monkeypatch.setattr(oauth2_module.config, "OAUTH2_ALLOWED_SUBS", [])
+
+    result = await handler.handle_callback(code="code", state="state")
+
+    assert result.success is False
+    assert "not configured" in result.error_message.lower()
+
+
+@pytest.mark.asyncio()
 async def test_authenticate_requires_code_and_state(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_oauth2_config_debug(monkeypatch)
 
