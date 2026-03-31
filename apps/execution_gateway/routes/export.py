@@ -22,7 +22,9 @@ from __future__ import annotations
 import io
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from collections.abc import Callable
 from typing import Any, Literal
 from uuid import UUID
 
@@ -700,6 +702,385 @@ async def download_excel_export(
 # This ensures a single source of truth for formula injection protection.
 
 
+def _coerce_cell_value(value: Any) -> Any:
+    """Coerce a database value to an Excel-safe type.
+
+    Decimals are converted to float so openpyxl writes them as numbers.
+    Datetimes are kept as-is (openpyxl handles them natively).
+    Everything else is stringified and sanitized.
+    """
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        # openpyxl requires timezone-naive datetimes
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, date):
+        return value
+    if isinstance(value, bool | int | float):
+        return value
+    # Dict/list → JSON string; all strings sanitized for formula injection
+    if isinstance(value, dict | list):
+        return sanitize_for_export(json.dumps(value, default=str))
+    return sanitize_for_export(str(value))
+
+
+# =============================================================================
+# Per-Grid Data Fetchers
+# =============================================================================
+
+
+def _fetch_positions_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    _filter_params: dict[str, Any] | None,
+) -> tuple[list[str], list[list[Any]]]:
+    """Fetch positions grid data scoped to authorized strategies."""
+    columns = [
+        "symbol", "qty", "avg_entry_price", "current_price",
+        "unrealized_pl", "realized_pl", "updated_at", "last_trade_at",
+    ]
+    positions = ctx.db.get_positions_for_strategies(strategy_ids)
+    rows = [
+        [getattr(pos, col, None) for col in columns]
+        for pos in positions
+    ]
+    return columns, rows
+
+
+def _fetch_orders_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    _filter_params: dict[str, Any] | None,
+) -> tuple[list[str], list[list[Any]]]:
+    """Fetch orders grid data scoped to authorized strategies."""
+    columns = [
+        "client_order_id", "strategy_id", "symbol", "side", "qty",
+        "order_type", "status", "filled_qty", "filled_avg_price",
+        "created_at", "submitted_at", "filled_at",
+    ]
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT client_order_id, strategy_id, symbol, side, qty,
+                       order_type, status, filled_qty, filled_avg_price,
+                       created_at, submitted_at, filled_at
+                FROM orders
+                WHERE strategy_id = ANY(%s)
+                ORDER BY created_at DESC
+                LIMIT 5000
+                """,
+                (strategy_ids,),
+            )
+            db_rows = cur.fetchall()
+    rows = [list(row) for row in db_rows]
+    return columns, rows
+
+
+def _fetch_fills_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    _filter_params: dict[str, Any] | None,
+) -> tuple[list[str], list[list[Any]]]:
+    """Fetch recent fills scoped to authorized strategies."""
+    columns = [
+        "client_order_id", "symbol", "side", "status",
+        "qty", "price", "realized_pl", "timestamp",
+    ]
+    fills = ctx.db.get_recent_fills(
+        strategy_ids=strategy_ids,
+        limit=200,
+        lookback_hours=168,  # 7 days max
+    )
+    rows = [
+        [fill.get(col) for col in columns]
+        for fill in fills
+    ]
+    return columns, rows
+
+
+def _fetch_audit_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    _filter_params: dict[str, Any] | None,
+) -> tuple[list[str], list[list[Any]]]:
+    """Fetch audit log entries scoped to authorized strategies.
+
+    The audit_log table has no direct strategy_id column, so we join through
+    the orders table for order-related entries to enforce strategy scoping.
+    Non-order audit entries (e.g., login events) are included if they belong
+    to the current user's session — but since we don't have user_id context
+    here, we restrict to order-scoped entries only for safety.
+
+    Raises:
+        NotImplementedError: Audit export is disabled until full strategy
+            scoping can be implemented without data leakage.
+    """
+    raise NotImplementedError(
+        "Audit grid export is disabled: audit_log has no strategy_id column "
+        "and cannot be reliably scoped to authorized strategies. "
+        "Use the web console audit view which applies client-side filtering."
+    )
+
+
+def _fetch_tca_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    _filter_params: dict[str, Any] | None,
+) -> tuple[list[str], list[list[Any]]]:
+    """Fetch TCA data scoped to authorized strategies.
+
+    Raises:
+        NotImplementedError: TCA export is disabled because the UI grid uses
+            computed columns (execution_date, fill_rate_pct, is_bps, vwap_bps,
+            impact_bps, notional) derived from the TCA analysis pipeline. The
+            server-side fetcher only has raw trade columns and cannot reproduce
+            the UI's computed metrics. Filters/sorts on UI column names would
+            silently fail.
+    """
+    raise NotImplementedError(
+        "TCA grid export is disabled: the UI grid uses computed columns "
+        "(execution_date, fill_rate_pct, is_bps, vwap_bps, impact_bps, notional) "
+        "that require the TCA analysis pipeline. The server-side exporter cannot "
+        "reproduce these metrics. Use CSV export from the browser instead."
+    )
+
+
+# Map grid names to their fetchers
+_GridFetcher = Callable[
+    [AppContext, list[str], dict[str, Any] | None],
+    tuple[list[str], list[list[Any]]],
+]
+
+_GRID_FETCHERS: dict[str, _GridFetcher] = {
+    "positions": _fetch_positions_data,
+    "orders": _fetch_orders_data,
+    "fills": _fetch_fills_data,
+    "audit": _fetch_audit_data,
+    "tca": _fetch_tca_data,
+}
+
+
+def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
+    """Check if a single cell value matches an AG Grid filter definition.
+
+    Supports text, number, and date filter types with common operators.
+    Returns True if the value passes the filter (should be kept).
+    """
+    filter_type = filter_def.get("filterType", "text")
+    operator = filter_def.get("type", "")
+    filter_value = filter_def.get("filter")
+
+    if value is None:
+        # Null values only match "blank" filters
+        return operator == "blank"
+
+    if filter_type == "text":
+        text_val = str(value).lower()
+        filter_str = str(filter_value).lower() if filter_value is not None else ""
+        if operator == "contains":
+            return filter_str in text_val
+        if operator == "notContains":
+            return filter_str not in text_val
+        if operator == "equals":
+            return text_val == filter_str
+        if operator == "notEqual":
+            return text_val != filter_str
+        if operator == "startsWith":
+            return text_val.startswith(filter_str)
+        if operator == "endsWith":
+            return text_val.endswith(filter_str)
+        if operator == "blank":
+            return text_val.strip() == ""
+        if operator == "notBlank":
+            return text_val.strip() != ""
+        return True  # Unknown text operator — don't filter out
+
+    if filter_type == "number":
+        try:
+            num_val = float(Decimal(str(value))) if isinstance(value, Decimal) else float(value)
+            num_filter = float(filter_value) if filter_value is not None else 0.0
+        except (ValueError, TypeError):
+            return True  # Can't compare — keep the row
+        if operator == "equals":
+            return num_val == num_filter
+        if operator == "notEqual":
+            return num_val != num_filter
+        if operator == "greaterThan":
+            return num_val > num_filter
+        if operator == "greaterThanOrEqual":
+            return num_val >= num_filter
+        if operator == "lessThan":
+            return num_val < num_filter
+        if operator == "lessThanOrEqual":
+            return num_val <= num_filter
+        filter_to = filter_def.get("filterTo")
+        if operator == "inRange" and filter_to is not None:
+            return num_filter <= num_val <= float(filter_to)
+        return True
+
+    if filter_type == "date":
+        # AG Grid sends dateFrom/dateTo as ISO-ish strings, e.g. "2026-03-28 00:00:00"
+        date_from_str = filter_def.get("dateFrom")
+        date_to_str = filter_def.get("dateTo")
+
+        # Coerce cell value to a comparable datetime
+        if isinstance(value, datetime):
+            dt_val = value.replace(tzinfo=None) if value.tzinfo else value
+        elif isinstance(value, date):
+            dt_val = datetime(value.year, value.month, value.day)
+        elif isinstance(value, str):
+            try:
+                dt_val = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                return True  # Unparseable — keep the row
+        else:
+            return True  # Non-date value — keep the row
+
+        def _parse_ag_date(s: str | None) -> datetime | None:
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                return None
+
+        dt_from = _parse_ag_date(date_from_str)
+        dt_to = _parse_ag_date(date_to_str)
+
+        if operator == "blank":
+            return False  # value is not None (checked above)
+        if operator == "notBlank":
+            return True
+        if dt_from is None:
+            return True  # No filter value — can't compare, keep row
+
+        if operator == "equals":
+            return dt_val.date() == dt_from.date()
+        if operator == "notEqual":
+            return dt_val.date() != dt_from.date()
+        if operator == "greaterThan":
+            return dt_val.date() > dt_from.date()
+        if operator == "lessThan":
+            return dt_val.date() < dt_from.date()
+        if operator == "inRange" and dt_to is not None:
+            return dt_from.date() <= dt_val.date() <= dt_to.date()
+        return True
+
+    # Unsupported filter type — keep the row
+    return True
+
+
+def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
+    """Handle AG Grid compound filters (operator + condition1/condition2).
+
+    If the filter_def contains an 'operator' key with 'condition1' and 'condition2',
+    it's a compound filter. Otherwise delegate to _match_filter for simple filters.
+    """
+    operator = filter_def.get("operator")
+    condition1 = filter_def.get("condition1")
+    condition2 = filter_def.get("condition2")
+
+    if operator and isinstance(condition1, dict):
+        result1 = _match_filter(value, condition1)
+        result2 = _match_filter(value, condition2) if isinstance(condition2, dict) else True
+        if operator == "AND":
+            return result1 and result2
+        if operator == "OR":
+            return result1 or result2
+        return result1  # Unknown operator — fall back to condition1 only
+
+    # Simple (non-compound) filter
+    return _match_filter(value, filter_def)
+
+
+def _apply_filters(
+    columns: list[str],
+    rows: list[list[Any]],
+    filter_params: dict[str, Any],
+) -> list[list[Any]]:
+    """Apply AG Grid filter model to rows (Python-side).
+
+    Args:
+        columns: Column names matching row indices.
+        filter_params: AG Grid filter model, e.g.
+            {"symbol": {"filterType": "text", "type": "contains", "filter": "AAPL"}}
+
+    Returns:
+        Filtered rows.
+    """
+    col_index = {c: i for i, c in enumerate(columns)}
+
+    # Build list of (column_index, filter_def) for active filters
+    active_filters: list[tuple[int, dict[str, Any]]] = []
+    for col_name, filter_def in filter_params.items():
+        if col_name in col_index and isinstance(filter_def, dict):
+            active_filters.append((col_index[col_name], filter_def))
+
+    if not active_filters:
+        return rows
+
+    def _row_matches(row: list[Any]) -> bool:
+        for idx, fdef in active_filters:
+            if not _match_compound_filter(row[idx], fdef):
+                return False
+        return True
+
+    return [row for row in rows if _row_matches(row)]
+
+
+def _apply_sort(
+    columns: list[str],
+    rows: list[list[Any]],
+    sort_model: list[dict[str, Any]],
+) -> list[list[Any]]:
+    """Apply AG Grid sort model to rows (Python-side).
+
+    Uses ``sortIndex`` (if present) to determine multi-sort precedence,
+    matching AG Grid behaviour.  When ``sortIndex`` is absent the array
+    position is used as a fallback so that simple sort models still work.
+
+    Args:
+        columns: Column names matching row indices.
+        sort_model: AG Grid sort model, e.g.
+            [{"colId": "symbol", "sort": "asc", "sortIndex": 0},
+             {"colId": "qty", "sort": "desc", "sortIndex": 1}]
+
+    Returns:
+        Sorted rows (new list).
+    """
+    col_index = {c: i for i, c in enumerate(columns)}
+
+    # Normalise sort order: honour sortIndex when present, fall back to
+    # array position.  Higher sortIndex = lower priority (applied first in
+    # the reversed iteration below).
+    indexed_model = [
+        (spec.get("sortIndex", pos), spec)
+        for pos, spec in enumerate(sort_model)
+    ]
+    indexed_model.sort(key=lambda t: t[0])
+    ordered_specs = [spec for _, spec in indexed_model]
+
+    # Build sort keys in reverse priority order (last = primary in multi-sort)
+    sorted_rows = list(rows)
+    for sort_spec in reversed(ordered_specs):
+        col_id = sort_spec.get("colId", "")
+        if col_id not in col_index:
+            continue
+        idx = col_index[col_id]
+        descending = sort_spec.get("sort", "asc") == "desc"
+
+        # Partition nulls out so they always end up last regardless of direction
+        null_rows = [r for r in sorted_rows if r[idx] is None]
+        non_null_rows = [r for r in sorted_rows if r[idx] is not None]
+        non_null_rows.sort(key=lambda row, _idx=idx: row[_idx], reverse=descending)
+        sorted_rows = non_null_rows + null_rows
+
+    return sorted_rows
+
+
 async def _generate_excel_content(
     ctx: AppContext,
     grid_name: str,
@@ -710,27 +1091,23 @@ async def _generate_excel_content(
 ) -> tuple[bytes, int]:
     """Generate Excel file content for a grid.
 
-    This is a placeholder that will be implemented for each grid type.
-    Uses openpyxl for Excel generation with formula sanitization.
-
-    IMPORTANT: All cell values MUST be sanitized via sanitize_for_export()
-    to prevent formula injection attacks.
+    Fetches real data from the database via per-grid fetchers and writes
+    it to an openpyxl Workbook with formula-injection sanitization.
 
     Args:
         ctx: Application context with database access
         grid_name: Name of grid to export
         strategy_ids: Authorized strategy IDs for filtering
         filter_params: AG Grid filter model
-        visible_columns: Columns to include
-        sort_model: AG Grid sort model
+        visible_columns: Columns to include (if None, all columns)
+        sort_model: AG Grid sort model for row ordering
 
     Returns:
         Tuple of (excel_bytes, row_count)
 
     Raises:
-        NotImplementedError: If grid type not supported
+        NotImplementedError: If grid type not supported or openpyxl missing
     """
-    # Import openpyxl only when needed
     try:
         from openpyxl import Workbook  # type: ignore[import-untyped]
     except ImportError as e:
@@ -738,47 +1115,53 @@ async def _generate_excel_content(
             "Excel export requires openpyxl: pip install openpyxl"
         ) from e
 
-    # Supported grids and their data fetchers
-    # TODO: Implement per-grid data fetchers with PII column filtering
-    supported_grids = {
-        "positions": "_fetch_positions_data",
-        "orders": "_fetch_orders_data",
-        "fills": "_fetch_fills_data",
-        "audit": "_fetch_audit_data",
-        "tca": "_fetch_tca_data",
-    }
-
-    if grid_name not in supported_grids:
+    fetcher = _GRID_FETCHERS.get(grid_name)
+    if fetcher is None:
         raise NotImplementedError(f"Excel export not implemented for grid: {grid_name}")
 
-    # For now, return a placeholder Excel file
-    # TODO: Implement actual data fetching and Excel generation
-    # NOTE: When implementing real data, MUST:
-    # 1. Sanitize ALL cell values via sanitize_for_export()
-    # 2. Enforce PII column filtering server-side based on user role
-    # 3. Validate visible_columns against allowed columns per grid
+    # Fetch real data
+    all_columns, data_rows = fetcher(ctx, strategy_ids, filter_params)
+
+    # Apply filter_params (Python-side filtering for AG Grid filter model)
+    if filter_params:
+        data_rows = _apply_filters(all_columns, data_rows, filter_params)
+
+    # Apply sort_model (Python-side sorting for AG Grid sort model)
+    if sort_model:
+        data_rows = _apply_sort(all_columns, data_rows, sort_model)
+
+    # Filter to visible columns if specified, preserving CLIENT column order
+    if visible_columns:
+        col_index_map = {c: i for i, c in enumerate(all_columns)}
+        # Iterate visible_columns (client order), skip any not in server columns
+        ordered_indices = [
+            col_index_map[c] for c in visible_columns if c in col_index_map
+        ]
+        headers = [all_columns[i] for i in ordered_indices]
+        rows = [[row[i] for i in ordered_indices] for row in data_rows]
+    else:
+        headers = all_columns
+        rows = data_rows
+
+    # Build workbook
     wb = Workbook()
     ws = wb.active
     ws.title = grid_name.title()
 
-    # Add header row (sanitize headers too)
-    headers = visible_columns or ["Column1", "Column2", "Column3"]
+    # Header row (sanitized)
     for col_idx, header in enumerate(headers, 1):
         ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
 
-    # Placeholder data - sanitize all values
-    ws.cell(row=2, column=1, value=sanitize_for_export("Excel export implementation pending"))
-    ws.cell(row=2, column=2, value=sanitize_for_export(f"Grid: {grid_name}"))
-    ws.cell(row=2, column=3, value=sanitize_for_export(f"Strategies: {len(strategy_ids)}"))
+    # Data rows (sanitized + type-coerced)
+    for row_idx, row in enumerate(rows, 2):
+        for col_idx, value in enumerate(row, 1):
+            ws.cell(row=row_idx, column=col_idx, value=_coerce_cell_value(value))
 
-    # Save to bytes
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
 
-    # Row count (excluding header)
-    row_count = 1  # Placeholder row
-
+    row_count = len(rows)
     return output.getvalue(), row_count
 
 

@@ -2,16 +2,16 @@
 
 [agents.codebase_navigator]
 description = "Fast, low-cost read-only explorer for files, symbols, call sites, and data flows."
-config_file = ".codex/agents/codebase_navigator.toml"
+config_file = "agents/codebase_navigator.toml"
 
 [agents.security_reviewer]
 description = "Trading-focused security reviewer for credentials, injection risks, idempotency bypasses, and race conditions."
-config_file = ".codex/agents/security_reviewer.toml"
+config_file = "agents/security_reviewer.toml"
 
 [agents.test_writer]
 description = "Pytest TDD test author for trading safety invariants and regression coverage."
-config_file = ".codex/agents/test_writer.toml"
+config_file = "agents/test_writer.toml"
 
 [agents.reconciler_debugger]
 description = "Diagnoses DB vs Alpaca position mismatches by tracing orders, fills, breaker state, and reconciliation evidence."
-config_file = ".codex/agents/reconciler_debugger.toml"
+config_file = "agents/reconciler_debugger.toml"

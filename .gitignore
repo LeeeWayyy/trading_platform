@@ -156,6 +156,7 @@ repomix*.xml
 
 # locks
 .ci-local.lock
+*.lock
 
 # backtest and test result data
 data/backtest_results/*
@@ -174,3 +175,4 @@ qlib/
 
 # local json
 response.json
+
