@@ -22,9 +22,9 @@ from __future__ import annotations
 import io
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from collections.abc import Callable
 from typing import Any, Literal
 from uuid import UUID
 
@@ -705,14 +705,14 @@ async def download_excel_export(
 def _coerce_cell_value(value: Any) -> Any:
     """Coerce a database value to an Excel-safe type.
 
-    Decimals are converted to float so openpyxl writes them as numbers.
+    Decimals are kept as-is (openpyxl handles them natively, preserving precision).
     Datetimes are kept as-is (openpyxl handles them natively).
     Everything else is stringified and sanitized.
     """
     if value is None:
         return None
     if isinstance(value, Decimal):
-        return float(value)
+        return value  # openpyxl supports Decimal natively; preserve precision
     if isinstance(value, datetime):
         # openpyxl requires timezone-naive datetimes
         return value.replace(tzinfo=None) if value.tzinfo else value
@@ -859,7 +859,7 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
 
     if value is None:
         # Null values only match "blank" filters
-        return operator == "blank"
+        return bool(operator == "blank")
 
     if filter_type == "text":
         text_val = str(value).lower()
@@ -883,11 +883,20 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         return True  # Unknown text operator — don't filter out
 
     if filter_type == "number":
+        if operator == "blank":
+            return False  # value is not None (checked above), so not blank
+        if operator == "notBlank":
+            return True  # value is not None, so it's not blank
         try:
             num_val = float(value)
-            num_filter = float(filter_value) if filter_value is not None else 0.0
         except (ValueError, TypeError):
-            return True  # Can't compare — keep the row
+            return False  # Non-numeric value fails numeric filter
+        if filter_value is None:
+            return True  # No filter value provided — can't compare, keep row
+        try:
+            num_filter = float(filter_value)
+        except (ValueError, TypeError):
+            return True  # Bad filter value — can't compare, keep row
         if operator == "equals":
             return num_val == num_filter
         if operator == "notEqual":
@@ -1057,8 +1066,10 @@ def _apply_sort(
         descending = sort_spec.get("sort", "asc") == "desc"
 
         # Partition nulls out so they always end up last regardless of direction
-        null_rows = [r for r in sorted_rows if r[idx] is None]
-        non_null_rows = [r for r in sorted_rows if r[idx] is not None]
+        null_rows: list[list[Any]] = []
+        non_null_rows: list[list[Any]] = []
+        for r in sorted_rows:
+            (null_rows if r[idx] is None else non_null_rows).append(r)
 
         def _sort_key(row: list[Any], _idx: int = idx) -> tuple[int, Any]:
             """Return a comparable sort key safe for mixed-type columns.
@@ -1146,13 +1157,11 @@ async def _generate_excel_content(
     ws.title = grid_name.title()
 
     # Header row (sanitized)
-    for col_idx, header in enumerate(headers, 1):
-        ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
+    ws.append([sanitize_for_export(h) for h in headers])
 
     # Data rows (sanitized + type-coerced)
-    for row_idx, row in enumerate(rows, 2):
-        for col_idx, value in enumerate(row, 1):
-            ws.cell(row=row_idx, column=col_idx, value=_coerce_cell_value(value))
+    for row in rows:
+        ws.append([_coerce_cell_value(v) for v in row])
 
     output = io.BytesIO()
     wb.save(output)

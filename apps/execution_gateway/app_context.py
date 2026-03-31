@@ -152,6 +152,18 @@ class DatabaseClientProtocol(Protocol):
         """Fetch status metadata for multiple strategies."""
         ...
 
+    def get_orders_for_export(
+        self, *, strategy_ids: list[str], limit: int = 50_000
+    ) -> list[dict[str, Any]]:
+        """Fetch orders for Excel export with generous limit."""
+        ...
+
+    def get_fills_for_export(
+        self, *, strategy_ids: list[str], limit: int = 10_000, lookback_hours: int = 2160
+    ) -> list[dict[str, Any]]:
+        """Fetch fills for Excel export with generous limits."""
+        ...
+
     def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
         """Fetch status metadata for a strategy."""
         ...

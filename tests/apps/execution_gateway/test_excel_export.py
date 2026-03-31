@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -21,7 +20,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from apps.execution_gateway.routes.export import (
-    ExportAuditCreateRequest,
     _apply_filters,
     _apply_sort,
     _coerce_cell_value,
@@ -34,10 +32,7 @@ from apps.execution_gateway.routes.export import (
     _match_compound_filter,
     _match_filter,
     download_excel_export,
-    router,
 )
-from libs.platform.security import sanitize_for_export
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -115,8 +110,10 @@ class TestCoerceCellValue:
     def test_none(self) -> None:
         assert _coerce_cell_value(None) is None
 
-    def test_decimal_to_float(self) -> None:
-        assert _coerce_cell_value(Decimal("3.14")) == pytest.approx(3.14)
+    def test_decimal_preserved(self) -> None:
+        result = _coerce_cell_value(Decimal("3.14"))
+        assert isinstance(result, Decimal)
+        assert result == Decimal("3.14")
 
     def test_datetime_strips_tzinfo(self) -> None:
         dt = datetime(2026, 1, 1, tzinfo=UTC)
@@ -179,6 +176,26 @@ class TestMatchFilter:
         f = {"filterType": "number", "type": "equals", "filter": 42}
         assert _match_filter(42, f) is True
         assert _match_filter(43, f) is False
+
+    def test_number_blank_and_not_blank(self) -> None:
+        f_blank = {"filterType": "number", "type": "blank"}
+        assert _match_filter(None, f_blank) is True
+        assert _match_filter(42, f_blank) is False
+
+        f_not_blank = {"filterType": "number", "type": "notBlank"}
+        assert _match_filter(42, f_not_blank) is True
+        assert _match_filter(None, f_not_blank) is False
+
+    def test_number_filter_none_filter_value(self) -> None:
+        """When filter_value is None, keep all rows (can't compare)."""
+        f = {"filterType": "number", "type": "greaterThan", "filter": None}
+        assert _match_filter(42, f) is True
+        assert _match_filter(0, f) is True
+
+    def test_number_non_numeric_value_excluded(self) -> None:
+        """Non-numeric cell values should be excluded by numeric filters."""
+        f = {"filterType": "number", "type": "greaterThan", "filter": 10}
+        assert _match_filter("not_a_number", f) is False
 
     def test_none_value_matches_blank(self) -> None:
         f = {"filterType": "text", "type": "blank"}
@@ -709,7 +726,7 @@ class TestGenerateExcelContent:
         headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
         assert headers == ["qty", "symbol"]
         # Verify data follows same order
-        assert ws.cell(row=2, column=1).value == pytest.approx(100.0)  # qty (Decimal→float)
+        assert ws.cell(row=2, column=1).value == Decimal("100")  # qty (Decimal preserved)
         assert ws.cell(row=2, column=2).value == "META"  # symbol
 
     def test_visible_columns_subset(self) -> None:
@@ -1082,7 +1099,7 @@ class TestDownloadExcelExportRoute:
             "completed_at": None,
         }
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_successful_download_returns_excel(self) -> None:
         """Happy path: returns StreamingResponse with Excel content."""
         audit_id = uuid4()
@@ -1120,7 +1137,7 @@ class TestDownloadExcelExportRoute:
         call_kwargs = mock_complete.call_args
         assert call_kwargs[1]["actual_row_count"] == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_audit_grid_returns_501(self) -> None:
         """Audit grid export must return 501 (disabled for safety)."""
         from fastapi import HTTPException
@@ -1158,7 +1175,7 @@ class TestDownloadExcelExportRoute:
             assert exc_info.value.status_code == 501
             assert "strategy" in str(exc_info.value.detail).lower()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_wrong_user_returns_403(self) -> None:
         from fastapi import HTTPException
 
@@ -1183,7 +1200,7 @@ class TestDownloadExcelExportRoute:
                 )
             assert exc_info.value.status_code == 403
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_already_used_returns_410(self) -> None:
         from fastapi import HTTPException
 
@@ -1208,7 +1225,7 @@ class TestDownloadExcelExportRoute:
                 )
             assert exc_info.value.status_code == 410
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_filter_and_sort_respected_in_route(self) -> None:
         """Route must pass filter/sort from audit record to Excel generator."""
         audit_id = uuid4()
