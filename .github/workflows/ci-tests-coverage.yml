@@ -132,6 +132,21 @@ jobs:
           # Install additional test dependencies
           python -m pip install pytest pytest-cov pytest-asyncio httpx
 
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: postgresql://trader:test_password@localhost:5433/trader_test
+        run: |
+          echo "::group::Running Alembic migrations"
+          # SQL migrations above handle legacy + numbered .sql files.
+          # Alembic manages newer Python-based migrations (e.g. auth_audit_log).
+          if [ -f db/alembic.ini ]; then
+            python -m alembic -c db/alembic.ini upgrade head
+            echo "✅ Alembic migrations applied"
+          else
+            echo "⚠️  Alembic not configured, skipping"
+          fi
+          echo "::endgroup::"
+
       - name: Run E2E integration tests
         run: |
           echo "::group::Running E2E integration tests"
