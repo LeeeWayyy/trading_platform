@@ -85,6 +85,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("=" * 60)
 
     try:
+        # Configure CORS middleware during startup (not at import time)
+        # so validation errors go through the normal lifespan error path.
+        cors_origins = _configure_cors(app)
+        logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
+
         if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":
             # Fail closed: auth bypass is not permitted; require proper tokens even in dev
             raise RuntimeError(
@@ -219,33 +224,44 @@ app = FastAPI(
 # =============================================================================
 
 
-# CORS configuration
-ENVIRONMENT = os.getenv("ENVIRONMENT", "production").lower()
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
+def _configure_cors(app: FastAPI) -> list[str]:
+    """Configure CORS middleware based on environment.
 
-if ALLOWED_ORIGINS:
-    cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
-    if "*" in cors_origins:
-        raise RuntimeError(
-            "ALLOWED_ORIGINS cannot contain wildcard '*' when credentials are enabled"
-        )
-elif ENVIRONMENT in ("dev", "test"):
-    cors_origins = [
-        "http://localhost:8501",
-        "http://127.0.0.1:8501",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
-else:
-    raise RuntimeError("ALLOWED_ORIGINS must be set for production environments")
+    Called during lifespan startup so validation errors go through the normal
+    startup/error path instead of crashing at import time.
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    Returns the resolved origin list for logging.
+
+    Raises:
+        RuntimeError: If ALLOWED_ORIGINS contains wildcard '*' or is unset in production.
+    """
+    environment = os.getenv("ENVIRONMENT", "production").lower()
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "")
+
+    if allowed_origins:
+        cors_origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+        if "*" in cors_origins:
+            raise RuntimeError(
+                "ALLOWED_ORIGINS cannot contain wildcard '*' when credentials are enabled"
+            )
+    elif environment in ("dev", "test"):
+        cors_origins = [
+            "http://localhost:8501",
+            "http://127.0.0.1:8501",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    else:
+        raise RuntimeError("ALLOWED_ORIGINS must be set for production environments")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    return cors_origins
 
 
 # =============================================================================

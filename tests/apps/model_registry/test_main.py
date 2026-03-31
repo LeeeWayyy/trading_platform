@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:8501")
 
-from apps.model_registry.main import app, get_settings, lifespan
+from apps.model_registry.main import _configure_cors, app, get_settings, lifespan
 from libs.models.models import ManifestIntegrityError, RegistryManifest
 
 
@@ -264,34 +264,19 @@ def test_cors_with_explicit_allowed_origins(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com,https://app.example.com")
 
-    # Need to reload the module to apply new environment variables
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    # Store original app
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # The middleware should be configured with the specified origins
-        # We can't directly inspect middleware config, but we can verify no error was raised
-    finally:
-        # Restore original app
-        main_module.app = original_app
+    test_app = FastAPI()
+    origins = _configure_cors(test_app)
+    assert origins == ["https://example.com", "https://app.example.com"]
 
 
 def test_cors_with_wildcard_raises_error(monkeypatch: pytest.MonkeyPatch):
     """Test CORS raises RuntimeError when wildcard is in ALLOWED_ORIGINS."""
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "*")
 
+    test_app = FastAPI()
     with pytest.raises(RuntimeError, match="wildcard '\\*'.*credentials are enabled"):
-        reload(main_module)
+        _configure_cors(test_app)
 
 
 def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
@@ -299,17 +284,10 @@ def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "dev")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should use dev defaults without raising error
-    finally:
-        main_module.app = original_app
+    test_app = FastAPI()
+    origins = _configure_cors(test_app)
+    assert "http://localhost:8501" in origins
+    assert "http://localhost:3000" in origins
 
 
 def test_cors_test_environment_defaults(monkeypatch: pytest.MonkeyPatch):
@@ -317,30 +295,35 @@ def test_cors_test_environment_defaults(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should use test defaults without raising error
-    finally:
-        main_module.app = original_app
+    test_app = FastAPI()
+    origins = _configure_cors(test_app)
+    assert "http://localhost:8501" in origins
 
 
 def test_cors_production_without_allowed_origins_raises_error(monkeypatch: pytest.MonkeyPatch):
     """Test CORS raises RuntimeError in production without ALLOWED_ORIGINS."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
+    test_app = FastAPI()
+    with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
+        _configure_cors(test_app)
+
+
+def test_module_importable_without_allowed_origins(monkeypatch: pytest.MonkeyPatch):
+    """Test that the module can be imported without ALLOWED_ORIGINS set (issue #156).
+
+    CORS validation now happens at startup (in lifespan), not at import time.
+    """
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
     from importlib import reload
 
     import apps.model_registry.main as main_module
 
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
-
-    with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
-        reload(main_module)
+    # Module should import successfully — no RuntimeError at import time
+    reload(main_module)
 
 
 # =============================================================================
@@ -626,17 +609,9 @@ def test_cors_with_comma_separated_origins(monkeypatch: pytest.MonkeyPatch):
         "ALLOWED_ORIGINS", "https://example.com, https://app.example.com , https://api.example.com"
     )
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should parse and strip whitespace from origins
-    finally:
-        main_module.app = original_app
+    test_app = FastAPI()
+    origins = _configure_cors(test_app)
+    assert origins == ["https://example.com", "https://app.example.com", "https://api.example.com"]
 
 
 def test_cors_with_empty_origin_in_list(monkeypatch: pytest.MonkeyPatch):
@@ -644,17 +619,9 @@ def test_cors_with_empty_origin_in_list(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com,,https://app.example.com, ,")
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should filter empty strings
-    finally:
-        main_module.app = original_app
+    test_app = FastAPI()
+    origins = _configure_cors(test_app)
+    assert origins == ["https://example.com", "https://app.example.com"]
 
 
 @pytest.mark.asyncio()
