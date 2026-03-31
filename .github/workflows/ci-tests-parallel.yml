@@ -573,10 +573,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          if [ "${{ needs.integration-tests.result }}" != "success" ]; then
-            echo "integration-tests failed"
+          result="${{ needs.integration-tests.result }}"
+          if [ "$result" == "failure" ] || [ "$result" == "cancelled" ]; then
+            echo "integration-tests $result"
             exit 1
           fi
+          echo "integration-tests $result"
 
   ci-coverage-report:
     name: coverage-report
