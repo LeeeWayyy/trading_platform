@@ -29,7 +29,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/trading-platform
 
 jobs:
   build-and-push:
@@ -57,6 +56,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Normalize image prefix to lowercase
+        run: |
+          echo "IMAGE_PREFIX=${GITHUB_REPOSITORY_OWNER,,}/trading-platform" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v5
