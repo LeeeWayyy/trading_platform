@@ -71,7 +71,7 @@ jobs:
       - name: Initialize database schema
         run: |
           if [ -f db/alembic.ini ]; then
-            poetry run alembic upgrade head
+            poetry run alembic -c db/alembic.ini upgrade head
           fi
 
       - name: Run all tests with coverage (including integration)
