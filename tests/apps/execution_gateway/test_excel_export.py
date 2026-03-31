@@ -67,30 +67,31 @@ def _make_position(**overrides: Any) -> _FakePosition:
     return _FakePosition(**overrides)
 
 
+_ORDER_COLUMNS = [
+    "client_order_id", "strategy_id", "symbol", "side", "qty",
+    "order_type", "status", "filled_qty", "filled_avg_price",
+    "created_at", "submitted_at", "filled_at",
+]
+
+
+def _order_dict(*values: Any) -> dict[str, Any]:
+    """Build an order dict from positional values matching export column order."""
+    return dict(zip(_ORDER_COLUMNS, values, strict=False))
+
+
 def _make_ctx(
     *,
     positions: list | None = None,
     fills: list[dict] | None = None,
     tca_trades: list[dict] | None = None,
-    order_rows: list[tuple] | None = None,
+    order_rows: list[dict] | None = None,
 ) -> MagicMock:
     """Build a mock AppContext with db methods."""
     ctx = MagicMock()
     ctx.db.get_positions_for_strategies.return_value = positions or []
-    ctx.db.get_recent_fills.return_value = fills or []
+    ctx.db.get_fills_for_export.return_value = fills or []
     ctx.db.get_trades_for_tca.return_value = tca_trades or []
-
-    cursor = MagicMock()
-    cursor.fetchall.return_value = order_rows or []
-    cursor.__enter__ = MagicMock(return_value=cursor)
-    cursor.__exit__ = MagicMock(return_value=False)
-
-    conn = MagicMock()
-    conn.cursor.return_value = cursor
-    conn.__enter__ = MagicMock(return_value=conn)
-    conn.__exit__ = MagicMock(return_value=False)
-
-    ctx.db.transaction.return_value = conn
+    ctx.db.get_orders_for_export.return_value = order_rows or []
     return ctx
 
 
@@ -548,7 +549,7 @@ class TestFetchPositionsData:
 
 class TestFetchOrdersData:
     def test_returns_real_rows(self) -> None:
-        order_row = (
+        order_row = _order_dict(
             "ord-123", "strat1", "MSFT", "buy", 100,
             "limit", "filled", Decimal("100"), Decimal("310.50"),
             datetime(2026, 3, 28, tzinfo=UTC),
@@ -632,7 +633,7 @@ class TestGenerateExcelContent:
         assert ws.cell(row=2, column=symbol_col).value == "NVDA"
 
     def test_orders_grid_real_data(self) -> None:
-        order_row = (
+        order_row = _order_dict(
             "ord-abc", "strat1", "AAPL", "buy", 10,
             "market", "filled", Decimal("10"), Decimal("150.00"),
             datetime(2026, 3, 28, tzinfo=UTC), None, None,
@@ -855,17 +856,17 @@ class TestGenerateExcelContent:
     def test_date_filter_on_orders_grid(self) -> None:
         """Date filter on created_at must correctly filter order rows."""
         order_rows = [
-            (
+            _order_dict(
                 "ord-1", "strat1", "AAPL", "buy", 10,
                 "market", "filled", Decimal("10"), Decimal("150.00"),
                 datetime(2026, 3, 25, 10, 0, tzinfo=UTC), None, None,
             ),
-            (
+            _order_dict(
                 "ord-2", "strat1", "MSFT", "buy", 20,
                 "market", "filled", Decimal("20"), Decimal("300.00"),
                 datetime(2026, 3, 28, 14, 0, tzinfo=UTC), None, None,
             ),
-            (
+            _order_dict(
                 "ord-3", "strat1", "GOOG", "sell", 5,
                 "market", "filled", Decimal("5"), Decimal("170.00"),
                 datetime(2026, 3, 30, 8, 0, tzinfo=UTC), None, None,

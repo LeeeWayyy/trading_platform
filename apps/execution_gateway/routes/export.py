@@ -760,22 +760,8 @@ def _fetch_orders_data(
         "order_type", "status", "filled_qty", "filled_avg_price",
         "created_at", "submitted_at", "filled_at",
     ]
-    with ctx.db.transaction() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT client_order_id, strategy_id, symbol, side, qty,
-                       order_type, status, filled_qty, filled_avg_price,
-                       created_at, submitted_at, filled_at
-                FROM orders
-                WHERE strategy_id = ANY(%s)
-                ORDER BY created_at DESC
-                LIMIT 5000
-                """,
-                (strategy_ids,),
-            )
-            db_rows = cur.fetchall()
-    rows = [list(row) for row in db_rows]
+    order_dicts = ctx.db.get_orders_for_export(strategy_ids=strategy_ids)
+    rows = [[d.get(col) for col in columns] for d in order_dicts]
     return columns, rows
 
 
@@ -784,15 +770,13 @@ def _fetch_fills_data(
     strategy_ids: list[str],
     _filter_params: dict[str, Any] | None,
 ) -> tuple[list[str], list[list[Any]]]:
-    """Fetch recent fills scoped to authorized strategies."""
+    """Fetch fills for export scoped to authorized strategies."""
     columns = [
         "client_order_id", "symbol", "side", "status",
         "qty", "price", "realized_pl", "timestamp",
     ]
-    fills = ctx.db.get_recent_fills(
+    fills = ctx.db.get_fills_for_export(
         strategy_ids=strategy_ids,
-        limit=200,
-        lookback_hours=168,  # 7 days max
     )
     rows = [
         [fill.get(col) for col in columns]
@@ -900,7 +884,7 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
 
     if filter_type == "number":
         try:
-            num_val = float(Decimal(str(value))) if isinstance(value, Decimal) else float(value)
+            num_val = float(value)
             num_filter = float(filter_value) if filter_value is not None else 0.0
         except (ValueError, TypeError):
             return True  # Can't compare — keep the row
@@ -1075,7 +1059,20 @@ def _apply_sort(
         # Partition nulls out so they always end up last regardless of direction
         null_rows = [r for r in sorted_rows if r[idx] is None]
         non_null_rows = [r for r in sorted_rows if r[idx] is not None]
-        non_null_rows.sort(key=lambda row, _idx=idx: row[_idx], reverse=descending)
+
+        def _sort_key(row: list[Any], _idx: int = idx) -> tuple[int, Any]:
+            """Return a comparable sort key safe for mixed-type columns.
+
+            Numeric types (int/float/Decimal) are coerced to float so they
+            compare correctly with each other.  Non-numeric values are
+            stringified and placed in a separate bucket to avoid TypeError.
+            """
+            v = row[_idx]
+            if isinstance(v, int | float | Decimal):
+                return (0, float(v))
+            return (1, str(v))
+
+        non_null_rows.sort(key=_sort_key, reverse=descending)
         sorted_rows = non_null_rows + null_rows
 
     return sorted_rows

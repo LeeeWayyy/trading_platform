@@ -2071,6 +2071,133 @@ class DatabaseClient:
                 return _execute()
             raise
 
+    def get_orders_for_export(
+        self,
+        *,
+        strategy_ids: list[str],
+        limit: int = 50_000,
+    ) -> list[dict[str, Any]]:
+        """Fetch orders for Excel export with generous limit.
+
+        Unlike the activity-feed queries, export needs access to the full
+        order history (within reason).  The caller must already have
+        validated strategy-level authorization.
+
+        Args:
+            strategy_ids: Strategy IDs the user is authorized for.
+            limit: Maximum rows (capped at 50 000 to bound memory).
+
+        Returns:
+            List of dicts with order columns suitable for export grids.
+        """
+        if not strategy_ids:
+            return []
+        limit = max(1, min(int(limit), 50_000))
+
+        def _execute() -> list[dict[str, Any]]:
+            with self._connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT client_order_id, strategy_id, symbol, side, qty,
+                               order_type, status, filled_qty, filled_avg_price,
+                               created_at, submitted_at, filled_at
+                        FROM orders
+                        WHERE strategy_id = ANY(%s)
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """,
+                        (strategy_ids, limit),
+                    )
+                    return cur.fetchall()
+
+        try:
+            return _execute()
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching orders for export",
+                extra={"strategies": strategy_ids, "limit": limit, "error": str(exc)},
+            )
+            if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
+                self._recreate_pool()
+                return _execute()
+            raise
+
+    def get_fills_for_export(
+        self,
+        *,
+        strategy_ids: list[str],
+        limit: int = 10_000,
+        lookback_hours: int = 2160,
+    ) -> list[dict[str, Any]]:
+        """Fetch fills for Excel export with generous limits.
+
+        Unlike ``get_recent_fills`` (activity-feed, capped at 200/7d),
+        this method allows larger result sets suitable for spreadsheet
+        export (up to 10 000 rows, 90-day lookback).
+
+        Args:
+            strategy_ids: Strategy IDs the user is authorized for.
+            limit: Maximum rows (capped at 10 000).
+            lookback_hours: Time window (capped at 2160 = 90 days).
+
+        Returns:
+            List of dicts with fill columns suitable for export grids.
+        """
+        if not strategy_ids:
+            return []
+        limit = max(1, min(int(limit), 10_000))
+        lookback_hours = max(1, min(int(lookback_hours), 2160))
+
+        def _execute() -> list[dict[str, Any]]:
+            with self._connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT
+                            o.client_order_id,
+                            o.symbol,
+                            o.side,
+                            o.status,
+                            COALESCE(NULLIF(fill->>'fill_qty', '')::NUMERIC, 0) AS qty,
+                            COALESCE(NULLIF(fill->>'fill_price', '')::NUMERIC, 0) AS price,
+                            COALESCE(NULLIF(fill->>'realized_pl', '')::NUMERIC, 0) AS realized_pl,
+                            COALESCE(
+                                NULLIF(fill->>'timestamp', '')::timestamptz,
+                                o.updated_at
+                            ) AS fill_timestamp
+                        FROM orders o
+                        CROSS JOIN jsonb_array_elements(o.metadata->'fills') AS fill
+                        WHERE o.status IN ('filled', 'partially_filled')
+                          AND o.metadata ? 'fills'
+                          AND jsonb_array_length(o.metadata->'fills') > 0
+                          AND o.updated_at >= NOW() - make_interval(hours => %s)
+                          AND o.strategy_id = ANY(%s)
+                          AND COALESCE(
+                                  NULLIF(fill->>'timestamp', '')::timestamptz,
+                                  o.updated_at
+                              ) >= NOW() - make_interval(hours => %s)
+                          AND NOT COALESCE((fill->>'superseded')::boolean, FALSE)
+                        ORDER BY fill_timestamp DESC
+                        LIMIT %s
+                        """,
+                        (lookback_hours, strategy_ids, lookback_hours, limit),
+                    )
+                    rows = cur.fetchall()
+            return [{**row, "timestamp": row.pop("fill_timestamp")} for row in rows]
+
+        try:
+            return _execute()
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching fills for export",
+                extra={"strategies": strategy_ids, "limit": limit, "error": str(exc)},
+            )
+            if "AdminShutdown" in type(exc).__name__ or "terminating connection" in str(exc):
+                self._recreate_pool()
+                return _execute()
+            raise
+
     def update_order_status(
         self,
         client_order_id: str,
