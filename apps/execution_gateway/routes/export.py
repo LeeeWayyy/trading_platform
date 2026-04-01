@@ -716,8 +716,10 @@ def _coerce_cell_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return value  # openpyxl supports Decimal natively; preserve precision
     if isinstance(value, datetime):
-        # openpyxl requires timezone-naive datetimes
-        return value.replace(tzinfo=None) if value.tzinfo else value
+        # openpyxl requires timezone-naive datetimes; convert to UTC first
+        if value.tzinfo is not None:
+            value = value.astimezone(UTC).replace(tzinfo=None)
+        return value
     if isinstance(value, date):
         return value
     if isinstance(value, bool | int | float):
@@ -818,8 +820,13 @@ def _fetch_orders_data(
     ]
 
     statuses = _extract_status_values(filter_params)
-    if statuses is None and working_only:
-        statuses = WORKING_ORDER_STATUSES
+    if working_only:
+        # Always enforce working statuses; intersect with client filter if present
+        allowed = set(WORKING_ORDER_STATUSES)
+        if statuses is not None:
+            statuses = [s for s in statuses if s in allowed]
+        else:
+            statuses = WORKING_ORDER_STATUSES
 
     order_dicts = ctx.db.get_orders_for_export(
         strategy_ids=strategy_ids,
@@ -1173,12 +1180,17 @@ def _apply_sort(
             """
             v = row[_idx]
             if isinstance(v, bool):
-                return (1, str(v))  # bool is subclass of int; sort as string
+                return (2, str(v))  # bool is subclass of int; sort as string
             if isinstance(v, Decimal):
                 return (0, v)
             if isinstance(v, int | float):
                 return (0, Decimal(str(v)))
-            return (1, str(v))
+            if isinstance(v, datetime):
+                # Compare datetimes natively (strip tz for consistent ordering)
+                return (1, v.replace(tzinfo=None) if v.tzinfo else v)
+            if isinstance(v, date):
+                return (1, datetime(v.year, v.month, v.day))
+            return (2, str(v))
 
         non_null_rows.sort(key=_sort_key, reverse=descending)
         sorted_rows = non_null_rows + null_rows
@@ -1186,7 +1198,7 @@ def _apply_sort(
     return sorted_rows
 
 
-async def _generate_excel_content(
+def _build_excel_sync(
     ctx: AppContext,
     grid_name: str,
     strategy_ids: list[str],
@@ -1194,24 +1206,11 @@ async def _generate_excel_content(
     visible_columns: list[str] | None,
     sort_model: list[dict[str, Any]] | None,
 ) -> tuple[bytes, int]:
-    """Generate Excel file content for a grid.
+    """Synchronous helper that does the heavy lifting for Excel export.
 
-    Fetches real data from the database via per-grid fetchers and writes
-    it to an openpyxl Workbook with formula-injection sanitization.
-
-    Args:
-        ctx: Application context with database access
-        grid_name: Name of grid to export
-        strategy_ids: Authorized strategy IDs for filtering
-        filter_params: AG Grid filter model
-        visible_columns: Columns to include (if None, all columns)
-        sort_model: AG Grid sort model for row ordering
-
-    Returns:
-        Tuple of (excel_bytes, row_count)
-
-    Raises:
-        NotImplementedError: If grid type not supported or openpyxl missing
+    Separated from the async wrapper so it can be offloaded to a worker
+    thread via ``asyncio.to_thread``, preventing event-loop blocking on
+    large datasets (up to 50 000 rows).
     """
     try:
         from openpyxl import Workbook  # type: ignore[import-untyped]
@@ -1266,6 +1265,29 @@ async def _generate_excel_content(
 
     row_count = len(rows)
     return output.getvalue(), row_count
+
+
+async def _generate_excel_content(
+    ctx: AppContext,
+    grid_name: str,
+    strategy_ids: list[str],
+    filter_params: dict[str, Any] | None,
+    visible_columns: list[str] | None,
+    sort_model: list[dict[str, Any]] | None,
+) -> tuple[bytes, int]:
+    """Generate Excel file content for a grid.
+
+    Offloads the blocking work (DB fetch, filtering, sorting, openpyxl
+    workbook generation) to a worker thread so the FastAPI event loop
+    is not blocked on large exports.
+    """
+    import asyncio
+
+    return await asyncio.to_thread(
+        _build_excel_sync,
+        ctx, grid_name, strategy_ids,
+        filter_params, visible_columns, sort_model,
+    )
 
 
 @router.get(
