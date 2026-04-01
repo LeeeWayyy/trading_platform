@@ -641,6 +641,14 @@ async def download_excel_export(
     visible_columns = audit_record["visible_columns"]
     sort_model = audit_record["sort_model"]
 
+    # For visible-scope exports, cap rows to what the user sees
+    export_scope = audit_record.get("export_scope", "visible")
+    max_rows: int | None = None
+    if export_scope == "visible":
+        estimated = audit_record.get("estimated_row_count")
+        if isinstance(estimated, int) and estimated > 0:
+            max_rows = estimated
+
     # Generate Excel content with error handling
     try:
         excel_content, row_count = await _generate_excel_content(
@@ -650,6 +658,7 @@ async def download_excel_export(
             filter_params=filter_params,
             visible_columns=visible_columns,
             sort_model=sort_model,
+            max_rows=max_rows,
         )
     except NotImplementedError as e:
         # Mark as failed before raising
@@ -1200,8 +1209,17 @@ def _apply_sort(
     # Normalise sort order: honour sortIndex when present, fall back to
     # array position.  Higher sortIndex = lower priority (applied first in
     # the reversed iteration below).
+    def _safe_sort_index(spec: dict[str, Any], fallback: int) -> int:
+        raw = spec.get("sortIndex")
+        if raw is None:
+            return fallback
+        try:
+            return int(raw)
+        except (ValueError, TypeError):
+            return fallback
+
     indexed_model: list[tuple[int, dict[str, Any]]] = [
-        (int(spec["sortIndex"]) if spec.get("sortIndex") is not None else pos, spec)
+        (_safe_sort_index(spec, pos), spec)
         for pos, spec in enumerate(sort_model)
     ]
     indexed_model.sort(key=lambda t: t[0])
@@ -1261,12 +1279,18 @@ def _build_excel_sync(
     filter_params: dict[str, Any] | None,
     visible_columns: list[str] | None,
     sort_model: list[dict[str, Any]] | None,
+    max_rows: int | None = None,
 ) -> tuple[bytes, int]:
     """Synchronous helper that does the heavy lifting for Excel export.
 
     Separated from the async wrapper so it can be offloaded to a worker
     thread via ``asyncio.to_thread``, preventing event-loop blocking on
     large datasets (up to 50 000 rows).
+
+    Args:
+        max_rows: When provided, truncate output to this many rows after
+            filtering/sorting.  Used for visible-scope exports to match
+            the number of rows the user sees in the grid.
     """
     try:
         from openpyxl import Workbook  # type: ignore[import-untyped]
@@ -1289,6 +1313,10 @@ def _build_excel_sync(
     # Apply sort_model (Python-side sorting for AG Grid sort model)
     if sort_model:
         data_rows = _apply_sort(all_columns, data_rows, sort_model)
+
+    # Truncate to visible-scope row count if requested
+    if max_rows is not None and len(data_rows) > max_rows:
+        data_rows = data_rows[:max_rows]
 
     # Filter to visible columns if specified, preserving CLIENT column order
     if visible_columns:
@@ -1316,6 +1344,7 @@ def _build_excel_sync(
 
     output = io.BytesIO()
     wb.save(output)
+    wb.close()  # Required for write_only mode to finalize temp files
     output.seek(0)
 
     row_count = len(rows)
@@ -1329,6 +1358,7 @@ async def _generate_excel_content(
     filter_params: dict[str, Any] | None,
     visible_columns: list[str] | None,
     sort_model: list[dict[str, Any]] | None,
+    max_rows: int | None = None,
 ) -> tuple[bytes, int]:
     """Generate Excel file content for a grid.
 
@@ -1342,6 +1372,7 @@ async def _generate_excel_content(
         _build_excel_sync,
         ctx, grid_name, strategy_ids,
         filter_params, visible_columns, sort_model,
+        max_rows,
     )
 
 
