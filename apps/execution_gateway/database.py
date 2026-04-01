@@ -2191,7 +2191,7 @@ class DatabaseClient:
                                 o.updated_at
                             ) AS fill_timestamp
                         FROM orders o
-                        CROSS JOIN jsonb_array_elements(o.metadata->'fills') AS fill
+                        CROSS JOIN LATERAL jsonb_array_elements(o.metadata->'fills') AS fill
                         WHERE o.status IN ('filled', 'partially_filled')
                           AND o.metadata ? 'fills'
                           AND jsonb_array_length(o.metadata->'fills') > 0

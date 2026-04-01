@@ -1027,7 +1027,10 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return num_val <= num_filter
         filter_to = filter_def.get("filterTo")
         if operator == "inRange" and filter_to is not None:
-            return num_filter <= num_val <= Decimal(str(filter_to))
+            try:
+                return num_filter <= num_val <= Decimal(str(filter_to))
+            except (InvalidOperation, ValueError, TypeError):
+                return True  # Bad upper bound — can't compare, keep row
         return True
 
     if filter_type == "date":
@@ -1044,9 +1047,9 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             try:
                 dt_val = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
             except ValueError:
-                return True  # Unparseable — keep the row
+                return False  # Unparseable — exclude (fail-closed, consistent with numeric)
         else:
-            return True  # Non-date value — keep the row
+            return False  # Non-date value — exclude (fail-closed, consistent with numeric)
 
         def _parse_ag_date(s: str | None) -> datetime | None:
             if not s:
@@ -1083,16 +1086,32 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
 
 
 def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
-    """Handle AG Grid compound filters (operator + condition1/condition2).
+    """Handle AG Grid compound filters.
 
-    If the filter_def contains an 'operator' key with 'condition1' and 'condition2',
-    it's a compound filter. Otherwise delegate to _match_filter for simple filters.
+    AG Grid emits two compound formats:
+    1. ``operator`` + ``condition1`` / ``condition2`` (legacy)
+    2. ``operator`` + ``conditions: [...]`` (simple combined filters)
+
+    If neither compound format is detected, delegate to _match_filter.
     """
     operator = filter_def.get("operator")
     condition1 = filter_def.get("condition1")
     condition2 = filter_def.get("condition2")
+    conditions = filter_def.get("conditions")
+
+    if operator and isinstance(conditions, list) and len(conditions) > 0:
+        # AG Grid conditions array format
+        results = [_match_filter(value, c) for c in conditions if isinstance(c, dict)]
+        if not results:
+            return True  # No valid conditions — keep the row
+        if operator == "AND":
+            return all(results)
+        if operator == "OR":
+            return any(results)
+        return results[0]
 
     if operator and isinstance(condition1, dict):
+        # Legacy condition1/condition2 format
         result1 = _match_filter(value, condition1)
         result2 = _match_filter(value, condition2) if isinstance(condition2, dict) else True
         if operator == "AND":
