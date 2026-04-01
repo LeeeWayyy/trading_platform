@@ -646,7 +646,7 @@ async def download_excel_export(
     max_rows: int | None = None
     if export_scope == "visible":
         estimated = audit_record.get("estimated_row_count")
-        if isinstance(estimated, int) and estimated > 0:
+        if isinstance(estimated, int) and estimated >= 0:
             max_rows = estimated
 
     # Generate Excel content with error handling
@@ -1052,14 +1052,20 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         date_from_str = filter_def.get("dateFrom")
         date_to_str = filter_def.get("dateTo")
 
+        def _to_naive_utc(dt: datetime) -> datetime:
+            """Convert to UTC then strip tzinfo for consistent comparison."""
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(UTC).replace(tzinfo=None)
+            return dt
+
         # Coerce cell value to a comparable datetime
         if isinstance(value, datetime):
-            dt_val = value.replace(tzinfo=None) if value.tzinfo else value
+            dt_val = _to_naive_utc(value)
         elif isinstance(value, date):
             dt_val = datetime(value.year, value.month, value.day)
         elif isinstance(value, str):
             try:
-                dt_val = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+                dt_val = _to_naive_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
             except ValueError:
                 return False  # Unparseable — exclude (fail-closed, consistent with numeric)
         else:
@@ -1069,7 +1075,7 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             if not s:
                 return None
             try:
-                return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+                return _to_naive_utc(datetime.fromisoformat(s.replace("Z", "+00:00")))
             except ValueError:
                 return None
 
@@ -1126,7 +1132,8 @@ def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
                     enriched.append({**c, "filterType": parent_filter_type})
                 else:
                     enriched.append(c)
-        results = [_match_filter(value, c) for c in enriched]
+        # Recurse via _match_compound_filter to handle nested compounds
+        results = [_match_compound_filter(value, c) for c in enriched]
         if not results:
             return True  # No valid conditions — keep the row
         if operator == "AND":
@@ -1136,9 +1143,9 @@ def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         return results[0]
 
     if operator and isinstance(condition1, dict):
-        # Legacy condition1/condition2 format
-        result1 = _match_filter(value, condition1)
-        result2 = _match_filter(value, condition2) if isinstance(condition2, dict) else True
+        # Legacy condition1/condition2 format — recurse for nested compounds
+        result1 = _match_compound_filter(value, condition1)
+        result2 = _match_compound_filter(value, condition2) if isinstance(condition2, dict) else True
         if operator == "AND":
             return result1 and result2
         if operator == "OR":
@@ -1240,8 +1247,8 @@ def _apply_sort(
         if isinstance(v, int | float):
             return (0, Decimal(str(v)))
         if isinstance(v, datetime):
-            # Compare datetimes natively (strip tz for consistent ordering)
-            return (1, v.replace(tzinfo=None) if v.tzinfo else v)
+            # Convert to UTC then strip tz for consistent ordering
+            return (1, v.astimezone(UTC).replace(tzinfo=None) if v.tzinfo else v)
         if isinstance(v, date):
             return (1, datetime(v.year, v.month, v.day))
         return (2, str(v))
