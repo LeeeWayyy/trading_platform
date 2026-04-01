@@ -29,6 +29,7 @@ from apps.execution_gateway.routes.export import (
     _fetch_orders_data,
     _fetch_positions_data,
     _fetch_tca_data,
+    _fetch_working_orders_data,
     _generate_excel_content,
     _match_compound_filter,
     _match_filter,
@@ -66,6 +67,7 @@ def _make_position(**overrides: Any) -> _FakePosition:
 _ORDER_COLUMNS = [
     "client_order_id", "strategy_id", "symbol", "side", "qty",
     "order_type", "status", "filled_qty", "filled_avg_price",
+    "limit_price", "stop_price",
     "created_at", "submitted_at", "filled_at",
 ]
 
@@ -540,6 +542,15 @@ class TestApplySort:
         assert result[2] == ["sell", 30]
         assert result[3] == ["sell", 10]
 
+    def test_sort_boolean_column_no_crash(self) -> None:
+        """bool is a subclass of int; sorting must not crash on Decimal(str(True))."""
+        columns = ["name", "active"]
+        rows = [["A", True], ["B", False], ["C", True]]
+        sort_model = [{"colId": "active", "sort": "asc"}]
+        result = _apply_sort(columns, rows, sort_model)
+        # Should not crash; False sorts before True lexicographically
+        assert len(result) == 3
+
 
 # ---------------------------------------------------------------------------
 # Per-grid fetcher tests
@@ -570,6 +581,7 @@ class TestFetchOrdersData:
         order_row = _order_dict(
             "ord-123", "strat1", "MSFT", "buy", 100,
             "limit", "filled", Decimal("100"), Decimal("310.50"),
+            Decimal("310.00"), None,
             datetime(2026, 3, 28, tzinfo=UTC),
             datetime(2026, 3, 28, tzinfo=UTC),
             datetime(2026, 3, 28, tzinfo=UTC),
@@ -580,6 +592,46 @@ class TestFetchOrdersData:
         assert "client_order_id" in columns
         assert len(rows) == 1
         assert rows[0][0] == "ord-123"
+
+    def test_column_order_type_aliased_to_type(self) -> None:
+        """UI grid field is 'type', not 'order_type'."""
+        order_row = _order_dict(
+            "ord-1", "s1", "AAPL", "buy", 10,
+            "limit", "new", Decimal("0"), Decimal("0"),
+            None, None,
+            datetime(2026, 3, 28, tzinfo=UTC),
+            None, None,
+        )
+        ctx = _make_ctx(order_rows=[order_row])
+        columns, _ = _fetch_orders_data(ctx, ["s1"], None)
+        assert "type" in columns
+        assert "order_type" not in columns
+
+    def test_includes_limit_and_stop_price(self) -> None:
+        order_row = _order_dict(
+            "ord-1", "s1", "AAPL", "buy", 10,
+            "limit", "new", Decimal("0"), Decimal("0"),
+            None, None,
+            datetime(2026, 3, 28, tzinfo=UTC),
+            None, None,
+        )
+        ctx = _make_ctx(order_rows=[order_row])
+        columns, _ = _fetch_orders_data(ctx, ["s1"], None)
+        assert "limit_price" in columns
+        assert "stop_price" in columns
+
+
+class TestFetchWorkingOrdersData:
+    def test_passes_working_statuses(self) -> None:
+        """working_orders grid should restrict to active statuses."""
+        ctx = _make_ctx(order_rows=[])
+        _fetch_working_orders_data(ctx, ["strat1"], None)
+        # Verify statuses were passed to DB call
+        call_kwargs = ctx.db.get_orders_for_export.call_args
+        statuses = call_kwargs.kwargs.get("statuses") or call_kwargs[1].get("statuses")
+        assert statuses is not None
+        assert "new" in statuses
+        assert "partially_filled" in statuses
 
 
 class TestExtractStatusValues:
@@ -694,6 +746,7 @@ class TestGenerateExcelContent:
         order_row = _order_dict(
             "ord-abc", "strat1", "AAPL", "buy", 10,
             "market", "filled", Decimal("10"), Decimal("150.00"),
+            None, None,
             datetime(2026, 3, 28, tzinfo=UTC), None, None,
         )
         ctx = _make_ctx(order_rows=[order_row])
@@ -917,16 +970,19 @@ class TestGenerateExcelContent:
             _order_dict(
                 "ord-1", "strat1", "AAPL", "buy", 10,
                 "market", "filled", Decimal("10"), Decimal("150.00"),
+                None, None,
                 datetime(2026, 3, 25, 10, 0, tzinfo=UTC), None, None,
             ),
             _order_dict(
                 "ord-2", "strat1", "MSFT", "buy", 20,
                 "market", "filled", Decimal("20"), Decimal("300.00"),
+                None, None,
                 datetime(2026, 3, 28, 14, 0, tzinfo=UTC), None, None,
             ),
             _order_dict(
                 "ord-3", "strat1", "GOOG", "sell", 5,
                 "market", "filled", Decimal("5"), Decimal("170.00"),
+                None, None,
                 datetime(2026, 3, 30, 8, 0, tzinfo=UTC), None, None,
             ),
         ]

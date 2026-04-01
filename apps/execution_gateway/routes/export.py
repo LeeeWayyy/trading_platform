@@ -68,7 +68,9 @@ class ExportAuditCreateRequest(BaseModel):
         ..., description="Type of export"
     )
     grid_name: str = Field(
-        ..., description="Name of grid being exported (positions, orders, fills, audit, tca)"
+        ...,
+        description="Name of grid being exported "
+        "(positions, orders, working_orders, fills, audit, tca)",
     )
     filter_params: dict[str, Any] | None = Field(
         default=None, description="AG Grid filter model at time of export"
@@ -771,29 +773,76 @@ def _extract_status_values(filter_params: dict[str, Any] | None) -> list[str] | 
     return None
 
 
+# DB column → UI field aliases for orders grid.
+# The UI grid uses field ids like "type" (not "order_type"), so exported
+# columns must match the client's visible_columns / filter / sort model.
+_ORDERS_DB_TO_UI: dict[str, str] = {
+    "order_type": "type",
+}
+
+# Active order statuses that define the "Working" tab scope.
+# Must stay in sync with WORKING_ORDER_STATUSES in tabbed_panel.py.
+WORKING_ORDER_STATUSES: list[str] = [
+    "new", "pending_new", "accepted", "partially_filled",
+    "pending_cancel", "pending_replace",
+]
+
+
 def _fetch_orders_data(
     ctx: AppContext,
     strategy_ids: list[str],
     filter_params: dict[str, Any] | None,
+    *,
+    working_only: bool = False,
 ) -> tuple[list[str], list[list[Any]]]:
     """Fetch orders grid data scoped to authorized strategies.
 
     Pushes status filtering to SQL when a status filter is present
     in filter_params, ensuring correct row-count limits regardless
     of working/all-orders tab context.
+
+    Args:
+        working_only: When True, restricts to active order statuses
+            even if filter_params has no explicit status filter.
+            Used by the ``working_orders`` grid alias.
     """
-    columns = [
+    db_columns = [
         "client_order_id", "strategy_id", "symbol", "side", "qty",
         "order_type", "status", "filled_qty", "filled_avg_price",
+        "limit_price", "stop_price",
         "created_at", "submitted_at", "filled_at",
     ]
+    # Columns exposed to the client (with UI-friendly names)
+    export_columns = [
+        _ORDERS_DB_TO_UI.get(c, c) for c in db_columns
+    ]
+
     statuses = _extract_status_values(filter_params)
+    if statuses is None and working_only:
+        statuses = WORKING_ORDER_STATUSES
+
     order_dicts = ctx.db.get_orders_for_export(
         strategy_ids=strategy_ids,
         statuses=statuses,
     )
-    rows = [[d.get(col) for col in columns] for d in order_dicts]
-    return columns, rows
+    rows = [[d.get(col) for col in db_columns] for d in order_dicts]
+    return export_columns, rows
+
+
+def _fetch_working_orders_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    filter_params: dict[str, Any] | None,
+) -> tuple[list[str], list[list[Any]]]:
+    """Fetch working (active) orders for export.
+
+    Delegates to ``_fetch_orders_data`` with ``working_only=True`` so
+    the SQL query is restricted to active statuses, matching the
+    Working Orders tab scope.
+    """
+    return _fetch_orders_data(
+        ctx, strategy_ids, filter_params, working_only=True,
+    )
 
 
 def _fetch_fills_data(
@@ -883,6 +932,7 @@ _GridFetcher = Callable[
 _GRID_FETCHERS: dict[str, _GridFetcher] = {
     "positions": _fetch_positions_data,
     "orders": _fetch_orders_data,
+    "working_orders": _fetch_working_orders_data,
     "fills": _fetch_fills_data,
     "audit": _fetch_audit_data,
     "tca": _fetch_tca_data,
@@ -1122,6 +1172,8 @@ def _apply_sort(
             bucket to avoid TypeError.
             """
             v = row[_idx]
+            if isinstance(v, bool):
+                return (1, str(v))  # bool is subclass of int; sort as string
             if isinstance(v, Decimal):
                 return (0, v)
             if isinstance(v, int | float):
