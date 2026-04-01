@@ -749,18 +749,49 @@ def _fetch_positions_data(
     return columns, rows
 
 
+def _extract_status_values(filter_params: dict[str, Any] | None) -> list[str] | None:
+    """Extract status filter values from AG Grid filter model for SQL push-down.
+
+    Returns a list of status strings if a status filter is present,
+    or None to fetch all statuses.
+    """
+    if not filter_params or "status" not in filter_params:
+        return None
+    status_filter = filter_params["status"]
+    if not isinstance(status_filter, dict):
+        return None
+    filter_val = status_filter.get("filter")
+    op = status_filter.get("type", "")
+    if op == "equals" and isinstance(filter_val, str):
+        return [filter_val]
+    # For set/in filters, collect all values
+    values = status_filter.get("values")
+    if isinstance(values, list):
+        return [str(v) for v in values if v is not None]
+    return None
+
+
 def _fetch_orders_data(
     ctx: AppContext,
     strategy_ids: list[str],
-    _filter_params: dict[str, Any] | None,
+    filter_params: dict[str, Any] | None,
 ) -> tuple[list[str], list[list[Any]]]:
-    """Fetch orders grid data scoped to authorized strategies."""
+    """Fetch orders grid data scoped to authorized strategies.
+
+    Pushes status filtering to SQL when a status filter is present
+    in filter_params, ensuring correct row-count limits regardless
+    of working/all-orders tab context.
+    """
     columns = [
         "client_order_id", "strategy_id", "symbol", "side", "qty",
         "order_type", "status", "filled_qty", "filled_avg_price",
         "created_at", "submitted_at", "filled_at",
     ]
-    order_dicts = ctx.db.get_orders_for_export(strategy_ids=strategy_ids)
+    statuses = _extract_status_values(filter_params)
+    order_dicts = ctx.db.get_orders_for_export(
+        strategy_ids=strategy_ids,
+        statuses=statuses,
+    )
     rows = [[d.get(col) for col in columns] for d in order_dicts]
     return columns, rows
 
@@ -770,19 +801,30 @@ def _fetch_fills_data(
     strategy_ids: list[str],
     _filter_params: dict[str, Any] | None,
 ) -> tuple[list[str], list[list[Any]]]:
-    """Fetch fills for export scoped to authorized strategies."""
-    columns = [
+    """Fetch fills for export scoped to authorized strategies.
+
+    The UI grid uses field name ``time`` for the fill timestamp, so we
+    expose the column as ``time`` here (the DB method returns it as
+    ``timestamp``).  This ensures visible_columns, filter, and sort
+    models from the client match correctly.
+    """
+    # DB returns "timestamp"; UI grid field is "time"
+    db_columns = [
         "client_order_id", "symbol", "side", "status",
         "qty", "price", "realized_pl", "timestamp",
+    ]
+    export_columns = [
+        "client_order_id", "symbol", "side", "status",
+        "qty", "price", "realized_pl", "time",
     ]
     fills = ctx.db.get_fills_for_export(
         strategy_ids=strategy_ids,
     )
     rows = [
-        [fill.get(col) for col in columns]
+        [fill.get(col) for col in db_columns]
         for fill in fills
     ]
-    return columns, rows
+    return export_columns, rows
 
 
 def _fetch_audit_data(

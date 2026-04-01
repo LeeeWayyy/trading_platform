@@ -23,6 +23,7 @@ from apps.execution_gateway.routes.export import (
     _apply_filters,
     _apply_sort,
     _coerce_cell_value,
+    _extract_status_values,
     _fetch_audit_data,
     _fetch_fills_data,
     _fetch_orders_data,
@@ -581,6 +582,26 @@ class TestFetchOrdersData:
         assert rows[0][0] == "ord-123"
 
 
+class TestExtractStatusValues:
+    def test_none_filter_params(self) -> None:
+        assert _extract_status_values(None) is None
+
+    def test_no_status_key(self) -> None:
+        assert _extract_status_values({"symbol": {"filterType": "text"}}) is None
+
+    def test_equals_operator(self) -> None:
+        fp = {"status": {"filterType": "text", "type": "equals", "filter": "pending"}}
+        assert _extract_status_values(fp) == ["pending"]
+
+    def test_set_values(self) -> None:
+        fp = {"status": {"filterType": "set", "values": ["pending", "new", "accepted"]}}
+        result = _extract_status_values(fp)
+        assert result == ["pending", "new", "accepted"]
+
+    def test_non_dict_status(self) -> None:
+        assert _extract_status_values({"status": "pending"}) is None
+
+
 class TestFetchFillsData:
     def test_returns_real_fills(self) -> None:
         fill = {
@@ -598,6 +619,26 @@ class TestFetchFillsData:
 
         assert len(rows) == 1
         assert rows[0][columns.index("symbol")] == "GOOG"
+
+    def test_column_name_is_time_not_timestamp(self) -> None:
+        """UI grid uses field 'time', not 'timestamp'."""
+        fill = {
+            "client_order_id": "ord-789",
+            "symbol": "AAPL",
+            "side": "buy",
+            "status": "filled",
+            "qty": Decimal("10"),
+            "price": Decimal("150.00"),
+            "realized_pl": Decimal("0"),
+            "timestamp": datetime(2026, 3, 28, tzinfo=UTC),
+        }
+        ctx = _make_ctx(fills=[fill])
+        columns, rows = _fetch_fills_data(ctx, ["strat1"], None)
+
+        assert "time" in columns
+        assert "timestamp" not in columns
+        time_idx = columns.index("time")
+        assert rows[0][time_idx] == datetime(2026, 3, 28, tzinfo=UTC)
 
 
 class TestFetchAuditData:

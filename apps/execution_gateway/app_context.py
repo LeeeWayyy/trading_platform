@@ -153,7 +153,11 @@ class DatabaseClientProtocol(Protocol):
         ...
 
     def get_orders_for_export(
-        self, *, strategy_ids: list[str], limit: int = 50_000
+        self,
+        *,
+        strategy_ids: list[str],
+        statuses: list[str] | None = None,
+        limit: int = 50_000,
     ) -> list[dict[str, Any]]:
         """Fetch orders for Excel export with generous limit."""
         ...

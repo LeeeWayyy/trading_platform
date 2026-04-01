@@ -2075,6 +2075,7 @@ class DatabaseClient:
         self,
         *,
         strategy_ids: list[str],
+        statuses: list[str] | None = None,
         limit: int = 50_000,
     ) -> list[dict[str, Any]]:
         """Fetch orders for Excel export with generous limit.
@@ -2085,6 +2086,9 @@ class DatabaseClient:
 
         Args:
             strategy_ids: Strategy IDs the user is authorized for.
+            statuses: Optional list of order statuses to filter by.
+                When provided, only orders with matching status are returned
+                (e.g. working-tab exports pass active statuses only).
             limit: Maximum rows (capped at 50 000 to bound memory).
 
         Returns:
@@ -2097,18 +2101,33 @@ class DatabaseClient:
         def _execute() -> list[dict[str, Any]]:
             with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(
-                        """
-                        SELECT client_order_id, strategy_id, symbol, side, qty,
-                               order_type, status, filled_qty, filled_avg_price,
-                               created_at, submitted_at, filled_at
-                        FROM orders
-                        WHERE strategy_id = ANY(%s)
-                        ORDER BY created_at DESC
-                        LIMIT %s
-                        """,
-                        (strategy_ids, limit),
-                    )
+                    if statuses:
+                        cur.execute(
+                            """
+                            SELECT client_order_id, strategy_id, symbol, side, qty,
+                                   order_type, status, filled_qty, filled_avg_price,
+                                   created_at, submitted_at, filled_at
+                            FROM orders
+                            WHERE strategy_id = ANY(%s)
+                              AND status = ANY(%s)
+                            ORDER BY created_at DESC
+                            LIMIT %s
+                            """,
+                            (strategy_ids, statuses, limit),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT client_order_id, strategy_id, symbol, side, qty,
+                                   order_type, status, filled_qty, filled_avg_price,
+                                   created_at, submitted_at, filled_at
+                            FROM orders
+                            WHERE strategy_id = ANY(%s)
+                            ORDER BY created_at DESC
+                            LIMIT %s
+                            """,
+                            (strategy_ids, limit),
+                        )
                     return cur.fetchall()
 
         try:
@@ -2171,7 +2190,6 @@ class DatabaseClient:
                         WHERE o.status IN ('filled', 'partially_filled')
                           AND o.metadata ? 'fills'
                           AND jsonb_array_length(o.metadata->'fills') > 0
-                          AND o.updated_at >= NOW() - make_interval(hours => %s)
                           AND o.strategy_id = ANY(%s)
                           AND COALESCE(
                                   NULLIF(fill->>'timestamp', '')::timestamptz,
@@ -2181,7 +2199,7 @@ class DatabaseClient:
                         ORDER BY fill_timestamp DESC
                         LIMIT %s
                         """,
-                        (lookback_hours, strategy_ids, lookback_hours, limit),
+                        (strategy_ids, lookback_hours, limit),
                     )
                     rows = cur.fetchall()
             return [{**row, "timestamp": row.pop("fill_timestamp")} for row in rows]
