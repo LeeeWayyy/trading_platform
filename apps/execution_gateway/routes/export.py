@@ -1195,8 +1195,8 @@ def _apply_sort(
     # Normalise sort order: honour sortIndex when present, fall back to
     # array position.  Higher sortIndex = lower priority (applied first in
     # the reversed iteration below).
-    indexed_model = [
-        (spec.get("sortIndex", pos), spec)
+    indexed_model: list[tuple[int, dict[str, Any]]] = [
+        (int(spec["sortIndex"]) if spec.get("sortIndex") is not None else pos, spec)
         for pos, spec in enumerate(sort_model)
     ]
     indexed_model.sort(key=lambda t: t[0])
@@ -1294,10 +1294,9 @@ def _build_excel_sync(
         headers = all_columns
         rows = data_rows
 
-    # Build workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = grid_name.title()
+    # Build workbook (write-only mode for memory efficiency on large exports)
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(title=grid_name.title())
 
     # Header row (sanitized)
     ws.append([sanitize_for_export(h) for h in headers])
