@@ -270,11 +270,25 @@ def create_tabbed_panel(
                 for tab_name in (TAB_POSITIONS, TAB_WORKING, TAB_FILLS, TAB_HISTORY):
                     config = TAB_GRID_CONFIG.get(tab_name, {})
                     with ui.element("div").classes("") as toolbar_container:
+
+                        def _make_symbol_filter(s: TabbedPanelState) -> Callable[[], dict[str, Any]]:
+                            """Create a closure that returns the active symbol filter."""
+                            def _get() -> dict[str, Any]:
+                                if s.symbol_filter:
+                                    return {"symbol": {
+                                        "filterType": "text",
+                                        "type": "equals",
+                                        "filter": s.symbol_filter,
+                                    }}
+                                return {}
+                            return _get
+
                         toolbar = GridExportToolbar(
                             grid_id=config.get("grid_id", ""),
                             grid_name=config.get("grid_name", tab_name),
                             filename_prefix=config.get("prefix", tab_name),
                             api_base_url=api_base_url,
+                            extra_filters=_make_symbol_filter(state),
                         )
                         toolbar.create()
                     # Only show toolbar for active tab

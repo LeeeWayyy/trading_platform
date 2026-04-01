@@ -2144,11 +2144,11 @@ class DatabaseClient:
         limit: int = 10_000,
         lookback_hours: int = 2160,
     ) -> list[dict[str, Any]]:
-        """Fetch fills for Excel export with generous limits.
+        """Fetch fills for Excel export from the trades table.
 
-        Unlike ``get_recent_fills`` (activity-feed, capped at 200/7d),
-        this method allows larger result sets suitable for spreadsheet
-        export (up to 10 000 rows, 90-day lookback).
+        Queries the ``trades`` table (same source as the dashboard fills
+        grid) to ensure export-what-you-see parity.  Superseded trades
+        are excluded, matching the dashboard filter.
 
         Args:
             strategy_ids: Strategy IDs the user is authorized for.
@@ -2169,33 +2169,22 @@ class DatabaseClient:
                     cur.execute(
                         """
                         SELECT
-                            o.client_order_id,
-                            o.symbol,
-                            o.side,
-                            o.status,
-                            COALESCE(NULLIF(fill->>'fill_qty', '')::NUMERIC, 0) AS qty,
-                            COALESCE(NULLIF(fill->>'fill_price', '')::NUMERIC, 0) AS price,
-                            COALESCE(NULLIF(fill->>'realized_pl', '')::NUMERIC, 0) AS realized_pl,
-                            COALESCE(
-                                NULLIF(fill->>'timestamp', '')::timestamptz,
-                                o.updated_at
-                            ) AS "timestamp"
-                        FROM orders o
-                        CROSS JOIN LATERAL jsonb_array_elements(o.metadata->'fills') AS fill
-                        WHERE o.status IN ('filled', 'partially_filled')
-                          AND o.metadata ? 'fills'
-                          AND jsonb_array_length(o.metadata->'fills') > 0
-                          AND o.updated_at >= NOW() - make_interval(hours => %s)
-                          AND o.strategy_id = ANY(%s)
-                          AND COALESCE(
-                                  NULLIF(fill->>'timestamp', '')::timestamptz,
-                                  o.updated_at
-                              ) >= NOW() - make_interval(hours => %s)
-                          AND NOT COALESCE((fill->>'superseded')::boolean, FALSE)
-                        ORDER BY "timestamp" DESC
+                            t.client_order_id,
+                            t.symbol,
+                            t.side,
+                            'filled' AS status,
+                            t.qty,
+                            t.price,
+                            t.realized_pnl AS realized_pl,
+                            t.executed_at AS "timestamp"
+                        FROM trades t
+                        WHERE t.strategy_id = ANY(%s)
+                          AND t.executed_at >= NOW() - make_interval(hours => %s)
+                          AND COALESCE(t.superseded, FALSE) = FALSE
+                        ORDER BY t.executed_at DESC
                         LIMIT %s
                         """,
-                        (lookback_hours, strategy_ids, lookback_hours, limit),
+                        (strategy_ids, lookback_hours, limit),
                     )
                     return cur.fetchall()
 

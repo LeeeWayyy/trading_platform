@@ -50,6 +50,7 @@ class GridExportToolbar:
         on_export_start: Callable[[str], None] | None = None,
         on_export_complete: Callable[[str, int], None] | None = None,
         api_base_url: str = "/api/v1",
+        extra_filters: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         """Initialize export toolbar.
 
@@ -62,6 +63,8 @@ class GridExportToolbar:
             on_export_start: Callback when export starts
             on_export_complete: Callback when export completes (type, row_count)
             api_base_url: Base URL for export API endpoints
+            extra_filters: Optional callable returning additional filter_params
+                to merge (e.g., active symbol dropdown filter not in AG Grid model)
         """
         self.grid_id = grid_id
         self.grid_name = grid_name
@@ -71,10 +74,28 @@ class GridExportToolbar:
         self.on_export_start = on_export_start
         self.on_export_complete = on_export_complete
         self.api_base_url = api_base_url
+        self.extra_filters = extra_filters
 
         self._csv_button: ui.button | None = None
         self._excel_button: ui.button | None = None
         self._clipboard_button: ui.button | None = None
+
+    def _merge_filters(self, filter_model: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Merge AG Grid filter model with extra_filters (e.g., symbol dropdown).
+
+        Extra filters are only added for keys not already in the AG Grid model,
+        so explicit grid filters always take precedence.
+        """
+        base = dict(filter_model) if filter_model else {}
+        if self.extra_filters:
+            try:
+                extra = self.extra_filters()
+                for key, val in extra.items():
+                    if key not in base:
+                        base[key] = val
+            except Exception:
+                pass  # Don't block export if extra_filters callback fails
+        return base or None
 
     def _get_filename(self) -> str:
         """Generate filename with timestamp."""
@@ -169,7 +190,7 @@ class GridExportToolbar:
                     json={
                         "export_type": export_type,
                         "grid_name": self.grid_name,
-                        "filter_params": grid_state.get("filterModel"),
+                        "filter_params": self._merge_filters(grid_state.get("filterModel")),
                         "visible_columns": grid_state.get("columns"),
                         "sort_model": grid_state.get("sortModel"),
                         "export_scope": "visible",
