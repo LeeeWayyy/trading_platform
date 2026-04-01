@@ -963,6 +963,14 @@ _GRID_FETCHERS: dict[str, _GridFetcher] = {
 }
 
 
+def _to_decimal(v: Any) -> Decimal | None:
+    """Convert a value to Decimal, returning None on failure."""
+    try:
+        return Decimal(str(v))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
 def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
     """Check if a single cell value matches an AG Grid filter definition.
 
@@ -1003,15 +1011,13 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return False  # value is not None (checked above), so not blank
         if operator == "notBlank":
             return True  # value is not None, so it's not blank
-        try:
-            num_val = Decimal(str(value))
-        except (InvalidOperation, ValueError, TypeError):
+        num_val = _to_decimal(value)
+        if num_val is None:
             return False  # Non-numeric value fails numeric filter
         if filter_value is None:
             return True  # No filter value provided — can't compare, keep row
-        try:
-            num_filter = Decimal(str(filter_value))
-        except (InvalidOperation, ValueError, TypeError):
+        num_filter = _to_decimal(filter_value)
+        if num_filter is None:
             return True  # Bad filter value — can't compare, keep row
         if operator == "equals":
             return num_val == num_filter
@@ -1025,12 +1031,11 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return num_val < num_filter
         if operator == "lessThanOrEqual":
             return num_val <= num_filter
-        filter_to = filter_def.get("filterTo")
-        if operator == "inRange" and filter_to is not None:
-            try:
-                return num_filter <= num_val <= Decimal(str(filter_to))
-            except (InvalidOperation, ValueError, TypeError):
-                return True  # Bad upper bound — can't compare, keep row
+        if operator == "inRange":
+            num_to = _to_decimal(filter_def.get("filterTo"))
+            if num_to is None:
+                return True  # Bad/missing upper bound — can't compare, keep row
+            return num_filter <= num_val <= num_to
         return True
 
     if filter_type == "date":

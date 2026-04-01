@@ -94,7 +94,7 @@ class GridExportToolbar:
                     if key not in base:
                         base[key] = val
             except Exception:
-                pass  # Don't block export if extra_filters callback fails
+                logger.warning("extra_filters callback failed", exc_info=True)
         return base or None
 
     def _get_filename(self) -> str:
