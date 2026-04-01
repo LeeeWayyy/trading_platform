@@ -83,8 +83,9 @@ class GridExportToolbar:
     def _merge_filters(self, filter_model: dict[str, Any] | None) -> dict[str, Any] | None:
         """Merge AG Grid filter model with extra_filters (e.g., symbol dropdown).
 
-        Extra filters are only added for keys not already in the AG Grid model,
-        so explicit grid filters always take precedence.
+        When both the grid and extra_filters define the same column, they are
+        combined as an AND compound filter so visible rows = intersection of both
+        (matching dashboard behavior where the dropdown is applied before AG Grid).
         """
         base = dict(filter_model) if filter_model else {}
         if self.extra_filters:
@@ -93,6 +94,13 @@ class GridExportToolbar:
                 for key, val in extra.items():
                     if key not in base:
                         base[key] = val
+                    elif isinstance(val, dict) and isinstance(base[key], dict):
+                        # Both define the same column — combine as AND
+                        base[key] = {
+                            "filterType": val.get("filterType", base[key].get("filterType", "text")),
+                            "operator": "AND",
+                            "conditions": [base[key], val],
+                        }
             except Exception:
                 logger.warning("extra_filters callback failed", exc_info=True)
         return base or None
