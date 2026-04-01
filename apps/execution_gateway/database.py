@@ -2104,35 +2104,25 @@ class DatabaseClient:
                 return []
             with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
+                    where = "WHERE strategy_id = ANY(%s)"
+                    params: list[Any] = [strategy_ids]
                     if statuses is not None:
-                        cur.execute(
-                            """
-                            SELECT client_order_id, strategy_id, symbol, side, qty,
-                                   order_type, status, filled_qty, filled_avg_price,
-                                   limit_price, stop_price,
-                                   created_at, submitted_at, filled_at
-                            FROM orders
-                            WHERE strategy_id = ANY(%s)
-                              AND status = ANY(%s)
-                            ORDER BY created_at DESC
-                            LIMIT %s
-                            """,
-                            (strategy_ids, statuses, limit),
-                        )
-                    else:
-                        cur.execute(
-                            """
-                            SELECT client_order_id, strategy_id, symbol, side, qty,
-                                   order_type, status, filled_qty, filled_avg_price,
-                                   limit_price, stop_price,
-                                   created_at, submitted_at, filled_at
-                            FROM orders
-                            WHERE strategy_id = ANY(%s)
-                            ORDER BY created_at DESC
-                            LIMIT %s
-                            """,
-                            (strategy_ids, limit),
-                        )
+                        where += " AND status = ANY(%s)"
+                        params.append(statuses)
+                    params.append(limit)
+                    cur.execute(
+                        f"""
+                        SELECT client_order_id, strategy_id, symbol, side, qty,
+                               order_type, status, filled_qty, filled_avg_price,
+                               limit_price, stop_price,
+                               created_at, submitted_at, filled_at
+                        FROM orders
+                        {where}
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """,
+                        params,
+                    )
                     return cur.fetchall()
 
         try:
@@ -2189,7 +2179,7 @@ class DatabaseClient:
                             COALESCE(
                                 NULLIF(fill->>'timestamp', '')::timestamptz,
                                 o.updated_at
-                            ) AS fill_timestamp
+                            ) AS "timestamp"
                         FROM orders o
                         CROSS JOIN LATERAL jsonb_array_elements(o.metadata->'fills') AS fill
                         WHERE o.status IN ('filled', 'partially_filled')
@@ -2202,13 +2192,12 @@ class DatabaseClient:
                                   o.updated_at
                               ) >= NOW() - make_interval(hours => %s)
                           AND NOT COALESCE((fill->>'superseded')::boolean, FALSE)
-                        ORDER BY fill_timestamp DESC
+                        ORDER BY "timestamp" DESC
                         LIMIT %s
                         """,
                         (lookback_hours, strategy_ids, lookback_hours, limit),
                     )
-                    rows = cur.fetchall()
-            return [{**row, "timestamp": row.pop("fill_timestamp")} for row in rows]
+                    return cur.fetchall()
 
         try:
             return _execute()

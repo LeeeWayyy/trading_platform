@@ -1077,8 +1077,11 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return dt_val.date() > dt_from.date()
         if operator == "lessThan":
             return dt_val.date() < dt_from.date()
-        if operator == "inRange" and dt_to is not None:
-            return dt_from.date() <= dt_val.date() <= dt_to.date()
+        if operator == "inRange":
+            if dt_to is not None:
+                return dt_from.date() <= dt_val.date() <= dt_to.date()
+            # Missing dateTo — apply one-sided bound (greaterThanOrEqual)
+            return dt_val.date() >= dt_from.date()
         return True
 
     # Unsupported filter type — keep the row
@@ -1100,8 +1103,16 @@ def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
     conditions = filter_def.get("conditions")
 
     if operator and isinstance(conditions, list) and len(conditions) > 0:
-        # AG Grid conditions array format
-        results = [_match_filter(value, c) for c in conditions if isinstance(c, dict)]
+        # AG Grid conditions array format — children inherit filterType from parent
+        parent_filter_type = filter_def.get("filterType")
+        enriched: list[dict[str, Any]] = []
+        for c in conditions:
+            if isinstance(c, dict):
+                if "filterType" not in c and parent_filter_type:
+                    enriched.append({**c, "filterType": parent_filter_type})
+                else:
+                    enriched.append(c)
+        results = [_match_filter(value, c) for c in enriched]
         if not results:
             return True  # No valid conditions — keep the row
         if operator == "AND":
