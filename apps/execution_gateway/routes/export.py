@@ -735,22 +735,39 @@ def _coerce_cell_value(value: Any) -> Any:
 # =============================================================================
 
 
+def _compute_unrealized_plpc(pos: Any) -> Decimal | None:
+    """Compute unrealized P&L percentage for a position.
+
+    Mirrors the UI computation in positions_grid.py so the exported
+    ``unrealized_plpc`` column matches what the user sees.
+    """
+    unrealized_pl = getattr(pos, "unrealized_pl", None)
+    avg_entry = getattr(pos, "avg_entry_price", None)
+    qty = getattr(pos, "qty", None)
+    if unrealized_pl is None or avg_entry is None or qty is None:
+        return None
+    if avg_entry == 0 or qty == 0:
+        return None
+    return Decimal(str(unrealized_pl)) / (Decimal(str(avg_entry)) * abs(Decimal(str(qty))))
+
+
 def _fetch_positions_data(
     ctx: AppContext,
     strategy_ids: list[str],
     _filter_params: dict[str, Any] | None,
 ) -> tuple[list[str], list[list[Any]]]:
     """Fetch positions grid data scoped to authorized strategies."""
-    columns = [
+    db_columns = [
         "symbol", "qty", "avg_entry_price", "current_price",
         "unrealized_pl", "realized_pl", "updated_at", "last_trade_at",
     ]
+    export_columns = db_columns + ["unrealized_plpc"]
     positions = ctx.db.get_positions_for_strategies(strategy_ids)
     rows = [
-        [getattr(pos, col, None) for col in columns]
+        [getattr(pos, col, None) for col in db_columns] + [_compute_unrealized_plpc(pos)]
         for pos in positions
     ]
-    return columns, rows
+    return export_columns, rows
 
 
 def _extract_status_values(filter_params: dict[str, Any] | None) -> list[str] | None:

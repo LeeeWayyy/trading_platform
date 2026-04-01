@@ -45,7 +45,7 @@ TAB_TITLES = {
 # Grid ID and name mapping for export toolbar
 TAB_GRID_CONFIG = {
     TAB_POSITIONS: {"grid_id": "_positionsGridApi", "grid_name": "positions", "prefix": "positions"},
-    TAB_WORKING: {"grid_id": "_ordersGridApi", "grid_name": "orders", "prefix": "orders"},
+    TAB_WORKING: {"grid_id": "_ordersGridApi", "grid_name": "working_orders", "prefix": "orders"},
     TAB_FILLS: {"grid_id": "_fillsGridApi", "grid_name": "fills", "prefix": "fills"},
     TAB_HISTORY: {"grid_id": "_historyGridApi", "grid_name": "history", "prefix": "history"},
 }
