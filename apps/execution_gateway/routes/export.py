@@ -1202,6 +1202,27 @@ def _apply_sort(
     indexed_model.sort(key=lambda t: t[0])
     ordered_specs = [spec for _, spec in indexed_model]
 
+    def _sort_value(v: Any) -> tuple[int, Any]:
+        """Return a comparable sort key safe for mixed-type columns.
+
+        Numeric types (int/float/Decimal) are coerced to Decimal so they
+        compare correctly with each other without precision loss.
+        Non-numeric values are stringified and placed in a separate
+        bucket to avoid TypeError.
+        """
+        if isinstance(v, bool):
+            return (2, str(v))  # bool is subclass of int; sort as string
+        if isinstance(v, Decimal):
+            return (0, v)
+        if isinstance(v, int | float):
+            return (0, Decimal(str(v)))
+        if isinstance(v, datetime):
+            # Compare datetimes natively (strip tz for consistent ordering)
+            return (1, v.replace(tzinfo=None) if v.tzinfo else v)
+        if isinstance(v, date):
+            return (1, datetime(v.year, v.month, v.day))
+        return (2, str(v))
+
     # Build sort keys in reverse priority order (last = primary in multi-sort)
     sorted_rows = list(rows)
     for sort_spec in reversed(ordered_specs):
@@ -1217,29 +1238,12 @@ def _apply_sort(
         for r in sorted_rows:
             (null_rows if r[idx] is None else non_null_rows).append(r)
 
-        def _sort_key(row: list[Any], _idx: int = idx) -> tuple[int, Any]:
-            """Return a comparable sort key safe for mixed-type columns.
+        def _make_key(col_idx: int) -> Callable[[list[Any]], tuple[int, Any]]:
+            def _key(row: list[Any]) -> tuple[int, Any]:
+                return _sort_value(row[col_idx])
+            return _key
 
-            Numeric types (int/float/Decimal) are coerced to Decimal so they
-            compare correctly with each other without precision loss.
-            Non-numeric values are stringified and placed in a separate
-            bucket to avoid TypeError.
-            """
-            v = row[_idx]
-            if isinstance(v, bool):
-                return (2, str(v))  # bool is subclass of int; sort as string
-            if isinstance(v, Decimal):
-                return (0, v)
-            if isinstance(v, int | float):
-                return (0, Decimal(str(v)))
-            if isinstance(v, datetime):
-                # Compare datetimes natively (strip tz for consistent ordering)
-                return (1, v.replace(tzinfo=None) if v.tzinfo else v)
-            if isinstance(v, date):
-                return (1, datetime(v.year, v.month, v.day))
-            return (2, str(v))
-
-        non_null_rows.sort(key=_sort_key, reverse=descending)
+        non_null_rows.sort(key=_make_key(idx), reverse=descending)
         sorted_rows = non_null_rows + null_rows
 
     return sorted_rows

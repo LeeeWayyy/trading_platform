@@ -163,9 +163,9 @@ class DatabaseClientProtocol(Protocol):
         ...
 
     def get_fills_for_export(
-        self, *, strategy_ids: list[str], limit: int = 10_000, lookback_hours: int = 2160
+        self, *, strategy_ids: list[str], limit: int = 10_000
     ) -> list[dict[str, Any]]:
-        """Fetch fills for Excel export with generous limits."""
+        """Fetch fills for Excel export from trades table."""
         ...
 
     def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:

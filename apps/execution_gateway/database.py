@@ -2142,18 +2142,17 @@ class DatabaseClient:
         *,
         strategy_ids: list[str],
         limit: int = 10_000,
-        lookback_hours: int = 2160,
     ) -> list[dict[str, Any]]:
         """Fetch fills for Excel export from the trades table.
 
         Queries the ``trades`` table (same source as the dashboard fills
-        grid) to ensure export-what-you-see parity.  Superseded trades
-        are excluded, matching the dashboard filter.
+        grid) to ensure export-what-you-see parity.  No date cutoff is
+        applied (matching ``StrategyScopedDataAccess.get_trades``);
+        only superseded trades are excluded.
 
         Args:
             strategy_ids: Strategy IDs the user is authorized for.
             limit: Maximum rows (capped at 10 000).
-            lookback_hours: Time window (capped at 2160 = 90 days).
 
         Returns:
             List of dicts with fill columns suitable for export grids.
@@ -2161,7 +2160,6 @@ class DatabaseClient:
         if not strategy_ids:
             return []
         limit = max(1, min(int(limit), 10_000))
-        lookback_hours = max(1, min(int(lookback_hours), 2160))
 
         def _execute() -> list[dict[str, Any]]:
             with self._connection() as conn:
@@ -2179,12 +2177,11 @@ class DatabaseClient:
                             t.executed_at AS "timestamp"
                         FROM trades t
                         WHERE t.strategy_id = ANY(%s)
-                          AND t.executed_at >= NOW() - make_interval(hours => %s)
                           AND COALESCE(t.superseded, FALSE) = FALSE
                         ORDER BY t.executed_at DESC
                         LIMIT %s
                         """,
-                        (strategy_ids, lookback_hours, limit),
+                        (strategy_ids, limit),
                     )
                     return cur.fetchall()
 
