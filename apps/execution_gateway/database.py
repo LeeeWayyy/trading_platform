@@ -2099,13 +2099,17 @@ class DatabaseClient:
         limit = max(1, min(int(limit), 50_000))
 
         def _execute() -> list[dict[str, Any]]:
+            # Explicit empty list means "no statuses selected" → zero rows
+            if statuses is not None and len(statuses) == 0:
+                return []
             with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
-                    if statuses:
+                    if statuses is not None:
                         cur.execute(
                             """
                             SELECT client_order_id, strategy_id, symbol, side, qty,
                                    order_type, status, filled_qty, filled_avg_price,
+                                   limit_price, stop_price,
                                    created_at, submitted_at, filled_at
                             FROM orders
                             WHERE strategy_id = ANY(%s)
@@ -2120,6 +2124,7 @@ class DatabaseClient:
                             """
                             SELECT client_order_id, strategy_id, symbol, side, qty,
                                    order_type, status, filled_qty, filled_avg_price,
+                                   limit_price, stop_price,
                                    created_at, submitted_at, filled_at
                             FROM orders
                             WHERE strategy_id = ANY(%s)
