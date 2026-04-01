@@ -1100,8 +1100,8 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         if operator == "inRange":
             if dt_to is not None:
                 return dt_from.date() <= dt_val.date() <= dt_to.date()
-            # Missing dateTo — apply one-sided bound (greaterThanOrEqual)
-            return dt_val.date() >= dt_from.date()
+            # Missing dateTo — can't apply range, keep row (consistent with numeric)
+            return True
         return True
 
     # Unsupported filter type — keep the row
@@ -1145,7 +1145,11 @@ def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
     if operator and isinstance(condition1, dict):
         # Legacy condition1/condition2 format — recurse for nested compounds
         result1 = _match_compound_filter(value, condition1)
-        result2 = _match_compound_filter(value, condition2) if isinstance(condition2, dict) else True
+        # Missing condition2: AND defaults to True (identity), OR to False (identity)
+        if isinstance(condition2, dict):
+            result2 = _match_compound_filter(value, condition2)
+        else:
+            result2 = operator != "OR"
         if operator == "AND":
             return result1 and result2
         if operator == "OR":
