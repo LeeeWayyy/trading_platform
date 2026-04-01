@@ -15,7 +15,7 @@ import redis
 import redis.asyncio as redis_async
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 from redis import Redis
-from rq import Queue, Worker
+from rq import Queue, Worker, get_current_job
 
 from libs.core.common.exceptions import ConfigurationError
 from libs.platform.alerts.channels import (
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Sync singletons are safe to share across jobs because RQ invokes the job
 # function in the worker process without reusing asyncio event loops.
 _CHANNELS: dict[ChannelType, BaseChannel] | None = None
-_RQ_QUEUE: Queue | None = None
+_RQ_QUEUES: dict[str, Queue] = {}
 
 
 @dataclass
@@ -56,13 +56,18 @@ def _require_env(name: str) -> str:
     return value
 
 
-def _get_rq_queue() -> Queue:
-    global _RQ_QUEUE
-    if _RQ_QUEUE is None:
+def _get_rq_queue(queue_name: str | None = None) -> Queue:
+    if queue_name is None:
+        current_job = get_current_job()
+        queue_name = getattr(current_job, "origin", None) or "alerts"
+
+    queue = _RQ_QUEUES.get(queue_name)
+    if queue is None:
         redis_url = _require_env("REDIS_URL")
         redis_sync = Redis.from_url(redis_url)
-        _RQ_QUEUE = Queue("alerts", connection=redis_sync)
-    return _RQ_QUEUE
+        queue = Queue(queue_name, connection=redis_sync)
+        _RQ_QUEUES[queue_name] = queue
+    return queue
 
 
 async def _create_async_resources() -> AsyncResources:

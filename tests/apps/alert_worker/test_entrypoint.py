@@ -58,7 +58,7 @@ class TestGetRQQueue:
         with (
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
-            patch("apps.alert_worker.entrypoint._RQ_QUEUE", None),
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -78,6 +78,7 @@ class TestGetRQQueue:
         with (
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -89,9 +90,30 @@ class TestGetRQQueue:
             # Second call
             result2 = _get_rq_queue()
 
-            # Should only create once
-            assert mock_redis_class.from_url.call_count <= 2  # May be called during import
+            assert mock_redis_class.from_url.call_count == 1
+            assert mock_queue_class.call_count == 1
             assert result1 == result2
+
+    def test_get_rq_queue_uses_current_job_origin_when_available(self, monkeypatch):
+        """Test retries target the current job's origin queue instead of hard-coded alerts."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            mock_get_current_job.return_value = Mock(origin="alerts_high")
+
+            result = _get_rq_queue()
+
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
+            assert result == mock_queue
 
 
 class TestCreateAsyncResources:
