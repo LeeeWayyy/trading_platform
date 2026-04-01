@@ -24,7 +24,7 @@ import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 from uuid import UUID
 
@@ -888,14 +888,14 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         if operator == "notBlank":
             return True  # value is not None, so it's not blank
         try:
-            num_val = float(value)
-        except (ValueError, TypeError):
+            num_val = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
             return False  # Non-numeric value fails numeric filter
         if filter_value is None:
             return True  # No filter value provided — can't compare, keep row
         try:
-            num_filter = float(filter_value)
-        except (ValueError, TypeError):
+            num_filter = Decimal(str(filter_value))
+        except (InvalidOperation, ValueError, TypeError):
             return True  # Bad filter value — can't compare, keep row
         if operator == "equals":
             return num_val == num_filter
@@ -911,7 +911,7 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return num_val <= num_filter
         filter_to = filter_def.get("filterTo")
         if operator == "inRange" and filter_to is not None:
-            return num_filter <= num_val <= float(filter_to)
+            return num_filter <= num_val <= Decimal(str(filter_to))
         return True
 
     if filter_type == "date":
@@ -1074,13 +1074,16 @@ def _apply_sort(
         def _sort_key(row: list[Any], _idx: int = idx) -> tuple[int, Any]:
             """Return a comparable sort key safe for mixed-type columns.
 
-            Numeric types (int/float/Decimal) are coerced to float so they
-            compare correctly with each other.  Non-numeric values are
-            stringified and placed in a separate bucket to avoid TypeError.
+            Numeric types (int/float/Decimal) are coerced to Decimal so they
+            compare correctly with each other without precision loss.
+            Non-numeric values are stringified and placed in a separate
+            bucket to avoid TypeError.
             """
             v = row[_idx]
-            if isinstance(v, int | float | Decimal):
-                return (0, float(v))
+            if isinstance(v, Decimal):
+                return (0, v)
+            if isinstance(v, int | float):
+                return (0, Decimal(str(v)))
             return (1, str(v))
 
         non_null_rows.sort(key=_sort_key, reverse=descending)
