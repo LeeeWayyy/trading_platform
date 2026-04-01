@@ -2195,6 +2195,7 @@ class DatabaseClient:
                         WHERE o.status IN ('filled', 'partially_filled')
                           AND o.metadata ? 'fills'
                           AND jsonb_array_length(o.metadata->'fills') > 0
+                          AND o.updated_at >= NOW() - make_interval(hours => %s)
                           AND o.strategy_id = ANY(%s)
                           AND COALESCE(
                                   NULLIF(fill->>'timestamp', '')::timestamptz,
@@ -2204,7 +2205,7 @@ class DatabaseClient:
                         ORDER BY fill_timestamp DESC
                         LIMIT %s
                         """,
-                        (strategy_ids, lookback_hours, limit),
+                        (lookback_hours, strategy_ids, lookback_hours, limit),
                     )
                     rows = cur.fetchall()
             return [{**row, "timestamp": row.pop("fill_timestamp")} for row in rows]
