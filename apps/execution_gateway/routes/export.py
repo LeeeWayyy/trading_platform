@@ -757,7 +757,9 @@ def _compute_unrealized_plpc(pos: Any) -> Decimal | None:
         return None
     if avg_entry == 0 or qty == 0:
         return None
-    return Decimal(str(unrealized_pl)) / (Decimal(str(avg_entry)) * abs(Decimal(str(qty))))
+    # Position fields are already Decimal from schemas.Position
+    result: Decimal = unrealized_pl / (avg_entry * abs(qty))
+    return result
 
 
 def _fetch_positions_data(

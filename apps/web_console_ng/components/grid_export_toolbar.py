@@ -101,7 +101,7 @@ class GridExportToolbar:
                             "operator": "AND",
                             "conditions": [base[key], val],
                         }
-            except Exception:
+            except (TypeError, ValueError, KeyError, AttributeError):
                 logger.warning("extra_filters callback failed", exc_info=True)
         return base or None
 
