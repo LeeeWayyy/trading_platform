@@ -973,6 +973,7 @@ _GRID_FETCHERS: dict[str, _GridFetcher] = {
     "orders": _fetch_orders_data,
     "working_orders": _fetch_working_orders_data,
     "fills": _fetch_fills_data,
+    "history": _fetch_fills_data,  # History grid uses same trades source as fills
     "audit": _fetch_audit_data,
     "tca": _fetch_tca_data,
 }
@@ -1338,7 +1339,8 @@ def _build_excel_sync(
         data_rows = data_rows[:max_rows]
 
     # Filter to visible columns if specified, preserving CLIENT column order
-    if visible_columns:
+    # Use `is not None` so an explicit empty list [] produces an empty export
+    if visible_columns is not None:
         col_index_map = {c: i for i, c in enumerate(all_columns)}
         # Iterate visible_columns (client order), skip any not in server columns
         ordered_indices = [
