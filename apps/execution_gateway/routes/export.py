@@ -758,8 +758,10 @@ def _compute_unrealized_plpc(pos: Any) -> Decimal | None:
     qty = getattr(pos, "qty", None)
     if unrealized_pl is None or avg_entry is None or qty is None:
         return None
-    if avg_entry == 0 or qty == 0:
-        return None
+    if qty == 0:
+        return Decimal(0)  # Closed position — no unrealized P&L %
+    if avg_entry == 0:
+        return None  # Data anomaly — can't compute percentage
     # Position fields are already Decimal from schemas.Position
     result: Decimal = unrealized_pl / (avg_entry * abs(qty))
     return result
@@ -983,7 +985,8 @@ _GRID_FETCHERS: dict[str, _GridFetcher] = {
     "orders": _fetch_orders_data,
     "working_orders": _fetch_working_orders_data,
     "fills": _fetch_fills_data,
-    "history": _fetch_fills_data,  # History grid uses same trades source as fills
+    # "history" intentionally omitted — history_snapshot is a separate
+    # client-side dataset not backed by a server-side fetcher yet.
     "audit": _fetch_audit_data,
     "tca": _fetch_tca_data,
 }
@@ -1340,30 +1343,26 @@ def _build_excel_sync(
     if filter_params:
         data_rows = _apply_filters(all_columns, data_rows, filter_params)
 
-    # Visible-scope truncation: applied AFTER filtering, BEFORE sorting.
-    # Order: filter → truncate → sort.
-    # - After filter: so we cap the same filtered subset the grid shows
-    # - Before sort: so sorting operates on the capped set (matching grid
-    #   behavior where AG Grid sorts its local data, not the full DB)
-    if max_rows is not None and len(data_rows) > max_rows:
-        data_rows = data_rows[:max_rows]
-
-    # Apply sort_model (Python-side sorting for the capped row set)
+    # Apply sort_model (Python-side sorting for AG Grid sort model)
     if sort_model:
         data_rows = _apply_sort(all_columns, data_rows, sort_model)
+
+    # Visible-scope truncation: applied AFTER filter+sort so the exported
+    # slice matches the user's sorted view (top N rows of sorted result).
+    if max_rows is not None and len(data_rows) > max_rows:
+        data_rows = data_rows[:max_rows]
 
     # Filter to visible columns if specified, preserving CLIENT column order
     # Use `is not None` so an explicit empty list [] produces an empty export
     if visible_columns is not None:
         col_index_map = {c: i for i, c in enumerate(all_columns)}
-        # Ensure essential identifier columns are always included (auto-group
-        # grids like working_orders omit symbol from visible_columns)
-        essential = {"symbol", "client_order_id"}
         augmented = list(visible_columns)
-        for col in essential:
-            if col not in augmented and col in col_index_map:
-                augmented.append(col)
-        # Iterate augmented columns (client order + essentials), skip any not in server
+        # Only inject essential identifier columns for auto-group grids
+        # (working_orders omits symbol from visible_columns via auto-group)
+        if grid_name == "working_orders":
+            for col in ("symbol", "client_order_id"):
+                if col not in augmented and col in col_index_map:
+                    augmented.append(col)
         ordered_indices = [
             col_index_map[c] for c in augmented if c in col_index_map
         ]
