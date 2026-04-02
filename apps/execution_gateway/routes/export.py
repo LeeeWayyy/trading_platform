@@ -765,18 +765,19 @@ def _fetch_positions_data(
     strategy_ids: list[str],
     _filter_params: dict[str, Any] | None,
 ) -> tuple[list[str], list[list[Any]]]:
-    """Fetch positions grid data matching the dashboard positions view.
+    """Fetch positions grid data scoped to authorized strategies.
 
-    Uses ``get_all_positions()`` (same source as the /api/v1/positions
-    endpoint and the positions grid) to avoid the fail-closed exclusion
-    of multi-strategy symbols in ``get_positions_for_strategies``.
+    Uses ``get_positions_for_strategies`` to enforce strategy-level
+    authorization.  Symbols traded by multiple strategies are excluded
+    (fail-closed) to prevent cross-strategy data leakage — this is a
+    known limitation until the positions table gains a strategy_id column.
     """
     db_columns = [
         "symbol", "qty", "avg_entry_price", "current_price",
         "unrealized_pl", "realized_pl", "updated_at", "last_trade_at",
     ]
     export_columns = db_columns + ["unrealized_plpc"]
-    positions = ctx.db.get_all_positions()
+    positions = ctx.db.get_positions_for_strategies(strategy_ids)
     rows = [
         [getattr(pos, col, None) for col in db_columns] + [_compute_unrealized_plpc(pos)]
         for pos in positions

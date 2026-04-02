@@ -86,7 +86,7 @@ def _make_ctx(
 ) -> MagicMock:
     """Build a mock AppContext with db methods."""
     ctx = MagicMock()
-    ctx.db.get_all_positions.return_value = positions or []
+    ctx.db.get_positions_for_strategies.return_value = positions or []
     ctx.db.get_fills_for_export.return_value = fills or []
     ctx.db.get_trades_for_tca.return_value = tca_trades or []
     ctx.db.get_orders_for_export.return_value = order_rows or []
