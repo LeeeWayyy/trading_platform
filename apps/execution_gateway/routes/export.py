@@ -765,13 +765,18 @@ def _fetch_positions_data(
     strategy_ids: list[str],
     _filter_params: dict[str, Any] | None,
 ) -> tuple[list[str], list[list[Any]]]:
-    """Fetch positions grid data scoped to authorized strategies."""
+    """Fetch positions grid data matching the dashboard positions view.
+
+    Uses ``get_all_positions()`` (same source as the /api/v1/positions
+    endpoint and the positions grid) to avoid the fail-closed exclusion
+    of multi-strategy symbols in ``get_positions_for_strategies``.
+    """
     db_columns = [
         "symbol", "qty", "avg_entry_price", "current_price",
         "unrealized_pl", "realized_pl", "updated_at", "last_trade_at",
     ]
     export_columns = db_columns + ["unrealized_plpc"]
-    positions = ctx.db.get_positions_for_strategies(strategy_ids)
+    positions = ctx.db.get_all_positions()
     rows = [
         [getattr(pos, col, None) for col in db_columns] + [_compute_unrealized_plpc(pos)]
         for pos in positions
@@ -1251,8 +1256,10 @@ def _apply_sort(
         if isinstance(v, int | float):
             return (0, Decimal(str(v)))
         if isinstance(v, datetime):
-            # Convert to UTC then strip tz for consistent ordering
-            return (1, v.astimezone(UTC).replace(tzinfo=None) if v.tzinfo else v)
+            # Aware → convert to UTC then strip tz; naive → assumed UTC per project standard
+            if v.tzinfo is not None:
+                return (1, v.astimezone(UTC).replace(tzinfo=None))
+            return (1, v)
         if isinstance(v, date):
             return (1, datetime(v.year, v.month, v.day))
         return (2, str(v))
