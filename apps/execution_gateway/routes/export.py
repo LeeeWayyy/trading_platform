@@ -1354,9 +1354,16 @@ def _build_excel_sync(
     # Use `is not None` so an explicit empty list [] produces an empty export
     if visible_columns is not None:
         col_index_map = {c: i for i, c in enumerate(all_columns)}
-        # Iterate visible_columns (client order), skip any not in server columns
+        # Ensure essential identifier columns are always included (auto-group
+        # grids like working_orders omit symbol from visible_columns)
+        essential = {"symbol", "client_order_id"}
+        augmented = list(visible_columns)
+        for col in essential:
+            if col not in augmented and col in col_index_map:
+                augmented.append(col)
+        # Iterate augmented columns (client order + essentials), skip any not in server
         ordered_indices = [
-            col_index_map[c] for c in visible_columns if c in col_index_map
+            col_index_map[c] for c in augmented if c in col_index_map
         ]
         headers = [all_columns[i] for i in ordered_indices]
         rows = [[row[i] for i in ordered_indices] for row in data_rows]

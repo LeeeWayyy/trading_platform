@@ -2100,7 +2100,7 @@ class DatabaseClient:
 
         def _execute() -> list[dict[str, Any]]:
             # Explicit empty list means "no statuses selected" → zero rows
-            if statuses is not None and len(statuses) == 0:
+            if statuses is not None and not statuses:
                 return []
             with self._connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
