@@ -9,6 +9,7 @@ Provides CSV, Excel, and Clipboard export functionality with:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -87,7 +88,7 @@ class GridExportToolbar:
         combined as an AND compound filter so visible rows = intersection of both
         (matching dashboard behavior where the dropdown is applied before AG Grid).
         """
-        base = dict(filter_model) if filter_model else {}
+        base: dict[str, Any] = copy.deepcopy(filter_model) if filter_model else {}
         if self.extra_filters:
             try:
                 extra = self.extra_filters()

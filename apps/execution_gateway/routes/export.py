@@ -898,16 +898,18 @@ def _fetch_working_orders_data(
 ) -> tuple[list[str], list[list[Any]]]:
     """Fetch working (active) orders for export.
 
-    Delegates to ``_fetch_orders_data`` with ``working_only=True`` and
-    appends a computed ``progress`` column (filled_qty / qty) matching
-    the Working Orders grid's visible progress field.
+    Delegates to ``_fetch_orders_data`` with ``working_only=True`` so
+    the SQL query is restricted to active statuses, matching the
+    Working Orders tab scope.
+
+    Note: The UI's ``progress`` column is omitted because it's only
+    populated for synthetic parent rows in the hierarchical TWAP view
+    (via ``compute_parent_aggregates``).  A flat export cannot reproduce
+    this hierarchy, so the column is excluded to avoid parity mismatch.
     """
-    columns, rows = _fetch_orders_data(
+    return _fetch_orders_data(
         ctx, strategy_ids, filter_params, working_only=True,
     )
-    # Append computed progress column
-    enriched_rows = [row + [_compute_progress(row, columns)] for row in rows]
-    return columns + ["progress"], enriched_rows
 
 
 def _fetch_fills_data(
@@ -1095,7 +1097,7 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         if isinstance(value, datetime):
             dt_val = _to_naive_utc(value)
         elif isinstance(value, date):
-            dt_val = datetime(value.year, value.month, value.day)
+            dt_val = datetime.combine(value, datetime.min.time())
         elif isinstance(value, str):
             try:
                 dt_val = _to_naive_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
@@ -1289,7 +1291,7 @@ def _apply_sort(
                 return (1, v.astimezone(UTC).replace(tzinfo=None))
             return (1, v)
         if isinstance(v, date):
-            return (1, datetime(v.year, v.month, v.day))
+            return (1, datetime.combine(v, datetime.min.time()))
         return (2, str(v))
 
     # Build sort keys in reverse priority order (last = primary in multi-sort)
