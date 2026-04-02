@@ -733,9 +733,12 @@ def _coerce_cell_value(value: Any) -> Any:
         return value
     if isinstance(value, bool | int | float):
         return value
-    # Dict/list → JSON string; all strings sanitized for formula injection
+    # Dict/list → JSON string; truncate to prevent oversized cells
     if isinstance(value, dict | list):
-        return sanitize_for_export(json.dumps(value, default=str))
+        serialized = json.dumps(value, default=str)
+        if len(serialized) > 32_000:  # Excel cell limit ~32K chars
+            serialized = serialized[:32_000] + "…[truncated]"
+        return sanitize_for_export(serialized)
     return sanitize_for_export(str(value))
 
 

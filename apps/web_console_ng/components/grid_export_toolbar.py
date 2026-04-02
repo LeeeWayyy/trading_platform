@@ -95,12 +95,20 @@ class GridExportToolbar:
                     if key not in base:
                         base[key] = val
                     elif isinstance(val, dict) and isinstance(base[key], dict):
-                        # Both define the same column — combine as AND
-                        base[key] = {
-                            "filterType": val.get("filterType", base[key].get("filterType", "text")),
-                            "operator": "AND",
-                            "conditions": [base[key], val],
-                        }
+                        existing = base[key]
+                        # If existing is already an AND compound, append to its conditions
+                        if (
+                            existing.get("operator") == "AND"
+                            and isinstance(existing.get("conditions"), list)
+                        ):
+                            existing["conditions"].append(val)
+                        else:
+                            # Wrap both in a new AND compound
+                            base[key] = {
+                                "filterType": val.get("filterType", existing.get("filterType", "text")),
+                                "operator": "AND",
+                                "conditions": [existing, val],
+                            }
             except (TypeError, ValueError, KeyError, AttributeError):
                 logger.warning("extra_filters callback failed", exc_info=True)
         return base or None
