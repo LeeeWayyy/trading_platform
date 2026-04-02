@@ -2170,13 +2170,12 @@ class DatabaseClient:
                             t.client_order_id,
                             t.symbol,
                             t.side,
-                            COALESCE(o.status, 'filled') AS status,
+                            'filled' AS status,
                             t.qty,
                             t.price,
                             t.realized_pnl AS realized_pl,
                             t.executed_at AS "timestamp"
                         FROM trades t
-                        LEFT JOIN orders o ON t.client_order_id = o.client_order_id
                         WHERE t.strategy_id = ANY(%s)
                           AND COALESCE(t.superseded, FALSE) = FALSE
                         ORDER BY t.executed_at DESC
