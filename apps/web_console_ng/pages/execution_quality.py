@@ -52,6 +52,15 @@ DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
 
 
+def _build_tca_auth_headers(user_id: str, role: str, strategies: list[str]) -> dict[str, str]:
+    """Build auth headers for TCA API requests."""
+    return {
+        "X-User-ID": user_id,
+        "X-User-Role": role,
+        "X-User-Strategies": ",".join(strategies),
+    }
+
+
 async def _fetch_tca_data(
     start_date: date,
     end_date: date,
@@ -76,17 +85,10 @@ async def _fetch_tca_data(
             if strategy_id:
                 params["strategy_id"] = strategy_id
 
-            # Add auth headers
-            headers = {
-                "X-User-ID": user_id,
-                "X-User-Role": role,
-                "X-User-Strategies": ",".join(strategies),
-            }
-
             response = await client.get(
                 f"{EXECUTION_GATEWAY_URL}/api/v1/tca/analysis",
                 params=params,
-                headers=headers,
+                headers=_build_tca_auth_headers(user_id, role, strategies),
             )
             if response.status_code == 200:
                 result: dict[str, Any] = response.json()
@@ -97,6 +99,43 @@ async def _fetch_tca_data(
             )
     except httpx.RequestError as e:
         logger.warning("TCA API unavailable", extra={"error": str(e)})
+    return None
+
+
+async def _fetch_tca_benchmarks(
+    client_order_id: str,
+    user_id: str,
+    role: str,
+    strategies: list[str],
+    benchmark: str = "vwap",
+) -> dict[str, Any] | None:
+    """Fetch benchmark comparison series for a specific order.
+
+    Returns None on error or when the benchmark series is unavailable.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
+                params={"client_order_id": client_order_id, "benchmark": benchmark},
+                headers=_build_tca_auth_headers(user_id, role, strategies),
+            )
+            if response.status_code == 200:
+                result: dict[str, Any] = response.json()
+                return result
+            logger.warning(
+                "TCA benchmark API returned non-200",
+                extra={
+                    "status": response.status_code,
+                    "client_order_id": client_order_id,
+                    "body": response.text[:200],
+                },
+            )
+    except httpx.RequestError as e:
+        logger.warning(
+            "TCA benchmark API unavailable",
+            extra={"client_order_id": client_order_id, "error": str(e)},
+        )
     return None
 
 
@@ -387,6 +426,17 @@ async def _render_tca_dashboard(
                 total_orders=summary.get("total_orders", 0),
             )
 
+        benchmark_data: dict[str, Any] | None = None
+        if orders and not state.get("demo_mode"):
+            first_order_id = str(orders[0].get("client_order_id", "")).strip()
+            if first_order_id:
+                benchmark_data = await _fetch_tca_benchmarks(
+                    client_order_id=first_order_id,
+                    user_id=user_id,
+                    role=role,
+                    strategies=authorized_strategies,
+                )
+
         # Render charts
         with charts_container:
             # Shortfall decomposition chart
@@ -442,36 +492,17 @@ async def _render_tca_dashboard(
                 else:
                     ui.label("No order data available").classes("text-gray-500 p-4")
 
-            # Benchmark comparison (show for first order as example)
-            if orders:
+            if benchmark_data and benchmark_data.get("points"):
                 with ui.card().classes("w-full p-4"):
-                    ui.label("Sample Execution vs VWAP").classes("text-lg font-bold mb-2")
+                    ui.label("Execution vs VWAP").classes("text-lg font-bold mb-2")
 
-                    # Generate sample benchmark data for first order
-                    first_order = orders[0]
-                    import random
-
-                    # Use stable hash for deterministic demo data across restarts
-                    random.seed(_stable_hash(first_order.get("client_order_id", "")))
-
-                    num_points = 10
-                    base_price = 150.0
-                    timestamps = [f"10:{i * 5:02d}" for i in range(num_points)]
-                    exec_prices = [
-                        round(base_price * (1 + random.uniform(-0.002, 0.003)), 2)
-                        for _ in range(num_points)
-                    ]
-                    bench_prices = [
-                        round(base_price * (1 + random.uniform(-0.001, 0.001)), 2)
-                        for _ in range(num_points)
-                    ]
-
+                    points = benchmark_data.get("points", [])
                     create_benchmark_comparison_chart(
-                        timestamps=timestamps,
-                        execution_prices=exec_prices,
-                        benchmark_prices=bench_prices,
-                        benchmark_type="VWAP",
-                        symbol=first_order.get("symbol", ""),
+                        timestamps=[str(point.get("timestamp", "")) for point in points],
+                        execution_prices=[float(point.get("execution_price", 0.0)) for point in points],
+                        benchmark_prices=[float(point.get("benchmark_price", 0.0)) for point in points],
+                        benchmark_type=str(benchmark_data.get("benchmark_type", "VWAP")).upper(),
+                        symbol=str(benchmark_data.get("symbol", orders[0].get("symbol", ""))),
                     )
 
         # Render orders table

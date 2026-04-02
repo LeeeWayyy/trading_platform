@@ -20,6 +20,7 @@ import pytest
 
 from apps.web_console_ng.pages.execution_quality import (
     DEFAULT_RANGE_DAYS,
+    _fetch_tca_benchmarks,
     _fetch_tca_data,
 )
 
@@ -197,6 +198,75 @@ class TestFetchTCAData:
             assert headers["X-User-ID"] == "test_user"
             assert headers["X-User-Role"] == "admin"
             assert headers["X-User-Strategies"] == "strat1,strat2"
+
+
+class TestFetchTCABenchmarks:
+    """Tests for _fetch_tca_benchmarks function."""
+
+    @pytest.mark.asyncio()
+    async def test_fetch_benchmarks_success(self) -> None:
+        """Successful fetch returns benchmark series data."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "symbol": "AAPL",
+            "benchmark_type": "vwap",
+            "points": [
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": 150.25,
+                    "benchmark_price": 150.1,
+                }
+            ],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=["alpha_baseline"],
+            )
+
+            call_args = mock_instance.get.call_args
+            params = call_args.kwargs.get("params", {})
+            headers = call_args.kwargs.get("headers", {})
+            assert params == {"client_order_id": "order-1", "benchmark": "vwap"}
+            assert headers["X-User-ID"] == "test_user"
+            assert headers["X-User-Role"] == "trader"
+            assert headers["X-User-Strategies"] == "alpha_baseline"
+
+        assert result is not None
+        assert result["points"][0]["execution_price"] == 150.25
+
+    @pytest.mark.asyncio()
+    async def test_fetch_benchmarks_api_error(self) -> None:
+        """API error returns None for benchmark fetches."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="missing-order",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
 
 
 class TestDefaultDateRange:
