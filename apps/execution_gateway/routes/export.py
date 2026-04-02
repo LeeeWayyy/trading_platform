@@ -1160,6 +1160,7 @@ def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return all(results)
         if operator == "OR":
             return any(results)
+        logger.warning("Unknown compound filter operator: %s", operator)
         return results[0]
 
     if operator and isinstance(condition1, dict):
@@ -1174,6 +1175,7 @@ def _match_compound_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return result1 and result2
         if operator == "OR":
             return result1 or result2
+        logger.warning("Unknown compound filter operator: %s", operator)
         return result1  # Unknown operator — fall back to condition1 only
 
     # Simple (non-compound) filter

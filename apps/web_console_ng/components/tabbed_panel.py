@@ -267,7 +267,9 @@ def create_tabbed_panel(
 
             # Create export toolbars (one per tab, show/hide based on active)
             if enable_export:
-                for tab_name in (TAB_POSITIONS, TAB_WORKING, TAB_FILLS, TAB_HISTORY):
+                # History tab excluded — history_snapshot is client-side only,
+                # no server-side fetcher available for Excel export.
+                for tab_name in (TAB_POSITIONS, TAB_WORKING, TAB_FILLS):
                     config = TAB_GRID_CONFIG.get(tab_name, {})
                     with ui.element("div").classes("") as toolbar_container:
 
