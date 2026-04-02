@@ -1349,7 +1349,9 @@ def _build_excel_sync(
 
     # Visible-scope truncation: applied AFTER filter+sort so the exported
     # slice matches the user's sorted view (top N rows of sorted result).
-    if max_rows is not None and len(data_rows) > max_rows:
+    # Skip for working_orders: estimated_row_count includes synthetic
+    # hierarchy rows but we export flat leaf orders.
+    if max_rows is not None and grid_name != "working_orders" and len(data_rows) > max_rows:
         data_rows = data_rows[:max_rows]
 
     # Filter to visible columns if specified, preserving CLIENT column order
