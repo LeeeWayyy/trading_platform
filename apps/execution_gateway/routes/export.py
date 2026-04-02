@@ -1340,13 +1340,15 @@ def _build_excel_sync(
     if filter_params:
         data_rows = _apply_filters(all_columns, data_rows, filter_params)
 
-    # Truncate to visible-scope row count BEFORE sorting so we export
-    # the same rows the dashboard displays (not different rows from a
-    # larger server-side dataset that happen to sort to the top).
+    # Visible-scope truncation: applied AFTER filtering, BEFORE sorting.
+    # Order: filter → truncate → sort.
+    # - After filter: so we cap the same filtered subset the grid shows
+    # - Before sort: so sorting operates on the capped set (matching grid
+    #   behavior where AG Grid sorts its local data, not the full DB)
     if max_rows is not None and len(data_rows) > max_rows:
         data_rows = data_rows[:max_rows]
 
-    # Apply sort_model (Python-side sorting for AG Grid sort model)
+    # Apply sort_model (Python-side sorting for the capped row set)
     if sort_model:
         data_rows = _apply_sort(all_columns, data_rows, sort_model)
 
