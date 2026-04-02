@@ -801,11 +801,11 @@ def _extract_status_values(filter_params: dict[str, Any] | None) -> list[str] | 
     filter_val = status_filter.get("filter")
     op = status_filter.get("type", "")
     if op == "equals" and isinstance(filter_val, str):
-        return [filter_val]
-    # For set/in filters, collect all values
+        return [filter_val.lower()]
+    # For set/in filters, collect all values (normalize to lowercase for SQL)
     values = status_filter.get("values")
     if isinstance(values, list):
-        return [str(v) for v in values if v is not None]
+        return [str(v).lower() for v in values if v is not None]
     return None
 
 
@@ -1387,8 +1387,7 @@ def _build_excel_sync(
         ws.append([_coerce_cell_value(v) for v in row])
 
     output = io.BytesIO()
-    wb.save(output)
-    wb.close()  # Required for write_only mode to finalize temp files
+    wb.save(output)  # save() handles cleanup for write_only workbooks
     output.seek(0)
 
     row_count = len(rows)
