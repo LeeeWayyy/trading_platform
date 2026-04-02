@@ -870,6 +870,24 @@ def _fetch_orders_data(
     return export_columns, rows
 
 
+def _compute_progress(row: list[Any], columns: list[str]) -> Decimal | None:
+    """Compute fill progress (filled_qty / qty) for working orders.
+
+    Mirrors the UI's progress column shown for parent TWAP rows.
+    Returns None if qty is zero or values are missing.
+    """
+    try:
+        qty_idx = columns.index("qty")
+        filled_idx = columns.index("filled_qty")
+        qty = row[qty_idx]
+        filled = row[filled_idx]
+        if qty is None or filled is None or qty == 0:
+            return None
+        return Decimal(str(filled)) / Decimal(str(qty))
+    except (ValueError, InvalidOperation):
+        return None
+
+
 def _fetch_working_orders_data(
     ctx: AppContext,
     strategy_ids: list[str],
@@ -877,13 +895,16 @@ def _fetch_working_orders_data(
 ) -> tuple[list[str], list[list[Any]]]:
     """Fetch working (active) orders for export.
 
-    Delegates to ``_fetch_orders_data`` with ``working_only=True`` so
-    the SQL query is restricted to active statuses, matching the
-    Working Orders tab scope.
+    Delegates to ``_fetch_orders_data`` with ``working_only=True`` and
+    appends a computed ``progress`` column (filled_qty / qty) matching
+    the Working Orders grid's visible progress field.
     """
-    return _fetch_orders_data(
+    columns, rows = _fetch_orders_data(
         ctx, strategy_ids, filter_params, working_only=True,
     )
+    # Append computed progress column
+    enriched_rows = [row + [_compute_progress(row, columns)] for row in rows]
+    return columns + ["progress"], enriched_rows
 
 
 def _fetch_fills_data(
