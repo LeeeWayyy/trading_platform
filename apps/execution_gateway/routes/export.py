@@ -873,24 +873,6 @@ def _fetch_orders_data(
     return export_columns, rows
 
 
-def _compute_progress(row: list[Any], columns: list[str]) -> Decimal | None:
-    """Compute fill progress (filled_qty / qty) for working orders.
-
-    Mirrors the UI's progress column shown for parent TWAP rows.
-    Returns None if qty is zero or values are missing.
-    """
-    try:
-        qty_idx = columns.index("qty")
-        filled_idx = columns.index("filled_qty")
-        qty = row[qty_idx]
-        filled = row[filled_idx]
-        if qty is None or filled is None or qty == 0:
-            return None
-        return Decimal(str(filled)) / Decimal(str(qty))
-    except (ValueError, InvalidOperation):
-        return None
-
-
 def _fetch_working_orders_data(
     ctx: AppContext,
     strategy_ids: list[str],
@@ -1358,13 +1340,15 @@ def _build_excel_sync(
     if filter_params:
         data_rows = _apply_filters(all_columns, data_rows, filter_params)
 
+    # Truncate to visible-scope row count BEFORE sorting so we export
+    # the same rows the dashboard displays (not different rows from a
+    # larger server-side dataset that happen to sort to the top).
+    if max_rows is not None and len(data_rows) > max_rows:
+        data_rows = data_rows[:max_rows]
+
     # Apply sort_model (Python-side sorting for AG Grid sort model)
     if sort_model:
         data_rows = _apply_sort(all_columns, data_rows, sort_model)
-
-    # Truncate to visible-scope row count if requested
-    if max_rows is not None and len(data_rows) > max_rows:
-        data_rows = data_rows[:max_rows]
 
     # Filter to visible columns if specified, preserving CLIENT column order
     # Use `is not None` so an explicit empty list [] produces an empty export
