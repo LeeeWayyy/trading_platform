@@ -87,12 +87,12 @@ services:
       - ./infra/grafana:/etc/grafana/provisioning
     depends_on:
       - prometheus
-      - loki
+      - loki_server
     restart: unless-stopped
     networks:
       - staging_network
 
-  loki:
+  loki_server:
     image: grafana/loki:2.9.0
     container_name: staging_loki
     ports:
@@ -119,7 +119,7 @@ services:
       - staging_promtaildata:/tmp
     command: -config.file=/etc/promtail/promtail-config.yml
     depends_on:
-      - loki
+      - loki_server
     restart: unless-stopped
     networks:
       - staging_network
