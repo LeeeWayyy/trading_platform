@@ -138,6 +138,7 @@ class PortfolioBacktest:
                                     = 1.5% + 1.0% + 0.5% = 3.0%
         """
         daily_returns = []
+        realized_dates = []
 
         # Get unique dates
         dates = self.predictions.index.get_level_values(0).unique()
@@ -184,8 +185,9 @@ class PortfolioBacktest:
             portfolio_return = long_return + short_return
 
             daily_returns.append(portfolio_return)
+            realized_dates.append(date)
 
-        return pd.Series(daily_returns, index=dates[: len(daily_returns)], dtype=float)
+        return pd.Series(daily_returns, index=realized_dates, dtype=float)
 
     def _compute_metrics(self) -> dict[str, float]:
         """

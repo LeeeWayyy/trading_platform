@@ -113,6 +113,36 @@ class TestPortfolioBacktest:
         # Should have one return per day
         assert len(backtest.portfolio_returns) <= 10
 
+    def test_portfolio_returns_keep_actual_trading_dates_when_days_are_skipped(self) -> None:
+        """Skipped days should not shift returns onto later dates."""
+        dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+        symbols = ["AAPL", "MSFT"]
+        index = pd.MultiIndex.from_product([dates, symbols], names=["date", "symbol"])
+
+        predictions = pd.Series(
+            [0.9, 0.1, 0.2, np.nan, 0.8, 0.3],
+            index=index,
+        )
+        actual_returns = pd.Series(
+            [0.05, -0.01, 0.04, 0.02, 0.03, -0.02],
+            index=index,
+        )
+
+        backtest = PortfolioBacktest(
+            predictions=predictions,
+            actual_returns=actual_returns,
+            top_n=1,
+            bottom_n=1,
+        )
+
+        portfolio_returns = backtest._compute_portfolio_returns()
+
+        expected_dates = pd.DatetimeIndex([dates[0], dates[2]])
+        expected_returns = pd.Series([0.06, 0.05], index=expected_dates)
+
+        pd.testing.assert_index_equal(portfolio_returns.index, expected_dates)
+        pd.testing.assert_series_equal(portfolio_returns, expected_returns, check_names=False)
+
     def test_metrics_values(self) -> None:
         """Metrics have reasonable values."""
         backtest = PortfolioBacktest(
