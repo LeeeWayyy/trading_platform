@@ -176,6 +176,7 @@ def create_orchestrator() -> TradingOrchestrator:
         execution_gateway_url=EXECUTION_GATEWAY_URL,
         capital=CAPITAL,
         max_position_size=MAX_POSITION_SIZE,
+        redis_client=redis_client,
     )
 
 
@@ -666,6 +667,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
             execution_gateway_url=EXECUTION_GATEWAY_URL,
             capital=capital,
             max_position_size=max_position_size,
+            redis_client=redis_client,
         )
 
         try:

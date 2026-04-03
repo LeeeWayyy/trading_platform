@@ -10,6 +10,7 @@ Coordinates the complete trading flow:
 """
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import UTC, date, datetime
@@ -29,6 +30,7 @@ from apps.orchestrator.schemas import (
     SignalOrderMapping,
     SignalServiceResponse,
 )
+from libs.core.redis_client import RedisClient, RedisKeys
 from libs.trading.allocation import MultiAlphaAllocator
 from libs.trading.allocation.multi_alpha import AllocMethod
 
@@ -206,6 +208,7 @@ class TradingOrchestrator:
         price_cache: dict[str, Decimal] | None = None,
         allocation_method: AllocMethod = "rank_aggregation",
         per_strategy_max: float = 0.40,
+        redis_client: RedisClient | None = None,
     ):
         """
         Initialize Trading Orchestrator.
@@ -218,6 +221,7 @@ class TradingOrchestrator:
             price_cache: Optional dict of symbol -> price for testing
             allocation_method: Method for multi-alpha allocation ('rank_aggregation', 'inverse_vol', 'equal_weight')
             per_strategy_max: Maximum allocation to any single strategy (default 0.40 = 40%)
+            redis_client: Optional Redis client for fetching live prices from market data cache
         """
         self.signal_client = SignalServiceClient(signal_service_url)
         self.execution_client = ExecutionGatewayClient(execution_gateway_url)
@@ -225,6 +229,7 @@ class TradingOrchestrator:
         self.max_position_size = max_position_size
         self.allocation_method = allocation_method
         self.per_strategy_max = per_strategy_max
+        self.redis_client = redis_client
 
         # M1 Fix: Validate and normalize price_cache to ensure all values are Decimal
         self.price_cache: dict[str, Decimal] = {}
@@ -1107,15 +1112,37 @@ class TradingOrchestrator:
             >>> print(price)
             Decimal('150.00')
         """
-        # Check cache first
+        # Check in-memory cache first
         if symbol in self.price_cache:
             return self.price_cache[symbol]
 
+        # Fetch from Redis market data cache (populated by market_data_service)
+        if self.redis_client is not None:
+            try:
+                raw = self.redis_client.get(RedisKeys.price(symbol))
+                if raw is not None:
+                    price_data = json.loads(raw)
+                    mid = Decimal(str(price_data["mid"]))
+                    if mid > 0:
+                        # Cache locally to avoid repeated Redis lookups within same run
+                        self.price_cache[symbol] = mid
+                        logger.debug(
+                            "Price fetched from Redis",
+                            extra={"symbol": symbol, "mid_price": str(mid)},
+                        )
+                        return mid
+                    logger.warning(
+                        "Redis price has zero mid for %s, treating as unavailable",
+                        symbol,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch price from Redis",
+                    extra={"symbol": symbol, "error": str(e)},
+                )
+
         # C2 Fix: Raise error instead of using dangerous $100 default
-        # Using a hardcoded price would cause wrong position sizing
-        # (e.g., if real price is $500, we'd buy 5x too many shares)
-        # TODO: Fetch from Alpaca market data API or use last close price
-        logger.error(f"Price unavailable for {symbol} - no fallback allowed")
+        logger.error(f"Price unavailable for {symbol} - no cache or Redis data")
         raise PriceUnavailableError(symbol)
 
 
