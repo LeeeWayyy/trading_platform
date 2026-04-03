@@ -662,18 +662,18 @@ class TradingOrchestrator:
         Notes:
             - In single-strategy mode, strategy_id is None and default model is used
             - In multi-strategy mode, strategy_id differentiates signal sources
-            - TODO: Pass strategy_id to signal_client once it supports multiple strategies
         """
         logger.info(
             f"Fetching signals for {len(symbols)} symbols"
             + (f" (strategy: {strategy_id})" if strategy_id else "")
         )
 
-        # TODO: Once SignalServiceClient supports strategy_id parameter, pass it here
-        # For MVP, all strategies use the same signal service endpoint
-        # In production, this would route to different strategy services or pass strategy_id
         signal_response = await self.signal_client.fetch_signals(
-            symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+            symbols=symbols,
+            as_of_date=as_of_date,
+            top_n=top_n,
+            bottom_n=bottom_n,
+            strategy_id=strategy_id,
         )
 
         logger.info(
