@@ -47,8 +47,12 @@ class _ReservationResult:
 
 
 def _mock_auth_context() -> AuthContext:
+    return _mock_auth_context_with_strategies(["alpha_baseline"])
+
+
+def _mock_auth_context_with_strategies(strategies: list[str]) -> AuthContext:
     return AuthContext(
-        user={"role": "operator", "strategies": ["alpha_baseline"], "user_id": "test-user"},
+        user={"role": "operator", "strategies": strategies, "user_id": "test-user"},
         internal_claims=None,
         auth_type="test",
         is_authenticated=True,
@@ -81,17 +85,22 @@ def _make_order_detail(client_order_id: str, status: str = "dry_run") -> OrderDe
     )
 
 
-def _build_test_app(ctx: Any, config: Any) -> TestClient:
+def _build_test_app(
+    ctx: Any,
+    config: Any,
+    *,
+    auth_context_factory: Any = _mock_auth_context,
+) -> TestClient:
     app = FastAPI()
     app.include_router(orders.router)
 
     app.dependency_overrides[get_context] = lambda: ctx
     app.dependency_overrides[get_config] = lambda: config
-    app.dependency_overrides[orders.order_submit_auth] = _mock_auth_context
-    app.dependency_overrides[orders.order_cancel_auth] = _mock_auth_context
-    app.dependency_overrides[orders.order_modify_auth] = _mock_auth_context
-    app.dependency_overrides[orders.order_read_auth] = _mock_auth_context
-    app.dependency_overrides[orders.order_preview_auth] = _mock_auth_context
+    app.dependency_overrides[orders.order_submit_auth] = auth_context_factory
+    app.dependency_overrides[orders.order_cancel_auth] = auth_context_factory
+    app.dependency_overrides[orders.order_modify_auth] = auth_context_factory
+    app.dependency_overrides[orders.order_read_auth] = auth_context_factory
+    app.dependency_overrides[orders.order_preview_auth] = auth_context_factory
     app.dependency_overrides[orders.order_submit_rl] = lambda: 1
     app.dependency_overrides[orders.order_cancel_rl] = lambda: 1
     app.dependency_overrides[orders.order_modify_rl] = lambda: 1
@@ -348,6 +357,34 @@ class TestCancelAndGetOrder:
 
         assert response.status_code == 404
         assert "Order not found" in response.json()["detail"]
+
+    def test_get_order_forbidden_when_strategy_not_authorized(self) -> None:
+        order_detail = _make_order_detail("client-unauthorized", status="new")
+        order_detail.strategy_id = "mean_reversion"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+        )
+
+        response = client.get("/api/v1/orders/client-unauthorized")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
 
 
 class TestSafetyGates:
@@ -913,6 +950,36 @@ class TestCancelOrder:
         assert response.status_code == 200
         data = response.json()
         assert data["message"] == "Order canceled"
+
+    def test_cancel_order_forbidden_when_strategy_not_authorized(self) -> None:
+        """Test canceling an order is denied when strategy scope does not match."""
+        order_detail = _make_order_detail("client-cancel-denied", status="pending_new")
+        order_detail.strategy_id = "mean_reversion"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+        )
+
+        response = client.post("/api/v1/orders/client-cancel-denied/cancel")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
+        db.update_order_status_cas.assert_not_called()
 
     def test_cancel_order_live_mode_success(self) -> None:
         """Test canceling order in live mode calls Alpaca."""

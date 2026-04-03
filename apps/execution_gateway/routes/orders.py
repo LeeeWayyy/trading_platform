@@ -203,6 +203,19 @@ order_modify_rl = rate_limit(
 )
 
 
+def _ensure_order_strategy_access(
+    order: OrderDetail,
+    auth_context: AuthContext,
+    *,
+    detail: str = "Not authorized",
+) -> None:
+    """Enforce fail-closed strategy-scope authorization for an order."""
+
+    authorized_strategies = get_authorized_strategies(auth_context.user)
+    if not authorized_strategies or order.strategy_id not in authorized_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
 # =============================================================================
 # Safety Gate Helpers (Redis-based, fail-closed)
 # =============================================================================
@@ -2191,6 +2204,8 @@ async def cancel_order(
             detail=f"Order not found: {client_order_id}",
         )
 
+    _ensure_order_strategy_access(order, _auth_context)
+
     if order.status in TERMINAL_STATUSES:
         return {
             "client_order_id": client_order_id,
@@ -2262,6 +2277,8 @@ async def get_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Order not found: {client_order_id}",
         )
+
+    _ensure_order_strategy_access(order, _auth_context)
 
     return order
 
