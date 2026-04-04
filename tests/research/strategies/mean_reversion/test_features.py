@@ -383,7 +383,7 @@ class TestEdgeCases:
         assert result["rsi"].null_count() == 10
 
     def test_constant_prices(self) -> None:
-        """Test behavior with constant prices (no movement)."""
+        """Test that flat-price windows do not emit NaN or Inf (issue #173)."""
         prices = pl.DataFrame(
             {
                 "symbol": ["TEST"] * 30,
@@ -398,16 +398,56 @@ class TestEdgeCases:
             }
         )
 
-        # Bollinger Bands width should be ~0 (no volatility)
+        # RSI: avg_loss=0 and avg_gain=0 → should be 50 (neutral), never NaN/Inf
+        result_rsi = compute_rsi(prices)
+        rsi_vals = result_rsi["rsi"].drop_nulls()
+        assert not rsi_vals.is_nan().any(), "RSI must not contain NaN on flat prices"
+        assert not rsi_vals.is_infinite().any(), "RSI must not contain Inf on flat prices"
+        assert (rsi_vals == 50.0).all(), "RSI should be 50 (neutral) when prices are flat"
+
+        # Bollinger %B: bb_upper == bb_lower → should be 0.5, never NaN/Inf
         result_bb = compute_bollinger_bands(prices)
-
-        # Note: RSI with constant prices produces NaN due to division by zero
-        # This is expected behavior - we only test Bollinger width here
-
-        # Check Bollinger width is small (near zero volatility)
+        bb_pct = result_bb["bb_pct"].drop_nulls()
+        assert not bb_pct.is_nan().any(), "bb_pct must not contain NaN on flat prices"
+        assert not bb_pct.is_infinite().any(), "bb_pct must not contain Inf on flat prices"
         bb_width = result_bb["bb_width"].drop_nulls()
         if len(bb_width) > 0:
             assert bb_width.mean() < 1.0, "Bollinger width should be small with constant prices"
+
+        # Stochastic %K: period_high == period_low → should be 50, never NaN/Inf
+        result_stoch = compute_stochastic_oscillator(prices)
+        stoch_k = result_stoch["stoch_k"].drop_nulls()
+        assert not stoch_k.is_nan().any(), "stoch_k must not contain NaN on flat prices"
+        assert not stoch_k.is_infinite().any(), "stoch_k must not contain Inf on flat prices"
+
+        # Z-Score: rolling_std=0 → should be 0, never NaN/Inf
+        result_zs = compute_price_zscore(prices)
+        zscore = result_zs["price_zscore"].drop_nulls()
+        assert not zscore.is_nan().any(), "price_zscore must not contain NaN on flat prices"
+        assert not zscore.is_infinite().any(), "price_zscore must not contain Inf on flat prices"
+
+    def test_flat_window_combined_features_no_nan(self) -> None:
+        """Test that combined features pipeline emits no NaN/Inf on flat prices (#173)."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 30), interval="1d", eager=True
+                ),
+                "close": [100.0] * 30,
+                "high": [100.0] * 30,
+                "low": [100.0] * 30,
+                "open": [100.0] * 30,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        result = compute_mean_reversion_features(prices)
+        feature_cols = ["rsi", "bb_pct", "bb_width", "stoch_k", "stoch_d", "price_zscore"]
+        for col in feature_cols:
+            vals = result[col].drop_nulls()
+            assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
+            assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

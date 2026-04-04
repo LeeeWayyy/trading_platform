@@ -104,12 +104,21 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
     )
 
     # Calculate RS (Relative Strength) and RSI
-    df = df.with_columns((pl.col("avg_gain") / pl.col("avg_loss")).alias("rs"))
-
-    df = df.with_columns((100.0 - (100.0 / (1.0 + pl.col("rs")))).alias("rsi"))
+    # Guard: when avg_loss is 0 on flat-price windows, RS would be Inf/NaN.
+    # Convention: avg_loss=0 and avg_gain>0 → RSI=100; both zero → RSI=50 (neutral).
+    df = df.with_columns(
+        pl.when(pl.col("avg_loss") == 0)
+        .then(
+            pl.when(pl.col("avg_gain") == 0)
+            .then(50.0)
+            .otherwise(100.0)
+        )
+        .otherwise(100.0 - (100.0 / (1.0 + pl.col("avg_gain") / pl.col("avg_loss"))))
+        .alias("rsi")
+    )
 
     # Drop intermediate columns
-    return df.drop(["price_change", "gain", "loss", "avg_gain", "avg_loss", "rs"])
+    return df.drop(["price_change", "gain", "loss", "avg_gain", "avg_loss"])
 
 
 def compute_bollinger_bands(
@@ -192,10 +201,14 @@ def compute_bollinger_bands(
     # %B > 1: Price above upper band
     # %B < 0: Price below lower band
     # %B = 0.5: Price at middle band
+    # Guard: when bb_upper == bb_lower (zero std on flat windows), emit 0.5 (neutral).
     df = df.with_columns(
-        ((pl.col(column) - pl.col("bb_lower")) / (pl.col("bb_upper") - pl.col("bb_lower"))).alias(
-            "bb_pct"
+        pl.when(pl.col("bb_upper") == pl.col("bb_lower"))
+        .then(0.5)
+        .otherwise(
+            (pl.col(column) - pl.col("bb_lower")) / (pl.col("bb_upper") - pl.col("bb_lower"))
         )
+        .alias("bb_pct")
     )
 
     # Drop intermediate column
@@ -264,12 +277,16 @@ def compute_stochastic_oscillator(
     )
 
     # Calculate %K (fast stochastic)
+    # Guard: when period_high == period_low (flat window), emit 50.0 (neutral).
     df = df.with_columns(
-        (
+        pl.when(pl.col("period_high") == pl.col("period_low"))
+        .then(50.0)
+        .otherwise(
             100.0
             * (pl.col("close") - pl.col("period_low"))
             / (pl.col("period_high") - pl.col("period_low"))
-        ).alias("stoch_k")
+        )
+        .alias("stoch_k")
     )
 
     # Calculate %D (slow stochastic - SMA of %K) per-symbol
@@ -333,8 +350,12 @@ def compute_price_zscore(
     )
 
     # Calculate Z-score
+    # Guard: when rolling_std is 0 (flat window), price equals mean → z-score = 0.
     df = df.with_columns(
-        ((pl.col(column) - pl.col("rolling_mean")) / pl.col("rolling_std")).alias("price_zscore")
+        pl.when(pl.col("rolling_std") == 0)
+        .then(0.0)
+        .otherwise((pl.col(column) - pl.col("rolling_mean")) / pl.col("rolling_std"))
+        .alias("price_zscore")
     )
 
     # Drop intermediate columns

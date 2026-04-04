@@ -495,7 +495,7 @@ class TestEdgeCases:
         assert result["ma_slow"].null_count() == 10
 
     def test_constant_prices(self) -> None:
-        """Test behavior with constant prices (no movement)."""
+        """Test that flat-price windows do not emit NaN or Inf (issue #173)."""
         prices = pl.DataFrame(
             {
                 "symbol": ["TEST"] * 30,
@@ -526,6 +526,39 @@ class TestEdgeCases:
 
         if len(roc_values) > 0:
             assert roc_values.abs().mean() < 0.1, "ROC should be near zero"
+
+        # ADX: atr=0 and DI sum=0 → should not emit NaN/Inf
+        result_adx = compute_adx(prices)
+        for col in ["adx", "plus_di", "minus_di"]:
+            vals = result_adx[col].drop_nulls()
+            assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
+            assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
+
+    def test_flat_window_combined_features_no_nan(self) -> None:
+        """Test that combined features pipeline emits no NaN/Inf on flat prices (#173)."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 30),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": [100.0] * 30,
+                "high": [100.0] * 30,
+                "low": [100.0] * 30,
+                "open": [100.0] * 30,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        result = compute_momentum_features(prices)
+        feature_cols = ["adx", "plus_di", "minus_di", "roc", "macd_line", "macd_hist"]
+        for col in feature_cols:
+            vals = result[col].drop_nulls()
+            assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
+            assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

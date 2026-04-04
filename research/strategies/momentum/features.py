@@ -360,20 +360,31 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     )
 
     # Calculate +DI and -DI
+    # Guard: when atr is 0 (flat window, no range), emit 0.0 for DI values.
     df = df.with_columns(
         [
-            ((pl.col("plus_dm_smooth") / pl.col("atr")) * 100.0).alias("plus_di"),
-            ((pl.col("minus_dm_smooth") / pl.col("atr")) * 100.0).alias("minus_di"),
+            pl.when(pl.col("atr") == 0)
+            .then(0.0)
+            .otherwise((pl.col("plus_dm_smooth") / pl.col("atr")) * 100.0)
+            .alias("plus_di"),
+            pl.when(pl.col("atr") == 0)
+            .then(0.0)
+            .otherwise((pl.col("minus_dm_smooth") / pl.col("atr")) * 100.0)
+            .alias("minus_di"),
         ]
     )
 
     # Calculate DX
+    # Guard: when plus_di + minus_di is 0 (flat window), emit 0.0.
     df = df.with_columns(
-        (
+        pl.when((pl.col("plus_di") + pl.col("minus_di")) == 0)
+        .then(0.0)
+        .otherwise(
             (pl.col("plus_di") - pl.col("minus_di")).abs()
             / (pl.col("plus_di") + pl.col("minus_di"))
             * 100.0
-        ).alias("dx")
+        )
+        .alias("dx")
     )
 
     # Calculate ADX (smoothed DX using Wilder's smoothing for consistency)
