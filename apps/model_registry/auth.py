@@ -122,17 +122,23 @@ def _parse_token_scopes(token: str) -> list[str]:
     return []
 
 
-def _parse_service_name(token: str) -> str:
-    """Parse service name from token.
+def _identify_token_role(token: str) -> str:
+    """Identify the access-level role of a verified token.
+
+    Returns a safe, non-secret label (e.g. "admin", "read") based on which
+    configured token matched.  Never derives the name from token content to
+    avoid leaking credential material into logs.
 
     Args:
         token: Bearer token string.
 
     Returns:
-        Service name.
+        Role label for the matched token, or "unknown".
     """
-    if ":" in token:
-        return token.split(":")[0]
+    expected_tokens = _get_expected_tokens()
+    for role, expected in expected_tokens.items():
+        if secrets.compare_digest(token, expected):
+            return role
     return "unknown"
 
 
@@ -188,7 +194,7 @@ async def verify_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    service = _parse_service_name(token)
+    service = _identify_token_role(token)
 
     return ServiceToken(token=token, scopes=scopes, service_name=service)
 

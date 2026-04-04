@@ -79,7 +79,7 @@ async def test_verify_token_invalid_token_raises_401(monkeypatch: pytest.MonkeyP
 async def test_verify_token_valid_token_returns_service_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    token = "svc:read-secret"
+    token = "read-secret"
     monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, token)
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
@@ -88,7 +88,20 @@ async def test_verify_token_valid_token_returns_service_token(
     assert isinstance(result, ServiceToken)
     assert result.token == token
     assert result.scopes == ["model:read"]
-    assert result.service_name == "svc"
+    # service_name is derived from the role key, not token content (fixes #174)
+    assert result.service_name == "read"
+
+
+def test_identify_token_role_returns_role_not_token_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure _identify_token_role never leaks token content (fixes #174)."""
+    monkeypatch.setenv(auth._ADMIN_TOKEN_ENV_VAR, "secretprefix:admin-key")
+    monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, "othersecret:read-key")
+
+    assert auth._identify_token_role("secretprefix:admin-key") == "admin"
+    assert auth._identify_token_role("othersecret:read-key") == "read"
+    assert auth._identify_token_role("unknown-token") == "unknown"
 
 
 @pytest.mark.asyncio()
