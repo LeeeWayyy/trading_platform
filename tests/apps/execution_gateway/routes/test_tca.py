@@ -1517,3 +1517,198 @@ class TestAuthorizationDenial:
 
         assert response.status_code == 200
         assert mock_db.get_trades_for_tca.call_args.kwargs["strategy_ids"] is None
+
+
+# =============================================================================
+# Regression: Issue #158 - fee_cost_bps with mixed/non-USD currencies
+# =============================================================================
+
+
+class TestSimpleTcaFeeCurrencyFailClosed:
+    """Regression tests for issue #158: _compute_simple_tca must return
+    fee_cost_bps=None when fee currencies are mixed or non-USD."""
+
+    def test_simple_tca_mixed_currency_fee_is_none(self) -> None:
+        """fee_cost_bps should be None when fills have mixed fee currencies."""
+        from libs.platform.analytics.execution_quality import Fill, FillBatch
+
+        base_time = datetime.now(UTC)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=base_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="USD",
+            ),
+            Fill(
+                fill_id="f2",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=base_time + timedelta(seconds=1),
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.40,
+                fee_currency="EUR",
+            ),
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=base_time - timedelta(seconds=1),
+            submission_time=base_time - timedelta(seconds=1),
+            total_target_qty=200,
+        )
+
+        result = tca._compute_simple_tca(batch)
+
+        assert result is not None
+        assert result.fee_cost_bps is None, "fee_cost_bps must be None for mixed currencies"
+        assert any("Mixed fee currencies" in w for w in result.warnings)
+
+    def test_simple_tca_non_usd_fee_is_none(self) -> None:
+        """fee_cost_bps should be None when fills have non-USD fee currency."""
+        from libs.platform.analytics.execution_quality import Fill, FillBatch
+
+        base_time = datetime.now(UTC)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=base_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="JPY",
+            ),
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=base_time - timedelta(seconds=1),
+            submission_time=base_time - timedelta(seconds=1),
+            total_target_qty=100,
+        )
+
+        result = tca._compute_simple_tca(batch)
+
+        assert result is not None
+        assert result.fee_cost_bps is None, "fee_cost_bps must be None for non-USD fees"
+        assert any("Non-USD fee currency" in w for w in result.warnings)
+
+    def test_simple_tca_usd_fee_is_valid(self) -> None:
+        """fee_cost_bps should be a number when all fills are USD."""
+        from libs.platform.analytics.execution_quality import Fill, FillBatch
+
+        base_time = datetime.now(UTC)
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=base_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="USD",
+            ),
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=base_time - timedelta(seconds=1),
+            submission_time=base_time - timedelta(seconds=1),
+            total_target_qty=100,
+        )
+
+        result = tca._compute_simple_tca(batch)
+
+        assert result is not None
+        assert result.fee_cost_bps is not None, "fee_cost_bps should be valid for USD"
+        assert isinstance(result.fee_cost_bps, float)
+
+
+class TestAvgFeeCostBpsAggregation:
+    """Regression test: _avg_fee_cost_bps skips None values."""
+
+    def test_avg_skips_none_fee_cost(self) -> None:
+        """Average should exclude orders with None fee_cost_bps."""
+        from apps.execution_gateway.schemas import TCAOrderDetail
+
+        order_with_fee = TCAOrderDetail(
+            client_order_id="o1",
+            symbol="AAPL",
+            side="buy",
+            execution_date=date.today(),
+            arrival_price=100.0,
+            execution_price=100.5,
+            vwap_benchmark=100.0,
+            twap_benchmark=100.0,
+            target_qty=100,
+            filled_qty=100,
+            fill_rate=1.0,
+            total_notional=10050.0,
+            implementation_shortfall_bps=50.0,
+            price_shortfall_bps=50.0,
+            vwap_slippage_bps=50.0,
+            fee_cost_bps=2.0,
+            opportunity_cost_bps=0.0,
+            market_impact_bps=0.0,
+            timing_cost_bps=0.0,
+            num_fills=1,
+            execution_duration_seconds=1.0,
+            total_fees=0.20,
+        )
+        order_without_fee = order_with_fee.model_copy(
+            update={"client_order_id": "o2", "fee_cost_bps": None}
+        )
+
+        result = tca._avg_fee_cost_bps([order_with_fee, order_without_fee])
+        assert result == 2.0  # Only the valid order counted
+
+    def test_avg_all_none_returns_none(self) -> None:
+        """Average should be None when all orders have None fee_cost_bps."""
+        from apps.execution_gateway.schemas import TCAOrderDetail
+
+        order = TCAOrderDetail(
+            client_order_id="o1",
+            symbol="AAPL",
+            side="buy",
+            execution_date=date.today(),
+            arrival_price=100.0,
+            execution_price=100.5,
+            vwap_benchmark=100.0,
+            twap_benchmark=100.0,
+            target_qty=100,
+            filled_qty=100,
+            fill_rate=1.0,
+            total_notional=10050.0,
+            implementation_shortfall_bps=50.0,
+            price_shortfall_bps=50.0,
+            vwap_slippage_bps=50.0,
+            fee_cost_bps=None,
+            opportunity_cost_bps=0.0,
+            market_impact_bps=0.0,
+            timing_cost_bps=0.0,
+            num_fills=1,
+            execution_duration_seconds=1.0,
+            total_fees=0.20,
+        )
+
+        result = tca._avg_fee_cost_bps([order])
+        assert result is None

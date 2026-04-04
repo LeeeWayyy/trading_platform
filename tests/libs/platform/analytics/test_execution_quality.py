@@ -3379,3 +3379,187 @@ class TestExecutionWindowRecommendation:
         )
 
         assert result.symbol == "AAPL"
+
+
+# =============================================================================
+# Regression: Issue #158 - fee_cost_bps with mixed/non-USD currencies
+# =============================================================================
+
+
+class TestFeeCurrencyFailClosed:
+    """Regression tests for issue #158: fee_cost_bps must be NaN when
+    fee currencies are mixed or non-USD, preventing invalid aggregations."""
+
+    def test_mixed_currency_fee_cost_bps_is_nan(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """fee_cost_bps should be NaN when fills have mixed fee currencies."""
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="USD",
+            ),
+            Fill(
+                fill_id="f2",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time + timedelta(seconds=1),
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.40,
+                fee_currency="EUR",
+            ),
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=200,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        assert math.isnan(result.fee_cost_bps), "fee_cost_bps must be NaN for mixed currencies"
+        assert result.mixed_currency_warning is True
+        # total_cost_bps should exclude the invalid fee component
+        assert not math.isnan(result.total_cost_bps), "total_cost_bps must not be NaN"
+
+    def test_non_usd_fee_cost_bps_is_nan(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """fee_cost_bps should be NaN when all fills have non-USD fee currency."""
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="EUR",
+            ),
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=100,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        assert math.isnan(result.fee_cost_bps), "fee_cost_bps must be NaN for non-USD fees"
+        assert result.non_usd_fee_warning is True
+        assert not math.isnan(result.total_cost_bps), "total_cost_bps must not be NaN"
+
+    def test_usd_only_fee_cost_bps_is_valid(
+        self, analyzer: ExecutionQualityAnalyzer, mock_taq_provider: MagicMock
+    ) -> None:
+        """fee_cost_bps should be a real number when all fills are USD."""
+        decision = datetime(2024, 12, 8, 14, 30, 0, tzinfo=UTC)
+        submission = decision + timedelta(milliseconds=10)
+        fill_time = decision + timedelta(milliseconds=100)
+
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="USD",
+            ),
+        ]
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision,
+            submission_time=submission,
+            total_target_qty=100,
+        )
+
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
+
+        result = analyzer.analyze_execution(batch)
+
+        assert not math.isnan(result.fee_cost_bps), "fee_cost_bps should be valid for USD"
+        expected_fee_bps = (0.50 / 100) / 100.0 * 10000  # 0.5 bps
+        assert result.fee_cost_bps == pytest.approx(expected_fee_bps)
+        assert result.mixed_currency_warning is False
+        assert result.non_usd_fee_warning is False

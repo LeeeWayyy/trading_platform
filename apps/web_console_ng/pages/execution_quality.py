@@ -336,7 +336,7 @@ def _generate_demo_data(
     notional_values = [o["total_notional"] for o in orders]
     filled_qty_values = [o["filled_qty"] for o in orders]
     price_values = [o["price_shortfall_bps"] for o in orders]
-    fee_values = [o["fee_cost_bps"] for o in orders]
+    fee_values = [o["fee_cost_bps"] for o in orders if o["fee_cost_bps"] is not None]
     opp_values = [o["opportunity_cost_bps"] for o in orders]
     timing_values = [o["timing_cost_bps"] for o in orders]
 
@@ -362,7 +362,7 @@ def _generate_demo_data(
             "avg_implementation_shortfall_bps": avg_is,
             "avg_price_shortfall_bps": sum(price_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_vwap_slippage_bps": avg_vwap,
-            "avg_fee_cost_bps": sum(fee_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
+            "avg_fee_cost_bps": sum(fee_values) / len(fee_values) if fee_values else None,  # type: ignore[arg-type]
             "avg_opportunity_cost_bps": sum(opp_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_market_impact_bps": avg_impact,
             "avg_timing_cost_bps": sum(timing_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
@@ -754,7 +754,7 @@ async def _render_tca_dashboard(
                                 "count": 0,
                             }
                         date_data[d]["price"] += order.get("price_shortfall_bps", 0)
-                        date_data[d]["fee"] += order.get("fee_cost_bps", 0)
+                        date_data[d]["fee"] += order.get("fee_cost_bps") or 0
                         date_data[d]["opportunity"] += order.get("opportunity_cost_bps", 0)
                         date_data[d]["timing"] += order.get("timing_cost_bps", 0)
                         date_data[d]["count"] += 1

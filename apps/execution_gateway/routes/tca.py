@@ -24,6 +24,7 @@ Data Flow:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
@@ -562,9 +563,15 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     # Note: vwap_benchmark is set to arrival_price below to match this calculation
     vwap_slippage_bps = price_shortfall_bps  # Same without market data
 
-    # Fee cost
-    fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
-    fee_cost_bps = fee_per_share / arrival_price * 10000 if arrival_price > 0 else 0.0
+    # Fee cost - fail closed when currencies are mixed or non-USD
+    fee_cost_bps: float | None
+    has_mixed = fill_batch.has_mixed_currencies
+    has_non_usd = fill_batch.has_non_usd_fees
+    if has_mixed or has_non_usd:
+        fee_cost_bps = None
+    else:
+        fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
+        fee_cost_bps = fee_per_share / arrival_price * 10000 if arrival_price > 0 else 0.0
 
     # Opportunity cost (simplified - proportional to unfilled)
     # Uses module-level FALLBACK_OPPORTUNITY_COST_BPS constant
@@ -573,12 +580,18 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     opportunity_cost_bps = unfilled_fraction * FALLBACK_OPPORTUNITY_COST_BPS
 
     # Total IS - weight filled components by fill_rate (matching ExecutionQualityAnalyzer)
-    total_cost_bps = (price_shortfall_bps + fee_cost_bps) * fill_rate + opportunity_cost_bps
+    # Exclude fee_cost_bps from total when untrusted (None)
+    effective_fee_bps = 0.0 if fee_cost_bps is None else fee_cost_bps
+    total_cost_bps = (price_shortfall_bps + effective_fee_bps) * fill_rate + opportunity_cost_bps
 
     # Build warnings list
     warnings = ["Simplified TCA - no market benchmark data available"]
     if raw_fill_rate > 1.0:
         warnings.append(f"Overfill detected: filled {total_filled_qty} vs target {total_target_qty}")
+    if has_mixed:
+        warnings.append("Mixed fee currencies detected - fee_cost_bps excluded (not trustworthy)")
+    if has_non_usd:
+        warnings.append("Non-USD fee currency detected - fee_cost_bps excluded (not normalized)")
 
     return TCAOrderDetail(
         client_order_id=fill_batch.fills[0].client_order_id if fill_batch.fills else "",
@@ -597,7 +610,7 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
         implementation_shortfall_bps=round(total_cost_bps, 2),
         price_shortfall_bps=round(price_shortfall_bps, 2),
         vwap_slippage_bps=round(vwap_slippage_bps, 2),
-        fee_cost_bps=round(fee_cost_bps, 2),
+        fee_cost_bps=round(fee_cost_bps, 2) if fee_cost_bps is not None else None,
         opportunity_cost_bps=round(opportunity_cost_bps, 2),
         market_impact_bps=0.0,  # Cannot compute without TAQ
         timing_cost_bps=0.0,  # Cannot compute without TAQ
@@ -615,6 +628,8 @@ def _result_to_order_detail(
     strategy_id: str,
 ) -> TCAOrderDetail:
     """Convert ExecutionAnalysisResult to TCAOrderDetail."""
+    # Convert NaN fee_cost_bps to None (fail closed for mixed/non-USD currencies)
+    fee_cost: float | None = None if math.isnan(result.fee_cost_bps) else round(result.fee_cost_bps, 2)
     return TCAOrderDetail(
         client_order_id=client_order_id,
         symbol=result.symbol,
@@ -632,7 +647,7 @@ def _result_to_order_detail(
         implementation_shortfall_bps=round(result.total_cost_bps, 2),
         price_shortfall_bps=round(result.price_shortfall_bps, 2),
         vwap_slippage_bps=round(result.vwap_slippage_bps, 2),
-        fee_cost_bps=round(result.fee_cost_bps, 2),
+        fee_cost_bps=fee_cost,
         opportunity_cost_bps=round(result.opportunity_cost_bps, 2),
         market_impact_bps=round(result.market_impact_bps, 2),
         timing_cost_bps=round(result.timing_cost_bps, 2),
@@ -751,6 +766,17 @@ def _analyze_trades_for_tca(
         warnings.append(f"Skipped {total_skipped} order(s): {', '.join(skip_details)}")
 
     return orders, warnings
+
+
+def _avg_fee_cost_bps(orders: list[TCAOrderDetail]) -> float | None:
+    """Average fee_cost_bps across orders, skipping None (untrusted currency).
+
+    Returns None if no orders have trustworthy fee data.
+    """
+    valid = [o.fee_cost_bps for o in orders if o.fee_cost_bps is not None]
+    if not valid:
+        return None
+    return sum(valid) / len(valid)
 
 
 # =============================================================================
@@ -896,7 +922,7 @@ def get_tca_analysis(
         avg_implementation_shortfall_bps=sum(o.implementation_shortfall_bps for o in orders) / len(orders) if orders else 0,
         avg_price_shortfall_bps=sum(o.price_shortfall_bps for o in orders) / len(orders) if orders else 0,
         avg_vwap_slippage_bps=sum(o.vwap_slippage_bps for o in orders) / len(orders) if orders else 0,
-        avg_fee_cost_bps=sum(o.fee_cost_bps for o in orders) / len(orders) if orders else 0,
+        avg_fee_cost_bps=_avg_fee_cost_bps(orders),
         avg_opportunity_cost_bps=sum(o.opportunity_cost_bps for o in orders) / len(orders) if orders else 0,
         avg_market_impact_bps=sum(o.market_impact_bps for o in orders) / len(orders) if orders else 0,
         avg_timing_cost_bps=sum(o.timing_cost_bps for o in orders) / len(orders) if orders else 0,

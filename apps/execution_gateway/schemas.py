@@ -1455,8 +1455,8 @@ class TCAAnalysisSummary(BaseModel):
     avg_vwap_slippage_bps: float = Field(
         ..., description="Average VWAP benchmark slippage"
     )
-    avg_fee_cost_bps: float = Field(
-        ..., description="Average fee cost component"
+    avg_fee_cost_bps: float | None = Field(
+        ..., description="Average fee cost component (None if mixed/non-USD currencies)"
     )
     avg_opportunity_cost_bps: float = Field(
         ..., description="Average opportunity cost (unfilled qty)"
@@ -1502,7 +1502,7 @@ class TCAOrderDetail(BaseModel):
     implementation_shortfall_bps: float = Field(..., description="Total cost")
     price_shortfall_bps: float = Field(..., description="Price slippage")
     vwap_slippage_bps: float = Field(..., description="VWAP slippage")
-    fee_cost_bps: float = Field(..., description="Fee component")
+    fee_cost_bps: float | None = Field(..., description="Fee component (None if mixed/non-USD fee currencies)")
     opportunity_cost_bps: float = Field(..., description="Unfilled cost")
     market_impact_bps: float = Field(..., description="Permanent impact")
     timing_cost_bps: float = Field(..., description="Timing/spread cost")

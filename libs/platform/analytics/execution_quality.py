@@ -680,11 +680,17 @@ class ExecutionQualityAnalyzer:
             vwap_slippage_bps = float("nan")
 
         # Fee cost (SIGNED - rebates reduce cost)
-        fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
-        if arrival_price > 0:
-            fee_cost_bps = fee_per_share / arrival_price * 10000
+        # Fail closed: if fee currencies are mixed or non-USD, fee aggregation
+        # is invalid (summing different currencies). Set to NaN so downstream
+        # consumers know the value is not trustworthy.
+        if mixed_currency_warning or non_usd_fee_warning:
+            fee_cost_bps = float("nan")
         else:
-            fee_cost_bps = 0.0
+            fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
+            if arrival_price > 0:
+                fee_cost_bps = fee_per_share / arrival_price * 10000
+            else:
+                fee_cost_bps = 0.0
 
         # Opportunity cost (unfilled qty weighted by unfilled fraction)
         if unfilled_qty > 0 and actual_close_price is not None and arrival_price > 0:
@@ -705,7 +711,9 @@ class ExecutionQualityAnalyzer:
         # Total cost (true IS) - weight filled components by fill_rate
         # price_shortfall and fee_cost apply only to filled portion
         # opportunity_cost is already weighted by unfilled_fraction
-        total_cost_bps = (price_shortfall_bps + fee_cost_bps) * fill_rate + opportunity_cost_bps
+        # Exclude fee_cost_bps from total when it's NaN (untrusted currency)
+        effective_fee_bps = 0.0 if math.isnan(fee_cost_bps) else fee_cost_bps
+        total_cost_bps = (price_shortfall_bps + effective_fee_bps) * fill_rate + opportunity_cost_bps
 
         # Market impact estimation with timing/permanent decomposition
         market_impact_bps, timing_cost_bps, mid_price_at_arrival = self._estimate_market_impact(
