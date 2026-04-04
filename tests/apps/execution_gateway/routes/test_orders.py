@@ -277,6 +277,66 @@ class TestSubmitOrder:
         reservation.release.assert_called_once_with("AAPL", "token-2")
         db.create_order.assert_not_called()
 
+    def test_submit_order_honours_caller_supplied_client_order_id(self) -> None:
+        """Caller-supplied client_order_id is used instead of generated one (issue #160)."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-3", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        order_detail = _make_order_detail("my-custom-id-001")
+        db.get_order_by_client_id.side_effect = [None, order_detail]
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "my-custom-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_order_id"] == "my-custom-id-001"
+        assert data["status"] == "dry_run"
+
 
 class TestCancelAndGetOrder:
     def test_cancel_order_not_found(self) -> None:

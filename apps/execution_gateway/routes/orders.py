@@ -1404,8 +1404,9 @@ async def submit_order(
     # Safety gating uses RecoveryManager (thread-safe, fail-closed)
     start_time = time.time()
 
-    # Generate deterministic client_order_id
-    client_order_id = generate_client_order_id(order, config.strategy_id)
+    # Honour caller-supplied client_order_id so repeat orders with identical
+    # parameters can be disambiguated.  Fall back to deterministic generation.
+    client_order_id = order.client_order_id or generate_client_order_id(order, config.strategy_id)
 
     logger.info(
         f"Order request received: {order.symbol} {order.side} {order.qty}",

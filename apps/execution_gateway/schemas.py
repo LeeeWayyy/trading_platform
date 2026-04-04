@@ -119,6 +119,17 @@ class OrderRequest(BaseModel):
         default=None,
         description="Optional scheduled start time (UTC) for TWAP execution",
     )
+    client_order_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=48,
+        description=(
+            "Optional caller-supplied order ID. Supply a unique value to place "
+            "a distinct repeat order with otherwise identical parameters on the "
+            "same day. If omitted, a deterministic ID is generated from the "
+            "order parameters and date."
+        ),
+    )
 
     @field_validator("symbol")
     @classmethod
