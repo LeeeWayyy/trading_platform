@@ -674,6 +674,10 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
                 symbols=request.symbols, strategy_id=STRATEGY_ID, as_of_date=as_of_date_parsed
             )
 
+            # Align metric/run_status with orchestration result status
+            if result.status == "failed":
+                run_status = "error"
+
             # Track metrics
             signals_received_total.inc(result.num_signals)
             orders_submitted_total.labels(status="success").inc(result.num_orders_accepted)
