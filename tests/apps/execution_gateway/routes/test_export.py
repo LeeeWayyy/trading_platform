@@ -1,0 +1,231 @@
+"""Tests for Excel export in apps/execution_gateway/routes/export.py.
+
+Verifies that _generate_excel_content returns real grid data (not placeholders)
+and that all cell values are sanitised against formula injection.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+
+from apps.execution_gateway.app_factory import create_mock_context, create_test_config
+from apps.execution_gateway.dependencies import get_config, get_context
+from apps.execution_gateway.routes import export as export_module
+from apps.execution_gateway.routes.export import (
+    _GRID_COLUMNS,
+    _build_order_clause,
+    _validate_columns,
+)
+from libs.core.common.api_auth_dependency import AuthContext
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for helper functions
+# ---------------------------------------------------------------------------
+
+
+class TestValidateColumns:
+    def test_returns_allowlist_when_no_visible_columns(self) -> None:
+        result = _validate_columns("positions", None)
+        assert result == _GRID_COLUMNS["positions"]
+
+    def test_filters_unknown_columns(self) -> None:
+        result = _validate_columns("positions", ["symbol", "EVIL_COL", "qty"])
+        assert result == ["symbol", "qty"]
+
+    def test_preserves_requested_order(self) -> None:
+        result = _validate_columns("orders", ["status", "symbol", "side"])
+        assert result == ["status", "symbol", "side"]
+
+    def test_falls_back_to_default_when_all_invalid(self) -> None:
+        result = _validate_columns("fills", ["bad1", "bad2"])
+        assert result == _GRID_COLUMNS["fills"]
+
+
+class TestBuildOrderClause:
+    def test_default_order_when_no_sort_model(self) -> None:
+        assert _build_order_clause(None, ["symbol"], "symbol ASC") == "symbol ASC"
+
+    def test_valid_sort_model(self) -> None:
+        model = [{"colId": "symbol", "sort": "desc"}]
+        result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
+        assert result == "symbol DESC"
+
+    def test_ignores_unknown_columns(self) -> None:
+        model = [{"colId": "DROP TABLE", "sort": "asc"}]
+        result = _build_order_clause(model, ["symbol"], "symbol ASC")
+        assert result == "symbol ASC"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for _generate_excel_content
+# ---------------------------------------------------------------------------
+
+
+def _make_cursor_mock(rows: list[tuple[Any, ...]], col_names: list[str]) -> MagicMock:
+    """Create a mock cursor that returns the given rows."""
+    cursor = MagicMock()
+    cursor.description = [(name,) for name in col_names]
+    cursor.fetchall.return_value = rows
+    cursor.__enter__ = MagicMock(return_value=cursor)
+    cursor.__exit__ = MagicMock(return_value=False)
+    return cursor
+
+
+def _make_conn_mock(cursor: MagicMock) -> MagicMock:
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=False)
+    return conn
+
+
+def _make_ctx_with_rows(
+    rows: list[tuple[Any, ...]], col_names: list[str]
+) -> MagicMock:
+    cursor = _make_cursor_mock(rows, col_names)
+    conn = _make_conn_mock(cursor)
+    ctx = create_mock_context()
+    ctx.db.transaction.return_value = conn
+    return ctx
+
+
+@pytest.mark.asyncio
+class TestGenerateExcelContent:
+    async def test_positions_returns_real_data(self) -> None:
+        rows = [
+            ("AAPL", Decimal("10"), Decimal("150.25"), Decimal("152.00"), Decimal("17.50"), Decimal("0"), datetime(2026, 1, 1, tzinfo=UTC)),
+            ("MSFT", Decimal("5"), Decimal("400.00"), Decimal("405.00"), Decimal("25.00"), Decimal("10"), datetime(2026, 1, 2, tzinfo=UTC)),
+        ]
+        col_names = ["symbol", "qty", "avg_entry_price", "current_price", "unrealized_pl", "realized_pl", "updated_at"]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        assert row_count == 2
+        assert isinstance(content, bytes)
+        assert len(content) > 0
+
+        # Verify it's a valid Excel file by reading it
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        assert ws.title == "Positions"
+        # Header row
+        assert ws.cell(1, 1).value == "symbol"
+        # Data — NOT placeholder text
+        assert ws.cell(2, 1).value == "AAPL"
+        assert ws.cell(3, 1).value == "MSFT"
+        assert "placeholder" not in str(ws.cell(2, 1).value).lower()
+        assert "pending" not in str(ws.cell(2, 1).value).lower()
+
+    async def test_orders_returns_real_data(self) -> None:
+        rows = [
+            ("ord-1", "alpha", "AAPL", "buy", 10, "market", None, None, "day", "filled", Decimal("10"), Decimal("150"), datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
+        ]
+        col_names = ["client_order_id", "strategy_id", "symbol", "side", "qty", "order_type", "limit_price", "stop_price", "time_in_force", "status", "filled_qty", "filled_avg_price", "created_at", "filled_at"]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="orders",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=["symbol", "side", "qty", "status"],
+            sort_model=None,
+        )
+
+        assert row_count == 1
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        # Only requested (valid) columns appear
+        assert ws.cell(1, 1).value == "symbol"
+        assert ws.cell(1, 2).value == "side"
+
+    async def test_unsupported_grid_raises(self) -> None:
+        ctx = create_mock_context()
+        with pytest.raises(NotImplementedError, match="not implemented"):
+            await export_module._generate_excel_content(
+                ctx=ctx,
+                grid_name="unknown_grid",
+                strategy_ids=["alpha"],
+                filter_params=None,
+                visible_columns=None,
+                sort_model=None,
+            )
+
+    async def test_empty_result_returns_zero_row_count(self) -> None:
+        ctx = _make_ctx_with_rows([], ["symbol", "qty", "avg_entry_price", "current_price", "unrealized_pl", "realized_pl", "updated_at"])
+
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        assert row_count == 0
+
+    async def test_formula_injection_sanitised(self) -> None:
+        """Values starting with = are prefixed with ' to prevent formula injection."""
+        rows = [("=IMPORTDATA(url)", Decimal("1"), Decimal("1"), Decimal("1"), Decimal("0"), Decimal("0"), datetime(2026, 1, 1, tzinfo=UTC))]
+        col_names = ["symbol", "qty", "avg_entry_price", "current_price", "unrealized_pl", "realized_pl", "updated_at"]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, _ = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        # The dangerous formula should be prefixed with '
+        assert ws.cell(2, 1).value == "'=IMPORTDATA(url)"
+
+    async def test_audit_row_count_matches_data(self) -> None:
+        """Verify row_count reflects actual exported rows, not a placeholder."""
+        rows = [
+            (1, datetime(2026, 1, 1, tzinfo=UTC), "admin", "login", "{}", None),
+            (2, datetime(2026, 1, 2, tzinfo=UTC), "admin", "export", "{}", "test"),
+            (3, datetime(2026, 1, 3, tzinfo=UTC), "admin", "logout", "{}", None),
+        ]
+        col_names = ["id", "timestamp", "user_id", "action", "details", "reason"]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        _, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="audit",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        assert row_count == 3

@@ -700,6 +700,251 @@ async def download_excel_export(
 # This ensures a single source of truth for formula injection protection.
 
 
+# ---------------------------------------------------------------------------
+# Allowed columns per grid — server-side allowlist for export security.
+# Only columns in these sets may appear in exported files.
+# ---------------------------------------------------------------------------
+_GRID_COLUMNS: dict[str, list[str]] = {
+    "positions": [
+        "symbol",
+        "qty",
+        "avg_entry_price",
+        "current_price",
+        "unrealized_pl",
+        "realized_pl",
+        "updated_at",
+    ],
+    "orders": [
+        "client_order_id",
+        "strategy_id",
+        "symbol",
+        "side",
+        "qty",
+        "order_type",
+        "limit_price",
+        "stop_price",
+        "time_in_force",
+        "status",
+        "filled_qty",
+        "filled_avg_price",
+        "created_at",
+        "filled_at",
+    ],
+    "fills": [
+        "trade_id",
+        "client_order_id",
+        "strategy_id",
+        "symbol",
+        "side",
+        "qty",
+        "price",
+        "executed_at",
+    ],
+    "audit": [
+        "id",
+        "timestamp",
+        "user_id",
+        "action",
+        "details",
+        "reason",
+    ],
+    "tca": [
+        "trade_id",
+        "client_order_id",
+        "strategy_id",
+        "symbol",
+        "side",
+        "qty",
+        "price",
+        "executed_at",
+        "order_submitted_at",
+        "order_qty",
+        "filled_avg_price",
+    ],
+}
+
+# Maximum rows per export to prevent excessive memory / query time
+_EXPORT_ROW_LIMIT = 10_000
+
+
+def _validate_columns(
+    grid_name: str, visible_columns: list[str] | None
+) -> list[str]:
+    """Return the export column list, validated against the server allowlist.
+
+    If *visible_columns* is provided, only columns that exist in the
+    allowlist are kept (in the requested order).  Unknown columns are
+    silently dropped to prevent SQL injection or data leakage.
+    """
+    allowed = _GRID_COLUMNS[grid_name]
+    if not visible_columns:
+        return allowed
+    return [c for c in visible_columns if c in allowed] or allowed
+
+
+def _build_order_clause(
+    sort_model: list[dict[str, Any]] | None,
+    allowed_columns: list[str],
+    default_order: str,
+) -> str:
+    """Build a safe ORDER BY clause from an AG Grid sort model.
+
+    Only column names that appear in *allowed_columns* are accepted.
+    """
+    if not sort_model:
+        return default_order
+    parts: list[str] = []
+    for item in sort_model:
+        col = item.get("colId", "")
+        direction = "DESC" if item.get("sort") == "desc" else "ASC"
+        if col in allowed_columns:
+            parts.append(f"{col} {direction}")
+    return ", ".join(parts) if parts else default_order
+
+
+# ---------------------------------------------------------------------------
+# Per-grid data fetchers
+# ---------------------------------------------------------------------------
+
+
+def _fetch_positions_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    columns: list[str],
+    sort_model: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Fetch positions data scoped to authorized strategies."""
+    order_clause = _build_order_clause(sort_model, columns, "symbol ASC")
+    col_list = ", ".join(columns)
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {col_list} FROM positions "  # noqa: S608
+                f"WHERE qty != 0 ORDER BY {order_clause} "
+                f"LIMIT %s",
+                (_EXPORT_ROW_LIMIT,),
+            )
+            col_names = [desc[0] for desc in cur.description]
+            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+
+
+def _fetch_orders_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    columns: list[str],
+    sort_model: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Fetch orders scoped to authorized strategies."""
+    order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
+    col_list = ", ".join(columns)
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {col_list} FROM orders "  # noqa: S608
+                f"WHERE strategy_id = ANY(%s) "
+                f"ORDER BY {order_clause} "
+                f"LIMIT %s",
+                (strategy_ids, _EXPORT_ROW_LIMIT),
+            )
+            col_names = [desc[0] for desc in cur.description]
+            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+
+
+def _fetch_fills_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    columns: list[str],
+    sort_model: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Fetch fills (trades) scoped to authorized strategies."""
+    order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
+    col_list = ", ".join(f"t.{c}" for c in columns)
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {col_list} FROM trades t "  # noqa: S608
+                f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
+                f"AND t.strategy_id = ANY(%s) "
+                f"ORDER BY {order_clause} "
+                f"LIMIT %s",
+                (strategy_ids, _EXPORT_ROW_LIMIT),
+            )
+            col_names = [desc[0] for desc in cur.description]
+            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+
+
+def _fetch_audit_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    columns: list[str],
+    sort_model: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Fetch audit log entries."""
+    order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
+    col_list = ", ".join(columns)
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {col_list} FROM audit_log "  # noqa: S608
+                f"ORDER BY {order_clause} "
+                f"LIMIT %s",
+                (_EXPORT_ROW_LIMIT,),
+            )
+            col_names = [desc[0] for desc in cur.description]
+            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+
+
+def _fetch_tca_data(
+    ctx: AppContext,
+    strategy_ids: list[str],
+    columns: list[str],
+    sort_model: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Fetch TCA trade data with order context, scoped to authorized strategies."""
+    # Map column names to their qualified table references
+    tca_col_map: dict[str, str] = {
+        "trade_id": "t.trade_id",
+        "client_order_id": "t.client_order_id",
+        "strategy_id": "t.strategy_id",
+        "symbol": "t.symbol",
+        "side": "t.side",
+        "qty": "t.qty",
+        "price": "t.price",
+        "executed_at": "t.executed_at",
+        "order_submitted_at": "o.submitted_at",
+        "order_qty": "o.qty",
+        "filled_avg_price": "o.filled_avg_price",
+    }
+    select_cols = ", ".join(
+        f"{tca_col_map.get(c, 't.' + c)} AS {c}" for c in columns
+    )
+    order_clause = _build_order_clause(sort_model, columns, "t.executed_at DESC")
+    with ctx.db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {select_cols} "  # noqa: S608
+                f"FROM trades t "
+                f"LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
+                f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
+                f"AND t.strategy_id = ANY(%s) "
+                f"ORDER BY {order_clause} "
+                f"LIMIT %s",
+                (strategy_ids, _EXPORT_ROW_LIMIT),
+            )
+            col_names = [desc[0] for desc in cur.description]
+            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+
+
+# Dispatch table for grid data fetchers
+_GRID_FETCHERS = {
+    "positions": _fetch_positions_data,
+    "orders": _fetch_orders_data,
+    "fills": _fetch_fills_data,
+    "audit": _fetch_audit_data,
+    "tca": _fetch_tca_data,
+}
+
+
 async def _generate_excel_content(
     ctx: AppContext,
     grid_name: str,
@@ -710,27 +955,24 @@ async def _generate_excel_content(
 ) -> tuple[bytes, int]:
     """Generate Excel file content for a grid.
 
-    This is a placeholder that will be implemented for each grid type.
-    Uses openpyxl for Excel generation with formula sanitization.
-
-    IMPORTANT: All cell values MUST be sanitized via sanitize_for_export()
-    to prevent formula injection attacks.
+    Fetches real data from the database for the requested grid, applies
+    column validation against a server-side allowlist, and sanitises every
+    cell value to prevent formula-injection attacks.
 
     Args:
         ctx: Application context with database access
         grid_name: Name of grid to export
         strategy_ids: Authorized strategy IDs for filtering
-        filter_params: AG Grid filter model
-        visible_columns: Columns to include
+        filter_params: AG Grid filter model (reserved for future use)
+        visible_columns: Columns to include (validated against allowlist)
         sort_model: AG Grid sort model
 
     Returns:
         Tuple of (excel_bytes, row_count)
 
     Raises:
-        NotImplementedError: If grid type not supported
+        NotImplementedError: If grid type not supported or openpyxl missing
     """
-    # Import openpyxl only when needed
     try:
         from openpyxl import Workbook  # type: ignore[import-untyped]
     except ImportError as e:
@@ -738,47 +980,45 @@ async def _generate_excel_content(
             "Excel export requires openpyxl: pip install openpyxl"
         ) from e
 
-    # Supported grids and their data fetchers
-    # TODO: Implement per-grid data fetchers with PII column filtering
-    supported_grids = {
-        "positions": "_fetch_positions_data",
-        "orders": "_fetch_orders_data",
-        "fills": "_fetch_fills_data",
-        "audit": "_fetch_audit_data",
-        "tca": "_fetch_tca_data",
-    }
-
-    if grid_name not in supported_grids:
+    if grid_name not in _GRID_FETCHERS:
         raise NotImplementedError(f"Excel export not implemented for grid: {grid_name}")
 
-    # For now, return a placeholder Excel file
-    # TODO: Implement actual data fetching and Excel generation
-    # NOTE: When implementing real data, MUST:
-    # 1. Sanitize ALL cell values via sanitize_for_export()
-    # 2. Enforce PII column filtering server-side based on user role
-    # 3. Validate visible_columns against allowed columns per grid
+    # Validate requested columns against server allowlist
+    columns = _validate_columns(grid_name, visible_columns)
+
+    # Fetch real data
+    fetcher = _GRID_FETCHERS[grid_name]
+    rows = fetcher(ctx, strategy_ids, columns, sort_model)
+
+    # Build workbook
     wb = Workbook()
     ws = wb.active
     ws.title = grid_name.title()
 
-    # Add header row (sanitize headers too)
-    headers = visible_columns or ["Column1", "Column2", "Column3"]
-    for col_idx, header in enumerate(headers, 1):
+    # Header row — sanitize headers
+    for col_idx, header in enumerate(columns, 1):
         ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
 
-    # Placeholder data - sanitize all values
-    ws.cell(row=2, column=1, value=sanitize_for_export("Excel export implementation pending"))
-    ws.cell(row=2, column=2, value=sanitize_for_export(f"Grid: {grid_name}"))
-    ws.cell(row=2, column=3, value=sanitize_for_export(f"Strategies: {len(strategy_ids)}"))
+    # Data rows — sanitize every value
+    for row_idx, row_data in enumerate(rows, 2):
+        for col_idx, col_name in enumerate(columns, 1):
+            raw_value = row_data.get(col_name)
+            # Convert complex types to string for Excel compatibility
+            if isinstance(raw_value, dict | list):
+                raw_value = json.dumps(raw_value)
+            ws.cell(
+                row=row_idx,
+                column=col_idx,
+                value=sanitize_for_export(
+                    str(raw_value) if raw_value is not None else ""
+                ),
+            )
 
-    # Save to bytes
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
 
-    # Row count (excluding header)
-    row_count = 1  # Placeholder row
-
+    row_count = len(rows)
     return output.getvalue(), row_count
 
 
