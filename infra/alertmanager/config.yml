@@ -38,6 +38,12 @@ route:
 
   # Child routes for severity-based routing
   routes:
+    # Page alerts -> PagerDuty + Slack
+    - match:
+        severity: page
+      receiver: 'pagerduty-platform'
+      continue: true  # Also send to default (Slack)
+
     # Critical alerts -> PagerDuty + Slack
     - match:
         severity: critical
@@ -87,7 +93,7 @@ receivers:
     pagerduty_configs:
       - service_key: '${PAGERDUTY_SERVICE_KEY}'
         send_resolved: true
-        severity: '{{ .CommonLabels.severity }}'
+        severity: '{{ if eq .CommonLabels.severity "page" }}critical{{ else }}{{ .CommonLabels.severity }}{{ end }}'
         description: '{{ .CommonAnnotations.summary }}'
         details:
           firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'

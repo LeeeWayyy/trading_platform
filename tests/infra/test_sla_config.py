@@ -181,6 +181,34 @@ class TestAlertmanagerConfig:
 
         assert track7_route is not None, "track7 SLA route not found"
 
+    def test_page_routing_exists(self, alertmanager_config):
+        """Verify severity=page alerts route to PagerDuty."""
+        routes = alertmanager_config["route"].get("routes", [])
+        page_route = None
+        for route in routes:
+            match = route.get("match", {})
+            if match.get("severity") == "page":
+                page_route = route
+                break
+
+        assert page_route is not None, "severity=page route not found"
+        assert page_route.get("receiver") == "pagerduty-platform"
+        assert page_route.get("continue") is True
+
+    def test_pagerduty_maps_page_to_critical(self, alertmanager_config):
+        """Verify PagerDuty severity normalizes page alerts to critical."""
+        pagerduty_receiver = None
+        for receiver in alertmanager_config["receivers"]:
+            if receiver.get("name") == "pagerduty-platform":
+                pagerduty_receiver = receiver
+                break
+
+        assert pagerduty_receiver is not None
+        pagerduty_config = pagerduty_receiver["pagerduty_configs"][0]
+        severity_template = pagerduty_config["severity"]
+        assert 'if eq .CommonLabels.severity "page"' in severity_template
+        assert 'critical' in severity_template
+
     def test_inhibit_rules_defined(self, alertmanager_config):
         """Verify inhibit rules are defined."""
         assert "inhibit_rules" in alertmanager_config
