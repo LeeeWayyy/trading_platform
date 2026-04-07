@@ -1,7 +1,8 @@
 # Alertmanager Configuration for Trading Platform
 #
 # Routes alerts from Prometheus to notification channels:
-# - Critical alerts -> PagerDuty
+# - Page alerts -> PagerDuty (mapped to critical) + Slack
+# - Critical alerts -> PagerDuty + Slack
 # - Warning alerts -> Slack #alerts-ops
 #
 # Environment variables required:
@@ -42,13 +43,13 @@ route:
     - match:
         severity: page
       receiver: 'pagerduty-platform'
-      continue: true  # Also send to default (Slack)
+      continue: true  # Continue to catch-all Slack route below
 
     # Critical alerts -> PagerDuty + Slack
     - match:
         severity: critical
       receiver: 'pagerduty-platform'
-      continue: true  # Also send to default (Slack)
+      continue: true  # Continue to catch-all Slack route below
 
     # Track 7 SLA alerts
     - match:
@@ -63,6 +64,9 @@ route:
         - match:
             severity: warning
           receiver: 'slack-ops'
+
+    # Catch-all: ensures alerts with continue=true also reach Slack
+    - receiver: 'slack-ops'
 
 # Notification receivers
 receivers:

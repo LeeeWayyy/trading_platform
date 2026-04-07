@@ -182,32 +182,44 @@ class TestAlertmanagerConfig:
         assert track7_route is not None, "track7 SLA route not found"
 
     def test_page_routing_exists(self, alertmanager_config):
-        """Verify severity=page alerts route to PagerDuty."""
+        """Verify severity=page alerts route to PagerDuty and reach Slack."""
         routes = alertmanager_config["route"].get("routes", [])
-        page_route = None
-        for route in routes:
-            match = route.get("match", {})
-            if match.get("severity") == "page":
-                page_route = route
-                break
+        page_route = next(
+            (r for r in routes if r.get("match", {}).get("severity") == "page"),
+            None,
+        )
 
         assert page_route is not None, "severity=page route not found"
         assert page_route.get("receiver") == "pagerduty-platform"
         assert page_route.get("continue") is True
 
+        # Verify a catch-all Slack route exists after the page route so
+        # alerts with continue=true are also delivered to Slack.
+        page_idx = routes.index(page_route)
+        remaining = routes[page_idx + 1 :]
+        slack_catchall = next(
+            (r for r in remaining if r.get("receiver") == "slack-ops" and "match" not in r),
+            None,
+        )
+        assert (
+            slack_catchall is not None
+        ), "catch-all slack-ops route must follow page route for dual-delivery"
+
     def test_pagerduty_maps_page_to_critical(self, alertmanager_config):
         """Verify PagerDuty severity normalizes page alerts to critical."""
-        pagerduty_receiver = None
-        for receiver in alertmanager_config["receivers"]:
-            if receiver.get("name") == "pagerduty-platform":
-                pagerduty_receiver = receiver
-                break
+        pagerduty_receiver = next(
+            (r for r in alertmanager_config["receivers"] if r.get("name") == "pagerduty-platform"),
+            None,
+        )
 
         assert pagerduty_receiver is not None
         pagerduty_config = pagerduty_receiver["pagerduty_configs"][0]
         severity_template = pagerduty_config["severity"]
-        assert 'if eq .CommonLabels.severity "page"' in severity_template
-        assert 'critical' in severity_template
+        expected_template = (
+            '{{ if eq .CommonLabels.severity "page" }}critical'
+            "{{ else }}{{ .CommonLabels.severity }}{{ end }}"
+        )
+        assert severity_template == expected_template
 
     def test_inhibit_rules_defined(self, alertmanager_config):
         """Verify inhibit rules are defined."""
