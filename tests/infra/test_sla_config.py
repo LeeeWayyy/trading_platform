@@ -185,7 +185,12 @@ class TestAlertmanagerConfig:
         """Verify severity=page alerts route to PagerDuty and reach Slack."""
         routes = alertmanager_config["route"].get("routes", [])
         page_route = next(
-            (r for r in routes if r.get("match", {}).get("severity") == "page"),
+            (
+                r
+                for r in routes
+                if r.get("match", {}).get("severity") == "page"
+                or "page" in r.get("match_re", {}).get("severity", "")
+            ),
             None,
         )
 
@@ -198,7 +203,11 @@ class TestAlertmanagerConfig:
         page_idx = routes.index(page_route)
         remaining = routes[page_idx + 1 :]
         slack_catchall = next(
-            (r for r in remaining if r.get("receiver") == "slack-ops" and "match" not in r),
+            (
+                r
+                for r in remaining
+                if r.get("receiver") == "slack-ops" and "match" not in r and "match_re" not in r
+            ),
             None,
         )
         assert (

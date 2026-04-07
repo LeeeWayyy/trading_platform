@@ -53,15 +53,9 @@ route:
           continue: true  # Also send critical/page to Slack below
         - receiver: 'slack-ops'  # Catches critical/page (via continue) and warning
 
-    # Page alerts -> PagerDuty + Slack
-    - match:
-        severity: page
-      receiver: 'pagerduty-platform'
-      continue: true  # Continue to catch-all Slack route below
-
-    # Critical alerts -> PagerDuty + Slack
-    - match:
-        severity: critical
+    # Page and critical alerts -> PagerDuty + Slack
+    - match_re:
+        severity: ^(critical|page)$
       receiver: 'pagerduty-platform'
       continue: true  # Continue to catch-all Slack route below
 
