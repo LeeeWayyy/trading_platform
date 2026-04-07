@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+
+# Matches PromQL label references to "pod" in aggregation clauses like
+# ``by (pod)`` / ``by(pod, ...)`` or label matchers like ``{pod="..."}``
+_POD_LABEL_RE = re.compile(r"\b(?:by|without)\s*\([^)]*\bpod\b|{\s*[^}]*\bpod\s*[=!~]")
 
 
 @pytest.fixture()
@@ -29,7 +34,7 @@ class TestNiceGUIAlertRules:
         for group in nicegui_rules.get("groups", []):
             for rule in group.get("rules", []):
                 expr = rule.get("expr", "")
-                assert "pod" not in expr, (
+                assert not _POD_LABEL_RE.search(expr), (
                     f"Alert {rule.get('alert', '<recording-rule>')} still references pod label: {expr}"
                 )
 
