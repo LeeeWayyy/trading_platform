@@ -116,7 +116,7 @@ hydration_complete = True
 # Bounded to prevent memory leaks from arbitrary user-provided combinations
 # Uses OrderedDict + asyncio.Lock for thread-safe LRU eviction
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
-_generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
+_generator_cache: OrderedDict[tuple[int, int, str], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
 
 
@@ -1835,7 +1835,7 @@ async def generate_signals(
             # This avoids creating a new SignalGenerator for each request
             # Uses asyncio.Lock for thread-safety and LRU eviction policy
             if request.top_n is not None or request.bottom_n is not None:
-                cache_key = (top_n, bottom_n)
+                cache_key = (top_n, bottom_n, settings.environment)
                 cached_generator = None
 
                 async with _generator_cache_lock:

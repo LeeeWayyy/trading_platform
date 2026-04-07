@@ -272,6 +272,11 @@ class SignalGenerator:
                 - Date is outside T1 data range
                 - Data not yet available for recent date
                 - Symbols not in T1 data
+            KeyError, TypeError, AttributeError, FileNotFoundError, OSError:
+                Re-raised when feature generation fails and mock fallback
+                is disabled (i.e. environment is not "dev" or "test").
+                The original exception type is preserved so API handlers
+                can map it to the correct HTTP status code.
 
         Example:
             >>> generator = SignalGenerator(registry, Path("data/adjusted"), top_n=2, bottom_n=2)
@@ -470,9 +475,7 @@ class SignalGenerator:
                             "environment": self.environment,
                         },
                     )
-                    raise RuntimeError(
-                        "No real features available and mock fallback is disabled outside dev/test"
-                    ) from e
+                    raise
 
                 # FALLBACK: Use mock features if Qlib integration not available
                 # This allows P3 testing without full Qlib data setup
@@ -1067,9 +1070,7 @@ class SignalGenerator:
                         "environment": self.environment,
                     },
                 )
-                raise RuntimeError(
-                    "No real features available and mock fallback is disabled outside dev/test"
-                ) from e
+                raise
 
             # Fallback to mock features if real features fail
             logger.warning(
