@@ -463,13 +463,14 @@ class SignalGenerator:
                     logger.error(
                         "Real feature generation failed in non-dev/test environment; refusing mock fallback",
                         extra={
+                            "strategy_id": self.model_registry.current_metadata.strategy_name if self.model_registry.current_metadata else "unknown",
                             "date": date_str,
                             "symbols": symbols_to_generate,
                             "error_type": type(e).__name__,
                             "environment": self.environment,
                         },
                     )
-                    raise ValueError(
+                    raise RuntimeError(
                         "No real features available and mock fallback is disabled outside dev/test"
                     ) from e
 
@@ -1059,13 +1060,14 @@ class SignalGenerator:
                 logger.error(
                     "Feature generation failed in non-dev/test environment; refusing mock fallback",
                     extra={
+                        "strategy_id": self.model_registry.current_metadata.strategy_name if self.model_registry.current_metadata else "unknown",
                         "error_type": type(e).__name__,
                         "date": date_str,
                         "symbols_count": len(symbols_to_generate),
                         "environment": self.environment,
                     },
                 )
-                raise ValueError(
+                raise RuntimeError(
                     "No real features available and mock fallback is disabled outside dev/test"
                 ) from e
 
