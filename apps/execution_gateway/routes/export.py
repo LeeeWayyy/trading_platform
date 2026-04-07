@@ -1163,11 +1163,19 @@ def _fetch_tca_data(
         "t.executed_at DESC",
     )
     # For TCA filters, qualify column names via tca_col_map so the
-    # WHERE clause references the correct table alias.
+    # WHERE clause references the correct table alias (e.g. "o.qty"
+    # for order_qty, not "t.order_qty").
+    tca_filter_params: dict[str, Any] | None = None
+    if filter_params:
+        tca_filter_params = {}
+        for col, spec in filter_params.items():
+            if col in columns:
+                qualified = tca_col_map.get(col, f"t.{col}")
+                tca_filter_params[qualified] = spec
+    qualified_filter_columns = [tca_col_map.get(c, f"t.{c}") for c in columns]
     filter_clause, filter_params_list = _build_filter_clauses(
-        filter_params,
-        columns,
-        col_prefix="t.",
+        tca_filter_params,
+        qualified_filter_columns,
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
