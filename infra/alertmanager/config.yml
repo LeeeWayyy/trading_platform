@@ -47,11 +47,11 @@ route:
       group_wait: 15s
       group_interval: 1m
       routes:
-        - match:
-            severity: critical
+        - match_re:
+            severity: ^(critical|page)$
           receiver: 'pagerduty-platform'
-          continue: true  # Also send critical to Slack below
-        - receiver: 'slack-ops'  # Catches page/critical (via continue) and warning
+          continue: true  # Also send critical/page to Slack below
+        - receiver: 'slack-ops'  # Catches critical/page (via continue) and warning
 
     # Page alerts -> PagerDuty + Slack
     - match:
