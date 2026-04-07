@@ -51,12 +51,15 @@ route:
       receiver: 'pagerduty-platform'
       continue: true  # Continue to catch-all Slack route below
 
-    # Track 7 SLA alerts
+    # Track 7 SLA alerts (continue to catch-all for Slack delivery)
+    # Note: critical track7 alerts may also match the severity=critical
+    # route above; PagerDuty deduplicates via dedup_key so this is safe.
     - match:
         sla: track7
       group_by: ['alertname']
       group_wait: 15s
       group_interval: 1m
+      continue: true  # Continue to catch-all Slack route below
       routes:
         - match:
             severity: critical

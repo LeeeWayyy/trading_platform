@@ -181,7 +181,7 @@ class TestAlertmanagerConfig:
 
         assert track7_route is not None, "track7 SLA route not found"
 
-    def test_page_routing_exists(self, alertmanager_config):
+    def test_page_routing_exists(self, alertmanager_config: dict) -> None:
         """Verify severity=page alerts route to PagerDuty and reach Slack."""
         routes = alertmanager_config["route"].get("routes", [])
         page_route = next(
@@ -205,7 +205,7 @@ class TestAlertmanagerConfig:
             slack_catchall is not None
         ), "catch-all slack-ops route must follow page route for dual-delivery"
 
-    def test_pagerduty_maps_page_to_critical(self, alertmanager_config):
+    def test_pagerduty_maps_page_to_critical(self, alertmanager_config: dict) -> None:
         """Verify PagerDuty severity normalizes page alerts to critical."""
         pagerduty_receiver = next(
             (r for r in alertmanager_config["receivers"] if r.get("name") == "pagerduty-platform"),
