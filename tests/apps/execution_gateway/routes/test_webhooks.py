@@ -202,6 +202,11 @@ class TestOrderWebhooks:
 
         mock_db.update_position_on_fill_with_conn.assert_called_once()
         mock_db.append_fill_to_order_metadata.assert_called_once()
+        # Verify fee_currency is persisted for TCA currency-safety checks
+        fill_data = mock_db.append_fill_to_order_metadata.call_args.kwargs.get(
+            "fill_data"
+        ) or mock_db.append_fill_to_order_metadata.call_args[1].get("fill_data", {})
+        assert fill_data.get("fee_currency") == "USD"
         mock_db.update_order_status_with_conn.assert_called_once()
         mock_invalidate.assert_called_once()
 

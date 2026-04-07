@@ -38,6 +38,8 @@ class TestCalculateSyntheticFill:
         assert result["source"] == "recon"
         assert "order_123" in result["fill_id"]
         assert result["_missing_qty"] == Decimal("100")
+        # Verify fee_currency is persisted for TCA currency-safety checks
+        assert result["fee_currency"] == "USD"
 
     def test_existing_fills_cover_quantity_returns_none(self) -> None:
         """When existing fills cover broker qty, no synthetic needed."""

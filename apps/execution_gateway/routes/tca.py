@@ -781,14 +781,18 @@ def _analyze_trades_for_tca(
 
 
 def _avg_fee_cost_bps(orders: list[TCAOrderDetail]) -> float | None:
-    """Average fee_cost_bps across orders, skipping None (untrusted currency).
+    """Average fee_cost_bps across orders, treating None as 0 for IS consistency.
 
-    Returns None if no orders have trustworthy fee data.
+    Uses total order count as denominator (same as other cost components)
+    so that avg_price + avg_fee + avg_opportunity ≈ avg_implementation_shortfall.
+    Returns None only if no orders have any trustworthy fee data.
     """
+    if not orders:
+        return None
     valid = [o.fee_cost_bps for o in orders if o.fee_cost_bps is not None]
     if not valid:
         return None
-    return sum(valid) / len(valid)
+    return sum(valid) / len(orders)
 
 
 # =============================================================================

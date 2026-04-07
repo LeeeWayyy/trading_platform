@@ -362,7 +362,7 @@ def _generate_demo_data(
             "avg_implementation_shortfall_bps": avg_is,
             "avg_price_shortfall_bps": sum(price_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_vwap_slippage_bps": avg_vwap,
-            "avg_fee_cost_bps": sum(fee_values) / len(fee_values) if fee_values else None,  # type: ignore[arg-type]
+            "avg_fee_cost_bps": sum(fee_values) / n if fee_values else None,  # type: ignore[arg-type]
             "avg_opportunity_cost_bps": sum(opp_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_market_impact_bps": avg_impact,
             "avg_timing_cost_bps": sum(timing_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]

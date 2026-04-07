@@ -1718,10 +1718,10 @@ class TestSimpleTcaFeeCurrencyFailClosed:
 
 
 class TestAvgFeeCostBpsAggregation:
-    """Regression test: _avg_fee_cost_bps skips None values."""
+    """Regression test: _avg_fee_cost_bps uses total order count as denominator."""
 
-    def test_avg_skips_none_fee_cost(self) -> None:
-        """Average should exclude orders with None fee_cost_bps."""
+    def test_avg_uses_total_count_denominator(self) -> None:
+        """Average should divide by total orders (not just valid), for IS consistency."""
         from apps.execution_gateway.schemas import TCAOrderDetail
 
         order_with_fee = TCAOrderDetail(
@@ -1753,7 +1753,7 @@ class TestAvgFeeCostBpsAggregation:
         )
 
         result = tca._avg_fee_cost_bps([order_with_fee, order_without_fee])
-        assert result == 2.0  # Only the valid order counted
+        assert result == 1.0  # 2.0 / 2 orders (total count denominator for IS consistency)
 
     def test_avg_all_none_returns_none(self) -> None:
         """Average should be None when all orders have None fee_cost_bps."""
