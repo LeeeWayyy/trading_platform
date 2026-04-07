@@ -830,8 +830,19 @@ def _fetch_positions_data(
     traded by multiple strategies are excluded to prevent cross-strategy
     data leakage.
     """
-    order_clause = _build_order_clause(sort_model, columns, "p.symbol ASC")
-    col_list = ", ".join(f"p.{c}" for c in columns)
+    # Qualify sort columns with the "p." alias to avoid ambiguity when
+    # joining positions with the symbol_strategy CTE.
+    qualified_sort: list[dict[str, Any]] | None = None
+    if sort_model:
+        qualified_sort = [
+            {**item, "colId": f"p.{item['colId']}"} if item.get("colId") in columns else item
+            for item in sort_model
+        ]
+    qualified_columns = [f"p.{c}" for c in columns]
+    order_clause = _build_order_clause(
+        qualified_sort, qualified_columns, "p.symbol ASC",
+    )
+    col_list = ", ".join(f"p.{c} AS {c}" for c in columns)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
