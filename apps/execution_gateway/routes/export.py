@@ -1047,7 +1047,7 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
             return True  # No filter value provided — can't compare, keep row
         num_filter = _to_decimal(filter_value)
         if num_filter is None:
-            return True  # Bad filter value — can't compare, keep row
+            return False  # Bad filter value — exclude row (fail-closed)
         if operator == "equals":
             return num_val == num_filter
         if operator == "notEqual":
@@ -1120,8 +1120,8 @@ def _match_filter(value: Any, filter_def: dict[str, Any]) -> bool:
         if operator == "inRange":
             if dt_to is not None:
                 return dt_from.date() <= dt_val.date() <= dt_to.date()
-            # Missing dateTo — can't apply range, keep row (consistent with numeric)
-            return True
+            # Missing dateTo — incomplete range filter, exclude row (fail-closed)
+            return False
         return True
 
     # Unsupported filter type — keep the row
@@ -1302,7 +1302,8 @@ def _apply_sort(
             return _key
 
         non_null_rows.sort(key=_make_key(idx), reverse=descending)
-        sorted_rows = non_null_rows + null_rows
+        # Nulls first when descending (see missing data at top), nulls last when ascending
+        sorted_rows = (null_rows + non_null_rows) if descending else (non_null_rows + null_rows)
 
     return sorted_rows
 
@@ -1351,9 +1352,7 @@ def _build_excel_sync(
 
     # Visible-scope truncation: applied AFTER filter+sort so the exported
     # slice matches the user's sorted view (top N rows of sorted result).
-    # Skip for working_orders: estimated_row_count includes synthetic
-    # hierarchy rows but we export flat leaf orders.
-    if max_rows is not None and grid_name != "working_orders" and len(data_rows) > max_rows:
+    if max_rows is not None and len(data_rows) > max_rows:
         data_rows = data_rows[:max_rows]
 
     # Filter to visible columns if specified, preserving CLIENT column order

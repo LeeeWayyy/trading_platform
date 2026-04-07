@@ -484,16 +484,16 @@ class TestApplySort:
         assert result[1] == ["MSFT"]
         assert result[2] == [None]
 
-    def test_sort_nulls_last_descending(self) -> None:
-        """Nulls must sort last even with descending sort order."""
+    def test_sort_nulls_first_descending(self) -> None:
+        """Nulls sort first when descending (surface missing data at top)."""
         columns = ["symbol"]
         rows = [["AAPL"], [None], ["MSFT"]]
         sort_model = [{"colId": "symbol", "sort": "desc"}]
         result = _apply_sort(columns, rows, sort_model)
-        # Descending: MSFT, AAPL, then None last
-        assert result[0] == ["MSFT"]
-        assert result[1] == ["AAPL"]
-        assert result[2] == [None]
+        # Descending: None first, then MSFT, AAPL
+        assert result[0] == [None]
+        assert result[1] == ["MSFT"]
+        assert result[2] == ["AAPL"]
 
     def test_unknown_column_ignored(self) -> None:
         columns = ["symbol"]

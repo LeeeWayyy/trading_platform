@@ -102,7 +102,7 @@ class GridExportToolbar:
                             existing.get("operator") == "AND"
                             and isinstance(existing.get("conditions"), list)
                         ):
-                            existing["conditions"].append(val)
+                            existing["conditions"] = list(existing.get("conditions", [])) + [val]
                         else:
                             # Wrap both in a new AND compound
                             base[key] = {
