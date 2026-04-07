@@ -214,6 +214,39 @@ class TestAlertmanagerConfig:
             slack_catchall is not None
         ), "catch-all slack-ops route must follow page route for dual-delivery"
 
+    def test_track7_routes_page_to_pagerduty(self, alertmanager_config: dict) -> None:
+        """Verify track7 sub-routes send page alerts to PagerDuty and Slack."""
+        routes = alertmanager_config["route"].get("routes", [])
+        track7_route = next(
+            (r for r in routes if r.get("match", {}).get("sla") == "track7"),
+            None,
+        )
+        assert track7_route is not None, "track7 SLA route not found"
+
+        child_routes = track7_route.get("routes", [])
+        # First child should match critical|page and route to PagerDuty
+        pagerduty_child = next(
+            (
+                r
+                for r in child_routes
+                if r.get("receiver") == "pagerduty-platform"
+                and "page" in r.get("match_re", {}).get("severity", "")
+            ),
+            None,
+        )
+        assert pagerduty_child is not None, "track7 must route page alerts to pagerduty-platform"
+        assert (
+            pagerduty_child.get("continue") is True
+        ), "track7 PagerDuty child must continue to Slack catch-all"
+
+        # A catch-all Slack child must follow for dual-delivery
+        pd_idx = child_routes.index(pagerduty_child)
+        slack_child = next(
+            (r for r in child_routes[pd_idx + 1 :] if r.get("receiver") == "slack-ops"),
+            None,
+        )
+        assert slack_child is not None, "track7 must have a Slack catch-all child after PagerDuty"
+
     def test_pagerduty_maps_page_to_critical(self, alertmanager_config: dict) -> None:
         """Verify PagerDuty severity normalizes page alerts to critical."""
         pagerduty_receiver = next(
