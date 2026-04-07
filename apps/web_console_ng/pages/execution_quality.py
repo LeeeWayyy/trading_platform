@@ -741,7 +741,10 @@ async def _render_tca_dashboard(
                 ui.label("Cost Decomposition by Date").classes("text-lg font-bold mb-2")
 
                 if orders:
-                    # Aggregate by date (track fee count separately to skip None values)
+                    # Aggregate by date
+                    # Fee uses same denominator (count) as other components so
+                    # stacked bar components sum to the correct per-order average.
+                    # None when no orders on that date have trustworthy fee data.
                     date_data: dict[str, dict[str, float]] = {}
                     for order in orders:
                         d = order.get("execution_date", "")
@@ -749,7 +752,7 @@ async def _render_tca_dashboard(
                             date_data[d] = {
                                 "price": 0,
                                 "fee": 0,
-                                "fee_count": 0,
+                                "has_fee": 0,
                                 "opportunity": 0,
                                 "timing": 0,
                                 "count": 0,
@@ -758,12 +761,12 @@ async def _render_tca_dashboard(
                         fee_val = order.get("fee_cost_bps")
                         if fee_val is not None:
                             date_data[d]["fee"] += fee_val
-                            date_data[d]["fee_count"] += 1
+                            date_data[d]["has_fee"] = 1
                         date_data[d]["opportunity"] += order.get("opportunity_cost_bps", 0)
                         date_data[d]["timing"] += order.get("timing_cost_bps", 0)
                         date_data[d]["count"] += 1
 
-                    # Average per date
+                    # Average per date (all components use count as denominator)
                     sorted_dates = sorted(date_data.keys())
                     labels = sorted_dates
                     price_shortfall = [
@@ -771,8 +774,8 @@ async def _render_tca_dashboard(
                         for d in sorted_dates
                     ]
                     fee_cost: list[float | None] = [
-                        round(date_data[d]["fee"] / date_data[d]["fee_count"], 2)
-                        if date_data[d]["fee_count"] > 0
+                        round(date_data[d]["fee"] / date_data[d]["count"], 2)
+                        if date_data[d]["has_fee"]
                         else None
                         for d in sorted_dates
                     ]

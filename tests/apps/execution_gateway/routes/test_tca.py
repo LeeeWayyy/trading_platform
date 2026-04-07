@@ -1023,7 +1023,6 @@ class TestResultToOrderDetailNanConversion:
 
     def test_nan_fee_cost_bps_converted_to_none(self) -> None:
         """NaN fee_cost_bps from analyzer is converted to None in TCAOrderDetail."""
-        import math
         from libs.platform.analytics.execution_quality import ExecutionAnalysisResult
 
         mock_result = MagicMock(spec=ExecutionAnalysisResult)
