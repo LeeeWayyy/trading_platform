@@ -161,6 +161,19 @@ class TestTCAAnalysisSummary:
             TCAAnalysisSummary(**valid_summary_data)
         assert "total_orders" in str(exc_info.value)
 
+    def test_nullable_avg_fee_cost_bps(self, valid_summary_data: dict) -> None:
+        """avg_fee_cost_bps accepts None (mixed/non-USD currencies)."""
+        valid_summary_data["avg_fee_cost_bps"] = None
+        summary = TCAAnalysisSummary(**valid_summary_data)
+        assert summary.avg_fee_cost_bps is None
+
+    def test_nullable_avg_fee_cost_bps_serialization(self, valid_summary_data: dict) -> None:
+        """avg_fee_cost_bps=None serializes as null in JSON."""
+        valid_summary_data["avg_fee_cost_bps"] = None
+        summary = TCAAnalysisSummary(**valid_summary_data)
+        data = summary.model_dump()
+        assert data["avg_fee_cost_bps"] is None
+
 
 class TestTCAOrderDetail:
     """Tests for TCAOrderDetail model."""
@@ -234,6 +247,19 @@ class TestTCAOrderDetail:
         valid_order_data["vwap_coverage_pct"] = 105.0
         with pytest.raises(ValidationError):
             TCAOrderDetail(**valid_order_data)
+
+    def test_nullable_fee_cost_bps(self, valid_order_data: dict) -> None:
+        """fee_cost_bps accepts None (mixed/non-USD fee currencies)."""
+        valid_order_data["fee_cost_bps"] = None
+        order = TCAOrderDetail(**valid_order_data)
+        assert order.fee_cost_bps is None
+
+    def test_nullable_fee_cost_bps_serialization(self, valid_order_data: dict) -> None:
+        """fee_cost_bps=None serializes as null in JSON."""
+        valid_order_data["fee_cost_bps"] = None
+        order = TCAOrderDetail(**valid_order_data)
+        data = order.model_dump()
+        assert data["fee_cost_bps"] is None
 
 
 class TestTCABenchmarkPoint:

@@ -1427,7 +1427,13 @@ class TCAMetricValue(BaseModel):
 
 
 class TCAAnalysisSummary(BaseModel):
-    """Aggregated TCA metrics summary for a date range."""
+    """Aggregated TCA metrics summary for a date range.
+
+    Breaking change (issue #158): ``avg_fee_cost_bps`` is now ``float | None``
+    (was ``float``). Returns ``None`` when fee data is untrusted (mixed/non-USD
+    currencies) or no orders have trustworthy fee data. Internal consumers
+    (web console) have been updated. External consumers should handle ``null``.
+    """
 
     # Time range
     start_date: date
@@ -1477,7 +1483,11 @@ class TCAAnalysisSummary(BaseModel):
 
 
 class TCAOrderDetail(BaseModel):
-    """TCA metrics for a single order."""
+    """TCA metrics for a single order.
+
+    Breaking change (issue #158): ``fee_cost_bps`` is now ``float | None``
+    (was ``float``). Returns ``None`` when fee currency is mixed or non-USD.
+    """
 
     # Order identification
     client_order_id: str = Field(..., description="Client order ID")
