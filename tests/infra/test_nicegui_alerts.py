@@ -1,0 +1,50 @@
+"""Validate NiceGUI Prometheus alert rules against Docker Compose scrape labels."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+
+@pytest.fixture()
+def nicegui_rules() -> dict:
+    """Load NiceGUI alert rules."""
+    rules_path = Path(__file__).parent.parent.parent / "infra/prometheus/alerts/nicegui.yml"
+    with open(rules_path) as f:
+        return yaml.safe_load(f)
+
+
+class TestNiceGUIAlertRules:
+    """Validate NiceGUI alert rules use labels available in Docker Compose scraping."""
+
+    def test_nicegui_rules_valid_yaml(self, nicegui_rules):
+        assert nicegui_rules is not None
+        assert isinstance(nicegui_rules, dict)
+
+    def test_nicegui_rules_do_not_reference_pod_label(self, nicegui_rules):
+        """Docker Compose static scrape targets expose instance/job labels, not pod."""
+        for group in nicegui_rules.get("groups", []):
+            for rule in group.get("rules", []):
+                expr = rule.get("expr", "")
+                assert "pod" not in expr, (
+                    f"Alert {rule.get('alert', '<recording-rule>')} still references pod label: {expr}"
+                )
+
+    def test_nicegui_rules_use_instance_label_for_per_target_alerts(self, nicegui_rules):
+        """Per-target aggregations should key on instance under Docker Compose."""
+        per_target_alerts = {
+            "HighWSDisconnectRate",
+            "AuthFailureSpike",
+            "HighAPILatency",
+            "RedisLatencyHigh",
+        }
+
+        for group in nicegui_rules.get("groups", []):
+            for rule in group.get("rules", []):
+                if rule.get("alert") in per_target_alerts:
+                    expr = rule.get("expr", "")
+                    assert "instance" in expr, (
+                        f"Alert {rule['alert']} should aggregate by instance under Docker Compose: {expr}"
+                    )
