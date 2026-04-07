@@ -52,7 +52,7 @@ route:
       continue: true  # Continue to catch-all Slack route below
 
     # Track 7 SLA alerts — handled entirely within sub-routes
-    # (no continue: child routes already deliver to PagerDuty and Slack)
+    # (no continue on parent: avoids duplicate Slack for warnings)
     - match:
         sla: track7
       group_by: ['alertname']
@@ -62,9 +62,8 @@ route:
         - match:
             severity: critical
           receiver: 'pagerduty-platform'
-        - match:
-            severity: warning
-          receiver: 'slack-ops'
+          continue: true  # Also send critical to Slack below
+        - receiver: 'slack-ops'  # Catches critical (via continue) and warning
 
     # Catch-all: ensures alerts with continue=true also reach Slack
     - receiver: 'slack-ops'
