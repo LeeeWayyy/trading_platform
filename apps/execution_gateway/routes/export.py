@@ -19,6 +19,7 @@ Design Pattern:
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
@@ -749,6 +750,12 @@ _GRID_COLUMNS: dict[str, list[str]] = {
         "details",
         "reason",
     ],
+    # NOTE: The TCA grid in the web console displays computed metrics
+    # (e.g. ``is_bps``, ``fill_rate_pct``) that are derived client-side.
+    # The export provides the raw underlying trade/order data so users
+    # can compute their own analytics.  When the grid sends computed
+    # column names via ``visible_columns``, ``_validate_columns`` drops
+    # them and falls back to this full raw-data allowlist.
     "tca": [
         "trade_id",
         "client_order_id",
@@ -1008,53 +1015,70 @@ async def _generate_excel_content(
     # Validate requested columns against server allowlist
     columns = _validate_columns(grid_name, visible_columns)
 
-    # Fetch real data
+    # Log when filter_params are provided but not yet applied.
+    # AG Grid filter model support is not yet implemented; exports
+    # return strategy-scoped data without additional column filters.
+    if filter_params:
+        logger.warning(
+            "export_filter_params_not_applied",
+            extra={
+                "grid_name": grid_name,
+                "filter_keys": list(filter_params.keys()),
+            },
+        )
+
+    # Offload synchronous DB fetch to a worker thread to avoid blocking
+    # the FastAPI event loop.
     fetcher = _GRID_FETCHERS[grid_name]
-    rows = fetcher(ctx, strategy_ids, columns, sort_model)
+    rows = await asyncio.to_thread(fetcher, ctx, strategy_ids, columns, sort_model)
 
-    # Build workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = grid_name.title()
+    # Build workbook (CPU-bound; done in worker thread below)
+    def _build_workbook() -> bytes:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = grid_name.title()
 
-    # Header row — sanitize headers
-    for col_idx, header in enumerate(columns, 1):
-        ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
+        # Header row -- sanitize headers
+        for col_idx, header in enumerate(columns, 1):
+            ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
 
-    # Data rows — sanitize only string values to prevent formula injection
-    # while preserving native Excel types (numbers, dates) for proper
-    # formatting and calculations.
-    for row_idx, row_data in enumerate(rows, 2):
-        for col_idx, col_name in enumerate(columns, 1):
-            raw_value = row_data.get(col_name)
-            if isinstance(raw_value, dict | list):
-                raw_value = json.dumps(raw_value, default=str)
+        # Data rows -- sanitize only string values to prevent formula
+        # injection while preserving native Excel types (numbers, dates)
+        # for proper formatting and calculations.
+        for row_idx, row_data in enumerate(rows, 2):
+            for col_idx, col_name in enumerate(columns, 1):
+                raw_value = row_data.get(col_name)
+                if isinstance(raw_value, dict | list):
+                    raw_value = json.dumps(raw_value, default=str)
 
-            # Only sanitize strings to prevent formula injection while
-            # preserving numeric/date types that openpyxl handles natively.
-            if isinstance(raw_value, str):
-                value_to_set: Any = sanitize_for_export(raw_value)
-            elif raw_value is None:
-                value_to_set = ""
-            elif isinstance(raw_value, datetime):
-                # openpyxl does not support timezone-aware datetimes.
-                # Ensure UTC first, then strip for Excel compatibility.
-                value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
-            else:
-                value_to_set = raw_value
+                # Only sanitize strings to prevent formula injection
+                # while preserving numeric/date types that openpyxl
+                # handles natively.
+                if isinstance(raw_value, str):
+                    value_to_set: Any = sanitize_for_export(raw_value)
+                elif raw_value is None:
+                    value_to_set = ""
+                elif isinstance(raw_value, datetime):
+                    # openpyxl does not support timezone-aware datetimes.
+                    # Ensure UTC first, then strip for Excel compatibility.
+                    value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
+                else:
+                    value_to_set = raw_value
 
-            ws.cell(
-                row=row_idx,
-                column=col_idx,
-                value=value_to_set,
-            )
+                ws.cell(
+                    row=row_idx,
+                    column=col_idx,
+                    value=value_to_set,
+                )
 
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
 
+    excel_bytes = await asyncio.to_thread(_build_workbook)
     row_count = len(rows)
-    return output.getvalue(), row_count
+    return excel_bytes, row_count
 
 
 @router.get(
