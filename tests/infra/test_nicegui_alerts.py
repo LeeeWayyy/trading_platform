@@ -18,7 +18,7 @@ _POD_LABEL_RE = re.compile(r"\b(?:by|without)\s*\([^)]*\bpod\b|{\s*[^}]*\bpod\s*
 def nicegui_rules() -> dict[str, Any]:
     """Load NiceGUI alert rules."""
     rules_path = Path(__file__).parent.parent.parent / "infra/prometheus/alerts/nicegui.yml"
-    with open(rules_path) as f:
+    with open(rules_path, encoding="utf-8") as f:
         return yaml.safe_load(f)  # type: ignore[no-any-return]
 
 
