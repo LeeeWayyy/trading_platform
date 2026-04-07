@@ -41,6 +41,7 @@ See Also:
 
 import json
 import logging
+import os
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -208,6 +209,8 @@ class SignalGenerator:
         self.top_n = top_n
         self.bottom_n = bottom_n
         self.feature_cache = feature_cache
+        self.environment = os.getenv("ENVIRONMENT", "dev").lower()
+        self.allow_mock_feature_fallback = self.environment in {"dev", "test"}
 
         logger.info(
             "SignalGenerator initialized",
@@ -216,6 +219,8 @@ class SignalGenerator:
                 "top_n": top_n,
                 "bottom_n": bottom_n,
                 "feature_cache_enabled": feature_cache is not None,
+                "environment": self.environment,
+                "allow_mock_feature_fallback": self.allow_mock_feature_fallback,
             },
         )
 
@@ -449,6 +454,20 @@ class SignalGenerator:
                 FileNotFoundError,
                 OSError,
             ) as e:
+                if not self.allow_mock_feature_fallback:
+                    logger.error(
+                        "Real feature generation failed in non-dev/test environment; refusing mock fallback",
+                        extra={
+                            "date": date_str,
+                            "symbols": symbols_to_generate,
+                            "error_type": type(e).__name__,
+                            "environment": self.environment,
+                        },
+                    )
+                    raise ValueError(
+                        "No real features available and mock fallback is disabled outside dev/test"
+                    ) from e
+
                 # FALLBACK: Use mock features if Qlib integration not available
                 # This allows P3 testing without full Qlib data setup
                 logger.warning(
@@ -457,6 +476,7 @@ class SignalGenerator:
                         "date": date_str,
                         "symbols": symbols_to_generate,
                         "error_type": type(e).__name__,
+                        "environment": self.environment,
                     },
                 )
                 try:
@@ -1030,6 +1050,23 @@ class SignalGenerator:
                     )
 
         except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
+            if not self.allow_mock_feature_fallback:
+                logger.error(
+                    "Feature generation failed in non-dev/test environment; refusing mock fallback",
+                    extra={
+                        "error_type": type(e).__name__,
+                        "date": date_str,
+                        "symbols_count": len(symbols_to_generate),
+                        "environment": self.environment,
+                    },
+                )
+                return {
+                    "cached_count": 0,
+                    "skipped_count": len(symbols_to_generate),
+                    "symbols_cached": [],
+                    "symbols_skipped": symbols_to_generate.copy(),
+                }
+
             # Fallback to mock features if real features fail
             logger.warning(
                 f"Feature generation failed, trying mock: {e}",
@@ -1037,6 +1074,7 @@ class SignalGenerator:
                     "error_type": type(e).__name__,
                     "date": date_str,
                     "symbols_count": len(symbols_to_generate),
+                    "environment": self.environment,
                 },
             )
             try:

@@ -360,6 +360,33 @@ class TestSignalGeneration:
             )
 
     @patch("apps.signal_service.signal_generator.get_alpha158_features")
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
+    def test_generate_signals_production_disables_mock_fallback(
+        self,
+        mock_get_mock,
+        mock_get_real,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        monkeypatch,
+    ):
+        """Non-dev/test environments fail closed instead of using mock features."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        mock_get_real.side_effect = ValueError("Data not available")
+
+        generator = SignalGenerator(mock_model_with_registry, temp_dir)
+
+        with pytest.raises(
+            ValueError, match="mock fallback is disabled outside dev/test"
+        ):
+            generator.generate_signals(
+                symbols=["AAPL"],
+                as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
+            )
+
+        mock_get_mock.assert_not_called()
+
+    @patch("apps.signal_service.signal_generator.get_alpha158_features")
     def test_generate_signals_prediction_normalization(
         self, mock_get_features, test_db_url, temp_dir, mock_model_with_registry, sample_features
     ):
@@ -686,6 +713,41 @@ class TestFeaturePrecomputation:
             # All symbols failed
             assert result["cached_count"] == 0
             assert result["skipped_count"] == 1
+
+    @patch("apps.signal_service.signal_generator.get_alpha158_features")
+    def test_precompute_production_disables_mock_fallback(
+        self,
+        mock_get_features,
+        test_db_url,
+        temp_dir,
+        mock_model_with_registry,
+        mock_feature_cache,
+        monkeypatch,
+    ):
+        """Precompute fails closed outside dev/test instead of seeding mock cache."""
+        monkeypatch.setenv("ENVIRONMENT", "staging")
+        mock_feature_cache.mget.return_value = {}
+        mock_get_features.side_effect = ValueError("Data not available")
+
+        generator = SignalGenerator(
+            mock_model_with_registry,
+            temp_dir,
+            feature_cache=mock_feature_cache,
+        )
+
+        with patch(
+            "apps.signal_service.signal_generator.get_mock_alpha158_features"
+        ) as mock_get_mock:
+            result = generator.precompute_features(
+                symbols=["AAPL", "MSFT"],
+                as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
+            )
+
+        assert result["cached_count"] == 0
+        assert result["skipped_count"] == 2
+        assert result["symbols_cached"] == []
+        assert result["symbols_skipped"] == ["AAPL", "MSFT"]
+        mock_get_mock.assert_not_called()
 
 
 # ============================================================================
