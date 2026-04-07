@@ -801,6 +801,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 top_n=settings.top_n,
                 bottom_n=settings.bottom_n,
                 feature_cache=feature_cache,  # Pass feature cache (None if disabled)
+                environment=settings.environment,
             )
 
         # Step 4.2: Initialize shadow validator (T4)
@@ -1857,6 +1858,7 @@ async def generate_signals(
                             top_n=top_n,
                             bottom_n=bottom_n,
                             feature_cache=feature_cache,  # Pass feature cache for consistency
+                            environment=settings.environment,
                         )
                         _generator_cache[cache_key] = cached_generator
 

@@ -41,7 +41,6 @@ See Also:
 
 import json
 import logging
-import os
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -169,6 +168,7 @@ class SignalGenerator:
         top_n: int = 3,
         bottom_n: int = 3,
         feature_cache: FeatureCache | None = None,
+        environment: str = "dev",
     ):
         """
         Initialize signal generator.
@@ -186,6 +186,11 @@ class SignalGenerator:
             feature_cache: Optional Redis-backed feature cache (T1.2)
                 If provided, features will be cached/retrieved from Redis.
                 If None, features will be generated fresh on every request.
+            environment: Deployment environment name (e.g. "dev", "test",
+                "staging", "production"). Mock feature fallback is only
+                allowed in "dev" and "test". Callers should pass this from
+                Pydantic Settings (``Settings.environment``) rather than
+                reading ``os.getenv`` directly.
 
         Raises:
             ValueError: If top_n or bottom_n < 0
@@ -209,7 +214,7 @@ class SignalGenerator:
         self.top_n = top_n
         self.bottom_n = bottom_n
         self.feature_cache = feature_cache
-        self.environment = os.getenv("ENVIRONMENT", "dev").lower()
+        self.environment = environment.lower()
         self.allow_mock_feature_fallback = self.environment in {"dev", "test"}
 
         logger.info(
@@ -1060,12 +1065,9 @@ class SignalGenerator:
                         "environment": self.environment,
                     },
                 )
-                return {
-                    "cached_count": 0,
-                    "skipped_count": len(symbols_to_generate),
-                    "symbols_cached": [],
-                    "symbols_skipped": symbols_to_generate.copy(),
-                }
+                raise ValueError(
+                    "No real features available and mock fallback is disabled outside dev/test"
+                ) from e
 
             # Fallback to mock features if real features fail
             logger.warning(
