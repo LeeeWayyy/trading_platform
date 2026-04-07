@@ -185,9 +185,9 @@ async def verify_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    scopes, service = result
+    scopes, role = result
 
-    return ServiceToken(scopes=scopes, auth_role=service)
+    return ServiceToken(scopes=scopes, auth_role=role)
 
 
 async def verify_read_scope(
@@ -204,6 +204,8 @@ async def verify_read_scope(
     Raises:
         HTTPException 403: If scope is missing.
     """
+    # Defense-in-depth: admin tokens already include model:read, but we check
+    # model:admin explicitly so scope gates remain correct if tier assignments change.
     if "model:read" not in token.scopes and "model:admin" not in token.scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -226,6 +228,7 @@ async def verify_write_scope(
     Raises:
         HTTPException 403: If scope is missing.
     """
+    # Defense-in-depth: admin tokens already include model:write.
     if "model:write" not in token.scopes and "model:admin" not in token.scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

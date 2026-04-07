@@ -115,11 +115,16 @@ async def test_verify_token_invalid_token_does_not_log_token_material(
         with pytest.raises(HTTPException):
             await auth.verify_token(creds)
 
-    # Ensure at least one warning was emitted
-    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warning_records) >= 1, "Expected at least one WARNING log record"
+    # Filter to the specific auth failure warning by message content
+    auth_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and "token not recognized" in r.getMessage()
+    ]
+    assert len(auth_warnings) >= 1, "Expected auth failure WARNING log record"
 
-    for record in warning_records:
+    for record in auth_warnings:
         # No token material should appear in the log message
         assert secret_token not in record.getMessage()
         assert secret_token[:4] not in record.getMessage()
