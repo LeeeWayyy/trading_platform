@@ -1835,7 +1835,7 @@ async def generate_signals(
             # This avoids creating a new SignalGenerator for each request
             # Uses asyncio.Lock for thread-safety and LRU eviction policy
             if request.top_n is not None or request.bottom_n is not None:
-                cache_key = (top_n, bottom_n, settings.environment)
+                cache_key = (top_n, bottom_n, settings.environment.lower())
                 cached_generator = None
 
                 async with _generator_cache_lock:
@@ -2153,10 +2153,36 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
     symbols = [s.upper() for s in request.symbols]
 
     # Pre-compute features
-    result = signal_generator.precompute_features(
-        symbols=symbols,
-        as_of_date=as_of_date,
-    )
+    try:
+        result = signal_generator.precompute_features(
+            symbols=symbols,
+            as_of_date=as_of_date,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Data not found: {str(exc)}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid request: {str(exc)}",
+        ) from exc
+    except (KeyError, TypeError, AttributeError, OSError) as exc:
+        logger.error(
+            "Feature precomputation failed",
+            extra={
+                "symbols": symbols,
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Feature precomputation failed: {str(exc)}",
+        ) from exc
 
     return PrecomputeResponse(
         cached_count=result["cached_count"],
