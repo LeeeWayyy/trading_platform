@@ -741,7 +741,7 @@ async def _render_tca_dashboard(
                 ui.label("Cost Decomposition by Date").classes("text-lg font-bold mb-2")
 
                 if orders:
-                    # Aggregate by date
+                    # Aggregate by date (track fee count separately to skip None values)
                     date_data: dict[str, dict[str, float]] = {}
                     for order in orders:
                         d = order.get("execution_date", "")
@@ -749,12 +749,16 @@ async def _render_tca_dashboard(
                             date_data[d] = {
                                 "price": 0,
                                 "fee": 0,
+                                "fee_count": 0,
                                 "opportunity": 0,
                                 "timing": 0,
                                 "count": 0,
                             }
                         date_data[d]["price"] += order.get("price_shortfall_bps", 0)
-                        date_data[d]["fee"] += order.get("fee_cost_bps") or 0
+                        fee_val = order.get("fee_cost_bps")
+                        if fee_val is not None:
+                            date_data[d]["fee"] += fee_val
+                            date_data[d]["fee_count"] += 1
                         date_data[d]["opportunity"] += order.get("opportunity_cost_bps", 0)
                         date_data[d]["timing"] += order.get("timing_cost_bps", 0)
                         date_data[d]["count"] += 1
@@ -767,7 +771,10 @@ async def _render_tca_dashboard(
                         for d in sorted_dates
                     ]
                     fee_cost = [
-                        round(date_data[d]["fee"] / date_data[d]["count"], 2) for d in sorted_dates
+                        round(date_data[d]["fee"] / date_data[d]["fee_count"], 2)
+                        if date_data[d]["fee_count"] > 0
+                        else 0.0
+                        for d in sorted_dates
                     ]
                     opportunity_cost = [
                         round(date_data[d]["opportunity"] / date_data[d]["count"], 2)

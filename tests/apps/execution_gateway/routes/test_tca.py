@@ -1712,3 +1712,166 @@ class TestAvgFeeCostBpsAggregation:
 
         result = tca._avg_fee_cost_bps([order])
         assert result is None
+
+
+class TestFeeCurrencyPropagationEndToEnd:
+    """End-to-end test: fee_currency propagates from trade metadata
+    through _build_fill_batch into _compute_simple_tca."""
+
+    def test_non_usd_fee_currency_from_metadata_produces_none(self) -> None:
+        """fee_cost_bps should be None when fill metadata has non-USD fee_currency."""
+        base_time = datetime.now(UTC) - timedelta(hours=1)
+        trades = [
+            {
+                "trade_id": "trade-0",
+                "client_order_id": "order-eur",
+                "broker_order_id": "broker-order-eur",
+                "strategy_id": "alpha_baseline",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": 100.0,
+                "executed_at": base_time,
+                "source": "webhook",
+                "order_submitted_at": base_time - timedelta(minutes=1),
+                "order_qty": 100,
+                "order_filled_qty": 100,
+                "filled_avg_price": 100.0,
+                "order_metadata": {
+                    "fills": [
+                        {
+                            "fill_id": "trade-0",
+                            "fee": "0.50",
+                            "fee_currency": "EUR",
+                        }
+                    ]
+                },
+            },
+        ]
+
+        batch = tca._build_fill_batch("order-eur", trades)
+        assert batch is not None
+        assert batch.fills[0].fee_currency == "EUR"
+        assert batch.has_non_usd_fees is True
+
+        result = tca._compute_simple_tca(batch)
+        assert result is not None
+        assert result.fee_cost_bps is None, (
+            "fee_cost_bps must be None when fee_currency propagated from metadata is non-USD"
+        )
+
+    def test_mixed_fee_currency_from_metadata_produces_none(self) -> None:
+        """fee_cost_bps should be None when fill metadata has mixed fee currencies."""
+        base_time = datetime.now(UTC) - timedelta(hours=1)
+        trades = [
+            {
+                "trade_id": "trade-0",
+                "client_order_id": "order-mix",
+                "broker_order_id": "broker-order-mix",
+                "strategy_id": "alpha_baseline",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": 100.0,
+                "executed_at": base_time,
+                "source": "webhook",
+                "order_submitted_at": base_time - timedelta(minutes=1),
+                "order_qty": 200,
+                "order_filled_qty": 200,
+                "filled_avg_price": 100.0,
+                "order_metadata": {
+                    "fills": [
+                        {
+                            "fill_id": "trade-0",
+                            "fee": "0.50",
+                            "fee_currency": "USD",
+                        },
+                        {
+                            "fill_id": "trade-1",
+                            "fee": "0.30",
+                            "fee_currency": "EUR",
+                        },
+                    ]
+                },
+            },
+            {
+                "trade_id": "trade-1",
+                "client_order_id": "order-mix",
+                "broker_order_id": "broker-order-mix",
+                "strategy_id": "alpha_baseline",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": 100.0,
+                "executed_at": base_time + timedelta(seconds=1),
+                "source": "webhook",
+                "order_submitted_at": base_time - timedelta(minutes=1),
+                "order_qty": 200,
+                "order_filled_qty": 200,
+                "filled_avg_price": 100.0,
+                "order_metadata": {
+                    "fills": [
+                        {
+                            "fill_id": "trade-0",
+                            "fee": "0.50",
+                            "fee_currency": "USD",
+                        },
+                        {
+                            "fill_id": "trade-1",
+                            "fee": "0.30",
+                            "fee_currency": "EUR",
+                        },
+                    ]
+                },
+            },
+        ]
+
+        batch = tca._build_fill_batch("order-mix", trades)
+        assert batch is not None
+        assert batch.has_mixed_currencies is True
+
+        result = tca._compute_simple_tca(batch)
+        assert result is not None
+        assert result.fee_cost_bps is None, (
+            "fee_cost_bps must be None when fee currencies from metadata are mixed"
+        )
+
+    def test_usd_fee_currency_from_metadata_produces_valid(self) -> None:
+        """fee_cost_bps should be a number when fill metadata has USD fee_currency."""
+        base_time = datetime.now(UTC) - timedelta(hours=1)
+        trades = [
+            {
+                "trade_id": "trade-0",
+                "client_order_id": "order-usd",
+                "broker_order_id": "broker-order-usd",
+                "strategy_id": "alpha_baseline",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": 100.0,
+                "executed_at": base_time,
+                "source": "webhook",
+                "order_submitted_at": base_time - timedelta(minutes=1),
+                "order_qty": 100,
+                "order_filled_qty": 100,
+                "filled_avg_price": 100.0,
+                "order_metadata": {
+                    "fills": [
+                        {
+                            "fill_id": "trade-0",
+                            "fee": "0.50",
+                            "fee_currency": "USD",
+                        }
+                    ]
+                },
+            },
+        ]
+
+        batch = tca._build_fill_batch("order-usd", trades)
+        assert batch is not None
+        assert batch.fills[0].fee_currency == "USD"
+
+        result = tca._compute_simple_tca(batch)
+        assert result is not None
+        assert result.fee_cost_bps is not None, "fee_cost_bps should be valid for USD"
+        assert isinstance(result.fee_cost_bps, float)

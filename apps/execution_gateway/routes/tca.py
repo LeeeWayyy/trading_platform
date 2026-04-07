@@ -415,6 +415,7 @@ def _build_fill_batch(
 
         # Extract fee from order metadata if available
         fee_amount = 0.0
+        fee_currency = "USD"  # Default; overridden if metadata provides it
         order_metadata = trade.get("order_metadata")
         if order_metadata and isinstance(order_metadata, dict):
             fills_meta = order_metadata.get("fills", [])
@@ -424,6 +425,10 @@ def _build_fill_batch(
                         fee_amount = float(fm.get("fee", 0) or 0)
                     except (ValueError, TypeError):
                         fee_amount = 0.0  # Default to 0 for non-numeric fee
+                    # Propagate fee_currency when stored in fill metadata
+                    stored_currency = fm.get("fee_currency")
+                    if isinstance(stored_currency, str) and stored_currency.strip():
+                        fee_currency = stored_currency.strip().upper()
                     break
 
         fills.append(
@@ -437,6 +442,7 @@ def _build_fill_batch(
                 price=price_float,
                 quantity=qty_int,
                 fee_amount=fee_amount,
+                fee_currency=fee_currency,
             )
         )
 

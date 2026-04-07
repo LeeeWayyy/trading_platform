@@ -566,10 +566,10 @@ class ExecutionQualityAnalyzer:
             warnings.append(f"{count} fill(s) with mismatched side excluded from analysis")
 
         if mixed_currency_warning:
-            warnings.append("Mixed fee currencies detected - fee aggregation may be incorrect")
+            warnings.append("Mixed fee currencies detected - fee_cost_bps excluded (not trustworthy)")
 
         if non_usd_fee_warning:
-            warnings.append("Non-USD fee currency detected - fee_cost_bps assumes USD")
+            warnings.append("Non-USD fee currency detected - fee_cost_bps excluded (not normalized)")
 
         # Execution metrics
         symbol = fill_batch.symbol

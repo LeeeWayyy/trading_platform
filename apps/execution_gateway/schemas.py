@@ -1456,7 +1456,7 @@ class TCAAnalysisSummary(BaseModel):
         ..., description="Average VWAP benchmark slippage"
     )
     avg_fee_cost_bps: float | None = Field(
-        ..., description="Average fee cost component (None if mixed/non-USD currencies)"
+        ..., description="Average fee cost component (None if mixed/non-USD currencies or no trustworthy fee data)"
     )
     avg_opportunity_cost_bps: float = Field(
         ..., description="Average opportunity cost (unfilled qty)"
