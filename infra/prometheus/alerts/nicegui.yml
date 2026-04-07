@@ -5,7 +5,7 @@ groups:
         expr: |
           sum by (instance) (rate(nicegui_ws_disconnects_total[5m]))
           >
-          (avg_over_time(nicegui_ws_connections[5m]) * 0.05)
+          sum by (instance) (avg_over_time(nicegui_ws_connections[5m])) * 0.05
         for: 2m
         labels:
           severity: warning
@@ -14,7 +14,7 @@ groups:
           description: "Disconnect rate exceeds 5% of active connections"
 
       - alert: AuthFailureSpike
-        expr: sum by (instance) (rate(nicegui_auth_failures_total[5m])) > 0.1
+        expr: sum by (instance) (rate(nicegui_auth_failures_total[5m])) > 0.167
         for: 1m
         labels:
           severity: critical
