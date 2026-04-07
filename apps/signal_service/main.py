@@ -2071,7 +2071,7 @@ class PrecomputeRequest(BaseModel):
         examples=["2024-12-31"],
     )
 
-    @validator("symbols", pre=True)
+    @validator("symbols")
     @classmethod
     def normalize_symbols(cls, v: list[str]) -> list[str]:
         """Normalize symbols to uppercase."""
@@ -2165,14 +2165,24 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
             as_of_date=as_of_date,
         )
     except FileNotFoundError as exc:
+        logger.error(
+            "Feature precomputation failed: data not found",
+            extra={
+                "symbols": symbols,
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Data not found: {str(exc)}",
+            detail="Requested market data not found",
         ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid request: {str(exc)}",
+            detail="Invalid request parameters for feature precomputation",
         ) from exc
     except (KeyError, TypeError, AttributeError) as exc:
         logger.error(
@@ -2187,7 +2197,7 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Feature precomputation failed: {str(exc)}",
+            detail="Feature precomputation failed due to a data format error",
         ) from exc
     except OSError as exc:
         logger.error(
@@ -2202,7 +2212,7 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Feature precomputation failed: {str(exc)}",
+            detail="Feature precomputation failed due to a system I/O error",
         ) from exc
 
     return PrecomputeResponse(
