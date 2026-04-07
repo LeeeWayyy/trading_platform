@@ -146,6 +146,7 @@ def backfill_alpaca_fills(
             "timestamp": timestamp,
             "synthetic": False,
             "source": "alpaca_activity",
+            "fee_currency": "USD",  # Alpaca is a US broker; fees always in USD
         }
         fills_by_client.setdefault(order.client_order_id, []).append(fill_data)
         affected.add((order.strategy_id, order.symbol))

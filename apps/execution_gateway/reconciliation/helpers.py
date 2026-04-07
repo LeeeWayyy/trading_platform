@@ -101,6 +101,7 @@ def calculate_synthetic_fill(
         "timestamp": timestamp.isoformat(),
         "synthetic": True,  # AUDIT: Mark as reconciliation-generated
         "source": source,
+        "fee_currency": "USD",  # Alpaca is a US broker; fees always in USD
         "_missing_qty": missing_qty,  # For logging, stripped before storage
     }
 

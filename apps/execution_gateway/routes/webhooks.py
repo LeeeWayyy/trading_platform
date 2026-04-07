@@ -304,6 +304,7 @@ async def handle_order_webhook(
                         "fill_price": str(per_fill_price),
                         "realized_pl": str(realized_delta),
                         "timestamp": fill_timestamp.isoformat(),
+                        "fee_currency": "USD",  # Alpaca is a US broker; fees always in USD
                     },
                     conn=conn,
                 )

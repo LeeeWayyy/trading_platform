@@ -1018,6 +1018,81 @@ class TestTAQEnabledPath:
         assert not any("simplified" in w.lower() for w in warnings)
 
 
+class TestResultToOrderDetailNanConversion:
+    """Regression: _result_to_order_detail converts NaN fee_cost_bps to None."""
+
+    def test_nan_fee_cost_bps_converted_to_none(self) -> None:
+        """NaN fee_cost_bps from analyzer is converted to None in TCAOrderDetail."""
+        import math
+        from libs.platform.analytics.execution_quality import ExecutionAnalysisResult
+
+        mock_result = MagicMock(spec=ExecutionAnalysisResult)
+        mock_result.symbol = "AAPL"
+        mock_result.side = "buy"
+        mock_result.execution_date = date.today()
+        mock_result.arrival_price = 150.0
+        mock_result.execution_price = 150.10
+        mock_result.vwap_benchmark = 150.05
+        mock_result.twap_benchmark = 150.03
+        mock_result.total_target_qty = 300
+        mock_result.total_filled_qty = 300
+        mock_result.fill_rate = 1.0
+        mock_result.total_notional = 45030.0
+        mock_result.total_cost_bps = 2.5
+        mock_result.price_shortfall_bps = 1.5
+        mock_result.vwap_slippage_bps = 1.0
+        mock_result.fee_cost_bps = float("nan")  # NaN from mixed/non-USD currencies
+        mock_result.opportunity_cost_bps = 0.0
+        mock_result.market_impact_bps = 0.3
+        mock_result.timing_cost_bps = 0.2
+        mock_result.num_fills = 3
+        mock_result.execution_duration_seconds = 120.0
+        mock_result.total_fees = 1.5
+        mock_result.warnings = ["Mixed fee currencies detected"]
+        mock_result.vwap_coverage_pct = 0.95
+
+        order_detail = tca._result_to_order_detail(mock_result, "c1", "alpha_baseline")
+
+        assert order_detail.fee_cost_bps is None, (
+            "NaN fee_cost_bps must be converted to None"
+        )
+        assert order_detail.price_shortfall_bps == 1.5  # Other fields unaffected
+
+    def test_valid_fee_cost_bps_preserved(self) -> None:
+        """Valid float fee_cost_bps from analyzer is preserved (not set to None)."""
+        from libs.platform.analytics.execution_quality import ExecutionAnalysisResult
+
+        mock_result = MagicMock(spec=ExecutionAnalysisResult)
+        mock_result.symbol = "AAPL"
+        mock_result.side = "buy"
+        mock_result.execution_date = date.today()
+        mock_result.arrival_price = 150.0
+        mock_result.execution_price = 150.10
+        mock_result.vwap_benchmark = 150.05
+        mock_result.twap_benchmark = 150.03
+        mock_result.total_target_qty = 300
+        mock_result.total_filled_qty = 300
+        mock_result.fill_rate = 1.0
+        mock_result.total_notional = 45030.0
+        mock_result.total_cost_bps = 2.5
+        mock_result.price_shortfall_bps = 1.5
+        mock_result.vwap_slippage_bps = 1.0
+        mock_result.fee_cost_bps = 0.5
+        mock_result.opportunity_cost_bps = 0.0
+        mock_result.market_impact_bps = 0.3
+        mock_result.timing_cost_bps = 0.2
+        mock_result.num_fills = 3
+        mock_result.execution_duration_seconds = 120.0
+        mock_result.total_fees = 1.5
+        mock_result.warnings = []
+        mock_result.vwap_coverage_pct = 0.95
+
+        order_detail = tca._result_to_order_detail(mock_result, "c1", "alpha_baseline")
+
+        assert order_detail.fee_cost_bps == 0.5
+        assert isinstance(order_detail.fee_cost_bps, float)
+
+
 class TestDatetimeParsing:
     """Tests for datetime string parsing in TCA."""
 

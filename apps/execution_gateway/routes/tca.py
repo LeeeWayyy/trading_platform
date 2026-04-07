@@ -921,6 +921,14 @@ def get_tca_analysis(
             f"order(s) discarded). Consider narrowing date range or applying filters."
         )
 
+    # Propagate fee exclusion to summary warnings
+    fee_excluded_count = sum(1 for o in orders if o.fee_cost_bps is None)
+    if fee_excluded_count > 0:
+        warnings.append(
+            f"{fee_excluded_count} order(s) have fee_cost_bps excluded "
+            f"(mixed/non-USD currencies) — implementation_shortfall_bps excludes fee for those orders"
+        )
+
     # Build summary from orders
     summary = TCAAnalysisSummary(
         start_date=start_date,

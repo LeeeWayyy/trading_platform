@@ -1447,7 +1447,7 @@ class TCAAnalysisSummary(BaseModel):
 
     # Cost metrics (in basis points)
     avg_implementation_shortfall_bps: float = Field(
-        ..., description="Average implementation shortfall (total cost)"
+        ..., description="Average implementation shortfall (excludes fee when fee_cost_bps is None)"
     )
     avg_price_shortfall_bps: float = Field(
         ..., description="Average price slippage component"
@@ -1499,7 +1499,7 @@ class TCAOrderDetail(BaseModel):
     total_notional: float = Field(..., description="Total notional value", ge=0)
 
     # Cost decomposition (basis points)
-    implementation_shortfall_bps: float = Field(..., description="Total cost")
+    implementation_shortfall_bps: float = Field(..., description="Total cost (excludes fee component when fee_cost_bps is None)")
     price_shortfall_bps: float = Field(..., description="Price slippage")
     vwap_slippage_bps: float = Field(..., description="VWAP slippage")
     fee_cost_bps: float | None = Field(..., description="Fee component (None if mixed/non-USD fee currencies)")
