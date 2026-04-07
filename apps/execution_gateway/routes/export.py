@@ -1104,8 +1104,13 @@ async def _generate_excel_content(
                     value_to_set = ""
                 elif isinstance(raw_value, datetime):
                     # openpyxl does not support timezone-aware datetimes.
-                    # Ensure UTC first, then strip for Excel compatibility.
-                    value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
+                    # If tz-aware, convert to UTC then strip; if naive,
+                    # assume already UTC (per project coding standards)
+                    # and use as-is.
+                    if raw_value.tzinfo is not None:
+                        value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
+                    else:
+                        value_to_set = raw_value
                 else:
                     value_to_set = raw_value
 
