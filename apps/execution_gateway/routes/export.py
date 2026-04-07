@@ -775,19 +775,38 @@ _GRID_COLUMNS: dict[str, list[str]] = {
 _EXPORT_ROW_LIMIT = 10_000
 
 
+# ---------------------------------------------------------------------------
+# Frontend → DB column alias mapping.
+# The web console grids may use display-friendly field names (e.g. "time"
+# instead of "executed_at").  This mapping translates them before the
+# allowlist check so that valid columns are not silently dropped.
+# ---------------------------------------------------------------------------
+_COLUMN_ALIASES: dict[str, dict[str, str]] = {
+    "orders": {
+        "type": "order_type",
+    },
+    "fills": {
+        "time": "executed_at",
+    },
+}
+
+
 def _validate_columns(
     grid_name: str, visible_columns: list[str] | None
 ) -> list[str]:
     """Return the export column list, validated against the server allowlist.
 
-    If *visible_columns* is provided, only columns that exist in the
-    allowlist are kept (in the requested order).  Unknown columns are
-    silently dropped to prevent SQL injection or data leakage.
+    Frontend column aliases are resolved first (e.g. ``"time"`` →
+    ``"executed_at"``).  Only columns that exist in the allowlist are
+    kept (in the requested order).  Unknown columns are silently dropped
+    to prevent SQL injection or data leakage.
     """
     allowed = _GRID_COLUMNS[grid_name]
     if not visible_columns:
         return allowed
-    return [c for c in visible_columns if c in allowed] or allowed
+    aliases = _COLUMN_ALIASES.get(grid_name, {})
+    resolved = [aliases.get(c, c) for c in visible_columns]
+    return [c for c in resolved if c in allowed] or allowed
 
 
 def _build_order_clause(
@@ -958,7 +977,21 @@ def _fetch_tca_data(
     select_cols = ", ".join(
         f"{tca_col_map.get(c, 't.' + c)} AS {c}" for c in columns
     )
-    order_clause = _build_order_clause(sort_model, columns, "t.executed_at DESC")
+    # Qualify sort columns with table aliases via tca_col_map to
+    # avoid ambiguity when trades and orders share column names
+    # (e.g. symbol, qty, client_order_id).
+    qualified_sort: list[dict[str, Any]] | None = None
+    if sort_model:
+        qualified_sort = [
+            {**item, "colId": tca_col_map.get(item.get("colId", ""), f"t.{item.get('colId', '')}")}
+            if item.get("colId") in columns
+            else item
+            for item in sort_model
+        ]
+    qualified_tca_columns = [tca_col_map.get(c, f"t.{c}") for c in columns]
+    order_clause = _build_order_clause(
+        qualified_sort, qualified_tca_columns, "t.executed_at DESC",
+    )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
