@@ -401,6 +401,7 @@ class TestEdgeCases:
         # RSI: avg_loss=0 and avg_gain=0 → should be 50 (neutral), never NaN/Inf
         result_rsi = compute_rsi(prices)
         rsi_vals = result_rsi["rsi"].drop_nulls()
+        assert len(rsi_vals) > 0, "RSI must produce non-null values for 30-row flat input"
         assert not rsi_vals.is_nan().any(), "RSI must not contain NaN on flat prices"
         assert not rsi_vals.is_infinite().any(), "RSI must not contain Inf on flat prices"
         assert (rsi_vals == 50.0).all(), "RSI should be 50 (neutral) when prices are flat"
@@ -408,8 +409,10 @@ class TestEdgeCases:
         # Bollinger %B: bb_upper == bb_lower → should be 0.5, never NaN/Inf
         result_bb = compute_bollinger_bands(prices)
         bb_pct = result_bb["bb_pct"].drop_nulls()
+        assert len(bb_pct) > 0, "bb_pct must produce non-null values for 30-row flat input"
         assert not bb_pct.is_nan().any(), "bb_pct must not contain NaN on flat prices"
         assert not bb_pct.is_infinite().any(), "bb_pct must not contain Inf on flat prices"
+        assert (bb_pct == 0.5).all(), "bb_pct should be 0.5 (neutral) when prices are flat"
         bb_width = result_bb["bb_width"].drop_nulls()
         if len(bb_width) > 0:
             assert bb_width.mean() < 1.0, "Bollinger width should be small with constant prices"
@@ -417,14 +420,18 @@ class TestEdgeCases:
         # Stochastic %K: period_high == period_low → should be 50, never NaN/Inf
         result_stoch = compute_stochastic_oscillator(prices)
         stoch_k = result_stoch["stoch_k"].drop_nulls()
+        assert len(stoch_k) > 0, "stoch_k must produce non-null values for 30-row flat input"
         assert not stoch_k.is_nan().any(), "stoch_k must not contain NaN on flat prices"
         assert not stoch_k.is_infinite().any(), "stoch_k must not contain Inf on flat prices"
+        assert (stoch_k == 50.0).all(), "stoch_k should be 50 (neutral) when prices are flat"
 
         # Z-Score: rolling_std=0 → should be 0, never NaN/Inf
         result_zs = compute_price_zscore(prices)
         zscore = result_zs["price_zscore"].drop_nulls()
+        assert len(zscore) > 0, "price_zscore must produce non-null values for 30-row flat input"
         assert not zscore.is_nan().any(), "price_zscore must not contain NaN on flat prices"
         assert not zscore.is_infinite().any(), "price_zscore must not contain Inf on flat prices"
+        assert (zscore == 0.0).all(), "price_zscore should be 0 when prices are flat"
 
     def test_flat_window_combined_features_no_nan(self) -> None:
         """Test that combined features pipeline emits no NaN/Inf on flat prices (#173)."""
@@ -444,10 +451,24 @@ class TestEdgeCases:
 
         result = compute_mean_reversion_features(prices)
         feature_cols = ["rsi", "bb_pct", "bb_width", "stoch_k", "stoch_d", "price_zscore"]
+        # Expected neutral values for each indicator on flat prices
+        expected_neutrals = {
+            "rsi": 50.0,
+            "bb_pct": 0.5,
+            "bb_width": 0.0,
+            "stoch_k": 50.0,
+            "stoch_d": 50.0,
+            "price_zscore": 0.0,
+        }
         for col in feature_cols:
             vals = result[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values for 30-row flat input"
             assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
             assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
+            expected = expected_neutrals[col]
+            assert (vals == expected).all(), (
+                f"{col} should be {expected} on flat prices, got {vals.unique().to_list()}"
+            )
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

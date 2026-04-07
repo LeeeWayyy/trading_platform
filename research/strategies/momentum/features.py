@@ -241,6 +241,9 @@ def compute_rate_of_change(
         - ROC < 0: Price lower than n periods ago (bearish)
         - Magnitude indicates strength of momentum
         - Extreme values may signal overbought/oversold conditions
+        - Zero-price guard: When price_n_ago=0 (invalid data), ROC emits null
+          to surface the data quality issue. Validated pipelines reject zero
+          prices upstream via _validate_price_data.
 
     See Also:
         - https://www.investopedia.com/terms/r/rateofchange.asp
@@ -249,8 +252,13 @@ def compute_rate_of_change(
     df = prices.with_columns(pl.col(column).shift(period).over("symbol").alias("price_n_ago"))
 
     # Calculate ROC as percentage change
+    # Guard: when price_n_ago is 0 (invalid data that slipped past validation),
+    # emit null to surface data quality issues rather than masking them as 0.
     df = df.with_columns(
-        ((pl.col(column) - pl.col("price_n_ago")) / pl.col("price_n_ago") * 100.0).alias("roc")
+        pl.when(pl.col("price_n_ago") == 0)
+        .then(pl.lit(None, dtype=pl.Float64))
+        .otherwise((pl.col(column) - pl.col("price_n_ago")) / pl.col("price_n_ago") * 100.0)
+        .alias("roc")
     )
 
     # Drop intermediate column
@@ -302,6 +310,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
         - ADX < 20: Weak trend (avoid trend-following)
         - ADX direction: Rising ADX = strengthening trend
         - +DI/-DI crossover: Potential trend reversal
+        - Flat-price windows: When ATR=0 (no price range), +DI and -DI=0.
+          When +DI + -DI = 0, DX=0. ADX then smooths to 0.
 
     See Also:
         - https://www.investopedia.com/terms/a/adx.asp
@@ -361,6 +371,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
 
     # Calculate +DI and -DI
     # Guard: when atr is 0 (flat window, no range), emit 0.0 for DI values.
+    # Exact == 0 is correct: ATR is EWM of true-range, which is exactly zero only
+    # when high==low==close for every bar in the smoothing window.
     df = df.with_columns(
         [
             pl.when(pl.col("atr") == 0)
@@ -376,6 +388,7 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
 
     # Calculate DX
     # Guard: when plus_di + minus_di is 0 (flat window), emit 0.0.
+    # Exact == 0 is correct: DI values are zero only via the ATR guard above.
     df = df.with_columns(
         pl.when((pl.col("plus_di") + pl.col("minus_di")) == 0)
         .then(0.0)

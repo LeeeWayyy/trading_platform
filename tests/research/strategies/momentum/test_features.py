@@ -267,6 +267,31 @@ class TestRateOfChange:
 
         assert null_count_7 < null_count_14
 
+    def test_roc_zero_price_emits_null(self) -> None:
+        """Test that ROC emits null when price_n_ago is 0 (data quality guard)."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 10,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 10),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": [0.0] * 5 + [100.0] * 5,
+            }
+        )
+
+        result = compute_rate_of_change(prices, period=5)
+
+        # Rows where price_n_ago=0 should have null ROC (not 0.0)
+        # Rows 5-9 have close=100 but price_n_ago=0 → ROC should be null
+        for i in range(5, 10):
+            assert result["roc"][i] is None, (
+                f"ROC at row {i} should be null when price_n_ago is 0, "
+                f"got {result['roc'][i]}"
+            )
+
 
 class TestADX:
     """Tests for ADX (Average Directional Index)."""
@@ -531,6 +556,7 @@ class TestEdgeCases:
         result_adx = compute_adx(prices)
         for col in ["adx", "plus_di", "minus_di"]:
             vals = result_adx[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values for 30-row flat input"
             assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
             assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
 
@@ -555,10 +581,24 @@ class TestEdgeCases:
 
         result = compute_momentum_features(prices)
         feature_cols = ["adx", "plus_di", "minus_di", "roc", "macd_line", "macd_hist"]
+        # Expected neutral values for each indicator on flat prices
+        expected_neutrals = {
+            "adx": 0.0,
+            "plus_di": 0.0,
+            "minus_di": 0.0,
+            "roc": 0.0,
+            "macd_line": 0.0,
+            "macd_hist": 0.0,
+        }
         for col in feature_cols:
             vals = result[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values for 30-row flat input"
             assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
             assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
+            expected = expected_neutrals[col]
+            assert (vals == expected).all(), (
+                f"{col} should be {expected} on flat prices, got {vals.unique().to_list()}"
+            )
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""
