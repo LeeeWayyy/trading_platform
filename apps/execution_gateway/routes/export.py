@@ -1249,18 +1249,26 @@ async def _generate_excel_content(
     # Validate requested columns against server allowlist
     columns = _validate_columns(grid_name, visible_columns)
 
-    # Resolve filter column aliases so that frontend filter keys
-    # (e.g. "type" for orders, "time" for fills) map to the DB column
-    # names expected by the fetchers.
+    # Resolve column aliases in both filter_params and sort_model so
+    # that frontend field names (e.g. "type" for orders, "time" for
+    # fills) map to the DB column names expected by the fetchers.
+    aliases = _COLUMN_ALIASES.get(grid_name, {})
+    allowed = _GRID_COLUMNS[grid_name]
+
     resolved_filters: dict[str, Any] | None = None
     if filter_params:
-        aliases = _COLUMN_ALIASES.get(grid_name, {})
-        allowed = _GRID_COLUMNS[grid_name]
         resolved_filters = {}
         for key, spec in filter_params.items():
             resolved_key = aliases.get(key, key)
             if resolved_key in allowed:
                 resolved_filters[resolved_key] = spec
+
+    resolved_sort: list[dict[str, Any]] | None = None
+    if sort_model:
+        resolved_sort = [
+            {**item, "colId": aliases.get(item.get("colId", ""), item.get("colId", ""))}
+            for item in sort_model
+        ]
 
     # Offload synchronous DB fetch to a worker thread to avoid blocking
     # the FastAPI event loop.
@@ -1270,7 +1278,7 @@ async def _generate_excel_content(
         ctx,
         strategy_ids,
         columns,
-        sort_model,
+        resolved_sort,
         resolved_filters,
     )
 
