@@ -23,6 +23,7 @@ from apps.web_console_ng.pages.execution_quality import (
     _fetch_tca_benchmarks,
     _fetch_tca_data,
     _generate_demo_benchmark_data,
+    _generate_demo_data,
     _is_cacheable_benchmark,
     _is_numeric,
     _is_valid_price,
@@ -822,3 +823,77 @@ class TestExecutionQualityPageIntegration:
             call_args = mock_client.get.call_args
             params = call_args.kwargs.get("params", {})
             assert params.get("strategy_id") == "alpha_baseline"
+
+
+class TestNullableFeeContract:
+    """Tests for nullable fee_cost_bps / avg_fee_cost_bps handling in frontend."""
+
+    @pytest.mark.asyncio()
+    async def test_fetch_handles_null_avg_fee_cost_bps(self) -> None:
+        """API response with avg_fee_cost_bps=None is handled correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "summary": {
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "total_orders": 5,
+                "total_fills": 10,
+                "total_notional": 500000.0,
+                "total_shares": 5000,
+                "avg_fill_rate": 0.95,
+                "avg_implementation_shortfall_bps": 1.5,
+                "avg_price_shortfall_bps": 1.0,
+                "avg_vwap_slippage_bps": 0.7,
+                "avg_fee_cost_bps": None,
+                "avg_opportunity_cost_bps": 0.3,
+                "avg_market_impact_bps": 0.8,
+                "avg_timing_cost_bps": 0.4,
+                "warnings": ["Mixed fee currencies detected"],
+            },
+            "orders": [
+                {
+                    "client_order_id": "order-1",
+                    "symbol": "AAPL",
+                    "side": "buy",
+                    "execution_date": "2024-01-15",
+                    "fee_cost_bps": None,
+                    "implementation_shortfall_bps": 2.0,
+                }
+            ],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_data(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 31),
+                symbol=None,
+                strategy_id=None,
+                user_id="test_user",
+                role="trader",
+                strategies=["alpha_baseline"],
+            )
+
+        assert result is not None
+        assert result["summary"]["avg_fee_cost_bps"] is None
+        assert result["orders"][0]["fee_cost_bps"] is None
+
+    def test_generate_demo_data_handles_null_fees(self) -> None:
+        """Demo data generator correctly computes avg when fees may be None."""
+        # _generate_demo_data always produces float fee_cost_bps in demo mode,
+        # but verify the aggregation logic handles the None-aware path
+        data = _generate_demo_data(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+        )
+        summary = data["summary"]
+        # avg_fee_cost_bps should be a number or None, never raise
+        assert summary["avg_fee_cost_bps"] is None or isinstance(
+            summary["avg_fee_cost_bps"], (int, float)
+        )

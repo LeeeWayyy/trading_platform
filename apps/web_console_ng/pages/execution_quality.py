@@ -770,10 +770,10 @@ async def _render_tca_dashboard(
                         round(date_data[d]["price"] / date_data[d]["count"], 2)
                         for d in sorted_dates
                     ]
-                    fee_cost = [
+                    fee_cost: list[float | None] = [
                         round(date_data[d]["fee"] / date_data[d]["fee_count"], 2)
                         if date_data[d]["fee_count"] > 0
-                        else 0.0
+                        else None
                         for d in sorted_dates
                     ]
                     opportunity_cost = [

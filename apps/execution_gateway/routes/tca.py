@@ -635,7 +635,13 @@ def _result_to_order_detail(
 ) -> TCAOrderDetail:
     """Convert ExecutionAnalysisResult to TCAOrderDetail."""
     # Convert NaN fee_cost_bps to None (fail closed for mixed/non-USD currencies)
-    fee_cost: float | None = None if math.isnan(result.fee_cost_bps) else round(result.fee_cost_bps, 2)
+    # Type guard: ensure fee_cost_bps is a float before calling math.isnan
+    raw_fee = result.fee_cost_bps
+    fee_cost: float | None
+    if not isinstance(raw_fee, (int, float)) or math.isnan(raw_fee):
+        fee_cost = None
+    else:
+        fee_cost = round(float(raw_fee), 2)
     return TCAOrderDetail(
         client_order_id=client_order_id,
         symbol=result.symbol,
