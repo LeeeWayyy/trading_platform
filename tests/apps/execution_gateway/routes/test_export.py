@@ -7,26 +7,20 @@ and that all cell values are sanitised against formula injection.
 from __future__ import annotations
 
 import io
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
 
-from apps.execution_gateway.app_factory import create_mock_context, create_test_config
-from apps.execution_gateway.dependencies import get_config, get_context
+from apps.execution_gateway.app_factory import create_mock_context
 from apps.execution_gateway.routes import export as export_module
 from apps.execution_gateway.routes.export import (
     _GRID_COLUMNS,
     _build_order_clause,
     _validate_columns,
 )
-from libs.core.common.api_auth_dependency import AuthContext
-
 
 # ---------------------------------------------------------------------------
 # Unit tests for helper functions
@@ -99,7 +93,7 @@ def _make_ctx_with_rows(
     return ctx
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 class TestGenerateExcelContent:
     async def test_positions_returns_real_data(self) -> None:
         rows = [
@@ -208,6 +202,50 @@ class TestGenerateExcelContent:
         ws = wb.active
         # The dangerous formula should be prefixed with '
         assert ws.cell(2, 1).value == "'=IMPORTDATA(url)"
+
+    async def test_numeric_types_preserved_in_excel(self) -> None:
+        """Numeric and datetime values are stored as native types, not strings."""
+        rows = [
+            (
+                "AAPL",
+                Decimal("10"),
+                Decimal("150.25"),
+                Decimal("152.00"),
+                Decimal("17.50"),
+                Decimal("0"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        ]
+        col_names = [
+            "symbol", "qty", "avg_entry_price", "current_price",
+            "unrealized_pl", "realized_pl", "updated_at",
+        ]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, _ = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        # String column stays string
+        assert ws.cell(2, 1).value == "AAPL"
+        # Numeric columns must NOT be stringified — openpyxl stores Decimal
+        # as a number, so the cell value should be numeric (not a string).
+        qty_val = ws.cell(2, 2).value
+        assert not isinstance(qty_val, str), f"qty should be numeric, got str: {qty_val!r}"
+        # datetime should be preserved as a datetime
+        updated_val = ws.cell(2, 7).value
+        assert not isinstance(updated_val, str), (
+            f"updated_at should be datetime, got str: {updated_val!r}"
+        )
 
     async def test_audit_row_count_matches_data(self) -> None:
         """Verify row_count reflects actual exported rows, not a placeholder."""

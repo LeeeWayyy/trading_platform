@@ -813,16 +813,26 @@ def _fetch_positions_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Fetch positions data scoped to authorized strategies."""
+    """Fetch positions data scoped to authorized strategies.
+
+    Positions are scoped by filtering to symbols that have at least one
+    order for the given *strategy_ids*.  The ``positions`` table does not
+    carry a ``strategy_id`` column itself, so a subquery against
+    ``orders`` is used.
+    """
     order_clause = _build_order_clause(sort_model, columns, "symbol ASC")
     col_list = ", ".join(columns)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM positions "  # noqa: S608
-                f"WHERE qty != 0 ORDER BY {order_clause} "
+                f"WHERE symbol IN ("
+                f"  SELECT DISTINCT symbol FROM orders "
+                f"  WHERE strategy_id = ANY(%s)"
+                f") AND qty != 0 "
+                f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (_EXPORT_ROW_LIMIT,),
+                (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
@@ -879,16 +889,25 @@ def _fetch_audit_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Fetch audit log entries."""
+    """Fetch audit log entries scoped to authorized strategies.
+
+    Audit entries are scoped by matching the ``strategy_id`` key inside
+    the ``details`` JSONB column against the authorized *strategy_ids*.
+    System-level entries (those without a ``strategy_id`` in their
+    details, e.g. kill-switch operations) are included as well so that
+    the full operational context is preserved.
+    """
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
     col_list = ", ".join(columns)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM audit_log "  # noqa: S608
+                f"WHERE details->>'strategy_id' = ANY(%s) "
+                f"   OR details->>'strategy_id' IS NULL "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (_EXPORT_ROW_LIMIT,),
+                (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
@@ -999,19 +1018,31 @@ async def _generate_excel_content(
     for col_idx, header in enumerate(columns, 1):
         ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
 
-    # Data rows — sanitize every value
+    # Data rows — sanitize only string values to prevent formula injection
+    # while preserving native Excel types (numbers, dates) for proper
+    # formatting and calculations.
     for row_idx, row_data in enumerate(rows, 2):
         for col_idx, col_name in enumerate(columns, 1):
             raw_value = row_data.get(col_name)
-            # Convert complex types to string for Excel compatibility
             if isinstance(raw_value, dict | list):
-                raw_value = json.dumps(raw_value)
+                raw_value = json.dumps(raw_value, default=str)
+
+            # Only sanitize strings to prevent formula injection while
+            # preserving numeric/date types that openpyxl handles natively.
+            if isinstance(raw_value, str):
+                value_to_set: Any = sanitize_for_export(raw_value)
+            elif raw_value is None:
+                value_to_set = ""
+            elif isinstance(raw_value, datetime):
+                # openpyxl does not support timezone-aware datetimes
+                value_to_set = raw_value.replace(tzinfo=None)
+            else:
+                value_to_set = raw_value
+
             ws.cell(
                 row=row_idx,
                 column=col_idx,
-                value=sanitize_for_export(
-                    str(raw_value) if raw_value is not None else ""
-                ),
+                value=value_to_set,
             )
 
     output = io.BytesIO()
