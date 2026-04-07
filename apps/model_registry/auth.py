@@ -178,7 +178,7 @@ async def verify_token(
     if result is None:
         logger.warning(
             "Token verification failed: token not recognized for configured scopes",
-            extra={"token_prefix": token[:4] + "..." if len(token) > 8 else "***"},
+            extra={"token_length": len(token)},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

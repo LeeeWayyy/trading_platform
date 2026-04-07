@@ -207,7 +207,7 @@ def get_current_model(
         extra={
             "model_type": model_type.value,
             "version": metadata.version,
-            "service": auth.service_name,
+            "auth_role": auth.service_name,
         },
     )
 
@@ -282,7 +282,7 @@ def get_model_metadata(
             "model_type": model_type.value,
             "version": version,
             "model_id": metadata.model_id,
-            "service": auth.service_name,
+            "auth_role": auth.service_name,
         },
     )
 
@@ -362,7 +362,7 @@ def validate_model(
             "valid": result.valid,
             "checksum_ok": result.checksum_verified,
             "load_ok": result.load_successful,
-            "service": auth.service_name,
+            "auth_role": auth.service_name,
         },
     )
 
@@ -463,7 +463,7 @@ def list_models(
             "model_type": model_type.value,
             "status_filter": status_filter.value if status_filter else None,
             "count": len(models),
-            "service": auth.service_name,
+            "auth_role": auth.service_name,
         },
     )
 
