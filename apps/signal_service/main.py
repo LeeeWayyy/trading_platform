@@ -116,7 +116,7 @@ hydration_complete = True
 # Bounded to prevent memory leaks from arbitrary user-provided combinations
 # Uses OrderedDict + asyncio.Lock for thread-safe LRU eviction
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
-_generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
+_generator_cache: OrderedDict[tuple[int, int, str], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
 
 
