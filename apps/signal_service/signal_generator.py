@@ -470,7 +470,8 @@ class SignalGenerator:
                         extra={
                             "strategy_id": self.model_registry.current_metadata.strategy_name if self.model_registry.current_metadata else "unknown",
                             "date": date_str,
-                            "symbols": symbols_to_generate,
+                            "symbols_count": len(symbols_to_generate),
+                            "symbols": symbols_to_generate[:10],
                             "error_type": type(e).__name__,
                             "environment": self.environment,
                         },

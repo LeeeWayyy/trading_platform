@@ -116,7 +116,7 @@ hydration_complete = True
 # Bounded to prevent memory leaks from arbitrary user-provided combinations
 # Uses OrderedDict + asyncio.Lock for thread-safe LRU eviction
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
-_generator_cache: OrderedDict[tuple[int, int, str], SignalGenerator] = OrderedDict()
+_generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
 
 
@@ -1835,7 +1835,7 @@ async def generate_signals(
             # This avoids creating a new SignalGenerator for each request
             # Uses asyncio.Lock for thread-safety and LRU eviction policy
             if request.top_n is not None or request.bottom_n is not None:
-                cache_key = (top_n, bottom_n, settings.environment.lower())
+                cache_key = (top_n, bottom_n)
                 cached_generator = None
 
                 async with _generator_cache_lock:
@@ -2168,9 +2168,24 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid request: {str(exc)}",
         ) from exc
-    except (KeyError, TypeError, AttributeError, OSError) as exc:
+    except (KeyError, TypeError, AttributeError) as exc:
         logger.error(
-            "Feature precomputation failed",
+            "Feature precomputation failed: invalid data format",
+            extra={
+                "symbols": symbols,
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Feature precomputation failed: {str(exc)}",
+        ) from exc
+    except OSError as exc:
+        logger.error(
+            "Feature precomputation failed: data file I/O error",
             extra={
                 "symbols": symbols,
                 "as_of_date": as_of_date.date().isoformat(),
