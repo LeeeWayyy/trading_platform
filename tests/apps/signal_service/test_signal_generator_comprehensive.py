@@ -40,6 +40,7 @@ from redis.exceptions import RedisError
 
 from apps.signal_service.model_registry import ModelMetadata, ModelRegistry
 from apps.signal_service.signal_generator import (
+    FeatureGenerationError,
     PrecomputeResult,
     SignalGenerator,
 )
@@ -372,13 +373,9 @@ class TestSignalGeneration:
         """Non-dev/test environments fail closed instead of using mock features."""
         mock_get_real.side_effect = ValueError("Data not available")
 
-        generator = SignalGenerator(
-            mock_model_with_registry, temp_dir, environment="production"
-        )
+        generator = SignalGenerator(mock_model_with_registry, temp_dir, environment="production")
 
-        with pytest.raises(
-            RuntimeError, match="mock fallback is disabled"
-        ):
+        with pytest.raises(FeatureGenerationError, match="mock fallback is disabled"):
             generator.generate_signals(
                 symbols=["AAPL"],
                 as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
@@ -737,7 +734,7 @@ class TestFeaturePrecomputation:
         with patch(
             "apps.signal_service.signal_generator.get_mock_alpha158_features"
         ) as mock_get_mock:
-            with pytest.raises(RuntimeError, match="mock fallback is disabled"):
+            with pytest.raises(FeatureGenerationError, match="mock fallback is disabled"):
                 generator.precompute_features(
                     symbols=["AAPL", "MSFT"],
                     as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
