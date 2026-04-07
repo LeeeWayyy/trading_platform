@@ -13,6 +13,10 @@ import yaml
 # ``by (pod)`` / ``by(pod, ...)`` or label matchers like ``{pod="..."}``
 _POD_LABEL_RE = re.compile(r"\b(?:by|without)\s*\([^)]*\bpod\b|{\s*[^}]*\bpod\s*[=!~]")
 
+# Matches PromQL aggregation clauses that reference the "instance" label
+# e.g. ``by (instance)`` or ``by (le, instance)``
+_INSTANCE_AGG_RE = re.compile(r"\b(?:by|without)\s*\([^)]*\binstance\b")
+
 
 @pytest.fixture()
 def nicegui_rules() -> dict[str, Any]:
@@ -53,6 +57,6 @@ class TestNiceGUIAlertRules:
             for rule in group.get("rules", []):
                 if rule.get("alert") in per_target_alerts:
                     expr = rule.get("expr", "")
-                    assert "instance" in expr, (
+                    assert _INSTANCE_AGG_RE.search(expr), (
                         f"Alert {rule['alert']} should aggregate by instance under Docker Compose: {expr}"
                     )
