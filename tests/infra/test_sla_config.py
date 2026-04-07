@@ -215,6 +215,7 @@ class TestAlertmanagerConfig:
             slack_catchall is not None
         ), "catch-all slack-ops route must follow page route for dual-delivery"
 
+<<<<<<< HEAD
     def test_track7_routes_page_to_pagerduty(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify track7 sub-routes send page alerts to PagerDuty and Slack."""
         routes = alertmanager_config["route"].get("routes", [])
