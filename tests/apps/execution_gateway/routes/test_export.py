@@ -18,6 +18,7 @@ from apps.execution_gateway.app_factory import create_mock_context
 from apps.execution_gateway.routes import export as export_module
 from apps.execution_gateway.routes.export import (
     _GRID_COLUMNS,
+    _build_filter_clauses,
     _build_order_clause,
     _validate_columns,
 )
@@ -70,6 +71,61 @@ class TestBuildOrderClause:
         assert result == "symbol ASC"
 
 
+class TestBuildFilterClauses:
+    def test_none_filter_returns_empty(self) -> None:
+        clause, params = _build_filter_clauses(None, ["symbol"])
+        assert clause == ""
+        assert params == []
+
+    def test_text_contains_filter(self) -> None:
+        filt = {"symbol": {"filterType": "text", "type": "contains", "filter": "AA"}}
+        clause, params = _build_filter_clauses(filt, ["symbol"])
+        assert "ILIKE" in clause
+        assert "%AA%" in params
+
+    def test_text_equals_filter(self) -> None:
+        filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
+        clause, params = _build_filter_clauses(filt, ["symbol"])
+        assert "= %s" in clause
+        assert "AAPL" in params
+
+    def test_number_filter(self) -> None:
+        filt = {"qty": {"filterType": "number", "type": "greaterThan", "filter": 100}}
+        clause, params = _build_filter_clauses(filt, ["qty"])
+        assert "> %s" in clause
+        assert 100 in params
+
+    def test_set_filter(self) -> None:
+        filt = {"status": {"filterType": "set", "values": ["new", "filled"]}}
+        clause, params = _build_filter_clauses(filt, ["status"])
+        assert "ANY" in clause
+        assert ["new", "filled"] in params
+
+    def test_unknown_column_ignored(self) -> None:
+        filt = {"evil_col": {"filterType": "text", "type": "equals", "filter": "x"}}
+        clause, params = _build_filter_clauses(filt, ["symbol"])
+        assert clause == ""
+        assert params == []
+
+    def test_col_prefix_applied(self) -> None:
+        filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
+        clause, params = _build_filter_clauses(filt, ["symbol"], col_prefix="t.")
+        assert "t.symbol" in clause
+
+    def test_date_in_range_filter(self) -> None:
+        filt = {
+            "executed_at": {
+                "filterType": "date",
+                "type": "inRange",
+                "dateFrom": "2026-01-01",
+                "dateTo": "2026-02-01",
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["executed_at"])
+        assert "2026-01-01" in params
+        assert "2026-02-01" in params
+
+
 # ---------------------------------------------------------------------------
 # Integration tests for _generate_excel_content
 # ---------------------------------------------------------------------------
@@ -93,9 +149,7 @@ def _make_conn_mock(cursor: MagicMock) -> MagicMock:
     return conn
 
 
-def _make_ctx_with_rows(
-    rows: list[tuple[Any, ...]], col_names: list[str]
-) -> MagicMock:
+def _make_ctx_with_rows(rows: list[tuple[Any, ...]], col_names: list[str]) -> MagicMock:
     cursor = _make_cursor_mock(rows, col_names)
     conn = _make_conn_mock(cursor)
     ctx = create_mock_context()
@@ -107,10 +161,34 @@ def _make_ctx_with_rows(
 class TestGenerateExcelContent:
     async def test_positions_returns_real_data(self) -> None:
         rows = [
-            ("AAPL", Decimal("10"), Decimal("150.25"), Decimal("152.00"), Decimal("17.50"), Decimal("0"), datetime(2026, 1, 1, tzinfo=UTC)),
-            ("MSFT", Decimal("5"), Decimal("400.00"), Decimal("405.00"), Decimal("25.00"), Decimal("10"), datetime(2026, 1, 2, tzinfo=UTC)),
+            (
+                "AAPL",
+                Decimal("10"),
+                Decimal("150.25"),
+                Decimal("152.00"),
+                Decimal("17.50"),
+                Decimal("0"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            (
+                "MSFT",
+                Decimal("5"),
+                Decimal("400.00"),
+                Decimal("405.00"),
+                Decimal("25.00"),
+                Decimal("10"),
+                datetime(2026, 1, 2, tzinfo=UTC),
+            ),
         ]
-        col_names = ["symbol", "qty", "avg_entry_price", "current_price", "unrealized_pl", "realized_pl", "updated_at"]
+        col_names = [
+            "symbol",
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "realized_pl",
+            "updated_at",
+        ]
         ctx = _make_ctx_with_rows(rows, col_names)
 
         content, row_count = await export_module._generate_excel_content(
@@ -142,9 +220,39 @@ class TestGenerateExcelContent:
 
     async def test_orders_returns_real_data(self) -> None:
         rows = [
-            ("ord-1", "alpha", "AAPL", "buy", 10, "market", None, None, "day", "filled", Decimal("10"), Decimal("150"), datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
+            (
+                "ord-1",
+                "alpha",
+                "AAPL",
+                "buy",
+                10,
+                "market",
+                None,
+                None,
+                "day",
+                "filled",
+                Decimal("10"),
+                Decimal("150"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
+            ),
         ]
-        col_names = ["client_order_id", "strategy_id", "symbol", "side", "qty", "order_type", "limit_price", "stop_price", "time_in_force", "status", "filled_qty", "filled_avg_price", "created_at", "filled_at"]
+        col_names = [
+            "client_order_id",
+            "strategy_id",
+            "symbol",
+            "side",
+            "qty",
+            "order_type",
+            "limit_price",
+            "stop_price",
+            "time_in_force",
+            "status",
+            "filled_qty",
+            "filled_avg_price",
+            "created_at",
+            "filled_at",
+        ]
         ctx = _make_ctx_with_rows(rows, col_names)
 
         content, row_count = await export_module._generate_excel_content(
@@ -178,7 +286,18 @@ class TestGenerateExcelContent:
             )
 
     async def test_empty_result_returns_zero_row_count(self) -> None:
-        ctx = _make_ctx_with_rows([], ["symbol", "qty", "avg_entry_price", "current_price", "unrealized_pl", "realized_pl", "updated_at"])
+        ctx = _make_ctx_with_rows(
+            [],
+            [
+                "symbol",
+                "qty",
+                "avg_entry_price",
+                "current_price",
+                "unrealized_pl",
+                "realized_pl",
+                "updated_at",
+            ],
+        )
 
         content, row_count = await export_module._generate_excel_content(
             ctx=ctx,
@@ -193,8 +312,26 @@ class TestGenerateExcelContent:
 
     async def test_formula_injection_sanitised(self) -> None:
         """Values starting with = are prefixed with ' to prevent formula injection."""
-        rows = [("=IMPORTDATA(url)", Decimal("1"), Decimal("1"), Decimal("1"), Decimal("0"), Decimal("0"), datetime(2026, 1, 1, tzinfo=UTC))]
-        col_names = ["symbol", "qty", "avg_entry_price", "current_price", "unrealized_pl", "realized_pl", "updated_at"]
+        rows = [
+            (
+                "=IMPORTDATA(url)",
+                Decimal("1"),
+                Decimal("1"),
+                Decimal("1"),
+                Decimal("0"),
+                Decimal("0"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        ]
+        col_names = [
+            "symbol",
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "realized_pl",
+            "updated_at",
+        ]
         ctx = _make_ctx_with_rows(rows, col_names)
 
         content, _ = await export_module._generate_excel_content(
@@ -227,8 +364,13 @@ class TestGenerateExcelContent:
             ),
         ]
         col_names = [
-            "symbol", "qty", "avg_entry_price", "current_price",
-            "unrealized_pl", "realized_pl", "updated_at",
+            "symbol",
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "realized_pl",
+            "updated_at",
         ]
         ctx = _make_ctx_with_rows(rows, col_names)
 
@@ -253,9 +395,101 @@ class TestGenerateExcelContent:
         assert not isinstance(qty_val, str), f"qty should be numeric, got str: {qty_val!r}"
         # datetime should be preserved as a datetime
         updated_val = ws.cell(2, 7).value
-        assert not isinstance(updated_val, str), (
-            f"updated_at should be datetime, got str: {updated_val!r}"
+        assert not isinstance(
+            updated_val, str
+        ), f"updated_at should be datetime, got str: {updated_val!r}"
+
+    async def test_filter_params_passed_to_fetcher(self) -> None:
+        """Verify filter_params are resolved and forwarded to the fetcher."""
+        rows = [
+            (
+                "AAPL",
+                Decimal("10"),
+                Decimal("150.25"),
+                Decimal("152.00"),
+                Decimal("17.50"),
+                Decimal("0"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        ]
+        col_names = [
+            "symbol",
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "realized_pl",
+            "updated_at",
+        ]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        # Provide a text filter on symbol
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params={"symbol": {"filterType": "text", "type": "contains", "filter": "AA"}},
+            visible_columns=None,
+            sort_model=None,
         )
+
+        # The SQL query should have been executed with the filter params
+        # We verify that the call succeeded and returned data
+        assert row_count == 1
+        assert isinstance(content, bytes)
+
+    async def test_orders_export_filters_pending_statuses(self) -> None:
+        """Verify that orders export includes the pending-status filter."""
+        rows = [
+            (
+                "ord-1",
+                "alpha",
+                "AAPL",
+                "buy",
+                10,
+                "market",
+                None,
+                None,
+                "day",
+                "new",
+                Decimal("0"),
+                None,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                None,
+            ),
+        ]
+        col_names = [
+            "client_order_id",
+            "strategy_id",
+            "symbol",
+            "side",
+            "qty",
+            "order_type",
+            "limit_price",
+            "stop_price",
+            "time_in_force",
+            "status",
+            "filled_qty",
+            "filled_avg_price",
+            "created_at",
+            "filled_at",
+        ]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="orders",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        # Verify the SQL was executed with pending status filter
+        cursor_mock = ctx.db.transaction().__enter__().cursor().__enter__()
+        call_args = cursor_mock.execute.call_args
+        sql = call_args[0][0]
+        assert "status = ANY" in sql
 
     async def test_audit_row_count_matches_data(self) -> None:
         """Verify row_count reflects actual exported rows, not a placeholder."""

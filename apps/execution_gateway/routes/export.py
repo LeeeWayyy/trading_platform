@@ -23,6 +23,7 @@ import asyncio
 import io
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -34,6 +35,7 @@ from pydantic import BaseModel, Field
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.api.utils import get_client_ip, get_user_agent
 from apps.execution_gateway.app_context import AppContext
+from apps.execution_gateway.database import PENDING_STATUSES
 from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
@@ -64,9 +66,7 @@ export_auth = api_auth(
 class ExportAuditCreateRequest(BaseModel):
     """Request to create an export audit record."""
 
-    export_type: Literal["csv", "excel", "clipboard"] = Field(
-        ..., description="Type of export"
-    )
+    export_type: Literal["csv", "excel", "clipboard"] = Field(..., description="Type of export")
     grid_name: str = Field(
         ..., description="Name of grid being exported (positions, orders, fills, audit, tca)"
     )
@@ -82,9 +82,7 @@ class ExportAuditCreateRequest(BaseModel):
     export_scope: Literal["visible", "full"] = Field(
         default="visible", description="Export scope: visible rows or all filtered"
     )
-    estimated_row_count: int | None = Field(
-        default=None, description="Client-estimated row count"
-    )
+    estimated_row_count: int | None = Field(default=None, description="Client-estimated row count")
 
 
 class ExportAuditCreateResponse(BaseModel):
@@ -102,9 +100,7 @@ class ExportAuditCompleteRequest(BaseModel):
     status: Literal["completed", "failed"] = Field(
         default="completed", description="Final export status"
     )
-    error_message: str | None = Field(
-        default=None, description="Error details if status=failed"
-    )
+    error_message: str | None = Field(default=None, description="Error details if status=failed")
 
 
 class ExportAuditResponse(BaseModel):
@@ -180,11 +176,7 @@ async def _create_export_audit(
                         if request_data.visible_columns
                         else None
                     ),
-                    (
-                        json.dumps(request_data.sort_model)
-                        if request_data.sort_model
-                        else None
-                    ),
+                    (json.dumps(request_data.sort_model) if request_data.sort_model else None),
                     json.dumps(strategy_ids) if strategy_ids else None,
                     request_data.export_scope,
                     request_data.estimated_row_count,
@@ -326,9 +318,7 @@ async def _claim_export_audit(ctx: AppContext, audit_id: UUID) -> bool:
             return row is not None
 
 
-async def _fail_export_audit(
-    ctx: AppContext, audit_id: UUID, error_message: str
-) -> None:
+async def _fail_export_audit(ctx: AppContext, audit_id: UUID, error_message: str) -> None:
     """Mark export audit as failed with error message."""
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
@@ -550,9 +540,7 @@ async def complete_export_audit(
     tags=["Export"],
     responses={
         200: {
-            "content": {
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
-            },
+            "content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}},
             "description": "Excel file download",
         },
         404: {"description": "Audit record not found or expired"},
@@ -751,11 +739,15 @@ _GRID_COLUMNS: dict[str, list[str]] = {
         "reason",
     ],
     # NOTE: The TCA grid in the web console displays computed metrics
-    # (e.g. ``is_bps``, ``fill_rate_pct``) that are derived client-side.
-    # The export provides the raw underlying trade/order data so users
-    # can compute their own analytics.  When the grid sends computed
-    # column names via ``visible_columns``, ``_validate_columns`` drops
-    # them and falls back to this full raw-data allowlist.
+    # (e.g. ``is_bps``, ``fill_rate_pct``, ``vwap_bps``) that are
+    # derived client-side.  The export provides the raw underlying
+    # trade/order data so users can compute their own analytics.
+    # Frontend display names are mapped via ``_COLUMN_ALIASES["tca"]``
+    # (e.g. ``execution_date`` → ``executed_at``, ``filled_qty`` →
+    # ``qty``).  Purely computed columns like ``is_bps`` have no DB
+    # backing and are dropped by ``_validate_columns``, which falls
+    # back to this full raw-data allowlist when all columns are
+    # unrecognised.
     "tca": [
         "trade_id",
         "client_order_id",
@@ -788,12 +780,18 @@ _COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "fills": {
         "time": "executed_at",
     },
+    "tca": {
+        # The TCA grid displays computed metrics (fill_rate_pct, is_bps,
+        # vwap_bps) derived client-side.  Map the grid's display column
+        # names to the raw DB columns so _validate_columns does not drop
+        # them.
+        "execution_date": "executed_at",
+        "filled_qty": "qty",
+    },
 }
 
 
-def _validate_columns(
-    grid_name: str, visible_columns: list[str] | None
-) -> list[str]:
+def _validate_columns(grid_name: str, visible_columns: list[str] | None) -> list[str]:
     """Return the export column list, validated against the server allowlist.
 
     Frontend column aliases are resolved first (e.g. ``"time"`` →
@@ -829,6 +827,128 @@ def _build_order_clause(
     return ", ".join(parts) if parts else default_order
 
 
+def _build_filter_clauses(
+    filter_params: dict[str, Any] | None,
+    allowed_columns: list[str],
+    *,
+    col_prefix: str = "",
+) -> tuple[str, list[Any]]:
+    """Translate an AG Grid filter model into SQL WHERE fragments.
+
+    Returns a tuple of ``(where_fragment, params)`` where
+    *where_fragment* is a string of ``AND ...`` clauses (empty string
+    if no filters) and *params* is a list of bind values.
+
+    Only columns present in *allowed_columns* are accepted; unknown
+    columns are silently ignored to prevent SQL injection.
+
+    Supported AG Grid filter types:
+
+    * ``text``   -- ``contains``, ``equals``, ``startsWith``, ``endsWith``
+    * ``number`` -- ``equals``, ``greaterThan``, ``lessThan``
+    * ``date``   -- ``equals``, ``greaterThan``, ``lessThan``, ``inRange``
+    * ``set``    -- membership filter (``values`` list)
+    """
+    if not filter_params:
+        return "", []
+
+    fragments: list[str] = []
+    params: list[Any] = []
+
+    for col, spec in filter_params.items():
+        if col not in allowed_columns:
+            continue
+        qualified = f"{col_prefix}{col}" if col_prefix else col
+        filter_type = spec.get("filterType", spec.get("type", ""))
+
+        if filter_type == "text":
+            _apply_text_filter(qualified, spec, fragments, params)
+        elif filter_type == "number":
+            _apply_number_filter(qualified, spec, fragments, params)
+        elif filter_type == "date":
+            _apply_date_filter(qualified, spec, fragments, params)
+        elif filter_type == "set":
+            values = spec.get("values")
+            if isinstance(values, list) and values:
+                fragments.append(f"{qualified} = ANY(%s)")
+                params.append(values)
+
+    where = " ".join(f"AND {f}" for f in fragments)
+    return where, params
+
+
+def _apply_text_filter(
+    col: str,
+    spec: dict[str, Any],
+    fragments: list[str],
+    params: list[Any],
+) -> None:
+    """Add a text-type AG Grid filter clause."""
+    op = spec.get("type", "contains")
+    val = spec.get("filter", "")
+    if not isinstance(val, str) or not val:
+        return
+    if op == "contains":
+        fragments.append(f"{col} ILIKE %s")
+        params.append(f"%{val}%")
+    elif op == "equals":
+        fragments.append(f"{col} = %s")
+        params.append(val)
+    elif op == "startsWith":
+        fragments.append(f"{col} ILIKE %s")
+        params.append(f"{val}%")
+    elif op == "endsWith":
+        fragments.append(f"{col} ILIKE %s")
+        params.append(f"%{val}")
+
+
+def _apply_number_filter(
+    col: str,
+    spec: dict[str, Any],
+    fragments: list[str],
+    params: list[Any],
+) -> None:
+    """Add a number-type AG Grid filter clause."""
+    op = spec.get("type", "equals")
+    val = spec.get("filter")
+    if val is None:
+        return
+    if op == "equals":
+        fragments.append(f"{col} = %s")
+        params.append(val)
+    elif op == "greaterThan":
+        fragments.append(f"{col} > %s")
+        params.append(val)
+    elif op == "lessThan":
+        fragments.append(f"{col} < %s")
+        params.append(val)
+
+
+def _apply_date_filter(
+    col: str,
+    spec: dict[str, Any],
+    fragments: list[str],
+    params: list[Any],
+) -> None:
+    """Add a date-type AG Grid filter clause."""
+    op = spec.get("type", "equals")
+    date_from = spec.get("dateFrom")
+    date_to = spec.get("dateTo")
+    if op == "equals" and date_from:
+        fragments.append(f"{col}::date = %s::date")
+        params.append(date_from)
+    elif op == "greaterThan" and date_from:
+        fragments.append(f"{col} >= %s::timestamp")
+        params.append(date_from)
+    elif op == "lessThan" and date_from:
+        fragments.append(f"{col} < %s::timestamp")
+        params.append(date_from)
+    elif op == "inRange" and date_from and date_to:
+        fragments.append(f"{col} >= %s::timestamp AND {col} < %s::timestamp")
+        params.append(date_from)
+        params.append(date_to)
+
+
 # ---------------------------------------------------------------------------
 # Per-grid data fetchers
 # ---------------------------------------------------------------------------
@@ -839,6 +959,7 @@ def _fetch_positions_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch positions data scoped to authorized strategies.
 
@@ -859,9 +980,16 @@ def _fetch_positions_data(
         ]
     qualified_columns = [f"p.{c}" for c in columns]
     order_clause = _build_order_clause(
-        qualified_sort, qualified_columns, "p.symbol ASC",
+        qualified_sort,
+        qualified_columns,
+        "p.symbol ASC",
     )
     col_list = ", ".join(f"p.{c} AS {c}" for c in columns)
+    filter_clause, filter_params_list = _build_filter_clauses(
+        filter_params,
+        columns,
+        col_prefix="p.",
+    )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -869,9 +997,10 @@ def _fetch_positions_data(
                 f"SELECT {col_list} FROM positions p "
                 f"JOIN symbol_strategy ss ON p.symbol = ss.symbol "
                 f"WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
+                f"{filter_clause} "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -882,18 +1011,32 @@ def _fetch_orders_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch orders scoped to authorized strategies."""
+    """Fetch orders scoped to authorized strategies.
+
+    Only working/pending orders are returned to match the dashboard's
+    Working-orders grid (which is populated from
+    ``/api/v1/orders/pending``).  The status filter uses the same
+    ``PENDING_STATUSES`` tuple defined in
+    ``apps.execution_gateway.database``.
+    """
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
     col_list = ", ".join(columns)
+    filter_clause, filter_params_list = _build_filter_clauses(
+        filter_params,
+        columns,
+    )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM orders "  # noqa: S608
                 f"WHERE strategy_id = ANY(%s) "
+                f"AND status = ANY(%s) "
+                f"{filter_clause} "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                (strategy_ids, list(PENDING_STATUSES), *filter_params_list, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -904,19 +1047,26 @@ def _fetch_fills_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch fills (trades) scoped to authorized strategies."""
     order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
     col_list = ", ".join(f"t.{c}" for c in columns)
+    filter_clause, filter_params_list = _build_filter_clauses(
+        filter_params,
+        columns,
+        col_prefix="t.",
+    )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM trades t "  # noqa: S608
                 f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
                 f"AND t.strategy_id = ANY(%s) "
+                f"{filter_clause} "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -927,6 +1077,7 @@ def _fetch_audit_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch audit log entries scoped to authorized strategies.
 
@@ -940,14 +1091,19 @@ def _fetch_audit_data(
     """
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
     col_list = ", ".join(columns)
+    filter_clause, filter_params_list = _build_filter_clauses(
+        filter_params,
+        columns,
+    )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM audit_log "  # noqa: S608
                 f"WHERE details->>'strategy_id' = ANY(%s) "
+                f"{filter_clause} "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -958,8 +1114,17 @@ def _fetch_tca_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch TCA trade data with order context, scoped to authorized strategies."""
+    """Fetch TCA trade data with order context, scoped to authorized strategies.
+
+    The TCA grid in the web console displays computed metrics
+    (``fill_rate_pct``, ``is_bps``, ``vwap_bps``) derived client-side.
+    The export provides the raw underlying trade/order data so users
+    can compute their own analytics.  Frontend column aliases are
+    resolved via ``_COLUMN_ALIASES["tca"]`` before reaching this
+    fetcher, so mapped columns are included correctly.
+    """
     # Map column names to their qualified table references
     tca_col_map: dict[str, str] = {
         "trade_id": "t.trade_id",
@@ -974,23 +1139,35 @@ def _fetch_tca_data(
         "order_qty": "o.qty",
         "filled_avg_price": "o.filled_avg_price",
     }
-    select_cols = ", ".join(
-        f"{tca_col_map.get(c, 't.' + c)} AS {c}" for c in columns
-    )
+    select_cols = ", ".join(f"{tca_col_map.get(c, 't.' + c)} AS {c}" for c in columns)
     # Qualify sort columns with table aliases via tca_col_map to
     # avoid ambiguity when trades and orders share column names
     # (e.g. symbol, qty, client_order_id).
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": tca_col_map.get(item.get("colId", ""), f"t.{item.get('colId', '')}")}
-            if item.get("colId") in columns
-            else item
+            (
+                {
+                    **item,
+                    "colId": tca_col_map.get(item.get("colId", ""), f"t.{item.get('colId', '')}"),
+                }
+                if item.get("colId") in columns
+                else item
+            )
             for item in sort_model
         ]
     qualified_tca_columns = [tca_col_map.get(c, f"t.{c}") for c in columns]
     order_clause = _build_order_clause(
-        qualified_sort, qualified_tca_columns, "t.executed_at DESC",
+        qualified_sort,
+        qualified_tca_columns,
+        "t.executed_at DESC",
+    )
+    # For TCA filters, qualify column names via tca_col_map so the
+    # WHERE clause references the correct table alias.
+    filter_clause, filter_params_list = _build_filter_clauses(
+        filter_params,
+        columns,
+        col_prefix="t.",
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
@@ -1000,16 +1177,23 @@ def _fetch_tca_data(
                 f"LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
                 f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
                 f"AND t.strategy_id = ANY(%s) "
+                f"{filter_clause} "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
+# Type alias for grid data fetcher functions
+_GridFetcher = Callable[
+    [AppContext, list[str], list[str], list[dict[str, Any]] | None, dict[str, Any] | None],
+    list[dict[str, Any]],
+]
+
 # Dispatch table for grid data fetchers
-_GRID_FETCHERS = {
+_GRID_FETCHERS: dict[str, _GridFetcher] = {
     "positions": _fetch_positions_data,
     "orders": _fetch_orders_data,
     "fills": _fetch_fills_data,
@@ -1036,7 +1220,7 @@ async def _generate_excel_content(
         ctx: Application context with database access
         grid_name: Name of grid to export
         strategy_ids: Authorized strategy IDs for filtering
-        filter_params: AG Grid filter model (reserved for future use)
+        filter_params: AG Grid filter model (translated to SQL WHERE clauses)
         visible_columns: Columns to include (validated against allowlist)
         sort_model: AG Grid sort model
 
@@ -1049,9 +1233,7 @@ async def _generate_excel_content(
     try:
         from openpyxl import Workbook  # type: ignore[import-untyped]
     except ImportError as e:
-        raise NotImplementedError(
-            "Excel export requires openpyxl: pip install openpyxl"
-        ) from e
+        raise NotImplementedError("Excel export requires openpyxl: pip install openpyxl") from e
 
     if grid_name not in _GRID_FETCHERS:
         raise NotImplementedError(f"Excel export not implemented for grid: {grid_name}")
@@ -1059,22 +1241,30 @@ async def _generate_excel_content(
     # Validate requested columns against server allowlist
     columns = _validate_columns(grid_name, visible_columns)
 
-    # Log when filter_params are provided but not yet applied.
-    # AG Grid filter model support is not yet implemented; exports
-    # return strategy-scoped data without additional column filters.
+    # Resolve filter column aliases so that frontend filter keys
+    # (e.g. "type" for orders, "time" for fills) map to the DB column
+    # names expected by the fetchers.
+    resolved_filters: dict[str, Any] | None = None
     if filter_params:
-        logger.warning(
-            "export_filter_params_not_applied",
-            extra={
-                "grid_name": grid_name,
-                "filter_keys": list(filter_params.keys()),
-            },
-        )
+        aliases = _COLUMN_ALIASES.get(grid_name, {})
+        allowed = _GRID_COLUMNS[grid_name]
+        resolved_filters = {}
+        for key, spec in filter_params.items():
+            resolved_key = aliases.get(key, key)
+            if resolved_key in allowed:
+                resolved_filters[resolved_key] = spec
 
     # Offload synchronous DB fetch to a worker thread to avoid blocking
     # the FastAPI event loop.
     fetcher = _GRID_FETCHERS[grid_name]
-    rows = await asyncio.to_thread(fetcher, ctx, strategy_ids, columns, sort_model)
+    rows = await asyncio.to_thread(
+        fetcher,
+        ctx,
+        strategy_ids,
+        columns,
+        sort_model,
+        resolved_filters,
+    )
 
     # Build workbook (CPU-bound; done in worker thread below)
     def _build_workbook() -> bytes:
