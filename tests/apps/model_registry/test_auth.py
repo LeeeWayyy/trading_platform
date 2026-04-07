@@ -99,12 +99,19 @@ async def test_verify_token_invalid_token_does_not_log_token_material(
         with pytest.raises(HTTPException):
             await auth.verify_token(creds)
 
-    for record in caplog.records:
+    # Ensure at least one warning was emitted
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warning_records) >= 1, "Expected at least one WARNING log record"
+
+    for record in warning_records:
+        # No token material should appear in the log message
         assert secret_token not in record.getMessage()
         assert secret_token[:4] not in record.getMessage()
-        # Only token_length should appear, not any token bytes
-        if hasattr(record, "token_length"):
-            assert record.token_length == len(secret_token)
+        # token_length must be present instead of token content
+        assert hasattr(record, "token_length"), (
+            "Expected 'token_length' in log record extras"
+        )
+        assert record.token_length == len(secret_token)
 
 
 @pytest.mark.asyncio()
@@ -118,7 +125,6 @@ async def test_verify_token_valid_token_returns_service_token(
     result = await auth.verify_token(creds)
 
     assert isinstance(result, ServiceToken)
-    assert result.token == token
     assert result.scopes == ["model:read"]
     # auth_role is derived from the role key, not token content (fixes #174)
     assert result.auth_role == "read"
@@ -176,14 +182,14 @@ def test_authenticate_token_returns_role_not_token_content(
 
 @pytest.mark.asyncio()
 async def test_verify_read_scope_accepts_admin_scope() -> None:
-    token = ServiceToken(token="admin", scopes=["model:admin"], auth_role="svc")
+    token = ServiceToken(scopes=["model:admin"], auth_role="svc")
 
     assert await auth.verify_read_scope(token) is token
 
 
 @pytest.mark.asyncio()
 async def test_verify_read_scope_rejects_missing_scope() -> None:
-    token = ServiceToken(token="read", scopes=[], auth_role="svc")
+    token = ServiceToken(scopes=[], auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_read_scope(token)
@@ -193,7 +199,7 @@ async def test_verify_read_scope_rejects_missing_scope() -> None:
 
 @pytest.mark.asyncio()
 async def test_verify_write_scope_rejects_read_only_scope() -> None:
-    token = ServiceToken(token="read", scopes=["model:read"], auth_role="svc")
+    token = ServiceToken(scopes=["model:read"], auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_write_scope(token)
@@ -203,7 +209,7 @@ async def test_verify_write_scope_rejects_read_only_scope() -> None:
 
 @pytest.mark.asyncio()
 async def test_verify_admin_scope_rejects_missing_scope() -> None:
-    token = ServiceToken(token="read", scopes=["model:read"], auth_role="svc")
+    token = ServiceToken(scopes=["model:read"], auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_admin_scope(token)

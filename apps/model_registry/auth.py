@@ -46,7 +46,6 @@ _ADMIN_TOKEN_ENV_VAR = "MODEL_REGISTRY_ADMIN_TOKEN"
 class ServiceToken:
     """Verified service token with scopes."""
 
-    token: str
     scopes: list[str]
     auth_role: str
 
@@ -188,7 +187,7 @@ async def verify_token(
 
     scopes, service = result
 
-    return ServiceToken(token=token, scopes=scopes, auth_role=service)
+    return ServiceToken(scopes=scopes, auth_role=service)
 
 
 async def verify_read_scope(
