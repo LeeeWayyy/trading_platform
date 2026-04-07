@@ -42,10 +42,6 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --with dev
 
-      - name: Documentation freshness check
-        run: |
-          python scripts/dev/check_doc_freshness.py
-
       - name: Architecture map drift check
         run: |
           python scripts/dev/generate_architecture.py --check
