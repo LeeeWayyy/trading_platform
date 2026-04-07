@@ -2158,9 +2158,11 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
     # Symbols already normalized to uppercase by PrecomputeRequest.normalize_symbols
     symbols = request.symbols
 
-    # Pre-compute features
+    # Pre-compute features (run in thread to avoid blocking the event loop
+    # during heavy Parquet I/O and Qlib feature computation)
     try:
-        result = signal_generator.precompute_features(
+        result = await asyncio.to_thread(
+            signal_generator.precompute_features,
             symbols=symbols,
             as_of_date=as_of_date,
         )
@@ -2180,9 +2182,19 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
             detail="Requested market data not found",
         ) from exc
     except ValueError as exc:
+        logger.error(
+            "Feature precomputation failed: value error",
+            extra={
+                "symbols": symbols,
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid request parameters for feature precomputation",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Feature precomputation failed due to a data error",
         ) from exc
     except (KeyError, TypeError, AttributeError) as exc:
         logger.error(
