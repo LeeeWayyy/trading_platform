@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
@@ -82,6 +84,30 @@ async def test_verify_token_invalid_token_raises_401(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio()
+async def test_verify_token_invalid_token_does_not_log_token_material(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure auth failure logs never contain token material (repo rule)."""
+    secret_token = "super-secret-credential-value"
+    monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, "read-secret")
+    creds = HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials=secret_token
+    )
+
+    with caplog.at_level(logging.WARNING, logger="apps.model_registry.auth"):
+        with pytest.raises(HTTPException):
+            await auth.verify_token(creds)
+
+    for record in caplog.records:
+        assert secret_token not in record.getMessage()
+        assert secret_token[:4] not in record.getMessage()
+        # Only token_length should appear, not any token bytes
+        if hasattr(record, "token_length"):
+            assert record.token_length == len(secret_token)
+
+
+@pytest.mark.asyncio()
 async def test_verify_token_valid_token_returns_service_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -94,8 +120,8 @@ async def test_verify_token_valid_token_returns_service_token(
     assert isinstance(result, ServiceToken)
     assert result.token == token
     assert result.scopes == ["model:read"]
-    # service_name is derived from the role key, not token content (fixes #174)
-    assert result.service_name == "read"
+    # auth_role is derived from the role key, not token content (fixes #174)
+    assert result.auth_role == "read"
 
 
 @pytest.mark.asyncio()
@@ -110,7 +136,7 @@ async def test_verify_token_admin_token_returns_admin_role(
 
     assert isinstance(result, ServiceToken)
     assert result.scopes == ["model:read", "model:write", "model:admin"]
-    assert result.service_name == "admin"
+    assert result.auth_role == "admin"
 
 
 @pytest.mark.asyncio()
@@ -125,7 +151,7 @@ async def test_verify_token_legacy_token_returns_legacy_read_role(
 
     assert isinstance(result, ServiceToken)
     assert result.scopes == ["model:read"]
-    assert result.service_name == "legacy_read"
+    assert result.auth_role == "legacy_read"
 
 
 def test_authenticate_token_returns_role_not_token_content(
@@ -150,14 +176,14 @@ def test_authenticate_token_returns_role_not_token_content(
 
 @pytest.mark.asyncio()
 async def test_verify_read_scope_accepts_admin_scope() -> None:
-    token = ServiceToken(token="admin", scopes=["model:admin"], service_name="svc")
+    token = ServiceToken(token="admin", scopes=["model:admin"], auth_role="svc")
 
     assert await auth.verify_read_scope(token) is token
 
 
 @pytest.mark.asyncio()
 async def test_verify_read_scope_rejects_missing_scope() -> None:
-    token = ServiceToken(token="read", scopes=[], service_name="svc")
+    token = ServiceToken(token="read", scopes=[], auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_read_scope(token)
@@ -167,7 +193,7 @@ async def test_verify_read_scope_rejects_missing_scope() -> None:
 
 @pytest.mark.asyncio()
 async def test_verify_write_scope_rejects_read_only_scope() -> None:
-    token = ServiceToken(token="read", scopes=["model:read"], service_name="svc")
+    token = ServiceToken(token="read", scopes=["model:read"], auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_write_scope(token)
@@ -177,7 +203,7 @@ async def test_verify_write_scope_rejects_read_only_scope() -> None:
 
 @pytest.mark.asyncio()
 async def test_verify_admin_scope_rejects_missing_scope() -> None:
-    token = ServiceToken(token="read", scopes=["model:read"], service_name="svc")
+    token = ServiceToken(token="read", scopes=["model:read"], auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_admin_scope(token)

@@ -48,7 +48,7 @@ class ServiceToken:
 
     token: str
     scopes: list[str]
-    service_name: str
+    auth_role: str
 
 
 # =============================================================================
@@ -188,7 +188,7 @@ async def verify_token(
 
     scopes, service = result
 
-    return ServiceToken(token=token, scopes=scopes, service_name=service)
+    return ServiceToken(token=token, scopes=scopes, auth_role=service)
 
 
 async def verify_read_scope(
