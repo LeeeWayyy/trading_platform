@@ -1879,7 +1879,7 @@ async def generate_signals(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request: {str(exc)}"
             ) from exc
-        except (KeyError, TypeError) as exc:
+        except (KeyError, TypeError, AttributeError) as exc:
             logger.error(
                 "Signal generation failed: invalid data format",
                 extra={
