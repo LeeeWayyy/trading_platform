@@ -2071,6 +2071,12 @@ class PrecomputeRequest(BaseModel):
         examples=["2024-12-31"],
     )
 
+    @validator("symbols", pre=True)
+    @classmethod
+    def normalize_symbols(cls, v: list[str]) -> list[str]:
+        """Normalize symbols to uppercase."""
+        return [s.upper() for s in v]
+
 
 class PrecomputeResponse(BaseModel):
     """Response body for feature pre-computation."""
@@ -2149,8 +2155,8 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
     else:
         as_of_date = datetime.now(UTC)
 
-    # Normalize symbols to uppercase
-    symbols = [s.upper() for s in request.symbols]
+    # Symbols already normalized to uppercase by PrecomputeRequest.normalize_symbols
+    symbols = request.symbols
 
     # Pre-compute features
     try:
