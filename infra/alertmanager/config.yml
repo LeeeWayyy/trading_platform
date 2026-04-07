@@ -91,7 +91,7 @@ receivers:
     pagerduty_configs:
       - service_key: '${PAGERDUTY_SERVICE_KEY}'
         send_resolved: true
-        severity: '{{ if eq .CommonLabels.severity "page" }}critical{{ else }}{{ .CommonLabels.severity }}{{ end }}'
+        severity: '{{ if eq (index .Alerts 0).Labels.severity "page" }}critical{{ else }}{{ (index .Alerts 0).Labels.severity }}{{ end }}'
         description: '{{ .CommonAnnotations.summary }}'
         details:
           firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
