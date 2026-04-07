@@ -36,6 +36,7 @@ from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
+from libs.data.sql.strategy_mapping_sql import SYMBOL_STRATEGY_CTE
 from libs.platform.security import sanitize_for_export
 from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
 
@@ -815,27 +816,28 @@ def _fetch_positions_data(
 ) -> list[dict[str, Any]]:
     """Fetch positions data scoped to authorized strategies.
 
-    Positions are scoped by filtering to symbols that have at least one
-    order for the given *strategy_ids*.  The ``positions`` table does not
-    carry a ``strategy_id`` column itself, so a subquery against
-    ``orders`` is used.
+    The ``positions`` table is symbol-scoped (no ``strategy_id`` column),
+    so ownership is inferred via the shared fail-closed mapping from
+    ``libs.data.sql.strategy_mapping_sql``: a symbol is attributed to a
+    strategy only when exactly ONE strategy has ever traded it.  Symbols
+    traded by multiple strategies are excluded to prevent cross-strategy
+    data leakage.
     """
-    order_clause = _build_order_clause(sort_model, columns, "symbol ASC")
-    col_list = ", ".join(columns)
+    order_clause = _build_order_clause(sort_model, columns, "p.symbol ASC")
+    col_list = ", ".join(f"p.{c}" for c in columns)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {col_list} FROM positions "  # noqa: S608
-                f"WHERE symbol IN ("
-                f"  SELECT DISTINCT symbol FROM orders "
-                f"  WHERE strategy_id = ANY(%s)"
-                f") AND qty != 0 "
+                f"WITH {SYMBOL_STRATEGY_CTE} "  # noqa: S608
+                f"SELECT {col_list} FROM positions p "
+                f"JOIN symbol_strategy ss ON p.symbol = ss.symbol "
+                f"WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
                 (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
 def _fetch_orders_data(
@@ -857,7 +859,7 @@ def _fetch_orders_data(
                 (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
 def _fetch_fills_data(
@@ -880,7 +882,7 @@ def _fetch_fills_data(
                 (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
 def _fetch_audit_data(
@@ -894,8 +896,10 @@ def _fetch_audit_data(
     Audit entries are scoped by matching the ``strategy_id`` key inside
     the ``details`` JSONB column against the authorized *strategy_ids*.
     System-level entries (those without a ``strategy_id`` in their
-    details, e.g. kill-switch operations) are included as well so that
-    the full operational context is preserved.
+    details) are excluded to enforce least-privilege -- exporting only
+    strategy-related audit entries prevents leaking sensitive system
+    operations to users who may only be authorized for specific
+    strategies.
     """
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
     col_list = ", ".join(columns)
@@ -904,13 +908,12 @@ def _fetch_audit_data(
             cur.execute(
                 f"SELECT {col_list} FROM audit_log "  # noqa: S608
                 f"WHERE details->>'strategy_id' = ANY(%s) "
-                f"   OR details->>'strategy_id' IS NULL "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
                 (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
 def _fetch_tca_data(
@@ -951,7 +954,7 @@ def _fetch_tca_data(
                 (strategy_ids, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=False)) for row in cur.fetchall()]
+            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
 # Dispatch table for grid data fetchers
@@ -1034,8 +1037,9 @@ async def _generate_excel_content(
             elif raw_value is None:
                 value_to_set = ""
             elif isinstance(raw_value, datetime):
-                # openpyxl does not support timezone-aware datetimes
-                value_to_set = raw_value.replace(tzinfo=None)
+                # openpyxl does not support timezone-aware datetimes.
+                # Ensure UTC first, then strip for Excel compatibility.
+                value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
             else:
                 value_to_set = raw_value
 
