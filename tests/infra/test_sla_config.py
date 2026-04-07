@@ -144,32 +144,32 @@ class TestAlertmanagerConfig:
         with open(config_path) as f:
             return yaml.safe_load(f)
 
-    def test_alertmanager_config_valid_yaml(self, alertmanager_config):
+    def test_alertmanager_config_valid_yaml(self, alertmanager_config: dict) -> None:
         """Verify config.yml is valid YAML."""
         assert alertmanager_config is not None
         assert isinstance(alertmanager_config, dict)
 
-    def test_route_defined(self, alertmanager_config):
+    def test_route_defined(self, alertmanager_config: dict) -> None:
         """Verify routing tree is defined."""
         assert "route" in alertmanager_config
         assert "receiver" in alertmanager_config["route"]
 
-    def test_receivers_defined(self, alertmanager_config):
+    def test_receivers_defined(self, alertmanager_config: dict) -> None:
         """Verify receivers are defined."""
         assert "receivers" in alertmanager_config
         assert len(alertmanager_config["receivers"]) > 0
 
-    def test_slack_receiver_exists(self, alertmanager_config):
+    def test_slack_receiver_exists(self, alertmanager_config: dict) -> None:
         """Verify Slack receiver is configured."""
         receiver_names = [r["name"] for r in alertmanager_config["receivers"]]
         assert "slack-ops" in receiver_names, "slack-ops receiver not found"
 
-    def test_pagerduty_receiver_exists(self, alertmanager_config):
+    def test_pagerduty_receiver_exists(self, alertmanager_config: dict) -> None:
         """Verify PagerDuty receiver is configured."""
         receiver_names = [r["name"] for r in alertmanager_config["receivers"]]
         assert "pagerduty-platform" in receiver_names, "pagerduty-platform receiver not found"
 
-    def test_track7_routing_exists(self, alertmanager_config):
+    def test_track7_routing_exists(self, alertmanager_config: dict) -> None:
         """Verify Track 7 SLA routing is configured."""
         routes = alertmanager_config["route"].get("routes", [])
         track7_route = None
@@ -263,7 +263,7 @@ class TestAlertmanagerConfig:
         )
         assert severity_template == expected_template
 
-    def test_inhibit_rules_defined(self, alertmanager_config):
+    def test_inhibit_rules_defined(self, alertmanager_config: dict) -> None:
         """Verify inhibit rules are defined."""
         assert "inhibit_rules" in alertmanager_config
         assert len(alertmanager_config["inhibit_rules"]) > 0
