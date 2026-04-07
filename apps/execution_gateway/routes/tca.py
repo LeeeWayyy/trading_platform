@@ -157,6 +157,9 @@ def _get_taq_provider() -> Any | None:
         return _taq_provider
 
 
+# NOTE: fee_cost_bps and avg_fee_cost_bps changed from float to float|None in
+# issue #158.  Only consumer is the NiceGUI web console (same repo, already
+# updated).  No external typed clients exist for this internal API.
 router = APIRouter(prefix="/api/v1/tca", tags=["TCA"])
 
 # TCA auth dependency - requires VIEW_TCA permission

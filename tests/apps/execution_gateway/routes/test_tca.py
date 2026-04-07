@@ -1949,3 +1949,56 @@ class TestFeeCurrencyPropagationEndToEnd:
         assert result is not None
         assert result.fee_cost_bps is not None, "fee_cost_bps should be valid for USD"
         assert isinstance(result.fee_cost_bps, float)
+
+
+class TestSummaryFeeExclusionWarning:
+    """Route-level: summary includes fee exclusion warning when orders have None fees."""
+
+    def test_summary_warns_on_excluded_fees(
+        self, test_client: TestClient, mock_db: MagicMock
+    ) -> None:
+        """Summary warnings include fee exclusion count when orders have non-USD fees."""
+        base_time = datetime.now(UTC) - timedelta(hours=1)
+        trades = [
+            {
+                "trade_id": "trade-0",
+                "client_order_id": "order-eur",
+                "broker_order_id": "broker-eur",
+                "strategy_id": "alpha_baseline",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": 100.0,
+                "executed_at": base_time,
+                "source": "webhook",
+                "order_submitted_at": base_time - timedelta(minutes=1),
+                "order_qty": 100,
+                "order_filled_qty": 100,
+                "filled_avg_price": 100.0,
+                "order_metadata": {
+                    "fills": [
+                        {
+                            "fill_id": "trade-0",
+                            "fee": "0.50",
+                            "fee_currency": "EUR",
+                        }
+                    ]
+                },
+            },
+        ]
+        mock_db.get_trades_for_tca.return_value = trades
+        today = date.today()
+
+        response = test_client.get(
+            "/api/v1/tca/analysis",
+            params={"start_date": str(today - timedelta(days=7)), "end_date": str(today)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        summary = data["summary"]
+        assert summary["avg_fee_cost_bps"] is None
+        assert any("fee_cost_bps excluded" in w for w in summary["warnings"])
+        # Order-level check
+        assert len(data["orders"]) == 1
+        assert data["orders"][0]["fee_cost_bps"] is None

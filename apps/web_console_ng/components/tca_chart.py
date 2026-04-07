@@ -162,6 +162,11 @@ def create_shortfall_decomposition_chart(
         "tooltip": {
             "trigger": "axis",
             "axisPointer": {"type": "shadow"},
+            "formatter": "{b}<br/>"
+            + "Price: {c0} bps<br/>"
+            + "Fees: {c1} bps<br/>"
+            + "Opportunity: {c2} bps<br/>"
+            + "Timing: {c3} bps",
         },
         "legend": {
             "data": ["Price Shortfall", "Fees", "Opportunity", "Timing"],
