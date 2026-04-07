@@ -19,7 +19,7 @@ _INSTANCE_AGG_RE = re.compile(r"\b(?:by|without)\s*\([^)]*\binstance\b")
 
 # Matches PromQL expressions that perform per-target aggregation
 # e.g. ``sum by (...)``, ``avg by (...)``
-_HAS_AGGREGATION_RE = re.compile(r"\b(?:sum|avg|min|max|count|group)\s+by\s*\(")
+_HAS_AGGREGATION_RE = re.compile(r"\b(?:sum|avg|min|max|count|group)\s+(?:by|without)\s*\(")
 
 
 @pytest.fixture()
