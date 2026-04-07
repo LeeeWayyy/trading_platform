@@ -1,7 +1,7 @@
 """
 Authentication for Model Registry API.
 
-Provides JWT bearer token verification with scope-based authorization.
+Provides bearer token verification with scope-based authorization.
 """
 
 from __future__ import annotations

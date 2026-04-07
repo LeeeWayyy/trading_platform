@@ -111,6 +111,9 @@ def _assert_auth_role_in_logs(
     for record in matching:
         assert hasattr(record, "auth_role"), "Log record must include auth_role"
         assert record.auth_role == "svc"
+        # Verify constant service identifier for log query compatibility
+        assert hasattr(record, "service"), "Log record must include service"
+        assert record.service == "model_registry"
 
 
 def test_get_current_model_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
@@ -164,6 +167,25 @@ def test_list_models_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
 
     assert response.status_code == 200
     _assert_auth_role_in_logs(caplog, "Listed models")
+
+
+def test_validate_model_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
+    """Ensure validate endpoint logs include auth_role field."""
+    registry = MagicMock()
+    registry.validate_model.return_value = ValidationResult(
+        valid=True,
+        model_id="model-v1",
+        checksum_verified=True,
+        load_successful=True,
+        errors=[],
+    )
+    client = _client_with_registry(registry)
+
+    with caplog.at_level(logging.INFO, logger="apps.model_registry.routes"):
+        response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
+
+    assert response.status_code == 200
+    _assert_auth_role_in_logs(caplog, "Validated model")
 
 
 def test_get_current_model_handles_lock_error() -> None:

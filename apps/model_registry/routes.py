@@ -208,6 +208,7 @@ def get_current_model(
             "model_type": model_type.value,
             "version": metadata.version,
             "auth_role": auth.auth_role,
+            "service": "model_registry",
         },
     )
 
@@ -283,6 +284,7 @@ def get_model_metadata(
             "version": version,
             "model_id": metadata.model_id,
             "auth_role": auth.auth_role,
+            "service": "model_registry",
         },
     )
 
@@ -363,6 +365,7 @@ def validate_model(
             "checksum_ok": result.checksum_verified,
             "load_ok": result.load_successful,
             "auth_role": auth.auth_role,
+            "service": "model_registry",
         },
     )
 
@@ -464,6 +467,7 @@ def list_models(
             "status_filter": status_filter.value if status_filter else None,
             "count": len(models),
             "auth_role": auth.auth_role,
+            "service": "model_registry",
         },
     )
 
