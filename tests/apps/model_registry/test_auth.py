@@ -32,7 +32,7 @@ def test_get_expected_tokens_handles_admin_read_and_legacy(monkeypatch: pytest.M
     }
 
 
-def test_authenticate_token_prefers_admin_over_read(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_authenticate_token_returns_correct_scopes_and_roles(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(auth._ADMIN_TOKEN_ENV_VAR, "admin-secret")
     monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, "read-secret")
 
@@ -49,6 +49,22 @@ def test_authenticate_token_prefers_admin_over_read(monkeypatch: pytest.MonkeyPa
     assert role == "read"
 
     assert auth._authenticate_token("unknown") is None
+
+
+def test_authenticate_token_admin_takes_precedence_over_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When admin and read tokens are the same, admin scopes take precedence."""
+    shared_token = "shared-secret"
+    monkeypatch.setenv(auth._ADMIN_TOKEN_ENV_VAR, shared_token)
+    monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, shared_token)
+
+    result = auth._authenticate_token(shared_token)
+    assert result is not None
+    scopes, role = result
+    # Admin is checked first, so admin scopes should be returned
+    assert scopes == ["model:read", "model:write", "model:admin"]
+    assert role == "admin"
 
 
 @pytest.mark.asyncio()

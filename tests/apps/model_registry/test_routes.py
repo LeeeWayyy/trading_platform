@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -92,6 +93,23 @@ def test_get_current_model_success() -> None:
     assert payload["model_type"] == "risk_model"
     assert payload["version"] == "v1.0.0"
     assert payload["checksum"] == "checksum"
+
+
+def test_get_current_model_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
+    """Ensure route logs include auth_role field and never 'service' (fixes #174)."""
+    registry = MagicMock()
+    registry.get_current_production.return_value = _build_metadata()
+    client = _client_with_registry(registry)
+
+    with caplog.at_level(logging.INFO, logger="apps.model_registry.routes"):
+        response = client.get("/api/v1/models/risk_model/current")
+
+    assert response.status_code == 200
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert len(info_records) >= 1, "Expected at least one INFO log from route"
+    record = info_records[0]
+    assert hasattr(record, "auth_role"), "Log record must include auth_role"
+    assert record.auth_role == "svc"
 
 
 def test_get_current_model_handles_lock_error() -> None:
