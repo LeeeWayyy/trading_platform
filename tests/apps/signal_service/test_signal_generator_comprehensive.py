@@ -377,7 +377,7 @@ class TestSignalGeneration:
         )
 
         with pytest.raises(
-            ValueError, match="Data not available"
+            RuntimeError, match="mock fallback is disabled"
         ):
             generator.generate_signals(
                 symbols=["AAPL"],
@@ -737,7 +737,7 @@ class TestFeaturePrecomputation:
         with patch(
             "apps.signal_service.signal_generator.get_mock_alpha158_features"
         ) as mock_get_mock:
-            with pytest.raises(ValueError, match="Data not available"):
+            with pytest.raises(RuntimeError, match="mock fallback is disabled"):
                 generator.precompute_features(
                     symbols=["AAPL", "MSFT"],
                     as_of_date=datetime(2024, 1, 15, tzinfo=UTC),

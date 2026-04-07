@@ -1914,6 +1914,21 @@ async def generate_signals(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Signal generation failed: {str(exc)}",
             ) from exc
+        except RuntimeError as exc:
+            logger.error(
+                "Signal generation failed: feature generation error (mock fallback disabled)",
+                extra={
+                    "symbols": request.symbols[:10],
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Signal generation failed due to a feature generation error",
+            ) from exc
         except RedisConnectionError as exc:
             logger.error(
                 "Signal generation failed: Redis connection error",
@@ -2073,7 +2088,7 @@ class PrecomputeRequest(BaseModel):
 
     @validator("symbols")
     @classmethod
-    def normalize_symbols(cls, v: list[str]) -> list[str]:
+    def validate_symbols(cls, v: list[str]) -> list[str]:
         """Normalize symbols to uppercase."""
         return [s.upper() for s in v]
 
@@ -2155,7 +2170,7 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
     else:
         as_of_date = datetime.now(UTC)
 
-    # Symbols already normalized to uppercase by PrecomputeRequest.normalize_symbols
+    # Symbols already normalized to uppercase by PrecomputeRequest.validate_symbols
     symbols = request.symbols
 
     # Pre-compute features (run in thread to avoid blocking the event loop
@@ -2170,7 +2185,7 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
         logger.error(
             "Feature precomputation failed: data not found",
             extra={
-                "symbols": symbols,
+                "symbols": symbols[:10],
                 "as_of_date": as_of_date.date().isoformat(),
                 "error": str(exc),
                 "error_type": type(exc).__name__,
@@ -2181,11 +2196,26 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Requested market data not found",
         ) from exc
+    except RuntimeError as exc:
+        logger.error(
+            "Feature precomputation failed: feature generation error (mock fallback disabled)",
+            extra={
+                "symbols": symbols[:10],
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Feature precomputation failed due to a feature generation error",
+        ) from exc
     except ValueError as exc:
         logger.error(
             "Feature precomputation failed: value error",
             extra={
-                "symbols": symbols,
+                "symbols": symbols[:10],
                 "as_of_date": as_of_date.date().isoformat(),
                 "error": str(exc),
                 "error_type": type(exc).__name__,
@@ -2200,7 +2230,7 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
         logger.error(
             "Feature precomputation failed: invalid data format",
             extra={
-                "symbols": symbols,
+                "symbols": symbols[:10],
                 "as_of_date": as_of_date.date().isoformat(),
                 "error": str(exc),
                 "error_type": type(exc).__name__,
@@ -2215,7 +2245,7 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
         logger.error(
             "Feature precomputation failed: data file I/O error",
             extra={
-                "symbols": symbols,
+                "symbols": symbols[:10],
                 "as_of_date": as_of_date.date().isoformat(),
                 "error": str(exc),
                 "error_type": type(exc).__name__,
