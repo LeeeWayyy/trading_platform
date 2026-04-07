@@ -44,6 +44,16 @@ class TestValidateColumns:
         result = _validate_columns("fills", ["bad1", "bad2"])
         assert result == _GRID_COLUMNS["fills"]
 
+    def test_resolves_frontend_column_aliases(self) -> None:
+        """Frontend alias "time" is resolved to "executed_at" for fills."""
+        result = _validate_columns("fills", ["time", "symbol", "qty"])
+        assert result == ["executed_at", "symbol", "qty"]
+
+    def test_resolves_orders_type_alias(self) -> None:
+        """Frontend alias "type" is resolved to "order_type" for orders."""
+        result = _validate_columns("orders", ["symbol", "type", "status"])
+        assert result == ["symbol", "order_type", "status"]
+
 
 class TestBuildOrderClause:
     def test_default_order_when_no_sort_model(self) -> None:
