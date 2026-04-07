@@ -675,7 +675,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
             )
 
             # Align metric/run_status with orchestration result status
-            if result.status == "failed":
+            if result.status != "completed":
                 run_status = "error"
 
             # Track metrics
