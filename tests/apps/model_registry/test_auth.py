@@ -30,17 +30,23 @@ def test_get_expected_tokens_handles_admin_read_and_legacy(monkeypatch: pytest.M
     }
 
 
-def test_parse_token_scopes_prefers_admin_over_read(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_authenticate_token_prefers_admin_over_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(auth._ADMIN_TOKEN_ENV_VAR, "admin-secret")
     monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, "read-secret")
 
-    assert auth._parse_token_scopes("admin-secret") == [
-        "model:read",
-        "model:write",
-        "model:admin",
-    ]
-    assert auth._parse_token_scopes("read-secret") == ["model:read"]
-    assert auth._parse_token_scopes("unknown") == []
+    result = auth._authenticate_token("admin-secret")
+    assert result is not None
+    scopes, role = result
+    assert scopes == ["model:read", "model:write", "model:admin"]
+    assert role == "admin"
+
+    result = auth._authenticate_token("read-secret")
+    assert result is not None
+    scopes, role = result
+    assert scopes == ["model:read"]
+    assert role == "read"
+
+    assert auth._authenticate_token("unknown") is None
 
 
 @pytest.mark.asyncio()
@@ -92,16 +98,54 @@ async def test_verify_token_valid_token_returns_service_token(
     assert result.service_name == "read"
 
 
-def test_identify_token_role_returns_role_not_token_content(
+@pytest.mark.asyncio()
+async def test_verify_token_admin_token_returns_admin_role(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure _identify_token_role never leaks token content (fixes #174)."""
+    token = "admin-secret"
+    monkeypatch.setenv(auth._ADMIN_TOKEN_ENV_VAR, token)
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+    result = await auth.verify_token(creds)
+
+    assert isinstance(result, ServiceToken)
+    assert result.scopes == ["model:read", "model:write", "model:admin"]
+    assert result.service_name == "admin"
+
+
+@pytest.mark.asyncio()
+async def test_verify_token_legacy_token_returns_legacy_read_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "legacy-secret"
+    monkeypatch.setenv(auth._AUTH_TOKEN_ENV_VAR, token)
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+    result = await auth.verify_token(creds)
+
+    assert isinstance(result, ServiceToken)
+    assert result.scopes == ["model:read"]
+    assert result.service_name == "legacy_read"
+
+
+def test_authenticate_token_returns_role_not_token_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure _authenticate_token never leaks token content (fixes #174)."""
     monkeypatch.setenv(auth._ADMIN_TOKEN_ENV_VAR, "secretprefix:admin-key")
     monkeypatch.setenv(auth._READ_TOKEN_ENV_VAR, "othersecret:read-key")
 
-    assert auth._identify_token_role("secretprefix:admin-key") == "admin"
-    assert auth._identify_token_role("othersecret:read-key") == "read"
-    assert auth._identify_token_role("unknown-token") == "unknown"
+    result = auth._authenticate_token("secretprefix:admin-key")
+    assert result is not None
+    _, role = result
+    assert role == "admin"
+
+    result = auth._authenticate_token("othersecret:read-key")
+    assert result is not None
+    _, role = result
+    assert role == "read"
+
+    assert auth._authenticate_token("unknown-token") is None
 
 
 @pytest.mark.asyncio()

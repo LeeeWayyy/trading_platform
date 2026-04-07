@@ -27,7 +27,6 @@ MODEL_REGISTRY_CONFIG: dict[str, dict[str, str | float | int | list[str]]] = {
     "auth": {
         "type": "bearer",
         "token_env": "MODEL_REGISTRY_READ_TOKEN",
-        "scopes_required": ["model:read"],  # default scope
     },
     "timeout": {"connect": 5.0, "read": 30.0, "write": 60.0},
     "retry": {"max_attempts": 3, "backoff_base": 1.0, "backoff_factor": 2.0},
@@ -80,66 +79,59 @@ def _get_expected_tokens() -> dict[str, str]:
     return tokens
 
 
-def _parse_token_scopes(token: str) -> list[str]:
-    """Parse scopes from token.
+def _authenticate_token(
+    token: str,
+    expected_tokens: dict[str, str] | None = None,
+) -> tuple[list[str], str] | None:
+    """Authenticate a bearer token and return its scopes and role label.
+
+    Performs a single pass over configured tokens using constant-time
+    comparison.  Returns both the granted scopes and a safe, non-secret
+    role label (e.g. "admin", "read") so callers never need to iterate
+    the token list twice.
 
     DESIGN NOTE: For production systems requiring granular scope separation,
     implement JWT-based auth with scope claims. This helper only supports
     shared bearer tokens with two tiers of access.
 
     Current behavior:
-    - MODEL_REGISTRY_ADMIN_TOKEN -> admin scopes
-    - MODEL_REGISTRY_READ_TOKEN or legacy MODEL_REGISTRY_TOKEN -> read-only
-    - Unknown/unsigned tokens -> no scopes (fail closed)
+    - MODEL_REGISTRY_ADMIN_TOKEN -> admin scopes, role "admin"
+    - MODEL_REGISTRY_READ_TOKEN -> read-only scopes, role "read"
+    - Legacy MODEL_REGISTRY_TOKEN -> read-only scopes, role "legacy_read"
+    - Unknown/unsigned tokens -> ``None`` (fail closed)
+
+    The role label is never derived from token content to avoid leaking
+    credential material into logs (fixes #174).
 
     Args:
         token: Bearer token string.
+        expected_tokens: Pre-fetched token map.  When ``None`` the tokens
+            are loaded from environment variables via ``_get_expected_tokens``.
 
     Returns:
-        List of scopes.
+        ``(scopes, role)`` tuple when the token matches a configured
+        secret, or ``None`` for unrecognised tokens.
     """
-    expected_tokens = _get_expected_tokens()
-    admin_token = expected_tokens.get("admin")
-    read_tokens = [
-        expected_tokens.get("read"),
-        expected_tokens.get("legacy_read"),
-    ]
+    if expected_tokens is None:
+        expected_tokens = _get_expected_tokens()
 
     # Admin token is explicitly configured and grants full scopes
+    admin_token = expected_tokens.get("admin")
     if admin_token and secrets.compare_digest(token, admin_token):
-        return ["model:read", "model:write", "model:admin"]
+        return ["model:read", "model:write", "model:admin"], "admin"
 
     # Shared/legacy tokens are read-only for safety
-    for candidate in read_tokens:
+    for role in ("read", "legacy_read"):
+        candidate = expected_tokens.get(role)
         if candidate and secrets.compare_digest(token, candidate):
-            return ["model:read"]
+            return ["model:read"], role
 
-    # Unknown token -> no scopes.  IMPORTANT: Do **not** accept arbitrary
+    # Unknown token -> no match.  IMPORTANT: Do **not** accept arbitrary
     # "service:scope" bearer tokens here because the token value has not been
     # authenticated. Allowing free-form scopes would let any caller mint an
     # admin token by sending `foo:model:admin`. Until we introduce signed JWTs
     # or HMAC tokens, only configured secrets are trusted.
-    return []
-
-
-def _identify_token_role(token: str) -> str:
-    """Identify the access-level role of a verified token.
-
-    Returns a safe, non-secret label (e.g. "admin", "read") based on which
-    configured token matched.  Never derives the name from token content to
-    avoid leaking credential material into logs.
-
-    Args:
-        token: Bearer token string.
-
-    Returns:
-        Role label for the matched token, or "unknown".
-    """
-    expected_tokens = _get_expected_tokens()
-    for role, expected in expected_tokens.items():
-        if secrets.compare_digest(token, expected):
-            return role
-    return "unknown"
+    return None
 
 
 # =============================================================================
@@ -182,11 +174,11 @@ async def verify_token(
             ),
         )
 
-    scopes = _parse_token_scopes(token)
-    if not scopes:
+    result = _authenticate_token(token, expected_tokens=configured_tokens)
+    if result is None:
         logger.warning(
             "Token verification failed: token not recognized for configured scopes",
-            extra={"token_prefix": token[:8] + "..." if len(token) > 8 else "***"},
+            extra={"token_prefix": token[:4] + "..." if len(token) > 8 else "***"},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -194,7 +186,7 @@ async def verify_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    service = _identify_token_role(token)
+    scopes, service = result
 
     return ServiceToken(token=token, scopes=scopes, service_name=service)
 
