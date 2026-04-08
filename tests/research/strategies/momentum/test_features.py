@@ -600,6 +600,48 @@ class TestEdgeCases:
                 f"{col} should be {expected} on flat prices, got {vals.unique().to_list()}"
             )
 
+    @pytest.mark.parametrize(
+        "delta,description",
+        [
+            (1e-14, "sub-epsilon spread triggers guard (neutral output)"),
+            (1e-10, "supra-epsilon spread bypasses guard (computed output)"),
+        ],
+    )
+    def test_near_epsilon_boundary_no_nan(self, delta: float, description: str) -> None:
+        """Test epsilon boundary: near-flat windows must never produce NaN/Inf."""
+        base = 100.0
+        # Alternate between base and base+delta to create a tiny but non-zero spread
+        close_vals = [base + delta * (i % 2) for i in range(30)]
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 30),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": close_vals,
+                "high": [max(close_vals[i], base + delta) for i in range(30)],
+                "low": [min(close_vals[i], base) for i in range(30)],
+                "open": close_vals,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        # ADX / DI must be finite (either guarded neutral or valid computed value)
+        result_adx = compute_adx(prices)
+        for col in ["adx", "plus_di", "minus_di"]:
+            vals = result_adx[col].drop_nulls()
+            assert not vals.is_nan().any(), f"{col} NaN with {description}"
+            assert not vals.is_infinite().any(), f"{col} Inf with {description}"
+
+        # ROC must be finite (or null for invalid lag)
+        result_roc = compute_rate_of_change(prices)
+        roc_vals = result_roc["roc"].drop_nulls()
+        assert not roc_vals.is_nan().any(), f"ROC NaN with {description}"
+        assert not roc_vals.is_infinite().any(), f"ROC Inf with {description}"
+
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""
         # Missing 'volume' column needed for OBV

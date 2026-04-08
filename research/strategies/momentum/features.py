@@ -246,9 +246,9 @@ def compute_rate_of_change(
         - ROC < 0: Price lower than n periods ago (bearish)
         - Magnitude indicates strength of momentum
         - Extreme values may signal overbought/oversold conditions
-        - Zero-price guard: When price_n_ago=0 (invalid data), ROC emits null
-          to surface the data quality issue. Validated pipelines reject zero
-          prices upstream via _validate_price_data.
+        - Near-zero-price guard: When abs(price_n_ago) < _EPSILON (invalid or
+          near-invalid data), ROC emits null to surface data quality issues.
+          Validated pipelines reject zero prices upstream via _validate_price_data.
 
     See Also:
         - https://www.investopedia.com/terms/r/rateofchange.asp
@@ -257,10 +257,11 @@ def compute_rate_of_change(
     df = prices.with_columns(pl.col(column).shift(period).over("symbol").alias("price_n_ago"))
 
     # Calculate ROC as percentage change
-    # Guard: when price_n_ago is 0 (invalid data that slipped past validation),
-    # emit null to surface data quality issues rather than masking them as 0.
+    # Guard: when price_n_ago is near zero (invalid or near-invalid data that slipped
+    # past validation), emit null to surface data quality issues.  Uses abs() < _EPSILON
+    # for consistency with other epsilon guards in the codebase.
     df = df.with_columns(
-        pl.when(pl.col("price_n_ago") == 0)
+        pl.when(pl.col("price_n_ago").abs() < _EPSILON)
         .then(pl.lit(None, dtype=pl.Float64))
         .otherwise((pl.col(column) - pl.col("price_n_ago")) / pl.col("price_n_ago") * 100.0)
         .alias("roc")

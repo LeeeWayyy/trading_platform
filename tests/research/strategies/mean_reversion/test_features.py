@@ -470,6 +470,52 @@ class TestEdgeCases:
                 f"{col} should be {expected} on flat prices, got {vals.unique().to_list()}"
             )
 
+    @pytest.mark.parametrize(
+        "delta,description",
+        [
+            (1e-14, "sub-epsilon spread triggers guard (neutral output)"),
+            (1e-10, "supra-epsilon spread bypasses guard (computed output)"),
+        ],
+    )
+    def test_near_epsilon_boundary_no_nan(self, delta: float, description: str) -> None:
+        """Test epsilon boundary: near-flat windows must never produce NaN/Inf."""
+        base = 100.0
+        # Alternate between base and base+delta to create a tiny but non-zero spread
+        close_vals = [base + delta * (i % 2) for i in range(30)]
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 30), interval="1d", eager=True
+                ),
+                "close": close_vals,
+                "high": [max(close_vals[i], base + delta) for i in range(30)],
+                "low": [min(close_vals[i], base) for i in range(30)],
+                "open": close_vals,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        # RSI must be finite (either neutral 50 or a valid computed value)
+        rsi_vals = compute_rsi(prices)["rsi"].drop_nulls()
+        assert not rsi_vals.is_nan().any(), f"RSI NaN with {description}"
+        assert not rsi_vals.is_infinite().any(), f"RSI Inf with {description}"
+
+        # Bollinger %B must be finite
+        bb_pct = compute_bollinger_bands(prices)["bb_pct"].drop_nulls()
+        assert not bb_pct.is_nan().any(), f"bb_pct NaN with {description}"
+        assert not bb_pct.is_infinite().any(), f"bb_pct Inf with {description}"
+
+        # Stochastic %K must be finite
+        stoch_k = compute_stochastic_oscillator(prices)["stoch_k"].drop_nulls()
+        assert not stoch_k.is_nan().any(), f"stoch_k NaN with {description}"
+        assert not stoch_k.is_infinite().any(), f"stoch_k Inf with {description}"
+
+        # Z-score must be finite
+        zscore = compute_price_zscore(prices)["price_zscore"].drop_nulls()
+        assert not zscore.is_nan().any(), f"price_zscore NaN with {description}"
+        assert not zscore.is_infinite().any(), f"price_zscore Inf with {description}"
+
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""
         # Missing 'high' and 'low' columns needed for Stochastic
