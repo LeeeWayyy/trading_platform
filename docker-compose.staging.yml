@@ -6,11 +6,9 @@
 # - ALPACA_PAPER=true for paper trading mode
 # - No live API keys should ever be used
 #
-# Usage:
-#   docker-compose -f docker-compose.staging.yml up -d
-#   docker-compose -f docker-compose.staging.yml down
-
-version: "3.9"
+# Usage (requires Docker Compose V2):
+#   docker compose -f docker-compose.staging.yml up -d
+#   docker compose -f docker-compose.staging.yml down
 
 services:
   # =============================================================================
