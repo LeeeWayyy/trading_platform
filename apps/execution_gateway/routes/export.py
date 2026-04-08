@@ -1319,7 +1319,9 @@ def _fetch_tca_data(
     order_clause = _build_order_clause(
         qualified_sort,
         qualified_tca_columns,
-        "t.executed_at DESC",
+        # Match the TCA API ordering (ASC) so visible-scope exports
+        # return the same rows the user sees in the dashboard grid.
+        "t.executed_at ASC",
     )
     # For TCA filters, qualify column names via tca_col_map so the
     # WHERE clause references the correct table alias (e.g. "o.qty"
@@ -1461,7 +1463,12 @@ async def _generate_excel_content(
 
     # When export_scope="visible", cap rows at the client-reported count
     # so the Excel file only includes what the user saw on screen.
-    if row_limit is not None and row_limit >= 0:
+    #
+    # NOTE: The TCA grid is excluded because it shows aggregated order-level
+    # rows in the dashboard while the export provides raw trade-level rows.
+    # Applying an order-based row_limit to trade rows would silently cut
+    # off fills for multi-fill orders.
+    if row_limit is not None and row_limit >= 0 and grid_name != "tca":
         rows = rows[:row_limit]
 
     # Build workbook (CPU-bound; done in worker thread below)
