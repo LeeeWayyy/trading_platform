@@ -719,3 +719,65 @@ class TestGenerateExcelContent:
         assert ws.cell(1, 2).value == "status"
         # Value should be the synthesized 'filled'
         assert ws.cell(2, 2).value == "filled"
+
+    async def test_row_limit_caps_visible_scope(self) -> None:
+        """row_limit truncates output to match visible-scope export."""
+        rows = [
+            (
+                "AAPL",
+                Decimal("10"),
+                Decimal("150.25"),
+                Decimal("152.00"),
+                Decimal("17.50"),
+                Decimal("0"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            (
+                "MSFT",
+                Decimal("5"),
+                Decimal("400.00"),
+                Decimal("405.00"),
+                Decimal("25.00"),
+                Decimal("10"),
+                datetime(2026, 1, 2, tzinfo=UTC),
+            ),
+            (
+                "GOOGL",
+                Decimal("3"),
+                Decimal("170.00"),
+                Decimal("172.00"),
+                Decimal("6.00"),
+                Decimal("0"),
+                datetime(2026, 1, 3, tzinfo=UTC),
+            ),
+        ]
+        col_names = [
+            "symbol",
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "realized_pl",
+            "updated_at",
+        ]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+            row_limit=2,
+        )
+
+        # Only 2 of 3 rows should be exported
+        assert row_count == 2
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        assert ws.cell(2, 1).value == "AAPL"
+        assert ws.cell(3, 1).value == "MSFT"
+        assert ws.cell(4, 1).value is None  # No third data row

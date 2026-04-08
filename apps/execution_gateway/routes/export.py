@@ -626,6 +626,17 @@ async def download_excel_export(
     visible_columns = audit_record["visible_columns"]
     sort_model = audit_record["sort_model"]
 
+    # Honour ``export_scope="visible"`` — when the grid displays a
+    # limited subset of rows (e.g. TCA page trims to 50), cap the
+    # server-side query so the Excel file does not contain rows that
+    # the user never saw.
+    row_limit: int | None = None
+    if (
+        audit_record.get("export_scope") == "visible"
+        and audit_record.get("estimated_row_count") is not None
+    ):
+        row_limit = audit_record["estimated_row_count"]
+
     # Generate Excel content with error handling
     try:
         excel_content, row_count = await _generate_excel_content(
@@ -635,6 +646,7 @@ async def download_excel_export(
             filter_params=filter_params,
             visible_columns=visible_columns,
             sort_model=sort_model,
+            row_limit=row_limit,
         )
     except NotImplementedError as e:
         # Mark as failed before raising
@@ -1372,6 +1384,8 @@ async def _generate_excel_content(
     filter_params: dict[str, Any] | None,
     visible_columns: list[str] | None,
     sort_model: list[dict[str, Any]] | None,
+    *,
+    row_limit: int | None = None,
 ) -> tuple[bytes, int]:
     """Generate Excel file content for a grid.
 
@@ -1386,6 +1400,10 @@ async def _generate_excel_content(
         filter_params: AG Grid filter model (translated to SQL WHERE clauses)
         visible_columns: Columns to include (validated against allowlist)
         sort_model: AG Grid sort model
+        row_limit: Optional cap on number of rows returned.  When
+            ``export_scope="visible"``, this is set to the client's
+            ``estimated_row_count`` so the Excel file only contains
+            the rows the user actually saw in the grid.
 
     Returns:
         Tuple of (excel_bytes, row_count)
@@ -1440,6 +1458,11 @@ async def _generate_excel_content(
         resolved_filters,
         allowed,
     )
+
+    # When export_scope="visible", cap rows at the client-reported count
+    # so the Excel file only includes what the user saw on screen.
+    if row_limit is not None and row_limit >= 0:
+        rows = rows[:row_limit]
 
     # Build workbook (CPU-bound; done in worker thread below)
     def _build_workbook() -> bytes:
