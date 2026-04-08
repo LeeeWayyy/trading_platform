@@ -168,6 +168,19 @@ class TestBuildFilterClauses:
         assert "2026-01-01" in params
         assert "2026-02-01" in params
 
+    def test_date_greater_than_uses_strict_gt(self) -> None:
+        """greaterThan date filter should use strict '>' not '>='."""
+        filt = {
+            "executed_at": {
+                "filterType": "date",
+                "type": "greaterThan",
+                "dateFrom": "2026-01-01",
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["executed_at"])
+        assert "> %s" in clause
+        assert ">=" not in clause
+
 
 # ---------------------------------------------------------------------------
 # Integration tests for _generate_excel_content

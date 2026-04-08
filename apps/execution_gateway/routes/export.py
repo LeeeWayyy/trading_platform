@@ -969,7 +969,7 @@ def _apply_date_filter(
         fragments.append(f"{col}::date = %s::date")
         params.append(date_from)
     elif op == "greaterThan" and date_from:
-        fragments.append(f"{col} >= %s::timestamp")
+        fragments.append(f"{col} > %s::timestamp")
         params.append(date_from)
     elif op == "lessThan" and date_from:
         fragments.append(f"{col} < %s::timestamp")
@@ -1000,6 +1000,13 @@ def _fetch_positions_data(
     strategy only when exactly ONE strategy has ever traded it.  Symbols
     traded by multiple strategies are excluded to prevent cross-strategy
     data leakage.
+
+    This is the same scoping used by
+    ``apps.execution_gateway.database.get_positions_for_strategies``
+    and the ``/api/v1/positions`` endpoint, so the export rows match
+    exactly what the dashboard grid displays.  A future schema migration
+    adding ``strategy_id`` to the positions table will remove this
+    limitation.
     """
     # Qualify sort columns with the "p." alias to avoid ambiguity when
     # joining positions with the symbol_strategy CTE.
