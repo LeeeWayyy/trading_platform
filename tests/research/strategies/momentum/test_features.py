@@ -267,8 +267,8 @@ class TestRateOfChange:
 
         assert null_count_7 < null_count_14
 
-    def test_roc_zero_price_emits_null(self) -> None:
-        """Test that ROC emits null when price_n_ago is 0 (data quality guard)."""
+    def test_roc_zero_price_emits_null_and_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test that ROC emits null and logs warning when price_n_ago is 0."""
         prices = pl.DataFrame(
             {
                 "symbol": ["TEST"] * 10,
@@ -282,7 +282,8 @@ class TestRateOfChange:
             }
         )
 
-        result = compute_rate_of_change(prices, period=5)
+        with caplog.at_level("WARNING", logger="research.strategies.momentum.features"):
+            result = compute_rate_of_change(prices, period=5)
 
         # Rows where price_n_ago=0 should have null ROC (not 0.0)
         # Rows 5-9 have close=100 but price_n_ago=0 → ROC should be null
@@ -291,6 +292,11 @@ class TestRateOfChange:
                 f"ROC at row {i} should be null when price_n_ago is 0, "
                 f"got {result['roc'][i]}"
             )
+
+        # Verify structured warning was emitted
+        assert any("ROC guard" in rec.message for rec in caplog.records), (
+            "ROC guard should emit a warning when near-zero prices are encountered"
+        )
 
 
 class TestADX:
@@ -633,20 +639,38 @@ class TestEdgeCases:
             }
         )
 
-        # ADX / DI must be finite (either guarded neutral or valid computed value)
+        # Collect non-null values for each indicator
         result_adx = compute_adx(prices)
-        for col in ["adx", "plus_di", "minus_di"]:
-            vals = result_adx[col].drop_nulls()
-            assert len(vals) > 0, f"{col} must produce non-null values ({description})"
-            assert not vals.is_nan().any(), f"{col} NaN with {description}"
-            assert not vals.is_infinite().any(), f"{col} Inf with {description}"
-
-        # ROC must be finite (or null for invalid lag)
         result_roc = compute_rate_of_change(prices)
-        roc_vals = result_roc["roc"].drop_nulls()
-        assert len(roc_vals) > 0, f"ROC must produce non-null values ({description})"
-        assert not roc_vals.is_nan().any(), f"ROC NaN with {description}"
-        assert not roc_vals.is_infinite().any(), f"ROC Inf with {description}"
+
+        indicators = {
+            "adx": result_adx["adx"].drop_nulls(),
+            "plus_di": result_adx["plus_di"].drop_nulls(),
+            "minus_di": result_adx["minus_di"].drop_nulls(),
+            "roc": result_roc["roc"].drop_nulls(),
+        }
+
+        for name, vals in indicators.items():
+            assert len(vals) > 0, f"{name} must produce non-null values ({description})"
+            assert not vals.is_nan().any(), f"{name} NaN with {description}"
+            assert not vals.is_infinite().any(), f"{name} Inf with {description}"
+
+        # Branch behavior: sub-epsilon should produce all-neutral (0.0); supra-epsilon
+        # should produce at least one non-neutral value proving the guard was bypassed.
+        is_sub_epsilon = delta < 1e-12
+        if is_sub_epsilon:
+            for name, vals in indicators.items():
+                assert (vals == 0.0).all(), (
+                    f"{name} should be 0.0 (neutral) with sub-epsilon delta"
+                )
+        else:
+            # ADX/DI should produce non-zero values with meaningful high/low spread
+            any_non_neutral = any(
+                not (vals == 0.0).all() for name, vals in indicators.items()
+            )
+            assert any_non_neutral, (
+                "At least one indicator must produce non-neutral values with supra-epsilon delta"
+            )
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

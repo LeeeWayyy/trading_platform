@@ -496,29 +496,35 @@ class TestEdgeCases:
             }
         )
 
-        # RSI must be finite (either neutral 50 or a valid computed value)
+        # Collect non-null values for each indicator
         rsi_vals = compute_rsi(prices)["rsi"].drop_nulls()
-        assert len(rsi_vals) > 0, f"RSI must produce non-null values ({description})"
-        assert not rsi_vals.is_nan().any(), f"RSI NaN with {description}"
-        assert not rsi_vals.is_infinite().any(), f"RSI Inf with {description}"
-
-        # Bollinger %B must be finite
         bb_pct = compute_bollinger_bands(prices)["bb_pct"].drop_nulls()
-        assert len(bb_pct) > 0, f"bb_pct must produce non-null values ({description})"
-        assert not bb_pct.is_nan().any(), f"bb_pct NaN with {description}"
-        assert not bb_pct.is_infinite().any(), f"bb_pct Inf with {description}"
-
-        # Stochastic %K must be finite
         stoch_k = compute_stochastic_oscillator(prices)["stoch_k"].drop_nulls()
-        assert len(stoch_k) > 0, f"stoch_k must produce non-null values ({description})"
-        assert not stoch_k.is_nan().any(), f"stoch_k NaN with {description}"
-        assert not stoch_k.is_infinite().any(), f"stoch_k Inf with {description}"
-
-        # Z-score must be finite
         zscore = compute_price_zscore(prices)["price_zscore"].drop_nulls()
-        assert len(zscore) > 0, f"price_zscore must produce non-null values ({description})"
-        assert not zscore.is_nan().any(), f"price_zscore NaN with {description}"
-        assert not zscore.is_infinite().any(), f"price_zscore Inf with {description}"
+
+        indicators = {"rsi": rsi_vals, "bb_pct": bb_pct, "stoch_k": stoch_k, "price_zscore": zscore}
+        neutrals = {"rsi": 50.0, "bb_pct": 0.5, "stoch_k": 50.0, "price_zscore": 0.0}
+
+        for name, vals in indicators.items():
+            assert len(vals) > 0, f"{name} must produce non-null values ({description})"
+            assert not vals.is_nan().any(), f"{name} NaN with {description}"
+            assert not vals.is_infinite().any(), f"{name} Inf with {description}"
+
+        # Branch behavior: sub-epsilon should produce all-neutral; supra-epsilon should
+        # produce at least one non-neutral value proving the guard was bypassed.
+        is_sub_epsilon = delta < 1e-12
+        if is_sub_epsilon:
+            for name, vals in indicators.items():
+                assert (vals == neutrals[name]).all(), (
+                    f"{name} should be neutral ({neutrals[name]}) with sub-epsilon delta"
+                )
+        else:
+            any_non_neutral = any(
+                not (vals == neutrals[name]).all() for name, vals in indicators.items()
+            )
+            assert any_non_neutral, (
+                "At least one indicator must produce non-neutral values with supra-epsilon delta"
+            )
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

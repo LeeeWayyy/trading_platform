@@ -247,8 +247,9 @@ def compute_rate_of_change(
         - Magnitude indicates strength of momentum
         - Extreme values may signal overbought/oversold conditions
         - Near-zero-price guard: When abs(price_n_ago) < _EPSILON (invalid or
-          near-invalid data), ROC emits null to surface data quality issues.
-          Validated pipelines reject zero prices upstream via _validate_price_data.
+          near-invalid data), ROC emits null and logs a structured warning to
+          surface data quality issues.  Validated pipelines reject zero prices
+          upstream via _validate_price_data.
 
     See Also:
         - https://www.investopedia.com/terms/r/rateofchange.asp
@@ -260,6 +261,17 @@ def compute_rate_of_change(
     # Guard: when price_n_ago is near zero (invalid or near-invalid data that slipped
     # past validation), emit null to surface data quality issues.  Uses abs() < _EPSILON
     # for consistency with other epsilon guards in the codebase.
+    near_zero_mask = df["price_n_ago"].abs() < _EPSILON
+    # Exclude rows where price_n_ago is null (expected for first `period` rows)
+    guard_hits = int((near_zero_mask & df["price_n_ago"].is_not_null()).sum())
+    if guard_hits > 0:
+        logger.warning(
+            "ROC guard: %d rows had near-zero price_n_ago (abs < %e), emitting null",
+            guard_hits,
+            _EPSILON,
+            extra={"guard": "roc_near_zero", "count": guard_hits},
+        )
+
     df = df.with_columns(
         pl.when(pl.col("price_n_ago").abs() < _EPSILON)
         .then(pl.lit(None, dtype=pl.Float64))
