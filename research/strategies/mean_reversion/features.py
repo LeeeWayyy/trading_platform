@@ -22,12 +22,9 @@ from typing import Any
 
 import polars as pl
 
-logger = logging.getLogger(__name__)
+from research.strategies._feature_constants import FEATURE_EPSILON as _EPSILON
 
-# Epsilon for near-zero denominator guards.  Values below this threshold are
-# treated as zero to avoid numerically unstable divisions that could produce
-# extreme outliers on near-flat price windows.
-_EPSILON = 1e-12
+logger = logging.getLogger(__name__)
 
 
 def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -> pl.DataFrame:

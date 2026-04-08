@@ -293,10 +293,18 @@ class TestRateOfChange:
                 f"got {result['roc'][i]}"
             )
 
-        # Verify structured warning was emitted
-        assert any("ROC guard" in rec.message for rec in caplog.records), (
+        # Verify structured warning was emitted with correct metadata
+        guard_records = [rec for rec in caplog.records if "ROC guard" in rec.message]
+        assert len(guard_records) > 0, (
             "ROC guard should emit a warning when near-zero prices are encountered"
         )
+        rec = guard_records[0]
+        assert hasattr(rec, "guard"), "Warning must include 'guard' extra field"
+        assert rec.guard == "roc_near_zero", "guard field must be 'roc_near_zero'"
+        assert hasattr(rec, "count"), "Warning must include 'count' extra field"
+        assert rec.count == 5, "count should be 5 (rows 5-9 have price_n_ago=0)"
+        assert hasattr(rec, "symbols"), "Warning must include 'symbols' extra field"
+        assert rec.symbols == ["TEST"], "symbols should list affected symbols"
 
 
 class TestADX:

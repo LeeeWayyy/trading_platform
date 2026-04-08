@@ -23,12 +23,9 @@ from typing import Any
 
 import polars as pl
 
-logger = logging.getLogger(__name__)
+from research.strategies._feature_constants import FEATURE_EPSILON as _EPSILON
 
-# Epsilon for near-zero denominator guards.  Values below this threshold are
-# treated as zero to avoid numerically unstable divisions that could produce
-# extreme outliers on near-flat price windows.
-_EPSILON = 1e-12
+logger = logging.getLogger(__name__)
 
 
 def compute_moving_averages(
@@ -263,13 +260,23 @@ def compute_rate_of_change(
     # for consistency with other epsilon guards in the codebase.
     near_zero_mask = df["price_n_ago"].abs() < _EPSILON
     # Exclude rows where price_n_ago is null (expected for first `period` rows)
-    guard_hits = int((near_zero_mask & df["price_n_ago"].is_not_null()).sum())
+    guard_hit_rows = near_zero_mask & df["price_n_ago"].is_not_null()
+    guard_hits = int(guard_hit_rows.sum())
     if guard_hits > 0:
+        affected_symbols = (
+            df.filter(guard_hit_rows)["symbol"].unique().sort().to_list()
+        )
         logger.warning(
-            "ROC guard: %d rows had near-zero price_n_ago (abs < %e), emitting null",
+            "ROC guard: %d rows had near-zero price_n_ago (abs < %e), "
+            "emitting null; symbols=%s",
             guard_hits,
             _EPSILON,
-            extra={"guard": "roc_near_zero", "count": guard_hits},
+            affected_symbols,
+            extra={
+                "guard": "roc_near_zero",
+                "count": guard_hits,
+                "symbols": affected_symbols,
+            },
         )
 
     df = df.with_columns(
