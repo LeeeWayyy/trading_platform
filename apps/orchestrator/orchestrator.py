@@ -339,6 +339,8 @@ class TradingOrchestrator:
 
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
+        if not strategy_ids:
+            raise ValueError("strategy_id must not be an empty list")
         is_multi_strategy = len(strategy_ids) > 1
 
         logger.info(
@@ -664,8 +666,10 @@ class TradingOrchestrator:
             httpx.HTTPError: If Signal Service request fails
 
         Notes:
-            - In single-strategy mode, strategy_id is None and default model is used
+            - In single-strategy mode, strategy_id identifies the single active strategy
             - In multi-strategy mode, strategy_id differentiates signal sources
+            - strategy_id is forwarded to SignalServiceClient for S2S auth context;
+              signal service model routing by strategy is not yet implemented
         """
         logger.info(
             f"Fetching signals for {len(symbols)} symbols"

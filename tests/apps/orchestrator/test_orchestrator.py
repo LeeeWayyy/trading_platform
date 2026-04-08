@@ -306,10 +306,17 @@ class TestTradingOrchestratorRun:
         assert "as_of_date mismatch across strategies" in result.error_message
 
         # Verify each fetch_signals call received the correct strategy_id
+        # Use a set comparison since asyncio.gather may invoke tasks in any order
         calls = orchestrator.signal_client.fetch_signals.call_args_list
         assert len(calls) == 2
-        assert calls[0].kwargs["strategy_id"] == "alpha_baseline"
-        assert calls[1].kwargs["strategy_id"] == "momentum"
+        called_strategy_ids = {c.kwargs["strategy_id"] for c in calls}
+        assert called_strategy_ids == {"alpha_baseline", "momentum"}
+
+    @pytest.mark.asyncio()
+    async def test_run_rejects_empty_strategy_list(self, orchestrator):
+        """Test that run() raises ValueError when given an empty strategy list."""
+        with pytest.raises(ValueError, match="strategy_id must not be an empty list"):
+            await orchestrator.run(symbols=["AAPL"], strategy_id=[])
 
 
 class TestFetchSignals:
