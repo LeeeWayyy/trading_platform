@@ -1658,11 +1658,11 @@ async def submit_order(
         # Release reservation for duplicate order
         position_reservation.release(order.symbol, reservation_token)
 
-        # When a caller supplies their own client_order_id, verify that
-        # the request payload matches the existing order.  A mismatch
-        # means the caller reused an ID for a different order, which
-        # would silently suppress it.
-        if order.client_order_id is not None and not _idempotency_payload_matches(
+        # Verify that the request payload matches the existing order.
+        # A mismatch means the ID was reused for a different order
+        # (caller-supplied collision or hash collision), which would
+        # silently suppress the intended order.
+        if not _idempotency_payload_matches(
             order, existing_order, config.strategy_id
         ):
             logger.warning(
@@ -1767,12 +1767,13 @@ async def submit_order(
         )
         order_detail = ctx.db.get_order_by_client_id(client_order_id)
         if order_detail:
-            # Guard against caller-supplied ID collision in the race path
-            if order.client_order_id is not None and not _idempotency_payload_matches(
+            # Guard against ID collision in the race path (caller-supplied
+            # or hash collision)
+            if not _idempotency_payload_matches(
                 order, order_detail, config.strategy_id
             ):
                 logger.warning(
-                    f"Caller-supplied client_order_id race collision with a different "
+                    f"client_order_id race collision with a different "
                     f"order: {client_order_id}",
                     extra={
                         "client_order_id": client_order_id,
@@ -2325,7 +2326,7 @@ async def get_order(
     Get order details by client_order_id.
 
     Args:
-        client_order_id: Deterministic client order ID
+        client_order_id: Client order ID (deterministic or caller-supplied)
         _auth_context: Authentication context (injected)
         ctx: Application context with all dependencies (injected)
 
@@ -2393,7 +2394,7 @@ async def get_order_audit_trail(
     Each entry includes IP address and session ID for compliance tracking.
 
     Args:
-        client_order_id: Deterministic client order ID
+        client_order_id: Client order ID (deterministic or caller-supplied)
         limit: Maximum entries to return (default 100)
 
     Returns:
