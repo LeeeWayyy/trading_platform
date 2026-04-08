@@ -1017,6 +1017,35 @@ class TestCancelOrder:
         alpaca.cancel_order.assert_not_called()
         db.update_order_status_cas.assert_not_called()
 
+    def test_cancel_terminal_order_forbidden_when_strategy_not_authorized(self) -> None:
+        """Test auth check fires before terminal-status short-circuit."""
+        order_detail = _make_order_detail("client-terminal-deny", status="filled")
+        order_detail.strategy_id = "mean_reversion"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+        )
+
+        response = client.post("/api/v1/orders/client-terminal-deny/cancel")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
+
     def test_cancel_order_live_mode_success(self) -> None:
         """Test canceling order in live mode calls Alpaca."""
         order_detail = _make_order_detail("client-live-cancel", status="pending_new")
@@ -3388,7 +3417,7 @@ class TestOrderAuditTrailAuth:
 
         response = client.get("/api/v1/orders/client-audit-empty/audit")
         assert response.status_code == 403
-        assert response.json()["detail"] == "No strategy access - cannot view audit trail"
+        assert response.json()["detail"] == "Not authorized to view this order's audit trail"
 
 
 class TestOrderUtilityHelpers:

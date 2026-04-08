@@ -2192,6 +2192,10 @@ async def cancel_order(
 
     Returns:
         Dict with cancellation status
+
+    Raises:
+        HTTPException 404: Order not found
+        HTTPException 403: Not authorized for this order's strategy
     """
     order = ctx.db.get_order_by_client_id(client_order_id)
     if not order:
@@ -2265,6 +2269,7 @@ async def get_order(
 
     Raises:
         HTTPException 404: Order not found
+        HTTPException 403: Not authorized for this order's strategy
     """
     order = ctx.db.get_order_by_client_id(client_order_id)
 
@@ -2344,19 +2349,9 @@ async def get_order_audit_trail(
             detail=f"Order not found: {client_order_id}",
         )
 
-    # Verify strategy authorization (fail-closed: empty list = deny)
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies:
-        # No strategies assigned - deny access (fail-closed security)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No strategy access - cannot view audit trail",
-        )
-    if order.strategy_id not in authorized_strategies:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this order's audit trail",
-        )
+    _ensure_order_strategy_access(
+        order, _auth_context, detail="Not authorized to view this order's audit trail"
+    )
 
     # Check if user is admin (for PII visibility)
     user_is_admin = is_admin(_auth_context.user)
