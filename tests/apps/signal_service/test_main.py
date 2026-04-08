@@ -412,8 +412,8 @@ class TestGeneratorCache:
             }
         )
 
-        # Pre-populate cache
-        cache_key = (1, 0)
+        # Pre-populate cache (key includes environment for isolation)
+        cache_key = (1, 0, "dev")
         test_cache = OrderedDict()
         test_cache[cache_key] = cached_gen
 
@@ -500,8 +500,8 @@ class TestGeneratorCache:
                 )
 
         assert response.status_code == 200
-        # Verify cache was populated
-        assert (1, 0) in test_cache
+        # Verify cache was populated (key includes environment)
+        assert (1, 0, "dev") in test_cache
 
     async def test_generator_cache_lru_eviction(
         self,
@@ -512,10 +512,10 @@ class TestGeneratorCache:
         """Test generator cache evicts LRU entry when full."""
         from apps.signal_service import main
 
-        # Fill cache to capacity
+        # Fill cache to capacity (keys include environment for isolation)
         test_cache = OrderedDict()
         for i in range(_MAX_GENERATOR_CACHE_SIZE):
-            test_cache[(i, 0)] = Mock()
+            test_cache[(i, 0, "dev")] = Mock()
 
         mock_generator = Mock()
         mock_generator.top_n = 2
@@ -571,10 +571,10 @@ class TestGeneratorCache:
                 )
 
         assert response.status_code == 200
-        # Verify oldest entry was evicted
-        assert (0, 0) not in test_cache
+        # Verify oldest entry was evicted (key includes environment)
+        assert (0, 0, "dev") not in test_cache
         # Verify new entry was added
-        assert (10, 0) in test_cache
+        assert (10, 0, "dev") in test_cache
         # Verify cache size maintained
         assert len(test_cache) == _MAX_GENERATOR_CACHE_SIZE
 
