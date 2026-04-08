@@ -601,7 +601,7 @@ class TestEdgeCases:
             )
 
     @pytest.mark.parametrize(
-        "delta,description",
+        ("delta", "description"),
         [
             (1e-14, "sub-epsilon spread triggers guard (neutral output)"),
             (1e-10, "supra-epsilon spread bypasses guard (computed output)"),

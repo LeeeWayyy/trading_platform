@@ -66,8 +66,10 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
         - RSI < 30: Oversold (potential buy signal)
         - First `period` rows will have null RSI values
         - Uses Exponential Moving Average (EMA) for smoothing gains and losses
-        - Flat/near-flat windows: When avg_loss~0 and avg_gain>0, RSI~100.
-          When both are near zero (no significant movement), RSI=50 (neutral).
+        - Flat/near-flat windows: When avg_gain + avg_loss < _EPSILON (both
+          negligible), RSI=50 (neutral).  When avg_loss is near zero but
+          avg_gain is meaningfully positive (sum >= _EPSILON), RSI trends
+          toward 100 via the normal formula.
 
     See Also:
         - https://www.investopedia.com/terms/r/rsi.asp
