@@ -1348,6 +1348,26 @@ async def twap_preview(
     )
 
 
+def _idempotency_payload_matches(
+    order: OrderRequest, existing: OrderDetail, strategy_id: str
+) -> bool:
+    """Return True when the incoming request matches the stored order.
+
+    Comparison covers all order-defining fields so that a caller-supplied
+    ``client_order_id`` cannot silently alias a different order.
+    """
+    return (
+        order.symbol == existing.symbol
+        and order.side == existing.side
+        and order.qty == existing.qty
+        and order.order_type == existing.order_type
+        and order.limit_price == existing.limit_price
+        and order.stop_price == existing.stop_price
+        and order.time_in_force == existing.time_in_force
+        and strategy_id == existing.strategy_id
+    )
+
+
 # =============================================================================
 # POST /api/v1/orders - Submit Order
 # =============================================================================
@@ -1365,9 +1385,13 @@ async def submit_order(
     """
     Submit order with idempotent retry semantics.
 
-    The order is assigned a deterministic client_order_id based on the order
-    parameters and current date. This ensures that the same order submitted
-    multiple times will have the same ID and won't create duplicates.
+    By default the order is assigned a deterministic client_order_id
+    derived from the order parameters and current date, ensuring that the
+    same order submitted multiple times gets the same ID.  Callers may
+    supply an explicit ``client_order_id`` to disambiguate repeat orders
+    that share identical parameters on the same day.  When a
+    caller-supplied ID collides with an existing order whose payload
+    differs, the request is rejected with HTTP 409.
 
     In DRY_RUN mode (default), orders are logged to database but NOT submitted
     to Alpaca. Set DRY_RUN=false to enable actual paper trading.
@@ -1631,6 +1655,35 @@ async def submit_order(
     if existing_order:
         # Release reservation for duplicate order
         position_reservation.release(order.symbol, reservation_token)
+
+        # When a caller supplies their own client_order_id, verify that
+        # the request payload matches the existing order.  A mismatch
+        # means the caller reused an ID for a different order, which
+        # would silently suppress it.
+        if order.client_order_id is not None and not _idempotency_payload_matches(
+            order, existing_order, config.strategy_id
+        ):
+            logger.warning(
+                f"Caller-supplied client_order_id collides with a different order: "
+                f"{client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "existing_symbol": existing_order.symbol,
+                    "existing_side": existing_order.side,
+                    "existing_qty": existing_order.qty,
+                    "request_symbol": order.symbol,
+                    "request_side": order.side,
+                    "request_qty": order.qty,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"client_order_id '{client_order_id}' already exists for a "
+                    "different order. Supply a unique ID."
+                ),
+            )
+
         logger.info(
             f"Order already exists (idempotent): {client_order_id}",
             extra={

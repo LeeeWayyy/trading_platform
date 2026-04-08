@@ -337,6 +337,108 @@ class TestSubmitOrder:
         assert data["client_order_id"] == "my-custom-id-001"
         assert data["status"] == "dry_run"
 
+    def test_submit_order_rejects_caller_id_collision(self) -> None:
+        """Caller-supplied client_order_id that collides with a different order is rejected."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-4", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Existing order is for MSFT sell, but request is AAPL buy
+        existing = _make_order_detail("reused-id-001", status="pending_new")
+        existing.symbol = "MSFT"
+        existing.side = "sell"
+        existing.qty = 50
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.return_value = existing
+
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "reused-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "already exists for a different order" in body["detail"]
+        # Reservation must be released on collision
+        reservation.release.assert_called_once_with("AAPL", "token-4")
+        db.create_order.assert_not_called()
+
+    def test_submit_order_rejects_invalid_charset_in_client_order_id(self) -> None:
+        """client_order_id with control chars or special chars is rejected at validation."""
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = MagicMock()
+
+        db = MagicMock()
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        invalid_ids = [
+            "has spaces here",
+            "has\nnewline",
+            "has\ttab",
+            "special!@#$",
+            "dot.separated",
+        ]
+        for bad_id in invalid_ids:
+            order_payload = {
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 10,
+                "order_type": "market",
+                "time_in_force": "day",
+                "client_order_id": bad_id,
+            }
+            response = client.post("/api/v1/orders", json=order_payload)
+            assert response.status_code == 422, f"Expected 422 for client_order_id={bad_id!r}"
+
 
 class TestCancelAndGetOrder:
     def test_cancel_order_not_found(self) -> None:

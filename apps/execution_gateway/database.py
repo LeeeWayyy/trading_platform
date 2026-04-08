@@ -483,7 +483,7 @@ class DatabaseClient:
         Create new order record in database.
 
         Args:
-            client_order_id: Deterministic client order ID
+            client_order_id: Client order ID (deterministic or caller-supplied)
             strategy_id: Strategy identifier (e.g., "alpha_baseline")
             order_request: Order request details
             status: Initial order status (dry_run, pending_new, etc.)
