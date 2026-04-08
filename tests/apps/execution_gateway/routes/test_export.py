@@ -235,6 +235,45 @@ class TestBuildFilterClauses:
         assert "AAPL" in params
         assert "MSFT" in params
 
+    def test_compound_number_equals_not_misrouted_as_text(self) -> None:
+        """Compound number filter with 'equals' children must use number path."""
+        filt: dict[str, Any] = {
+            "qty": {
+                "filterType": "number",
+                "operator": "AND",
+                "conditions": [
+                    {"type": "greaterThan", "filter": 5},
+                    {"type": "equals", "filter": 10},
+                ],
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["qty"])
+        # Both conditions should use numeric operators
+        assert "> %s" in clause
+        assert "= %s" in clause
+        assert 5 in params
+        assert 10 in params
+        # Must NOT use ILIKE (text path) for the equals condition
+        assert "ILIKE" not in clause
+
+    def test_compound_date_equals_not_misrouted_as_text(self) -> None:
+        """Compound date filter with 'equals' child must use date path."""
+        filt: dict[str, Any] = {
+            "executed_at": {
+                "filterType": "date",
+                "operator": "AND",
+                "conditions": [
+                    {"type": "equals", "dateFrom": "2026-01-15"},
+                    {"type": "greaterThan", "dateFrom": "2026-01-01"},
+                ],
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["executed_at"])
+        # The equals condition should use the date path (::date cast)
+        assert "::date = %s::date" in clause
+        assert "2026-01-15" in params
+        assert "2026-01-01" in params
+
     def test_filter_on_hidden_column_applied(self) -> None:
         """Filters on columns not in the projected set should still apply."""
         filt: dict[str, Any] = {

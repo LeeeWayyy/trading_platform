@@ -946,8 +946,22 @@ def _apply_single_filter(
     *parent_filter_type* is used as a fallback when the condition
     itself lacks a ``filterType`` key (common in compound filters
     where the type lives on the outer spec).
+
+    Resolution order for ``filter_type``:
+      1. The child's own ``filterType`` (if present)
+      2. The *parent_filter_type* inherited from the compound wrapper
+      3. The child's ``type`` field (operation name like ``equals``)
+
+    Using ``parent_filter_type`` before ``type`` is important because
+    ``type`` stores the *operation* (e.g. ``"equals"``), which overlaps
+    with the text-filter check and would cause number/date ``equals``
+    conditions inside compound filters to be misrouted as text filters.
     """
-    filter_type = spec.get("filterType", spec.get("type", "")) or parent_filter_type
+    filter_type = (
+        spec.get("filterType")
+        or parent_filter_type
+        or spec.get("type", "")
+    )
 
     if filter_type in ("text", "contains", "equals", "startsWith", "endsWith"):
         # Cast JSONB columns to text so ILIKE / = operators work.
