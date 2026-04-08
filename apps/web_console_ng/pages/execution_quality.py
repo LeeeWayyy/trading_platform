@@ -52,11 +52,14 @@ DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
 
 
+_DATETIME_MIN_UTC = datetime.min.replace(tzinfo=UTC)
+
+
 def _parse_utc(value: Any) -> datetime:
     """Parse a timestamp to a UTC-aware datetime.
 
     Naive values are assumed UTC.  Unparseable values map to
-    ``datetime.min`` so they sort first.
+    ``_DATETIME_MIN_UTC`` so they sort first.
     """
     text = str(value)
     try:
@@ -65,21 +68,32 @@ def _parse_utc(value: Any) -> datetime:
             return dt.replace(tzinfo=UTC)
         return dt.astimezone(UTC)
     except ValueError:
-        return datetime.min.replace(tzinfo=UTC)
+        return _DATETIME_MIN_UTC
+
+
+def _is_valid_timestamp(value: Any) -> bool:
+    """Return True if *value* can be parsed to a real UTC datetime."""
+    return _parse_utc(value) != _DATETIME_MIN_UTC
 
 
 def _format_benchmark_timestamp(value: Any) -> str:
     """Format a benchmark point timestamp as ``HH:MM UTC``."""
     dt = _parse_utc(value)
-    if dt == datetime.min.replace(tzinfo=UTC):
+    if dt == _DATETIME_MIN_UTC:
         return str(value)
     return dt.strftime("%H:%M UTC")
 
 
 def _is_valid_price(value: Any) -> bool:
-    """Return True if *value* can be converted to a non-zero float."""
+    """Return True if *value* is a finite positive price.
+
+    Rejects zero, negative, NaN, infinity, and non-numeric values.
+    """
+    import math
+
     try:
-        return float(value) != 0.0
+        f = float(value)
+        return f > 0.0 and math.isfinite(f)
     except (TypeError, ValueError):
         return False
 
@@ -160,7 +174,7 @@ async def _fetch_tca_benchmarks(
         "strategy_id": strategy_id,
     }
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(
                 f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
                 params={"client_order_id": client_order_id, "benchmark": benchmark},
@@ -572,11 +586,12 @@ async def _render_tca_dashboard(
                             benchmark_data.get("benchmark_type") or "vwap"
                         ).upper()
 
-                        # Drop points with missing or invalid price fields
-                        # to avoid rendering misleading zero-price data.
+                        # Drop points with invalid timestamps or price fields
+                        # to avoid rendering misleading data.
                         valid_points = [
                             p for p in raw_points
-                            if _is_valid_price(p.get("execution_price"))
+                            if _is_valid_timestamp(p.get("timestamp"))
+                            and _is_valid_price(p.get("execution_price"))
                             and _is_valid_price(p.get("benchmark_price"))
                         ]
 

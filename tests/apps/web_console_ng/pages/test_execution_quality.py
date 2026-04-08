@@ -24,6 +24,7 @@ from apps.web_console_ng.pages.execution_quality import (
     _fetch_tca_data,
     _format_benchmark_timestamp,
     _is_valid_price,
+    _is_valid_timestamp,
     _parse_utc,
 )
 
@@ -431,8 +432,6 @@ class TestBenchmarkHelpers:
 
     def test_parse_utc_zulu(self) -> None:
         """Zulu suffix is parsed as UTC."""
-        from datetime import UTC
-
         dt = _parse_utc("2024-01-15T10:30:00Z")
         assert dt.strftime("%H:%M") == "10:30"
         assert dt.tzinfo is not None
@@ -449,10 +448,11 @@ class TestBenchmarkHelpers:
 
     def test_parse_utc_invalid(self) -> None:
         """Invalid string returns datetime.min (UTC)."""
-        from datetime import UTC, datetime
-
         dt = _parse_utc("not-a-date")
-        assert dt == datetime.min.replace(tzinfo=UTC)
+        assert dt.year == 1
+        assert dt.month == 1
+        assert dt.day == 1
+        assert dt.tzinfo is not None
 
     def test_format_benchmark_timestamp_zulu(self) -> None:
         """Zulu timestamp formatted as HH:MM UTC."""
@@ -486,6 +486,31 @@ class TestBenchmarkHelpers:
     def test_is_valid_price_numeric_string(self) -> None:
         """Numeric string is valid."""
         assert _is_valid_price("150.5") is True
+
+    def test_is_valid_price_negative(self) -> None:
+        """Negative price is not valid."""
+        assert _is_valid_price(-10.0) is False
+
+    def test_is_valid_price_nan(self) -> None:
+        """NaN is not valid."""
+        assert _is_valid_price(float("nan")) is False
+
+    def test_is_valid_price_inf(self) -> None:
+        """Infinity is not valid."""
+        assert _is_valid_price(float("inf")) is False
+        assert _is_valid_price(float("-inf")) is False
+
+    def test_is_valid_timestamp_valid(self) -> None:
+        """Valid ISO timestamp returns True."""
+        assert _is_valid_timestamp("2024-01-15T10:00:00Z") is True
+
+    def test_is_valid_timestamp_invalid(self) -> None:
+        """Non-parseable string returns False."""
+        assert _is_valid_timestamp("not-a-date") is False
+
+    def test_is_valid_timestamp_none(self) -> None:
+        """None returns False."""
+        assert _is_valid_timestamp(None) is False
 
     def test_sort_with_mixed_offsets(self) -> None:
         """Points with different timezone offsets sort chronologically."""
