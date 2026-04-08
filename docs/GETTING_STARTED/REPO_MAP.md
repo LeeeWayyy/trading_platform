@@ -638,6 +638,8 @@ tests/
 │       ├── backtest/
 │       ├── risk/
 │       └── risk_management/
+├── infra/                 # Infrastructure config tests
+│   └── test_nicegui_alerts.py
 ├── strategies/            # Strategy tests
 │   └── alpha_baseline/
 ├── scripts/               # Script tests
