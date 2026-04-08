@@ -286,7 +286,8 @@ def compute_rate_of_change(
                 extra={
                     "guard": "roc_near_zero",
                     "count": guard_hits,
-                    "symbols": all_affected,
+                    "symbols": display_symbols,
+                    "symbols_total": len(all_affected),
                     "strategy": "momentum",
                 },
             )

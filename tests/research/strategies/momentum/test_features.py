@@ -305,7 +305,9 @@ class TestRateOfChange:
         assert hasattr(rec, "count"), "Warning must include 'count' extra field"
         assert rec.count == 5, "count should be 5 (rows 5-9 have price_n_ago=0)"
         assert hasattr(rec, "symbols"), "Warning must include 'symbols' extra field"
-        assert rec.symbols == ["TEST"], "symbols should list affected symbols"
+        assert rec.symbols == ["TEST"], "symbols should list affected symbols (capped)"
+        assert hasattr(rec, "symbols_total"), "Warning must include 'symbols_total' extra field"
+        assert rec.symbols_total == 1, "symbols_total should be 1 for single-symbol input"
         assert hasattr(rec, "strategy"), "Warning must include 'strategy' extra field"
         assert rec.strategy == "momentum", "strategy field must be 'momentum'"
 
