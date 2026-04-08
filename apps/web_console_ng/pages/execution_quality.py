@@ -76,12 +76,17 @@ def _is_valid_timestamp(value: Any) -> bool:
     return _parse_utc(value) != _DATETIME_MIN_UTC
 
 
-def _format_benchmark_timestamp(value: Any) -> str:
-    """Format a benchmark point timestamp as ``HH:MM UTC``."""
+def _format_benchmark_timestamp(value: Any, *, include_date: bool = False) -> str:
+    """Format a benchmark point timestamp as ``HH:MM:SS UTC``.
+
+    When *include_date* is True the output includes the date prefix
+    (``YYYY-MM-DD HH:MM:SS UTC``) for multi-day fill windows.
+    """
     dt = _parse_utc(value)
     if dt == _DATETIME_MIN_UTC:
         return str(value)
-    return dt.strftime("%H:%M UTC")
+    fmt = "%Y-%m-%d %H:%M:%S UTC" if include_date else "%H:%M:%S UTC"
+    return dt.strftime(fmt)
 
 
 def _is_valid_price(value: Any) -> bool:
@@ -602,9 +607,25 @@ async def _render_tca_dashboard(
                         )
 
                         if valid_points:
+                            # Detect multi-day fills to include date in labels
+                            first_dt = _parse_utc(valid_points[0].get("timestamp", ""))
+                            last_dt = _parse_utc(valid_points[-1].get("timestamp", ""))
+                            multi_day = first_dt.date() != last_dt.date()
+
+                            # Warn if data may be truncated (backend
+                            # default fill limit is 500).
+                            if len(raw_points) >= 500:
+                                ui.label(
+                                    "Note: benchmark data may be truncated "
+                                    "(showing first 500 fills)."
+                                ).classes("text-amber-500 text-xs mb-1")
+
                             create_benchmark_comparison_chart(
                                 timestamps=[
-                                    _format_benchmark_timestamp(p.get("timestamp", ""))
+                                    _format_benchmark_timestamp(
+                                        p.get("timestamp", ""),
+                                        include_date=multi_day,
+                                    )
                                     for p in valid_points
                                 ],
                                 execution_prices=[
@@ -630,7 +651,9 @@ async def _render_tca_dashboard(
                         ).classes("text-gray-500 p-4")
                     else:
                         ui.label(
-                            "Benchmark chart unavailable for the first order."
+                            "Benchmark chart unavailable — the TCA benchmarks "
+                            "API did not return data for this order. Check logs "
+                            "for details."
                         ).classes("text-gray-500 p-4")
 
         # Render orders table

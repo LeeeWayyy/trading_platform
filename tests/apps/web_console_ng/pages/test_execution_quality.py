@@ -455,8 +455,8 @@ class TestBenchmarkHelpers:
         assert dt.tzinfo is not None
 
     def test_format_benchmark_timestamp_zulu(self) -> None:
-        """Zulu timestamp formatted as HH:MM UTC."""
-        assert _format_benchmark_timestamp("2024-01-15T10:30:00Z") == "10:30 UTC"
+        """Zulu timestamp formatted as HH:MM:SS UTC."""
+        assert _format_benchmark_timestamp("2024-01-15T10:30:00Z") == "10:30:00 UTC"
 
     def test_format_benchmark_timestamp_invalid(self) -> None:
         """Invalid timestamp returned as-is."""
@@ -464,7 +464,14 @@ class TestBenchmarkHelpers:
 
     def test_format_benchmark_timestamp_with_offset(self) -> None:
         """Offset timestamp converted to UTC before formatting."""
-        assert _format_benchmark_timestamp("2024-01-15T15:30:00-05:00") == "20:30 UTC"
+        assert _format_benchmark_timestamp("2024-01-15T15:30:00-05:00") == "20:30:00 UTC"
+
+    def test_format_benchmark_timestamp_include_date(self) -> None:
+        """Include date when requested for multi-day fills."""
+        result = _format_benchmark_timestamp(
+            "2024-01-15T10:30:00Z", include_date=True
+        )
+        assert result == "2024-01-15 10:30:00 UTC"
 
     def test_is_valid_price_positive(self) -> None:
         """Positive float is valid."""
