@@ -143,6 +143,26 @@ class TestPortfolioBacktest:
         pd.testing.assert_index_equal(portfolio_returns.index, expected_dates)
         pd.testing.assert_series_equal(portfolio_returns, expected_returns, check_names=False)
 
+    def test_top_n_zero_raises_value_error(self) -> None:
+        """top_n=0 must be rejected."""
+        with pytest.raises(ValueError, match="top_n must be >= 1"):
+            PortfolioBacktest(
+                predictions=self.predictions,
+                actual_returns=self.actual_returns,
+                top_n=0,
+                bottom_n=1,
+            )
+
+    def test_bottom_n_zero_raises_value_error(self) -> None:
+        """bottom_n=0 must be rejected."""
+        with pytest.raises(ValueError, match="bottom_n must be >= 1"):
+            PortfolioBacktest(
+                predictions=self.predictions,
+                actual_returns=self.actual_returns,
+                top_n=1,
+                bottom_n=0,
+            )
+
     def test_metrics_values(self) -> None:
         """Metrics have reasonable values."""
         backtest = PortfolioBacktest(

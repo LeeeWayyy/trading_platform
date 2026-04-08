@@ -67,10 +67,18 @@ class PortfolioBacktest:
             top_n: Number of top stocks to long
             bottom_n: Number of bottom stocks to short
 
+        Raises:
+            ValueError: If top_n or bottom_n is less than 1.
+
         Notes:
             - predictions and actual_returns must have same index
             - NaN values are automatically excluded
         """
+        if top_n < 1:
+            raise ValueError(f"top_n must be >= 1, got {top_n}")
+        if bottom_n < 1:
+            raise ValueError(f"bottom_n must be >= 1, got {bottom_n}")
+
         self.predictions = predictions
         self.actual_returns = actual_returns
         self.top_n = top_n
@@ -140,8 +148,9 @@ class PortfolioBacktest:
         daily_returns = []
         realized_dates = []
 
-        # Get unique dates
-        dates = self.predictions.index.get_level_values(0).unique()
+        # Get unique dates sorted chronologically so cumulative
+        # metrics (cumprod, drawdown) are computed in order.
+        dates = self.predictions.index.get_level_values(0).unique().sort_values()
 
         for date in dates:
             # Get predictions and actual returns for this date
@@ -152,9 +161,12 @@ class PortfolioBacktest:
                 # Date not in index (skip)
                 continue
 
-            # Convert to Series if not already (single symbol case)
+            # When only one symbol exists on a date, pandas .loc
+            # returns a scalar instead of a Series.  A long-short
+            # strategy requires at least top_n + bottom_n distinct
+            # symbols, so skip these dates.
             if not isinstance(day_pred, pd.Series):
-                continue  # Need at least 2 symbols
+                continue
 
             if not isinstance(day_actual, pd.Series):
                 continue
@@ -168,8 +180,10 @@ class PortfolioBacktest:
                 # Not enough stocks for strategy
                 continue
 
-            # Rank by predicted return
-            ranks = day_pred.rank(ascending=False)
+            # Rank by predicted return.  Use method='first' so ties
+            # receive distinct ranks (based on index order), ensuring
+            # exactly top_n longs and bottom_n shorts are selected.
+            ranks = day_pred.rank(ascending=False, method="first")
 
             # Long top-N
             long_mask = ranks <= self.top_n
@@ -222,9 +236,14 @@ class PortfolioBacktest:
         # Total return
         total_return = self.cumulative_returns.iloc[-1]
 
-        # Annualized return
+        # Annualized return — use the calendar span between
+        # the first and last realized trading dates so that
+        # skipped days do not inflate the annualized figure.
         n_days = len(returns)
-        annualized_return = (1 + total_return) ** (252 / n_days) - 1
+        calendar_span = (returns.index[-1] - returns.index[0]).days
+        # Fall back to n_days when the span is zero (single day)
+        annualize_factor = max(calendar_span / 365.25, n_days / 252)
+        annualized_return = (1 + total_return) ** (1 / annualize_factor) - 1 if annualize_factor > 0 else 0.0
 
         # Volatility (annualized)
         volatility = returns.std() * np.sqrt(252)
