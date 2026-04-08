@@ -50,6 +50,7 @@ class GridExportToolbar:
         on_export_start: Callable[[str], None] | None = None,
         on_export_complete: Callable[[str, int], None] | None = None,
         api_base_url: str = "/api/v1",
+        extra_filter_params: dict[str, Any] | None = None,
     ) -> None:
         """Initialize export toolbar.
 
@@ -62,6 +63,11 @@ class GridExportToolbar:
             on_export_start: Callback when export starts
             on_export_complete: Callback when export completes (type, row_count)
             api_base_url: Base URL for export API endpoints
+            extra_filter_params: Additional AG-Grid-style filter params to merge
+                into the export payload.  Useful for page-level selectors
+                (e.g. date range, strategy) that are not part of the
+                grid's ``filterModel`` but must scope the server-side
+                export query.
         """
         self.grid_id = grid_id
         self.grid_name = grid_name
@@ -71,6 +77,7 @@ class GridExportToolbar:
         self.on_export_start = on_export_start
         self.on_export_complete = on_export_complete
         self.api_base_url = api_base_url
+        self.extra_filter_params = extra_filter_params or {}
 
         self._csv_button: ui.button | None = None
         self._excel_button: ui.button | None = None
@@ -162,6 +169,12 @@ class GridExportToolbar:
             import httpx
 
             headers = self._get_auth_headers()
+            # Merge page-level filters (e.g. TCA date selectors) with
+            # the AG Grid's own filterModel so the server-side export
+            # query is scoped to what the user actually sees.
+            filter_model = dict(grid_state.get("filterModel") or {})
+            if self.extra_filter_params:
+                filter_model.update(self.extra_filter_params)
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.api_base_url}/export/audit",
@@ -169,7 +182,7 @@ class GridExportToolbar:
                     json={
                         "export_type": export_type,
                         "grid_name": self.grid_name,
-                        "filter_params": grid_state.get("filterModel"),
+                        "filter_params": filter_model or None,
                         "visible_columns": grid_state.get("columns"),
                         "sort_model": grid_state.get("sortModel"),
                         "export_scope": "visible",

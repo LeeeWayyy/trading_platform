@@ -480,11 +480,23 @@ async def _render_tca_dashboard(
                 with ui.row().classes("w-full justify-between items-center mb-2"):
                     ui.label("Order Details").classes("text-lg font-bold")
 
-                    # Export toolbar
+                    # Export toolbar — inject page-level date selectors so the
+                    # server-side export query is scoped to the same date range
+                    # the user selected (these are not part of the AG Grid
+                    # filterModel by default).
+                    tca_extra_filters: dict[str, Any] = {
+                        "executed_at": {
+                            "filterType": "date",
+                            "type": "inRange",
+                            "dateFrom": str(state["start_date"]),
+                            "dateTo": str(state["end_date"]),
+                        },
+                    }
                     export_toolbar = GridExportToolbar(
                         grid_id="tca-orders-grid",
                         grid_name="tca",
                         filename_prefix="tca_analysis",
+                        extra_filter_params=tca_extra_filters,
                     )
                     export_toolbar.create()
 

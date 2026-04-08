@@ -1245,15 +1245,11 @@ def _fetch_tca_data(
 
        The Execution Quality page uses page-level date/strategy
        selectors (``start_date``, ``end_date``, ``strategy_id``) that
-       are separate from the AG Grid filter model.  If the user
-       applies column-level date filters in the AG Grid they will be
-       carried through ``filter_params``, but the page-level selectors
-       require the frontend to inject them into the export payload.
-       When no matching AG Grid filters are present, the export
-       returns all strategy-scoped trades up to the row limit.  A
-       future enhancement should have the frontend toolbar merge
-       page-level constraints into ``filter_params`` before the
-       export request.
+       are separate from the AG Grid filter model.  These constraints
+       are injected by the frontend toolbar via
+       ``GridExportToolbar.extra_filter_params`` so the server-side
+       export query is scoped to the same date range the user
+       selected.
     """
     filter_cols = filterable_columns or columns
     # Map column names to their qualified table references
