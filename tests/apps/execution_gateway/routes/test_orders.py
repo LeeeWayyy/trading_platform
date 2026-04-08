@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -3348,6 +3348,47 @@ class TestModificationHistory:
 
         response = client.get("/api/v1/orders/client-history/modifications")
         assert response.status_code == 403
+
+
+class TestOrderAuditTrailAuth:
+    """Tests for audit trail strategy-scope authorization."""
+
+    def test_audit_trail_not_found_returns_404(self) -> None:
+        ctx = create_mock_context()
+        ctx.db.get_order_by_client_id.return_value = None
+        client = _build_test_app(ctx, create_test_config())
+
+        response = client.get("/api/v1/orders/missing-order/audit")
+        assert response.status_code == 404
+
+    def test_audit_trail_forbidden_wrong_strategy(self) -> None:
+        order = _make_order_detail("client-audit-deny", status="new")
+        order.strategy_id = "mean_reversion"
+        ctx = create_mock_context()
+        ctx.db.get_order_by_client_id.return_value = order
+        client = _build_test_app(
+            ctx,
+            create_test_config(),
+            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+        )
+
+        response = client.get("/api/v1/orders/client-audit-deny/audit")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized to view this order's audit trail"
+
+    def test_audit_trail_forbidden_empty_strategies(self) -> None:
+        order = _make_order_detail("client-audit-empty", status="new")
+        ctx = create_mock_context()
+        ctx.db.get_order_by_client_id.return_value = order
+        client = _build_test_app(
+            ctx,
+            create_test_config(),
+            auth_context_factory=lambda: _mock_auth_context_with_strategies([]),
+        )
+
+        response = client.get("/api/v1/orders/client-audit-empty/audit")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "No strategy access - cannot view audit trail"
 
 
 class TestOrderUtilityHelpers:

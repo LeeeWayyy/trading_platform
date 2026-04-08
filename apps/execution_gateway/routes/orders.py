@@ -2344,9 +2344,19 @@ async def get_order_audit_trail(
             detail=f"Order not found: {client_order_id}",
         )
 
-    _ensure_order_strategy_access(
-        order, _auth_context, detail="Not authorized to view this order's audit trail"
-    )
+    # Verify strategy authorization (fail-closed: empty list = deny)
+    authorized_strategies = get_authorized_strategies(_auth_context.user)
+    if not authorized_strategies:
+        # No strategies assigned - deny access (fail-closed security)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access - cannot view audit trail",
+        )
+    if order.strategy_id not in authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this order's audit trail",
+        )
 
     # Check if user is admin (for PII visibility)
     user_is_admin = is_admin(_auth_context.user)
