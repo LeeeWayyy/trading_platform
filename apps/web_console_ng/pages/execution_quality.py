@@ -533,8 +533,9 @@ async def _render_tca_dashboard(
                         )
 
                     if benchmark_data:
-                        points = benchmark_data.get("points", [])
-                        summary = benchmark_data.get("summary", {})
+                        raw_points = benchmark_data.get("points", [])
+                        raw_summary = benchmark_data.get("summary")
+                        summary = raw_summary if isinstance(raw_summary, dict) else {}
                         benchmark_type = str(
                             benchmark_data.get("benchmark_type") or "vwap"
                         ).upper()
@@ -555,23 +556,47 @@ async def _render_tca_dashboard(
                             except ValueError:
                                 return text
 
-                        def _safe_float(value: Any, default: float = 0.0) -> float:
+                        def _is_valid_price(value: Any) -> bool:
+                            """Return True if value can be converted to a non-zero float."""
                             try:
-                                return float(value)
+                                return float(value) != 0.0
                             except (TypeError, ValueError):
-                                return default
+                                return False
 
-                        create_benchmark_comparison_chart(
-                            timestamps=[_format_timestamp(p.get("timestamp", "")) for p in points],
-                            execution_prices=[_safe_float(p.get("execution_price", 0.0)) for p in points],
-                            benchmark_prices=[_safe_float(p.get("benchmark_price", 0.0)) for p in points],
-                            benchmark_type=benchmark_type,
-                            symbol=str(
-                                benchmark_data.get("symbol")
-                                or summary.get("symbol")
-                                or first_order.get("symbol", "")
-                            ),
-                        )
+                        # Drop points with missing or invalid price fields
+                        # to avoid rendering misleading zero-price data.
+                        valid_points = [
+                            p for p in raw_points
+                            if _is_valid_price(p.get("execution_price"))
+                            and _is_valid_price(p.get("benchmark_price"))
+                        ]
+
+                        # Sort by timestamp to ensure chronological plotting
+                        valid_points.sort(key=lambda p: str(p.get("timestamp", "")))
+
+                        if valid_points:
+                            create_benchmark_comparison_chart(
+                                timestamps=[
+                                    _format_timestamp(p.get("timestamp", ""))
+                                    for p in valid_points
+                                ],
+                                execution_prices=[
+                                    float(p["execution_price"]) for p in valid_points
+                                ],
+                                benchmark_prices=[
+                                    float(p["benchmark_price"]) for p in valid_points
+                                ],
+                                benchmark_type=benchmark_type,
+                                symbol=str(
+                                    benchmark_data.get("symbol")
+                                    or summary.get("symbol")
+                                    or first_order.get("symbol", "")
+                                ),
+                            )
+                        else:
+                            ui.label(
+                                "Benchmark chart unavailable: no valid data points."
+                            ).classes("text-gray-500 p-4")
                     elif state["demo_mode"]:
                         ui.label(
                             "Benchmark chart hidden in demo mode to avoid showing synthetic data."
