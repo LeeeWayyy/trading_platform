@@ -418,9 +418,14 @@ def _build_fill_batch(
         if price_float <= 0:
             continue
 
-        # Extract fee from order metadata if available
+        # Extract fee from order metadata if available.
+        # Default fee_amount=0.0 with fee_currency="USD" is safe because:
+        # 1. Alpaca is the only broker (US-only, fees always in USD)
+        # 2. When fee_amount=0.0, currency is irrelevant for fee calculations
+        # If a non-USD broker is added, this default must be revisited —
+        # consider defaulting fee_currency to "UNKNOWN" to trigger fail-closed.
         fee_amount = 0.0
-        fee_currency = "USD"  # Alpaca is a US broker; overridden if metadata provides it
+        fee_currency = "USD"
         order_metadata = trade.get("order_metadata")
         if order_metadata and isinstance(order_metadata, dict):
             fills_meta = order_metadata.get("fills", [])
@@ -940,7 +945,7 @@ def get_tca_analysis(
     fee_excluded_count = sum(1 for o in orders if o.fee_cost_bps is None)
     if fee_excluded_count > 0:
         warnings.append(
-            f"{fee_excluded_count} order(s) have fee_cost_bps excluded "
+            f"{fee_excluded_count} order(s) have fee_cost_bps and total_fees excluded "
             f"(mixed/non-USD currencies) — implementation_shortfall_bps excludes fee for those orders"
         )
 
