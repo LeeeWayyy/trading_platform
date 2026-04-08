@@ -250,8 +250,26 @@ def create_tabbed_panel(
     """
     state.active_tab = state.normalize_tab(state.active_tab)
 
+    def _sync_toolbar_symbol_filter(symbol: str | None) -> None:
+        """Inject the page-level symbol filter into all export toolbars.
+
+        The symbol picker lives outside AG Grid's filterModel, so the
+        server-side export query would miss it unless we pass it as an
+        extra filter param.
+        """
+        for toolbar in export_toolbars.values():
+            if symbol:
+                toolbar.extra_filter_params["symbol"] = {
+                    "filterType": "text",
+                    "type": "equals",
+                    "filter": symbol,
+                }
+            else:
+                toolbar.extra_filter_params.pop("symbol", None)
+
     def _on_filter_change(value: str | None) -> None:
         state.symbol_filter = value
+        _sync_toolbar_symbol_filter(value)
         if on_filter_change is not None:
             on_filter_change(value)
 
@@ -282,6 +300,9 @@ def create_tabbed_panel(
                     toolbar_container.set_visibility(is_active)
                     export_toolbars[tab_name] = toolbar
                     toolbar_containers[tab_name] = toolbar_container
+                # Initialise toolbars with the current symbol filter
+                # (may be non-null when restoring persisted state).
+                _sync_toolbar_symbol_filter(state.symbol_filter)
 
         with ui.tabs(value=state.active_tab).classes("w-full") as tabs:  # type: ignore[arg-type]
             tab_positions = ui.tab(name=TAB_POSITIONS, label=TAB_TITLES[TAB_POSITIONS])
