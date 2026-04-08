@@ -112,12 +112,21 @@ async def _fetch_tca_benchmarks(
     role: str,
     strategies: list[str],
     benchmark: str = "vwap",
+    *,
+    symbol: str = "",
+    strategy_id: str = "",
 ) -> dict[str, Any] | None:
     """Fetch benchmark time series for an order.
 
     Returns None on error so callers can hide the benchmark chart instead of
     rendering synthetic data.
     """
+    log_ctx: dict[str, Any] = {
+        "client_order_id": client_order_id,
+        "benchmark": benchmark,
+        "symbol": symbol,
+        "strategy_id": strategy_id,
+    }
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
@@ -126,7 +135,14 @@ async def _fetch_tca_benchmarks(
                 headers=_build_tca_auth_headers(user_id, role, strategies),
             )
             if response.status_code == 200:
-                result: dict[str, Any] = response.json()
+                raw = response.json()
+                if not isinstance(raw, dict):
+                    logger.warning(
+                        "TCA benchmarks API returned non-dict JSON",
+                        extra=log_ctx,
+                    )
+                    return None
+                result: dict[str, Any] = raw
                 points = result.get("points")
                 if not isinstance(points, list) or not points:
                     return None
@@ -137,29 +153,20 @@ async def _fetch_tca_benchmarks(
             logger.warning(
                 "TCA benchmarks API returned non-200",
                 extra={
+                    **log_ctx,
                     "status": response.status_code,
-                    "client_order_id": client_order_id,
-                    "benchmark": benchmark,
                     "body": response.text[:200],
                 },
             )
     except httpx.RequestError as e:
         logger.warning(
             "TCA benchmarks API unavailable",
-            extra={
-                "error": str(e),
-                "client_order_id": client_order_id,
-                "benchmark": benchmark,
-            },
+            extra={**log_ctx, "error": str(e)},
         )
-    except (ValueError, KeyError, TypeError) as e:
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
         logger.warning(
             "TCA benchmarks API returned malformed response",
-            extra={
-                "error": str(e),
-                "client_order_id": client_order_id,
-                "benchmark": benchmark,
-            },
+            extra={**log_ctx, "error": str(e)},
         )
     return None
 
@@ -521,6 +528,8 @@ async def _render_tca_dashboard(
                             user_id=user_id,
                             role=role,
                             strategies=authorized_strategies,
+                            symbol=str(first_order.get("symbol", "")),
+                            strategy_id=str(first_order.get("strategy_id", "")),
                         )
 
                     if benchmark_data:
@@ -535,7 +544,13 @@ async def _render_tca_dashboard(
                             try:
                                 dt = datetime.fromisoformat(
                                     text.replace("Z", "+00:00")
-                                ).astimezone(UTC)
+                                )
+                                # Treat naive timestamps as UTC to avoid
+                                # silent local-timezone shifts.
+                                if dt.tzinfo is None:
+                                    dt = dt.replace(tzinfo=UTC)
+                                else:
+                                    dt = dt.astimezone(UTC)
                                 return dt.strftime("%H:%M UTC")
                             except ValueError:
                                 return text
