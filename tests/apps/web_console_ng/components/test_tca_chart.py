@@ -257,6 +257,50 @@ class TestCreateShortfallDecompositionChart:
                 timing_cost=[-0.2],
             )
 
+    def test_create_chart_nullable_fee_cost(self) -> None:
+        """Chart handles None values in fee_cost series (mixed/non-USD currencies)."""
+        with patch("apps.web_console_ng.components.tca_chart.ui") as mock_ui:
+            mock_echart = MagicMock()
+            mock_echart.classes.return_value = mock_echart
+            mock_ui.echart.return_value = mock_echart
+
+            # Should not raise when fee_cost contains None values
+            result = create_shortfall_decomposition_chart(
+                labels=["2024-01-01", "2024-01-02", "2024-01-03"],
+                price_shortfall=[1.5, 2.0, 1.8],
+                fee_cost=[0.5, None, None],  # Some dates have untrusted fee data
+                opportunity_cost=[0.3, 0.4, 0.2],
+                timing_cost=[0.7, 0.8, 0.6],
+            )
+
+            mock_ui.echart.assert_called_once()
+            call_args = mock_ui.echart.call_args
+            options = call_args[0][0]
+
+            # Fee series should contain the None values as-is for ECharts to handle
+            fee_series = [s for s in options["series"] if s["name"] == "Fees"][0]
+            assert fee_series["data"] == [0.5, None, None]
+            assert result is not None
+
+    def test_create_chart_all_none_fee_cost(self) -> None:
+        """Chart handles all-None fee_cost series."""
+        with patch("apps.web_console_ng.components.tca_chart.ui") as mock_ui:
+            mock_echart = MagicMock()
+            mock_echart.classes.return_value = mock_echart
+            mock_ui.echart.return_value = mock_echart
+
+            # Should not raise when all fee_cost values are None
+            result = create_shortfall_decomposition_chart(
+                labels=["2024-01-01"],
+                price_shortfall=[1.5],
+                fee_cost=[None],
+                opportunity_cost=[0.3],
+                timing_cost=[0.7],
+            )
+
+            mock_ui.echart.assert_called_once()
+            assert result is not None
+
     def test_create_chart_uses_colors(self) -> None:
         """Chart uses TCA color palette."""
         with patch("apps.web_console_ng.components.tca_chart.ui") as mock_ui:

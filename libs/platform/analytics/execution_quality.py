@@ -703,6 +703,7 @@ class ExecutionQualityAnalyzer:
         if mixed_currency_warning or non_usd_fee_warning:
             fee_cost_bps = float("nan")
         else:
+            assert total_fees is not None  # guaranteed by the branch above
             fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
             if arrival_price > 0:
                 fee_cost_bps = fee_per_share / arrival_price * 10000
