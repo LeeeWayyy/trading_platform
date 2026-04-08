@@ -320,6 +320,56 @@ class TestRateOfChange:
         assert len(result) == 0, "Empty input should produce empty output"
         assert "roc" in result.columns, "ROC column must be present even on empty input"
 
+    def test_roc_normal_data_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test that ROC does not emit warning on normal (non-zero) price data."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 10,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 10),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": [100.0 + i for i in range(10)],
+            }
+        )
+        with caplog.at_level("WARNING", logger="research.strategies.momentum.features"):
+            compute_rate_of_change(prices, period=5)
+
+        guard_records = [rec for rec in caplog.records if "ROC guard" in rec.message]
+        assert len(guard_records) == 0, "No warning should be emitted on normal price data"
+
+    def test_roc_many_symbols_caps_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test that ROC warning caps displayed symbols at 10 and includes suffix."""
+        # Create 15 symbols each with zero prices followed by non-zero
+        rows: dict[str, list[object]] = {"symbol": [], "date": [], "close": []}
+        for i in range(15):
+            sym = f"SYM{i:02d}"
+            dates = pl.date_range(
+                start=pl.date(2024, 1, 1),
+                end=pl.date(2024, 1, 10),
+                interval="1d",
+                eager=True,
+            ).to_list()
+            rows["symbol"].extend([sym] * 10)
+            rows["date"].extend(dates)
+            rows["close"].extend([0.0] * 5 + [100.0] * 5)
+
+        prices = pl.DataFrame(rows)
+
+        with caplog.at_level("WARNING", logger="research.strategies.momentum.features"):
+            compute_rate_of_change(prices, period=5)
+
+        guard_records = [rec for rec in caplog.records if "ROC guard" in rec.message]
+        assert len(guard_records) > 0, "Warning should be emitted with zero-price data"
+        rec = guard_records[0]
+        # symbols in extra should be capped at 10
+        assert len(rec.symbols) == 10, "symbols extra should be capped at 10"
+        assert rec.symbols_total == 15, "symbols_total should be 15 (all affected)"
+        # Message should contain suffix indicating more symbols
+        assert "+5 more" in rec.message, "Message should indicate truncated symbol list"
+
 
 class TestADX:
     """Tests for ADX (Average Directional Index)."""

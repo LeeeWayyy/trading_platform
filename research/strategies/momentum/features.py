@@ -260,12 +260,14 @@ def compute_rate_of_change(
     # for consistency with other epsilon guards in the codebase.
     # Note: guard-hit detection uses expression-based filtering (not eager Series.abs())
     # to avoid InvalidOperationError on empty frames with Null-typed columns.
+    # Uses any() for fast short-circuit; full count/filter only on the rare guard-hit path.
     if len(df) > 0:
         guard_hit_expr = (
             pl.col("price_n_ago").is_not_null() & (pl.col("price_n_ago").abs() < _EPSILON)
         )
-        guard_hits = df.select(guard_hit_expr.sum()).item()
-        if guard_hits > 0:
+        has_guard_hits = df.select(guard_hit_expr.any()).item()
+        if has_guard_hits:
+            guard_hits = df.select(guard_hit_expr.sum()).item()
             _MAX_LOG_SYMBOLS = 10
             all_affected = (
                 df.filter(guard_hit_expr)["symbol"].unique().sort().to_list()
