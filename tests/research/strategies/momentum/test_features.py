@@ -306,6 +306,17 @@ class TestRateOfChange:
         assert rec.count == 5, "count should be 5 (rows 5-9 have price_n_ago=0)"
         assert hasattr(rec, "symbols"), "Warning must include 'symbols' extra field"
         assert rec.symbols == ["TEST"], "symbols should list affected symbols"
+        assert hasattr(rec, "strategy"), "Warning must include 'strategy' extra field"
+        assert rec.strategy == "momentum", "strategy field must be 'momentum'"
+
+    def test_roc_empty_dataframe_no_error(self) -> None:
+        """Test that ROC handles empty DataFrames without raising (regression guard)."""
+        empty_prices = pl.DataFrame(
+            schema={"symbol": pl.Utf8, "date": pl.Date, "close": pl.Float64}
+        )
+        result = compute_rate_of_change(empty_prices, period=5)
+        assert len(result) == 0, "Empty input should produce empty output"
+        assert "roc" in result.columns, "ROC column must be present even on empty input"
 
 
 class TestADX:

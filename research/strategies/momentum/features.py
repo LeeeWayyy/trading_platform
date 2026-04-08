@@ -258,30 +258,38 @@ def compute_rate_of_change(
     # Guard: when price_n_ago is near zero (invalid or near-invalid data that slipped
     # past validation), emit null to surface data quality issues.  Uses abs() < _EPSILON
     # for consistency with other epsilon guards in the codebase.
-    near_zero_mask = df["price_n_ago"].abs() < _EPSILON
-    # Exclude rows where price_n_ago is null (expected for first `period` rows)
-    guard_hit_rows = near_zero_mask & df["price_n_ago"].is_not_null()
-    guard_hits = int(guard_hit_rows.sum())
-    if guard_hits > 0:
-        _MAX_LOG_SYMBOLS = 10
-        all_affected = (
-            df.filter(guard_hit_rows)["symbol"].unique().sort().to_list()
+    # Note: guard-hit detection uses expression-based filtering (not eager Series.abs())
+    # to avoid InvalidOperationError on empty frames with Null-typed columns.
+    if len(df) > 0:
+        guard_hit_expr = (
+            pl.col("price_n_ago").is_not_null() & (pl.col("price_n_ago").abs() < _EPSILON)
         )
-        display_symbols = all_affected[:_MAX_LOG_SYMBOLS]
-        suffix = f" (+{len(all_affected) - _MAX_LOG_SYMBOLS} more)" if len(all_affected) > _MAX_LOG_SYMBOLS else ""
-        logger.warning(
-            "ROC guard: %d rows had near-zero price_n_ago (abs < %e), "
-            "emitting null; symbols=%s%s",
-            guard_hits,
-            _EPSILON,
-            display_symbols,
-            suffix,
-            extra={
-                "guard": "roc_near_zero",
-                "count": guard_hits,
-                "symbols": all_affected,
-            },
-        )
+        guard_hits = df.select(guard_hit_expr.sum()).item()
+        if guard_hits > 0:
+            _MAX_LOG_SYMBOLS = 10
+            all_affected = (
+                df.filter(guard_hit_expr)["symbol"].unique().sort().to_list()
+            )
+            display_symbols = all_affected[:_MAX_LOG_SYMBOLS]
+            suffix = (
+                f" (+{len(all_affected) - _MAX_LOG_SYMBOLS} more)"
+                if len(all_affected) > _MAX_LOG_SYMBOLS
+                else ""
+            )
+            logger.warning(
+                "ROC guard: %d rows had near-zero price_n_ago (abs < %e), "
+                "emitting null; symbols=%s%s",
+                guard_hits,
+                _EPSILON,
+                display_symbols,
+                suffix,
+                extra={
+                    "guard": "roc_near_zero",
+                    "count": guard_hits,
+                    "symbols": all_affected,
+                    "strategy": "momentum",
+                },
+            )
 
     df = df.with_columns(
         pl.when(pl.col("price_n_ago").abs() < _EPSILON)
