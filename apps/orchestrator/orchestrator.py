@@ -14,7 +14,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -1091,12 +1091,18 @@ class TradingOrchestrator:
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"unexpected_error: {str(e)}"
 
+    # Maximum age (seconds) for Redis price data before treating as stale.
+    # Matches execution-gateway's FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT.
+    MAX_PRICE_AGE_SECONDS: int = 30
+
     async def _get_current_price(self, symbol: str) -> Decimal:
         """
         Get current market price for symbol.
 
-        C2 Fix: Raises PriceUnavailableError if price not in cache.
-        In production, would fetch from market data API.
+        Resolution order:
+            1. In-memory price_cache (populated by tests or prior Redis fetch)
+            2. Redis market data cache (populated by market_data_service)
+            3. Raise PriceUnavailableError
 
         Args:
             symbol: Stock symbol
@@ -1105,7 +1111,7 @@ class TradingOrchestrator:
             Current price as Decimal
 
         Raises:
-            PriceUnavailableError: If price is not available in cache
+            PriceUnavailableError: If price is not available from any source
 
         Example:
             >>> price = await orchestrator._get_current_price("AAPL")
@@ -1119,26 +1125,76 @@ class TradingOrchestrator:
         # Fetch from Redis market data cache (populated by market_data_service)
         if self.redis_client is not None:
             try:
-                raw = self.redis_client.get(RedisKeys.price(symbol))
+                # Use asyncio.to_thread to avoid blocking the event loop
+                # (RedisClient.get has retry/backoff that can sleep)
+                raw = await asyncio.to_thread(self.redis_client.get, RedisKeys.price(symbol))
                 if raw is not None:
                     price_data = json.loads(raw)
-                    mid = Decimal(str(price_data["mid"]))
-                    if mid > 0:
-                        # Cache locally to avoid repeated Redis lookups within same run
-                        self.price_cache[symbol] = mid
-                        logger.debug(
-                            "Price fetched from Redis",
-                            extra={"symbol": symbol, "mid_price": str(mid)},
+
+                    # Validate timestamp freshness (matches execution-gateway pattern)
+                    ts_raw = price_data.get("timestamp")
+                    if ts_raw is not None:
+                        price_ts = datetime.fromisoformat(str(ts_raw))
+                        if price_ts.tzinfo is None:
+                            price_ts = price_ts.replace(tzinfo=UTC)
+                        age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
+                        if age_seconds > self.MAX_PRICE_AGE_SECONDS:
+                            logger.warning(
+                                "Redis price stale for %s, treating as unavailable",
+                                symbol,
+                                extra={
+                                    "symbol": symbol,
+                                    "price_age_seconds": max(age_seconds, 0),
+                                    "max_price_age_seconds": self.MAX_PRICE_AGE_SECONDS,
+                                },
+                            )
+                            # Fall through to PriceUnavailableError
+                        else:
+                            mid = Decimal(str(price_data["mid"]))
+                            if mid > 0 and mid.is_finite():
+                                # Cache locally to avoid repeated Redis lookups
+                                self.price_cache[symbol] = mid
+                                logger.debug(
+                                    "Price fetched from Redis",
+                                    extra={"symbol": symbol, "mid_price": str(mid)},
+                                )
+                                return mid
+                            logger.warning(
+                                "Redis price has invalid mid for %s, " "treating as unavailable",
+                                symbol,
+                                extra={"symbol": symbol, "mid": str(mid)},
+                            )
+                    else:
+                        logger.warning(
+                            "Redis price missing timestamp for %s, " "treating as unavailable",
+                            symbol,
+                            extra={"symbol": symbol},
                         )
-                        return mid
-                    logger.warning(
-                        "Redis price has zero mid for %s, treating as unavailable",
-                        symbol,
-                    )
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                ValueError,
+                TypeError,
+                InvalidOperation,
+            ) as e:
+                logger.warning(
+                    "Failed to parse price from Redis",
+                    extra={
+                        "symbol": symbol,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to fetch price from Redis",
-                    extra={"symbol": symbol, "error": str(e)},
+                    extra={
+                        "symbol": symbol,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
                 )
 
         # C2 Fix: Raise error instead of using dangerous $100 default
