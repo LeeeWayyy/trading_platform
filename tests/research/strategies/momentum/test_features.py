@@ -610,8 +610,12 @@ class TestEdgeCases:
     def test_near_epsilon_boundary_no_nan(self, delta: float, description: str) -> None:
         """Test epsilon boundary: near-flat windows must never produce NaN/Inf."""
         base = 100.0
-        # Alternate between base and base+delta to create a tiny but non-zero spread
+        # Alternate between base and base+delta to create a tiny but non-zero spread.
+        # high/low use a proportional spread so ADX sees real directional movement
+        # in the supra-epsilon case rather than constant high==low==close.
         close_vals = [base + delta * (i % 2) for i in range(30)]
+        high_vals = [c + delta for c in close_vals]
+        low_vals = [c - delta for c in close_vals]
         prices = pl.DataFrame(
             {
                 "symbol": ["TEST"] * 30,
@@ -622,8 +626,8 @@ class TestEdgeCases:
                     eager=True,
                 ),
                 "close": close_vals,
-                "high": [max(close_vals[i], base + delta) for i in range(30)],
-                "low": [min(close_vals[i], base) for i in range(30)],
+                "high": high_vals,
+                "low": low_vals,
                 "open": close_vals,
                 "volume": [1000000] * 30,
             }
@@ -633,12 +637,14 @@ class TestEdgeCases:
         result_adx = compute_adx(prices)
         for col in ["adx", "plus_di", "minus_di"]:
             vals = result_adx[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values ({description})"
             assert not vals.is_nan().any(), f"{col} NaN with {description}"
             assert not vals.is_infinite().any(), f"{col} Inf with {description}"
 
         # ROC must be finite (or null for invalid lag)
         result_roc = compute_rate_of_change(prices)
         roc_vals = result_roc["roc"].drop_nulls()
+        assert len(roc_vals) > 0, f"ROC must produce non-null values ({description})"
         assert not roc_vals.is_nan().any(), f"ROC NaN with {description}"
         assert not roc_vals.is_infinite().any(), f"ROC Inf with {description}"
 

@@ -498,21 +498,25 @@ class TestEdgeCases:
 
         # RSI must be finite (either neutral 50 or a valid computed value)
         rsi_vals = compute_rsi(prices)["rsi"].drop_nulls()
+        assert len(rsi_vals) > 0, f"RSI must produce non-null values ({description})"
         assert not rsi_vals.is_nan().any(), f"RSI NaN with {description}"
         assert not rsi_vals.is_infinite().any(), f"RSI Inf with {description}"
 
         # Bollinger %B must be finite
         bb_pct = compute_bollinger_bands(prices)["bb_pct"].drop_nulls()
+        assert len(bb_pct) > 0, f"bb_pct must produce non-null values ({description})"
         assert not bb_pct.is_nan().any(), f"bb_pct NaN with {description}"
         assert not bb_pct.is_infinite().any(), f"bb_pct Inf with {description}"
 
         # Stochastic %K must be finite
         stoch_k = compute_stochastic_oscillator(prices)["stoch_k"].drop_nulls()
+        assert len(stoch_k) > 0, f"stoch_k must produce non-null values ({description})"
         assert not stoch_k.is_nan().any(), f"stoch_k NaN with {description}"
         assert not stoch_k.is_infinite().any(), f"stoch_k Inf with {description}"
 
         # Z-score must be finite
         zscore = compute_price_zscore(prices)["price_zscore"].drop_nulls()
+        assert len(zscore) > 0, f"price_zscore must produce non-null values ({description})"
         assert not zscore.is_nan().any(), f"price_zscore NaN with {description}"
         assert not zscore.is_infinite().any(), f"price_zscore Inf with {description}"
 
