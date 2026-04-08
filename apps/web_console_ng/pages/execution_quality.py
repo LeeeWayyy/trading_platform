@@ -127,24 +127,39 @@ async def _fetch_tca_benchmarks(
             )
             if response.status_code == 200:
                 result: dict[str, Any] = response.json()
-                return result if result.get("points") else None
+                points = result.get("points")
+                if not isinstance(points, list) or not points:
+                    return None
+                # Discard entries that are not dicts to guard against
+                # schema drift from the upstream API.
+                result["points"] = [p for p in points if isinstance(p, dict)]
+                return result if result["points"] else None
             logger.warning(
                 "TCA benchmarks API returned non-200",
                 extra={
                     "status": response.status_code,
                     "client_order_id": client_order_id,
+                    "benchmark": benchmark,
                     "body": response.text[:200],
                 },
             )
     except httpx.RequestError as e:
         logger.warning(
             "TCA benchmarks API unavailable",
-            extra={"error": str(e), "client_order_id": client_order_id},
+            extra={
+                "error": str(e),
+                "client_order_id": client_order_id,
+                "benchmark": benchmark,
+            },
         )
     except (ValueError, KeyError, TypeError) as e:
         logger.warning(
             "TCA benchmarks API returned malformed response",
-            extra={"error": str(e), "client_order_id": client_order_id},
+            extra={
+                "error": str(e),
+                "client_order_id": client_order_id,
+                "benchmark": benchmark,
+            },
         )
     return None
 
@@ -518,9 +533,10 @@ async def _render_tca_dashboard(
                         def _format_timestamp(value: Any) -> str:
                             text = str(value)
                             try:
-                                return datetime.fromisoformat(text.replace("Z", "+00:00")).strftime(
-                                    "%H:%M"
-                                )
+                                dt = datetime.fromisoformat(
+                                    text.replace("Z", "+00:00")
+                                ).astimezone(UTC)
+                                return dt.strftime("%H:%M UTC")
                             except ValueError:
                                 return text
 
