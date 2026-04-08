@@ -69,11 +69,12 @@ groups:
           runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md"
 
       # Poison Queue Size (SLA: 0, Alert > 10)
+      # Synchronized with alert_delivery.yml — both use severity: page, for: 1m
       - alert: AlertPoisonQueueHigh
         expr: alert_poison_queue_size > 10
-        for: 5m
+        for: 1m
         labels:
-          severity: critical
+          severity: page
           team: platform
           sla: track7
         annotations:
