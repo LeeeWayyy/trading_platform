@@ -691,6 +691,81 @@ class TestSubmitOrder:
         assert "already exists for a different order" in body["detail"]
         reservation.release.assert_called_once_with("AAPL", "token-8")
 
+    def test_submit_order_live_mode_uses_caller_supplied_id(self) -> None:
+        """In live mode (dry_run=False), caller-supplied ID is passed to broker."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-9", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        order_detail = _make_order_detail("live-custom-001", status="new")
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.side_effect = [None, order_detail]
+
+        mock_redis = MagicMock()
+        mock_redis.mget.return_value = [None, None]
+
+        alpaca = MagicMock()
+        alpaca.submit_order.return_value = {
+            "id": "broker-abc-123",
+            "status": "new",
+        }
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+        ctx = create_mock_context(
+            db=db,
+            redis=mock_redis,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        ctx.alpaca = alpaca
+        config = create_test_config(dry_run=False, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "live-custom-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_order_id"] == "live-custom-001"
+        assert data["broker_order_id"] == "broker-abc-123"
+
+        # Verify the caller-supplied ID was passed to the broker
+        alpaca.submit_order.assert_called_once()
+        call_args = alpaca.submit_order.call_args
+        assert call_args[0][1] == "live-custom-001"
+
 
 class TestCancelAndGetOrder:
     def test_cancel_order_not_found(self) -> None:

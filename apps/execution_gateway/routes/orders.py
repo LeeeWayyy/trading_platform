@@ -1353,8 +1353,11 @@ def _idempotency_payload_matches(
 ) -> bool:
     """Return True when the incoming request matches the stored order.
 
-    Comparison covers all order-defining fields so that a caller-supplied
-    ``client_order_id`` cannot silently alias a different order.
+    Comparison covers the core order-defining fields (symbol, side, qty,
+    order_type, prices, time_in_force, execution_style, strategy_id).
+    TWAP-specific timing fields are omitted because the ``/api/v1/orders``
+    endpoint rejects TWAP orders; if TWAP support is added later, extend
+    this comparison accordingly.
     """
     return (
         order.symbol == existing.symbol
