@@ -368,7 +368,11 @@ class TradingOrchestrator:
             else:
                 # Single strategy: use signals directly (backward compatible)
                 signal_response = await self._fetch_signals(
-                    symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+                    symbols=symbols,
+                    as_of_date=as_of_date,
+                    top_n=top_n,
+                    bottom_n=bottom_n,
+                    strategy_id=strategy_ids[0],
                 )
                 final_signals = signal_response.signals
                 validated_as_of_date = signal_response.metadata.as_of_date

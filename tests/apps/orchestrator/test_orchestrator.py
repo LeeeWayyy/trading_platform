@@ -305,6 +305,12 @@ class TestTradingOrchestratorRun:
         assert result.num_orders_submitted == 0
         assert "as_of_date mismatch across strategies" in result.error_message
 
+        # Verify each fetch_signals call received the correct strategy_id
+        calls = orchestrator.signal_client.fetch_signals.call_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs["strategy_id"] == "alpha_baseline"
+        assert calls[1].kwargs["strategy_id"] == "momentum"
+
 
 class TestFetchSignals:
     """Tests for signal fetching."""
