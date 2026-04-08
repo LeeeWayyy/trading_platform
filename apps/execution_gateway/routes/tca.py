@@ -419,11 +419,13 @@ def _build_fill_batch(
             continue
 
         # Extract fee from order metadata if available.
-        # Default fee_amount=0.0 with fee_currency="USD" is safe because:
-        # 1. Alpaca is the only broker (US-only, fees always in USD)
-        # 2. When fee_amount=0.0, currency is irrelevant for fee calculations
-        # If a non-USD broker is added, this default must be revisited —
-        # consider defaulting fee_currency to "UNKNOWN" to trigger fail-closed.
+        # ALPACA ASSUMPTION: Default fee_currency="USD" because Alpaca is a
+        # US-only broker and all fees are denominated in USD.  When fee_amount
+        # is 0.0, currency is irrelevant.  When metadata provides a non-zero
+        # fee without specifying fee_currency, we log a warning but keep USD
+        # since that is the only currency Alpaca uses.
+        # If a non-USD broker is added, change the default to "UNKNOWN" to
+        # trigger fail-closed via has_non_usd_fees.
         fee_amount = 0.0
         fee_currency = "USD"
         order_metadata = trade.get("order_metadata")
@@ -436,12 +438,19 @@ def _build_fill_batch(
                     except (ValueError, TypeError):
                         fee_amount = 0.0  # Default to 0 for non-numeric fee
                     # Propagate fee_currency when stored in fill metadata.
-                    # When metadata has a fee but no currency, keep "USD"
-                    # default (Alpaca only).  The Fill model validator will
-                    # normalize any case/whitespace variants (e.g. "usd").
+                    # The Fill model validator normalizes case/whitespace.
                     stored_currency = fm.get("fee_currency")
                     if isinstance(stored_currency, str) and stored_currency.strip():
                         fee_currency = stored_currency  # normalized by Fill validator
+                    elif fee_amount != 0.0:
+                        logger.debug(
+                            "Fill metadata has non-zero fee but no fee_currency; "
+                            "defaulting to USD (Alpaca assumption)",
+                            extra={
+                                "fill_id": fm.get("fill_id"),
+                                "fee_amount": fee_amount,
+                            },
+                        )
                     break
 
         fills.append(
@@ -663,8 +672,11 @@ def _result_to_order_detail(
         fee_cost = None
 
     # Ensure fee_cost_bps and total_fees are consistent: both null or both numeric.
-    # If fee_cost_bps is None (untrusted), total_fees is also untrusted.
-    total_fees = result.total_fees if fee_cost is not None else None
+    # If either is None (untrusted), set both to None.
+    total_fees = result.total_fees
+    if fee_cost is None or total_fees is None:
+        fee_cost = None
+        total_fees = None
 
     return TCAOrderDetail(
         client_order_id=client_order_id,
