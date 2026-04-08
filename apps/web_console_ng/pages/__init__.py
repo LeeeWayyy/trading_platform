@@ -56,6 +56,7 @@ for module_name in _PAGE_MODULES:
         importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
         logger.warning(
-            "page_module_skipped_missing_dependency",
-            extra={"page_module": module_name, "error": str(exc)},
+            "page_module_skipped_missing_dependency: module=%s error=%s",
+            module_name,
+            exc,
         )

@@ -518,6 +518,91 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
     assert jobs == []
 
 
+def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
+    """Older schemas without cost_summary should still render backtest jobs."""
+
+    class UndefinedColumn(Exception):
+        pass
+
+    class FakeCursor:
+        def __init__(self) -> None:
+            self.execute_calls = 0
+
+        def execute(self, *_: Any, **__: Any) -> None:
+            self.execute_calls += 1
+            if self.execute_calls == 1:
+                raise UndefinedColumn('column "cost_summary" does not exist')
+
+        def __enter__(self) -> FakeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def fetchall(self) -> list[dict[str, Any]]:
+            return [
+                {
+                    "job_id": "j1",
+                    "alpha_name": "alpha1",
+                    "start_date": date(2025, 1, 1),
+                    "end_date": date(2025, 2, 1),
+                    "status": "completed",
+                    "created_at": datetime(2025, 1, 1, 12, 0, 0),
+                    "error_message": None,
+                    "mean_ic": 0.1,
+                    "icir": 1.2,
+                    "hit_rate": 0.6,
+                    "coverage": 0.9,
+                    "average_turnover": 0.2,
+                    "result_path": "/tmp/result.parquet",
+                    "cost_summary": None,
+                    "provider": "crsp",
+                }
+            ]
+
+    class FakeConn:
+        def __init__(self, cursor: FakeCursor) -> None:
+            self._cursor = cursor
+            self.rollback_calls = 0
+
+        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
+            return self._cursor
+
+        def rollback(self) -> None:
+            self.rollback_calls += 1
+
+        def __enter__(self) -> FakeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.cursor = FakeCursor()
+            self.conn = FakeConn(self.cursor)
+
+        def connection(self) -> FakeConn:
+            return self.conn
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            return [None]
+
+    pool = FakePool()
+    jobs = backtest_module._get_user_jobs_sync(
+        created_by="u1",
+        status=["completed"],
+        db_pool=pool,  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0]["cost_summary"] is None
+    assert pool.cursor.execute_calls == 2
+    assert pool.conn.rollback_calls == 1
+
+
 def test_verify_job_ownership_returns_true_for_owner() -> None:
     """Test _verify_job_ownership returns True when job belongs to user."""
 

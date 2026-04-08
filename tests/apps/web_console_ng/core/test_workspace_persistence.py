@@ -87,6 +87,23 @@ async def test_save_grid_state_success(service: WorkspacePersistenceService, mon
 
 
 @pytest.mark.asyncio()
+async def test_save_grid_state_missing_table_returns_false(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    class UndefinedTable(Exception):
+        pass
+
+    cursor = AsyncMock()
+    cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    result = await service.save_grid_state("user-1", "grid-1", {"columns": []})
+
+    assert result is False
+
+
+@pytest.mark.asyncio()
 async def test_save_panel_state_success(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()
     pool = _make_pool(cursor)
@@ -109,6 +126,21 @@ async def test_save_panel_state_success(service: WorkspacePersistenceService, mo
 async def test_load_grid_state_missing(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()
     cursor.fetchone.return_value = None
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    assert await service.load_grid_state("user", "grid") is None
+
+
+@pytest.mark.asyncio()
+async def test_load_grid_state_missing_table_returns_none(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    class UndefinedTable(Exception):
+        pass
+
+    cursor = AsyncMock()
+    cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
@@ -236,6 +268,23 @@ async def test_reset_workspace_all(service: WorkspacePersistenceService, monkeyp
         "DELETE FROM workspace_state WHERE user_id = %s",
         ("user-1",),
     )
+
+
+@pytest.mark.asyncio()
+async def test_reset_workspace_missing_table_noop(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    class UndefinedTable(Exception):
+        pass
+
+    cursor = AsyncMock()
+    cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    await service.reset_workspace("user-1")
+
+    cursor.execute.assert_called_once()
 
 
 def test_get_workspace_service_singleton() -> None:

@@ -94,6 +94,14 @@ def _get_rq_redis_client() -> Redis:
     return _rq_redis_client
 
 
+def _is_missing_column_error(exc: Exception, column_name: str) -> bool:
+    """Return True when a DB error indicates a missing column."""
+    return (
+        type(exc).__name__ == "UndefinedColumn"
+        and f'column "{column_name}"' in str(exc).lower()
+    )
+
+
 def _get_user_id(user: dict[str, Any]) -> str:
     """Get user identifier with fail-closed behavior.
 
@@ -135,7 +143,7 @@ def _get_user_jobs_sync(
     if invalid:
         raise ValueError(f"Invalid statuses: {invalid}. Valid: {VALID_STATUSES}")
 
-    sql = """
+    sql_with_cost_summary = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
                result_path, cost_summary,
@@ -145,8 +153,27 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
+    sql_without_cost_summary = """
+        SELECT job_id, alpha_name, start_date, end_date, status, created_at,
+               error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
+               result_path, NULL AS cost_summary,
+               COALESCE(config_json->>'provider', 'crsp') AS provider
+        FROM backtest_jobs
+        WHERE created_by = %s AND status = ANY(%s)
+        ORDER BY created_at DESC
+        LIMIT %s
+    """
     with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+        try:
+            cur.execute(sql_with_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+        except Exception as exc:
+            if not _is_missing_column_error(exc, "cost_summary"):
+                raise
+            logger.warning(
+                "backtest_jobs_cost_summary_column_missing: falling back without cost_summary"
+            )
+            conn.rollback()
+            cur.execute(sql_without_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
         jobs = cur.fetchall()
 
     if not jobs:

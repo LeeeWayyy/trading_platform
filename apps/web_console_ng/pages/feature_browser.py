@@ -24,7 +24,6 @@ from libs.data.feature_metadata import (
     get_sample_values,
 )
 from libs.platform.web_console_auth.permissions import Permission, has_permission
-from strategies.alpha_baseline.features import get_alpha158_features
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +169,19 @@ async def feature_browser_page() -> None:
 
         loading_state["feature_data_loading"] = True
         try:
+            try:
+                from strategies.alpha_baseline.features import get_alpha158_features
+            except ModuleNotFoundError as exc:
+                logger.warning(
+                    "feature_browser_dependency_missing: %s",
+                    exc,
+                )
+                ui.notify(
+                    "Feature engine dependencies are not available in this runtime.",
+                    type="warning",
+                )
+                return None
+
             end_dt = date.today()
             start_dt = end_dt - timedelta(days=_MAX_CACHE_DAYS + _MAX_LOOKBACK_DAYS)
             symbols = _DEFAULT_SYMBOLS[:_MAX_CACHE_SYMBOLS]

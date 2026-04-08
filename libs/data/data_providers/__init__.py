@@ -51,7 +51,6 @@ from libs.data.data_providers.protocols import (
     ProviderUnavailableError,
     YFinanceDataProviderAdapter,
 )
-from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 from libs.data.data_providers.unified_fetcher import (
     FetcherConfig,
     ProviderType,
@@ -62,13 +61,24 @@ from libs.data.data_providers.universe import (
     ForwardReturnsProvider,
     UniverseProvider,
 )
-from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 from libs.data.data_providers.yfinance_provider import (
     DriftDetectedError,
     ProductionGateError,
     YFinanceError,
     YFinanceProvider,
 )
+
+try:
+    from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
+except ModuleNotFoundError:
+    SyncManager = None  # type: ignore[assignment]
+    SyncProgress = None  # type: ignore[assignment]
+
+try:
+    from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
+except ModuleNotFoundError:
+    WRDSClient = None  # type: ignore[assignment]
+    WRDSConfig = None  # type: ignore[assignment]
 
 __all__ = [
     # CRSP Local Provider
