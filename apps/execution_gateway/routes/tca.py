@@ -418,7 +418,7 @@ def _build_fill_batch(
 
         # Extract fee from order metadata if available
         fee_amount = 0.0
-        fee_currency = "USD"  # Default; overridden if metadata provides it
+        fee_currency = "USD"  # Alpaca is a US broker; overridden if metadata provides it
         order_metadata = trade.get("order_metadata")
         if order_metadata and isinstance(order_metadata, dict):
             fills_meta = order_metadata.get("fills", [])
@@ -641,14 +641,16 @@ def _result_to_order_detail(
     strategy_id: str,
 ) -> TCAOrderDetail:
     """Convert ExecutionAnalysisResult to TCAOrderDetail."""
-    # Convert NaN fee_cost_bps to None (fail closed for mixed/non-USD currencies)
-    # Type guard: ensure fee_cost_bps is a float before calling math.isnan
+    # Convert NaN fee_cost_bps to None (fail closed for mixed/non-USD currencies).
+    # Use float() conversion to handle numeric-like types (Decimal, numpy scalars)
+    # that are not int/float but still represent valid numbers.
     raw_fee = result.fee_cost_bps
     fee_cost: float | None
-    if not isinstance(raw_fee, (int, float)) or math.isnan(raw_fee):
+    try:
+        fee_float = float(raw_fee)  # type: ignore[arg-type]
+        fee_cost = None if math.isnan(fee_float) else round(fee_float, 2)
+    except (TypeError, ValueError):
         fee_cost = None
-    else:
-        fee_cost = round(float(raw_fee), 2)
     return TCAOrderDetail(
         client_order_id=client_order_id,
         symbol=result.symbol,
