@@ -261,6 +261,19 @@ class TestTCAOrderDetail:
         data = order.model_dump()
         assert data["fee_cost_bps"] is None
 
+    def test_nullable_total_fees(self, valid_order_data: dict) -> None:
+        """total_fees accepts None (mixed/non-USD fee currencies)."""
+        valid_order_data["total_fees"] = None
+        order = TCAOrderDetail(**valid_order_data)
+        assert order.total_fees is None
+
+    def test_nullable_total_fees_serialization(self, valid_order_data: dict) -> None:
+        """total_fees=None serializes as null in JSON."""
+        valid_order_data["total_fees"] = None
+        order = TCAOrderDetail(**valid_order_data)
+        data = order.model_dump()
+        assert data["total_fees"] is None
+
 
 class TestTCABenchmarkPoint:
     """Tests for TCABenchmarkPoint model."""

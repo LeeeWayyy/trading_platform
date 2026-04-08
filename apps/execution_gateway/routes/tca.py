@@ -157,9 +157,9 @@ def _get_taq_provider() -> Any | None:
         return _taq_provider
 
 
-# NOTE: fee_cost_bps and avg_fee_cost_bps changed from float to float|None in
-# issue #158.  Only consumer is the NiceGUI web console (same repo, already
-# updated).  No external typed clients exist for this internal API.
+# NOTE: fee_cost_bps, avg_fee_cost_bps, and total_fees changed from float to
+# float|None in issue #158.  Only consumer is the NiceGUI web console (same
+# repo, already updated).  No external typed clients exist for this internal API.
 router = APIRouter(prefix="/api/v1/tca", tags=["TCA"])
 
 # TCA auth dependency - requires VIEW_TCA permission
@@ -546,7 +546,7 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     # Compute execution metrics from effective fills directly
     total_filled_qty = sum(f.quantity for f in effective_fills)
     total_notional = sum(f.price * f.quantity for f in effective_fills)
-    total_fees = sum(f.fee_amount for f in effective_fills)
+    raw_total_fees = sum(f.fee_amount for f in effective_fills)
 
     if total_filled_qty == 0:
         return None
@@ -572,13 +572,17 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     # Note: vwap_benchmark is set to arrival_price below to match this calculation
     vwap_slippage_bps = price_shortfall_bps  # Same without market data
 
-    # Fee cost - fail closed when currencies are mixed or non-USD
+    # Fee cost and total_fees - fail closed when currencies are mixed or non-USD.
+    # Summing fees across different currencies is arithmetically invalid.
     fee_cost_bps: float | None
+    total_fees: float | None
     has_mixed = fill_batch.has_mixed_currencies
     has_non_usd = fill_batch.has_non_usd_fees
     if has_mixed or has_non_usd:
         fee_cost_bps = None
+        total_fees = None
     else:
+        total_fees = raw_total_fees
         fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
         fee_cost_bps = fee_per_share / arrival_price * 10000 if arrival_price > 0 else 0.0
 
@@ -598,9 +602,9 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     if raw_fill_rate > 1.0:
         warnings.append(f"Overfill detected: filled {total_filled_qty} vs target {total_target_qty}")
     if has_mixed:
-        warnings.append("Mixed fee currencies detected - fee_cost_bps excluded (not trustworthy)")
+        warnings.append("Mixed fee currencies detected - fee_cost_bps and total_fees excluded (not trustworthy)")
     if has_non_usd:
-        warnings.append("Non-USD fee currency detected - fee_cost_bps excluded (not normalized)")
+        warnings.append("Non-USD fee currency detected - fee_cost_bps and total_fees excluded (not normalized)")
 
     return TCAOrderDetail(
         client_order_id=fill_batch.fills[0].client_order_id if fill_batch.fills else "",

@@ -1646,6 +1646,7 @@ class TestSimpleTcaFeeCurrencyFailClosed:
 
         assert result is not None
         assert result.fee_cost_bps is None, "fee_cost_bps must be None for mixed currencies"
+        assert result.total_fees is None, "total_fees must be None for mixed currencies"
         assert any("Mixed fee currencies" in w for w in result.warnings)
 
     def test_simple_tca_non_usd_fee_is_none(self) -> None:
@@ -1680,6 +1681,7 @@ class TestSimpleTcaFeeCurrencyFailClosed:
 
         assert result is not None
         assert result.fee_cost_bps is None, "fee_cost_bps must be None for non-USD fees"
+        assert result.total_fees is None, "total_fees must be None for non-USD fees"
         assert any("Non-USD fee currency" in w for w in result.warnings)
 
     def test_simple_tca_usd_fee_is_valid(self) -> None:
@@ -1715,6 +1717,8 @@ class TestSimpleTcaFeeCurrencyFailClosed:
         assert result is not None
         assert result.fee_cost_bps is not None, "fee_cost_bps should be valid for USD"
         assert isinstance(result.fee_cost_bps, float)
+        assert result.total_fees is not None, "total_fees should be valid for USD"
+        assert result.total_fees == pytest.approx(0.50)
 
 
 class TestAvgFeeCostBpsAggregation:
@@ -1833,6 +1837,9 @@ class TestFeeCurrencyPropagationEndToEnd:
         assert result.fee_cost_bps is None, (
             "fee_cost_bps must be None when fee_currency propagated from metadata is non-USD"
         )
+        assert result.total_fees is None, (
+            "total_fees must be None when fee_currency propagated from metadata is non-USD"
+        )
 
     def test_mixed_fee_currency_from_metadata_produces_none(self) -> None:
         """fee_cost_bps should be None when fill metadata has mixed fee currencies."""
@@ -1909,6 +1916,9 @@ class TestFeeCurrencyPropagationEndToEnd:
         assert result.fee_cost_bps is None, (
             "fee_cost_bps must be None when fee currencies from metadata are mixed"
         )
+        assert result.total_fees is None, (
+            "total_fees must be None when fee currencies from metadata are mixed"
+        )
 
     def test_usd_fee_currency_from_metadata_produces_valid(self) -> None:
         """fee_cost_bps should be a number when fill metadata has USD fee_currency."""
@@ -1949,6 +1959,8 @@ class TestFeeCurrencyPropagationEndToEnd:
         assert result is not None
         assert result.fee_cost_bps is not None, "fee_cost_bps should be valid for USD"
         assert isinstance(result.fee_cost_bps, float)
+        assert result.total_fees is not None, "total_fees should be valid for USD"
+        assert result.total_fees == pytest.approx(0.50)
 
 
 class TestSummaryFeeExclusionWarning:

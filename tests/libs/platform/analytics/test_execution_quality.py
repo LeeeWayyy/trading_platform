@@ -2265,6 +2265,57 @@ class TestCurrencyValidation:
         assert batch.has_mixed_currencies is False
         assert batch.fee_currency == "USD"
 
+    def test_fee_currency_normalization(
+        self, decision_time: datetime, submission_time: datetime, fill_time: datetime
+    ) -> None:
+        """Test: fee_currency is normalized to uppercase and stripped of whitespace.
+
+        Ensures that values like 'usd', ' USD ', and 'Usd' all normalize to 'USD'
+        so that fail-closed currency checks are not tripped by case/whitespace.
+        """
+        fills = [
+            Fill(
+                fill_id="f1",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time,
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.50,
+                fee_currency="usd",  # lowercase
+            ),
+            Fill(
+                fill_id="f2",
+                order_id="o1",
+                client_order_id="c1",
+                timestamp=fill_time + timedelta(seconds=1),
+                symbol="AAPL",
+                side="buy",
+                price=100.0,
+                quantity=100,
+                fee_amount=0.40,
+                fee_currency=" USD ",  # whitespace-padded
+            ),
+        ]
+        # After normalization, both should be "USD"
+        assert fills[0].fee_currency == "USD"
+        assert fills[1].fee_currency == "USD"
+
+        batch = FillBatch(
+            symbol="AAPL",
+            side="buy",
+            fills=fills,
+            decision_time=decision_time,
+            submission_time=submission_time,
+            total_target_qty=200,
+        )
+        # Should NOT be flagged as mixed or non-USD
+        assert batch.has_mixed_currencies is False
+        assert batch.has_non_usd_fees is False
+        assert batch.fee_currency == "USD"
+
     def test_valid_fills_excludes_pre_decision(
         self, decision_time: datetime, submission_time: datetime
     ) -> None:
@@ -3452,6 +3503,7 @@ class TestFeeCurrencyFailClosed:
         result = analyzer.analyze_execution(batch)
 
         assert math.isnan(result.fee_cost_bps), "fee_cost_bps must be NaN for mixed currencies"
+        assert result.total_fees is None, "total_fees must be None for mixed currencies"
         assert result.mixed_currency_warning is True
         # total_cost_bps should exclude the invalid fee component
         assert not math.isnan(result.total_cost_bps), "total_cost_bps must not be NaN"
@@ -3506,6 +3558,7 @@ class TestFeeCurrencyFailClosed:
         result = analyzer.analyze_execution(batch)
 
         assert math.isnan(result.fee_cost_bps), "fee_cost_bps must be NaN for non-USD fees"
+        assert result.total_fees is None, "total_fees must be None for non-USD fees"
         assert result.non_usd_fee_warning is True
         assert not math.isnan(result.total_cost_bps), "total_cost_bps must not be NaN"
 
@@ -3561,5 +3614,6 @@ class TestFeeCurrencyFailClosed:
         assert not math.isnan(result.fee_cost_bps), "fee_cost_bps should be valid for USD"
         expected_fee_bps = (0.50 / 100) / 100.0 * 10000  # 0.5 bps
         assert result.fee_cost_bps == pytest.approx(expected_fee_bps)
+        assert result.total_fees == pytest.approx(0.50), "total_fees should be valid for USD"
         assert result.mixed_currency_warning is False
         assert result.non_usd_fee_warning is False

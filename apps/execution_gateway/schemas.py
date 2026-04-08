@@ -1431,8 +1431,10 @@ class TCAAnalysisSummary(BaseModel):
 
     Breaking change (issue #158): ``avg_fee_cost_bps`` is now ``float | None``
     (was ``float``). Returns ``None`` when fee data is untrusted (mixed/non-USD
-    currencies) or no orders have trustworthy fee data. Internal consumers
-    (web console) have been updated. External consumers should handle ``null``.
+    currencies) or no orders have trustworthy fee data. ``total_fees`` on
+    ``TCAOrderDetail`` is also now ``float | None`` for the same reason.
+    Internal consumers (web console) have been updated. External consumers
+    should handle ``null``.
     """
 
     # Time range
@@ -1485,8 +1487,9 @@ class TCAAnalysisSummary(BaseModel):
 class TCAOrderDetail(BaseModel):
     """TCA metrics for a single order.
 
-    Breaking change (issue #158): ``fee_cost_bps`` is now ``float | None``
-    (was ``float``). Returns ``None`` when fee currency is mixed or non-USD.
+    Breaking change (issue #158): ``fee_cost_bps`` and ``total_fees`` are now
+    ``float | None`` (were ``float``). Return ``None`` when fee currency is
+    mixed or non-USD (summing fees across different currencies is invalid).
     """
 
     # Order identification
@@ -1522,7 +1525,7 @@ class TCAOrderDetail(BaseModel):
     execution_duration_seconds: float = Field(
         ..., description="Time from first to last fill", ge=0
     )
-    total_fees: float = Field(..., description="Total fees paid", ge=0)
+    total_fees: float | None = Field(..., description="Total fees paid (None if mixed/non-USD fee currencies)")
 
     # Data quality
     warnings: list[str] = Field(default_factory=list)

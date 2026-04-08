@@ -91,6 +91,16 @@ class Fill(BaseModel):
     fee_amount: float = Field(default=0.0, description="Total fee (positive) or rebate (negative)")
     fee_currency: str = Field(default="USD", description="Currency of fee")
 
+    @field_validator("fee_currency")
+    @classmethod
+    def normalize_fee_currency(cls, v: str) -> str:
+        """Normalize fee_currency to uppercase and strip whitespace.
+
+        Ensures case-insensitive comparison for fail-closed currency checks
+        (e.g., "usd" and " USD " both normalize to "USD").
+        """
+        return v.upper().strip()
+
     @field_validator("timestamp")
     @classmethod
     def validate_utc(cls, v: datetime) -> datetime:
@@ -405,7 +415,7 @@ class ExecutionAnalysisResult:
     unfilled_qty: int  # target - filled
     total_target_qty: int
     total_notional: float  # execution_price * total_filled_qty
-    total_fees: float
+    total_fees: float | None  # None when mixed/non-USD fee currencies
     close_price: float | None  # Close price for opportunity cost
     execution_duration_seconds: float
     num_fills: int
@@ -566,10 +576,10 @@ class ExecutionQualityAnalyzer:
             warnings.append(f"{count} fill(s) with mismatched side excluded from analysis")
 
         if mixed_currency_warning:
-            warnings.append("Mixed fee currencies detected - fee_cost_bps excluded (not trustworthy)")
+            warnings.append("Mixed fee currencies detected - fee_cost_bps and total_fees excluded (not trustworthy)")
 
         if non_usd_fee_warning:
-            warnings.append("Non-USD fee currency detected - fee_cost_bps excluded (not normalized)")
+            warnings.append("Non-USD fee currency detected - fee_cost_bps and total_fees excluded (not normalized)")
 
         # Execution metrics
         symbol = fill_batch.symbol
@@ -578,7 +588,14 @@ class ExecutionQualityAnalyzer:
         total_filled_qty = fill_batch.total_filled_qty
         unfilled_qty = fill_batch.unfilled_qty
         total_target_qty = fill_batch.total_target_qty
-        total_fees = fill_batch.total_fees
+        # Fail closed: total_fees is invalid when summing across different
+        # currencies (e.g., USD + EUR).  Set to None so consumers know the
+        # aggregate is not trustworthy.
+        total_fees: float | None
+        if mixed_currency_warning or non_usd_fee_warning:
+            total_fees = None
+        else:
+            total_fees = fill_batch.total_fees
 
         # Execution window
         first_fill_time = min(f.timestamp for f in valid_fills)
