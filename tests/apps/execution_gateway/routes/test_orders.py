@@ -27,7 +27,7 @@ from apps.execution_gateway.fat_finger_validator import (
 )
 from apps.execution_gateway.routes import orders
 from apps.execution_gateway.schemas import OrderDetail
-from libs.core.common.api_auth_dependency import AuthContext
+from libs.core.common.api_auth_dependency import AuthContext, InternalTokenClaims
 from libs.trading.risk_management import RiskConfig
 
 
@@ -56,6 +56,22 @@ def _mock_auth_context_with_strategies(strategies: list[str]) -> AuthContext:
         user={"role": "operator", "strategies": strategies, "user_id": "test-user"},
         internal_claims=None,
         auth_type="test",
+        is_authenticated=True,
+    )
+
+
+def _mock_internal_auth_context() -> AuthContext:
+    """Create an AuthContext simulating an S2S internal-token caller."""
+    return AuthContext(
+        user=None,
+        internal_claims=InternalTokenClaims(
+            service_id="orchestrator",
+            user_id=None,
+            strategy_id=None,
+            nonce="test-nonce",
+            timestamp=0,
+        ),
+        auth_type="internal_token",
         is_authenticated=True,
     )
 
@@ -386,6 +402,35 @@ class TestCancelAndGetOrder:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
+
+    def test_get_order_allowed_for_internal_token_caller(self) -> None:
+        """S2S internal-token callers bypass strategy-scope checks."""
+        order_detail = _make_order_detail("client-s2s", status="new")
+        order_detail.strategy_id = "any_strategy"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=_mock_internal_auth_context,
+        )
+
+        response = client.get("/api/v1/orders/client-s2s")
+
+        assert response.status_code == 200
+        assert response.json()["client_order_id"] == "client-s2s"
 
 
 class TestSafetyGates:

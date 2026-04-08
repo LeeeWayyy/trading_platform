@@ -209,7 +209,17 @@ def _ensure_order_strategy_access(
     *,
     detail: str = "Not authorized",
 ) -> None:
-    """Enforce fail-closed strategy-scope authorization for an order."""
+    """Enforce fail-closed strategy-scope authorization for an order.
+
+    Internal-token (S2S) callers bypass strategy-scope checks because they
+    are already authorized via the service-level permission allowlist in
+    ``api_auth``.  Only JWT-authenticated users are subject to per-strategy
+    scoping.
+    """
+    # S2S callers are pre-authorized by the permission allowlist — skip
+    # user-level strategy scoping which requires auth_context.user.
+    if auth_context.auth_type == "internal_token" and auth_context.internal_claims is not None:
+        return
 
     authorized_strategies = get_authorized_strategies(auth_context.user)
     if not authorized_strategies or order.strategy_id not in authorized_strategies:
@@ -2184,7 +2194,6 @@ async def cancel_order(
 
     Args:
         client_order_id: The client order ID to cancel
-        response: FastAPI response object
         _auth_context: Authentication context (injected)
         _rate_limit_remaining: Rate limit remaining (injected)
         ctx: Application context with all dependencies (injected)
