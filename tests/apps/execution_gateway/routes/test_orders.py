@@ -3522,7 +3522,7 @@ class TestOrderAuditTrailAuth:
 
         response = client.get("/api/v1/orders/client-audit-empty/audit")
         assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized to view this order's audit trail"
+        assert response.json()["detail"] == "No strategy access - cannot view audit trail"
 
 
 class TestOrderUtilityHelpers:
