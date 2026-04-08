@@ -17,6 +17,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from research.strategies._feature_constants import FEATURE_EPSILON
 from research.strategies.momentum.features import (
     compute_adx,
     compute_macd,
@@ -665,7 +666,7 @@ class TestEdgeCases:
 
         # Branch behavior: sub-epsilon should produce all-neutral (0.0); supra-epsilon
         # should produce at least one non-neutral value proving the guard was bypassed.
-        is_sub_epsilon = delta < 1e-12
+        is_sub_epsilon = delta < FEATURE_EPSILON
         if is_sub_epsilon:
             for name, vals in indicators.items():
                 assert (vals == 0.0).all(), (

@@ -263,19 +263,23 @@ def compute_rate_of_change(
     guard_hit_rows = near_zero_mask & df["price_n_ago"].is_not_null()
     guard_hits = int(guard_hit_rows.sum())
     if guard_hits > 0:
-        affected_symbols = (
+        _MAX_LOG_SYMBOLS = 10
+        all_affected = (
             df.filter(guard_hit_rows)["symbol"].unique().sort().to_list()
         )
+        display_symbols = all_affected[:_MAX_LOG_SYMBOLS]
+        suffix = f" (+{len(all_affected) - _MAX_LOG_SYMBOLS} more)" if len(all_affected) > _MAX_LOG_SYMBOLS else ""
         logger.warning(
             "ROC guard: %d rows had near-zero price_n_ago (abs < %e), "
-            "emitting null; symbols=%s",
+            "emitting null; symbols=%s%s",
             guard_hits,
             _EPSILON,
-            affected_symbols,
+            display_symbols,
+            suffix,
             extra={
                 "guard": "roc_near_zero",
                 "count": guard_hits,
-                "symbols": affected_symbols,
+                "symbols": all_affected,
             },
         )
 
