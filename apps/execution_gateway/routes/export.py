@@ -766,6 +766,12 @@ _GRID_COLUMNS: dict[str, list[str]] = {
 # Maximum rows per export to prevent excessive memory / query time
 _EXPORT_ROW_LIMIT = 10_000
 
+# Columns stored as JSONB in the database.  Text filters on these columns
+# must cast to ``::text`` to avoid PostgreSQL operator errors.
+_JSONB_COLUMNS: dict[str, set[str]] = {
+    "audit": {"details"},
+}
+
 
 # ---------------------------------------------------------------------------
 # Frontend → DB column alias mapping.
@@ -815,11 +821,19 @@ def _build_order_clause(
     """Build a safe ORDER BY clause from an AG Grid sort model.
 
     Only column names that appear in *allowed_columns* are accepted.
+    Items are ordered by ``sortIndex`` (if present) so that multi-column
+    sorts honour the precedence chosen by the user in the grid.
     """
     if not sort_model:
         return default_order
+    # Sort by sortIndex when present to preserve AG Grid precedence.
+    # Items without sortIndex retain their original list position.
+    ordered = sorted(
+        sort_model,
+        key=lambda item: (item.get("sortIndex") is None, item.get("sortIndex", 0)),
+    )
     parts: list[str] = []
-    for item in sort_model:
+    for item in ordered:
         col = item.get("colId", "")
         direction = "DESC" if item.get("sort") == "desc" else "ASC"
         if col in allowed_columns:
@@ -832,6 +846,7 @@ def _build_filter_clauses(
     allowed_columns: list[str],
     *,
     col_prefix: str = "",
+    jsonb_columns: set[str] | None = None,
 ) -> tuple[str, list[Any]]:
     """Translate an AG Grid filter model into SQL WHERE fragments.
 
@@ -841,6 +856,10 @@ def _build_filter_clauses(
 
     Only columns present in *allowed_columns* are accepted; unknown
     columns are silently ignored to prevent SQL injection.
+
+    JSONB columns listed in *jsonb_columns* are automatically cast to
+    ``::text`` before text-type filters to avoid PostgreSQL operator
+    errors (JSONB does not support ``ILIKE`` directly).
 
     Supported AG Grid filter types:
 
@@ -854,6 +873,7 @@ def _build_filter_clauses(
 
     fragments: list[str] = []
     params: list[Any] = []
+    _jsonb = jsonb_columns or set()
 
     for col, spec in filter_params.items():
         if col not in allowed_columns:
@@ -862,7 +882,9 @@ def _build_filter_clauses(
         filter_type = spec.get("filterType", spec.get("type", ""))
 
         if filter_type == "text":
-            _apply_text_filter(qualified, spec, fragments, params)
+            # Cast JSONB columns to text so ILIKE / = operators work.
+            text_col = f"{qualified}::text" if col in _jsonb else qualified
+            _apply_text_filter(text_col, spec, fragments, params)
         elif filter_type == "number":
             _apply_number_filter(qualified, spec, fragments, params)
         elif filter_type == "date":
@@ -1094,6 +1116,7 @@ def _fetch_audit_data(
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
         columns,
+        jsonb_columns=_JSONB_COLUMNS.get("audit"),
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:

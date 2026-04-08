@@ -70,6 +70,24 @@ class TestBuildOrderClause:
         result = _build_order_clause(model, ["symbol"], "symbol ASC")
         assert result == "symbol ASC"
 
+    def test_sort_index_determines_precedence(self) -> None:
+        """Multi-column sorts should honour sortIndex from AG Grid."""
+        model = [
+            {"colId": "qty", "sort": "asc", "sortIndex": 1},
+            {"colId": "symbol", "sort": "desc", "sortIndex": 0},
+        ]
+        result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
+        assert result == "symbol DESC, qty ASC"
+
+    def test_sort_index_missing_falls_back_to_list_order(self) -> None:
+        """Items without sortIndex retain their original list position."""
+        model = [
+            {"colId": "qty", "sort": "asc"},
+            {"colId": "symbol", "sort": "desc"},
+        ]
+        result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
+        assert result == "qty ASC, symbol DESC"
+
 
 class TestBuildFilterClauses:
     def test_none_filter_returns_empty(self) -> None:
@@ -111,6 +129,24 @@ class TestBuildFilterClauses:
         filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
         clause, params = _build_filter_clauses(filt, ["symbol"], col_prefix="t.")
         assert "t.symbol" in clause
+
+    def test_jsonb_column_cast_to_text(self) -> None:
+        """JSONB columns should be cast to ::text for text filters."""
+        filt = {"details": {"filterType": "text", "type": "contains", "filter": "login"}}
+        clause, params = _build_filter_clauses(
+            filt, ["details"], jsonb_columns={"details"}
+        )
+        assert "details::text ILIKE" in clause
+        assert "%login%" in params
+
+    def test_non_jsonb_column_not_cast(self) -> None:
+        """Non-JSONB columns should not be cast even when jsonb_columns is provided."""
+        filt = {"action": {"filterType": "text", "type": "contains", "filter": "login"}}
+        clause, params = _build_filter_clauses(
+            filt, ["action"], jsonb_columns={"details"}
+        )
+        assert "action ILIKE" in clause
+        assert "::text" not in clause
 
     def test_date_in_range_filter(self) -> None:
         filt = {
