@@ -426,6 +426,32 @@ class TestFetchTCABenchmarks:
 
         assert result is None
 
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_when_points_not_list(self) -> None:
+        """Non-list 'points' field returns None and logs warning."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "points": "not-a-list",
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
 
 class TestBenchmarkHelpers:
     """Tests for module-level benchmark transformation helpers."""
@@ -497,6 +523,11 @@ class TestBenchmarkHelpers:
     def test_is_valid_price_negative(self) -> None:
         """Negative price is not valid."""
         assert _is_valid_price(-10.0) is False
+
+    def test_is_valid_price_boolean(self) -> None:
+        """Booleans are not valid prices (float(True) == 1.0)."""
+        assert _is_valid_price(True) is False
+        assert _is_valid_price(False) is False
 
     def test_is_valid_price_nan(self) -> None:
         """NaN is not valid."""

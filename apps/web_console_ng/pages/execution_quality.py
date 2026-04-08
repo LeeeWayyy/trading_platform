@@ -52,6 +52,9 @@ DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
 # Backend default fill limit for TCA queries (database.py:get_trades_for_tca).
 # Used to detect potential data truncation in the benchmark chart.
+# Note: a "may be truncated" warning is shown when point count reaches this
+# limit. This can false-positive when there are exactly _BACKEND_FILL_LIMIT
+# fills, but under-warning is worse than over-warning for TCA accuracy.
 _BACKEND_FILL_LIMIT = 500
 
 
@@ -95,10 +98,13 @@ def _format_benchmark_timestamp(value: Any, *, include_date: bool = False) -> st
 def _is_valid_price(value: Any) -> bool:
     """Return True if *value* is a finite positive price.
 
-    Rejects zero, negative, NaN, infinity, and non-numeric values.
+    Rejects zero, negative, NaN, infinity, booleans, and non-numeric values.
     """
     import math
 
+    # Reject booleans explicitly since float(True) == 1.0
+    if isinstance(value, bool):
+        return False
     try:
         f = float(value)
         return f > 0.0 and math.isfinite(f)
@@ -198,7 +204,13 @@ async def _fetch_tca_benchmarks(
                     return None
                 result: dict[str, Any] = raw
                 points = result.get("points")
-                if not isinstance(points, list) or not points:
+                if not isinstance(points, list):
+                    logger.warning(
+                        "TCA benchmarks API returned non-list points",
+                        extra={**log_ctx, "points_type": type(points).__name__},
+                    )
+                    return None
+                if not points:
                     return None
                 # Discard entries that are not dicts to guard against
                 # schema drift from the upstream API.
