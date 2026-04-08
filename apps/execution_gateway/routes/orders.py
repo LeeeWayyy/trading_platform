@@ -211,14 +211,18 @@ def _ensure_order_strategy_access(
 ) -> None:
     """Enforce fail-closed strategy-scope authorization for an order.
 
-    Internal-token (S2S) callers bypass strategy-scope checks because they
-    are already authorized via the service-level permission allowlist in
-    ``api_auth``.  Only JWT-authenticated users are subject to per-strategy
-    scoping.
+    Internal-token (S2S) callers are pre-authorized via the service-level
+    permission allowlist in ``api_auth``.  When the internal token carries a
+    ``strategy_id`` claim the order's strategy must match; when the claim is
+    ``None`` the caller has global scope (e.g. orchestrator reading any order).
+    JWT-authenticated users are always subject to per-strategy scoping.
     """
-    # S2S callers are pre-authorized by the permission allowlist — skip
-    # user-level strategy scoping which requires auth_context.user.
+    # S2S callers: enforce strategy_id claim when present, allow global
+    # scope when the claim is absent.
     if auth_context.auth_type == "internal_token" and auth_context.internal_claims is not None:
+        claimed = auth_context.internal_claims.strategy_id
+        if claimed is not None and order.strategy_id != claimed:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
         return
 
     authorized_strategies = get_authorized_strategies(auth_context.user)

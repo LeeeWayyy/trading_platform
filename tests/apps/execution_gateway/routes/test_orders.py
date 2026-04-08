@@ -60,14 +60,14 @@ def _mock_auth_context_with_strategies(strategies: list[str]) -> AuthContext:
     )
 
 
-def _mock_internal_auth_context() -> AuthContext:
+def _mock_internal_auth_context(strategy_id: str | None = None) -> AuthContext:
     """Create an AuthContext simulating an S2S internal-token caller."""
     return AuthContext(
         user=None,
         internal_claims=InternalTokenClaims(
             service_id="orchestrator",
             user_id=None,
-            strategy_id=None,
+            strategy_id=strategy_id,
             nonce="test-nonce",
             timestamp=0,
         ),
@@ -431,6 +431,66 @@ class TestCancelAndGetOrder:
 
         assert response.status_code == 200
         assert response.json()["client_order_id"] == "client-s2s"
+
+    def test_get_order_denied_for_internal_token_with_wrong_strategy_claim(self) -> None:
+        """S2S callers with a strategy_id claim are scoped to that strategy."""
+        order_detail = _make_order_detail("client-s2s-scoped", status="new")
+        order_detail.strategy_id = "alpha_baseline"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_internal_auth_context(strategy_id="other_strategy"),
+        )
+
+        response = client.get("/api/v1/orders/client-s2s-scoped")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
+
+    def test_cancel_order_allowed_for_internal_token_caller(self) -> None:
+        """S2S internal-token callers can cancel orders (global scope)."""
+        order_detail = _make_order_detail("client-s2s-cancel", status="pending_new")
+        order_detail.strategy_id = "any_strategy"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+        updated_order = _make_order_detail("client-s2s-cancel", status="canceled")
+        db.update_order_status_cas.return_value = updated_order
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=_mock_internal_auth_context,
+        )
+
+        response = client.post("/api/v1/orders/client-s2s-cancel/cancel")
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "Order canceled"
 
 
 class TestSafetyGates:
