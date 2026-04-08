@@ -247,6 +247,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         # Header
         status_bar = StatusBar()
+        log_drawer = LogDrawer(notification_router)
+        log_drawer.create()
 
         with ui.header().classes(
             "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"
@@ -336,9 +338,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     )
                     .props("id=connection-badge")
                 )
-
-                log_drawer = LogDrawer(notification_router)
-                log_drawer.create()
 
                 with ui.row().classes("items-center gap-2"):
                     ui.label(user_name).classes("text-sm")

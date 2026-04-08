@@ -92,6 +92,28 @@ async def check_kill_switch_safety(
         )
 
 
+def _coerce_numeric(value: Any) -> float:
+    """Convert API payload values to float for safe summary calculations."""
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized:
+            return 0.0
+        try:
+            return float(normalized)
+        except ValueError:
+            return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @ui.page("/position-management")
 @requires_auth
 @main_layout
@@ -167,7 +189,7 @@ async def position_management_page(client: Client) -> None:
                 ],
                 "rowData": [],
                 "domLayout": "autoHeight",
-                "getRowId": "data => data.symbol",
+                ":getRowId": "params => params.data.symbol",
                 "rowSelection": "single",
             }
         ).classes("w-full mb-4")
@@ -192,9 +214,9 @@ async def position_management_page(client: Client) -> None:
 
     def update_summary() -> None:
         position_count_label.set_text(f"Positions: {len(positions_data)}")
-        total_value = sum(p.get("market_value", 0) or 0 for p in positions_data)
+        total_value = sum(_coerce_numeric(p.get("market_value")) for p in positions_data)
         total_value_label.set_text(f"Total Value: ${total_value:,.2f}")
-        unrealized = sum(p.get("unrealized_pl", 0) or 0 for p in positions_data)
+        unrealized = sum(_coerce_numeric(p.get("unrealized_pl")) for p in positions_data)
         color = "text-green-600" if unrealized >= 0 else "text-red-600"
         unrealized_pnl_label.classes(remove="text-green-600 text-red-600", add=color)
         unrealized_pnl_label.set_text(f"Unrealized P&L: ${unrealized:,.2f}")

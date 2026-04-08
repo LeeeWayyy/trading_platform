@@ -176,6 +176,30 @@ class TestAlertServiceInitialization:
             assert ChannelType.SMS not in handlers
             mock_logger.warning.assert_called_once()
 
+    def test_email_channel_disabled_when_dependency_missing(
+        self, alert_service: AlertConfigService
+    ) -> None:
+        """Test email channel is skipped if SMTP dependency is unavailable."""
+        with (
+            patch("libs.web_console_services.alert_service.EmailChannel", None),
+            patch(
+                "libs.web_console_services.alert_service._EMAIL_CHANNEL_IMPORT_ERROR",
+                "No module named 'aiosmtplib'",
+            ),
+            patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
+            patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
+            patch("libs.web_console_services.alert_service.logger") as mock_logger,
+        ):
+
+            handlers = alert_service._get_channel_handlers()
+
+            assert ChannelType.EMAIL not in handlers
+            assert ChannelType.SLACK in handlers
+            assert ChannelType.SMS in handlers
+            mock_slack.assert_called_once()
+            mock_sms.assert_called_once()
+            mock_logger.warning.assert_called_once()
+
 
 class TestGetRules:
     """Tests for get_rules method."""

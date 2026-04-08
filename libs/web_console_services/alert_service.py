@@ -13,13 +13,9 @@ from pydantic import BaseModel, ConfigDict
 
 from libs.core.common.db import acquire_connection
 from libs.core.common.exceptions import ConfigurationError
-from libs.platform.alerts.channels import (
-    BaseChannel,
-    EmailChannel,
-    PagerDutyChannel,
-    SlackChannel,
-    SMSChannel,
-)
+from libs.platform.alerts.channels.base import BaseChannel
+from libs.platform.alerts.channels.pagerduty import PagerDutyChannel
+from libs.platform.alerts.channels.slack import SlackChannel
 from libs.platform.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
 from libs.platform.alerts.pii import mask_for_logs
 from libs.platform.alerts.poison_queue import _sanitize_error_for_log
@@ -27,6 +23,25 @@ from libs.platform.web_console_auth.audit_log import AuditLogger
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
+
+try:
+    from libs.platform.alerts.channels.email import EmailChannel as _EmailChannel
+except ModuleNotFoundError as exc:
+    _EmailChannel = None
+    _EMAIL_CHANNEL_IMPORT_ERROR = str(exc)
+else:
+    _EMAIL_CHANNEL_IMPORT_ERROR = None
+
+try:
+    from libs.platform.alerts.channels.sms import SMSChannel as _SMSChannel
+except ModuleNotFoundError as exc:
+    _SMSChannel = None
+    _SMS_CHANNEL_IMPORT_ERROR = str(exc)
+else:
+    _SMS_CHANNEL_IMPORT_ERROR = None
+
+EmailChannel: type[BaseChannel] | None = _EmailChannel
+SMSChannel: type[BaseChannel] | None = _SMSChannel
 
 # Default limit for alert event queries
 DEFAULT_ALERT_EVENT_LIMIT = 20
@@ -82,20 +97,43 @@ class AlertConfigService:
         """
         if self._channel_handlers is None:
             self._channel_handlers = {
-                ChannelType.EMAIL: EmailChannel(),
                 ChannelType.SLACK: SlackChannel(),
             }
+            if EmailChannel is None:
+                logger.warning(
+                    "email_channel_disabled",
+                    extra={
+                        "reason": _EMAIL_CHANNEL_IMPORT_ERROR or "email dependencies unavailable",
+                        "hint": "Install aiosmtplib to enable SMTP email notifications",
+                    },
+                )
+            else:
+                self._channel_handlers[ChannelType.EMAIL] = EmailChannel()
+
             # SMS requires Twilio credentials - skip if not configured
-            try:
-                self._channel_handlers[ChannelType.SMS] = SMSChannel()
-            except ConfigurationError as exc:
+            if SMSChannel is None:
                 logger.warning(
                     "sms_channel_disabled",
                     extra={
-                        "reason": str(exc),
-                        "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                        "reason": _SMS_CHANNEL_IMPORT_ERROR or "sms dependencies unavailable",
+                        "hint": (
+                            "Install twilio and set TWILIO_ACCOUNT_SID, "
+                            "TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"
+                        ),
                     },
                 )
+            # PagerDuty uses routing key per-recipient, no global credentials needed
+            else:
+                try:
+                    self._channel_handlers[ChannelType.SMS] = SMSChannel()
+                except ConfigurationError as exc:
+                    logger.warning(
+                        "sms_channel_disabled",
+                        extra={
+                            "reason": str(exc),
+                            "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                        },
+                    )
             # PagerDuty uses routing key per-recipient, no global credentials needed
             self._channel_handlers[ChannelType.PAGERDUTY] = PagerDutyChannel()
         return self._channel_handlers
