@@ -571,7 +571,15 @@ class TestDefaultDateRange:
 
 
 class TestExecutionQualityPageIntegration:
-    """Integration tests for the execution quality page."""
+    """Integration tests for the execution quality page.
+
+    NOTE: Full render-path tests (benchmark chart shown/hidden/demo,
+    stale-load discard via ``_load_version``) require a running NiceGUI
+    server and are not feasible in unit-test scope.  The helpers that
+    drive those render branches (``_parse_utc``, ``_is_valid_price``,
+    ``_is_valid_timestamp``, ``_format_benchmark_timestamp``,
+    ``_fetch_tca_benchmarks``) are thoroughly covered above.
+    """
 
     @pytest.mark.asyncio()
     async def test_page_handles_no_data(self) -> None:

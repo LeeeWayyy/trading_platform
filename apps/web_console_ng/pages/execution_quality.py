@@ -617,6 +617,22 @@ async def _render_tca_dashboard(
                     if state["_load_version"] != current_version:
                         return
 
+                    # Verify the response matches the requested order to
+                    # guard against upstream cache/routing bugs.
+                    if benchmark_data:
+                        resp_order_id = str(
+                            benchmark_data.get("client_order_id", "")
+                        ).strip()
+                        if resp_order_id and resp_order_id != client_order_id:
+                            logger.warning(
+                                "TCA benchmarks response order mismatch",
+                                extra={
+                                    "requested": client_order_id,
+                                    "received": resp_order_id,
+                                },
+                            )
+                            benchmark_data = None
+
                     if benchmark_data:
                         raw_points = benchmark_data.get("points", [])
                         raw_summary = benchmark_data.get("summary")
@@ -646,12 +662,20 @@ async def _render_tca_dashboard(
                             last_dt = _parse_utc(valid_points[-1].get("timestamp", ""))
                             multi_day = first_dt.date() != last_dt.date()
 
-                            # Warn if data may be truncated (backend
-                            # default fill limit is 500).
-                            if len(raw_points) >= _BACKEND_FILL_LIMIT:
+                            # Warn if data may be truncated.  Prefer the
+                            # ``truncated`` flag from the API response when
+                            # available; fall back to heuristic comparison
+                            # against _BACKEND_FILL_LIMIT.
+                            # TODO: Add ``truncated`` field to
+                            # TCABenchmarkResponse so UI does not depend on
+                            # hardcoded backend limit.
+                            is_truncated = benchmark_data.get("truncated")
+                            if is_truncated is None:
+                                is_truncated = len(raw_points) >= _BACKEND_FILL_LIMIT
+                            if is_truncated:
                                 ui.label(
                                     "Note: benchmark data may be truncated "
-                                    f"(showing first {_BACKEND_FILL_LIMIT} fills)."
+                                    f"(showing first {len(raw_points)} fills)."
                                 ).classes("text-amber-500 text-xs mb-1")
 
                             create_benchmark_comparison_chart(
