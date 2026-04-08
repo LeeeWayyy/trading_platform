@@ -435,10 +435,13 @@ def _build_fill_batch(
                         fee_amount = float(fm.get("fee", 0) or 0)
                     except (ValueError, TypeError):
                         fee_amount = 0.0  # Default to 0 for non-numeric fee
-                    # Propagate fee_currency when stored in fill metadata
+                    # Propagate fee_currency when stored in fill metadata.
+                    # When metadata has a fee but no currency, keep "USD"
+                    # default (Alpaca only).  The Fill model validator will
+                    # normalize any case/whitespace variants (e.g. "usd").
                     stored_currency = fm.get("fee_currency")
                     if isinstance(stored_currency, str) and stored_currency.strip():
-                        fee_currency = stored_currency.strip().upper()
+                        fee_currency = stored_currency  # normalized by Fill validator
                     break
 
         fills.append(
