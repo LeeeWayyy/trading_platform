@@ -1031,7 +1031,13 @@ def _apply_date_filter(
         fragments.append(f"{col} < %s::timestamp")
         params.append(date_from)
     elif op == "inRange" and date_from and date_to:
-        fragments.append(f"{col} >= %s::timestamp AND {col} < %s::timestamp")
+        # AG Grid sends dateTo as the selected calendar day (midnight).
+        # Use ``dateTo::date + interval '1 day'`` so the entire end date
+        # is included and single-day ranges (same dateFrom/dateTo) return
+        # rows from that day.
+        fragments.append(
+            f"{col} >= %s::timestamp AND {col} < (%s::date + interval '1 day')"
+        )
         params.append(date_from)
         params.append(date_to)
 
@@ -1374,7 +1380,7 @@ async def _generate_excel_content(
         NotImplementedError: If grid type not supported or openpyxl missing
     """
     try:
-        from openpyxl import Workbook  # type: ignore[import-untyped]
+        from openpyxl import Workbook
     except ImportError as e:
         raise NotImplementedError("Excel export requires openpyxl: pip install openpyxl") from e
 

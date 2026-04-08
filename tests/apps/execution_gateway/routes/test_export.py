@@ -167,6 +167,26 @@ class TestBuildFilterClauses:
         clause, params = _build_filter_clauses(filt, ["executed_at"])
         assert "2026-01-01" in params
         assert "2026-02-01" in params
+        # End date uses ``::date + interval '1 day'`` to include the
+        # entire end date (AG Grid sends midnight of the selected day).
+        assert "+ interval '1 day'" in clause
+
+    def test_date_in_range_single_day(self) -> None:
+        """Single-day range (same dateFrom/dateTo) should return rows."""
+        filt = {
+            "executed_at": {
+                "filterType": "date",
+                "type": "inRange",
+                "dateFrom": "2026-01-01",
+                "dateTo": "2026-01-01",
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["executed_at"])
+        # Both dates should be present
+        assert params.count("2026-01-01") == 2
+        # The upper bound uses ``::date + interval '1 day'`` so a
+        # single-day range can actually match rows on that date.
+        assert "+ interval '1 day'" in clause
 
     def test_date_greater_than_uses_strict_gt(self) -> None:
         """greaterThan date filter should use strict '>' not '>='."""
