@@ -204,7 +204,7 @@ class AlpacaExecutor:
 
         Args:
             order: Order request
-            client_order_id: Deterministic client order ID
+            client_order_id: Client order ID (deterministic or caller-supplied)
 
         Returns:
             Order response from Alpaca (as dict)
@@ -313,7 +313,7 @@ class AlpacaExecutor:
 
         Args:
             order: Order request
-            client_order_id: Deterministic client order ID
+            client_order_id: Client order ID (deterministic or caller-supplied)
 
         Returns:
             Alpaca order request object (MarketOrderRequest, LimitOrderRequest, etc.)

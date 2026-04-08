@@ -1276,7 +1276,7 @@
               }
             ],
             "default": null,
-            "description": "Optional caller-supplied order ID. Supply a unique value to place a distinct repeat order with otherwise identical parameters on the same day. If omitted, a deterministic ID is generated from the order parameters and date.",
+            "description": "Optional caller-supplied order ID. Must be globally unique across all strategies. Supply a unique value to place a distinct repeat order with otherwise identical parameters on the same day. If omitted, a deterministic ID is generated from the order parameters and date.",
             "title": "Client Order Id"
           }
         },

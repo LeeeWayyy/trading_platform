@@ -128,10 +128,11 @@ class OrderRequest(BaseModel):
         min_length=1,
         max_length=48,
         description=(
-            "Optional caller-supplied order ID. Supply a unique value to place "
-            "a distinct repeat order with otherwise identical parameters on the "
-            "same day. If omitted, a deterministic ID is generated from the "
-            "order parameters and date."
+            "Optional caller-supplied order ID. Must be globally unique across "
+            "all strategies. Supply a unique value to place a distinct repeat "
+            "order with otherwise identical parameters on the same day. If "
+            "omitted, a deterministic ID is generated from the order "
+            "parameters and date."
         ),
     )
 
