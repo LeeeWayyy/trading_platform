@@ -35,7 +35,6 @@ from pydantic import BaseModel, Field
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.api.utils import get_client_ip, get_user_agent
 from apps.execution_gateway.app_context import AppContext
-from apps.execution_gateway.database import PENDING_STATUSES
 from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
@@ -771,6 +770,22 @@ _GRID_COLUMNS: dict[str, list[str]] = {
 # Maximum rows per export to prevent excessive memory / query time
 _EXPORT_ROW_LIMIT = 10_000
 
+# Statuses shown in the dashboard's Working-orders grid.  Must match
+# ``WORKING_ORDER_STATUSES`` in
+# ``apps.web_console_ng.components.tabbed_panel`` to ensure export
+# parity with the on-screen grid.  ``PENDING_STATUSES`` from the
+# database module is broader (includes ``submitted`` and
+# ``submitted_unconfirmed``) and would return rows not visible in
+# the grid.
+_WORKING_ORDER_STATUSES: tuple[str, ...] = (
+    "new",
+    "pending_new",
+    "partially_filled",
+    "accepted",
+    "pending_cancel",
+    "pending_replace",
+)
+
 # Columns stored as JSONB in the database.  Text filters on these columns
 # must cast to ``::text`` to avoid PostgreSQL operator errors.
 _JSONB_COLUMNS: dict[str, set[str]] = {
@@ -1098,10 +1113,10 @@ def _fetch_orders_data(
     """Fetch orders scoped to authorized strategies.
 
     Only working/pending orders are returned to match the dashboard's
-    Working-orders grid (which is populated from
-    ``/api/v1/orders/pending``).  The status filter uses the same
-    ``PENDING_STATUSES`` tuple defined in
-    ``apps.execution_gateway.database``.
+    Working-orders grid.  The status filter uses
+    ``_WORKING_ORDER_STATUSES`` which mirrors the client-side
+    ``WORKING_ORDER_STATUSES`` set from the web console, ensuring
+    export parity with what the user sees on screen.
     """
     filter_cols = filterable_columns or columns
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
@@ -1119,7 +1134,7 @@ def _fetch_orders_data(
                 f"{filter_clause} "
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, list(PENDING_STATUSES), *filter_params_list, _EXPORT_ROW_LIMIT),
+                (strategy_ids, list(_WORKING_ORDER_STATUSES), *filter_params_list, _EXPORT_ROW_LIMIT),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -1225,6 +1240,20 @@ def _fetch_tca_data(
     can compute their own analytics.  Frontend column aliases are
     resolved via ``_COLUMN_ALIASES["tca"]`` before reaching this
     fetcher, so mapped columns are included correctly.
+
+    .. note::
+
+       The Execution Quality page uses page-level date/strategy
+       selectors (``start_date``, ``end_date``, ``strategy_id``) that
+       are separate from the AG Grid filter model.  If the user
+       applies column-level date filters in the AG Grid they will be
+       carried through ``filter_params``, but the page-level selectors
+       require the frontend to inject them into the export payload.
+       When no matching AG Grid filters are present, the export
+       returns all strategy-scoped trades up to the row limit.  A
+       future enhancement should have the frontend toolbar merge
+       page-level constraints into ``filter_params`` before the
+       export request.
     """
     filter_cols = filterable_columns or columns
     # Map column names to their qualified table references
