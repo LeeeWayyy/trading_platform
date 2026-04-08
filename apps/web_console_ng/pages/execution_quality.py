@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
+# Backend default fill limit for TCA queries (database.py:get_trades_for_tca).
+# Used to detect potential data truncation in the benchmark chart.
+_BACKEND_FILL_LIMIT = 500
 
 
 _DATETIME_MIN_UTC = datetime.min.replace(tzinfo=UTC)
@@ -179,7 +182,7 @@ async def _fetch_tca_benchmarks(
         "strategy_id": strategy_id,
     }
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
                 f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
                 params={"client_order_id": client_order_id, "benchmark": benchmark},
@@ -373,6 +376,7 @@ async def _render_tca_dashboard(
         "strategy_id": None,
         "data": None,
         "demo_mode": False,
+        "_load_version": 0,
     }
 
     # Filters section
@@ -432,7 +436,14 @@ async def _render_tca_dashboard(
     orders_container = ui.column().classes("w-full")
 
     async def load_data() -> None:
-        """Load TCA data and update UI."""
+        """Load TCA data and update UI.
+
+        Uses a version counter to discard results from stale requests
+        when rapid filter changes overlap async fetches.
+        """
+        state["_load_version"] += 1
+        current_version = state["_load_version"]
+
         summary_container.clear()
         charts_container.clear()
         orders_container.clear()
@@ -476,6 +487,10 @@ async def _render_tca_dashboard(
         data = await _fetch_tca_data(
             start_dt, end_dt, symbol, strategy, user_id, role, authorized_strategies
         )
+
+        # Discard stale results if a newer load was triggered
+        if state["_load_version"] != current_version:
+            return
 
         # Check for demo mode: API failure OR API returned demo data
         summary = data.get("summary", {}) if data else {}
@@ -567,10 +582,13 @@ async def _render_tca_dashboard(
             # Benchmark comparison (real TCA benchmark data for first order)
             if orders:
                 with ui.card().classes("w-full p-4"):
-                    ui.label("Execution vs Benchmark").classes("text-lg font-bold mb-2")
-
                     first_order = orders[0]
                     client_order_id = str(first_order.get("client_order_id", "")).strip()
+                    order_symbol = str(first_order.get("symbol", ""))
+                    order_label = order_symbol or client_order_id or "first order"
+                    ui.label(
+                        f"Execution vs Benchmark ({order_label})"
+                    ).classes("text-lg font-bold mb-2")
 
                     benchmark_data = None
                     if not state["demo_mode"] and client_order_id:
@@ -582,6 +600,10 @@ async def _render_tca_dashboard(
                             symbol=str(first_order.get("symbol", "")),
                             strategy_id=str(first_order.get("strategy_id", "")),
                         )
+
+                    # Discard stale results if a newer load was triggered
+                    if state["_load_version"] != current_version:
+                        return
 
                     if benchmark_data:
                         raw_points = benchmark_data.get("points", [])
@@ -614,10 +636,10 @@ async def _render_tca_dashboard(
 
                             # Warn if data may be truncated (backend
                             # default fill limit is 500).
-                            if len(raw_points) >= 500:
+                            if len(raw_points) >= _BACKEND_FILL_LIMIT:
                                 ui.label(
                                     "Note: benchmark data may be truncated "
-                                    "(showing first 500 fills)."
+                                    f"(showing first {_BACKEND_FILL_LIMIT} fills)."
                                 ).classes("text-amber-500 text-xs mb-1")
 
                             create_benchmark_comparison_chart(
