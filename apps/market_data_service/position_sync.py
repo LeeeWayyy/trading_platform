@@ -7,6 +7,7 @@ Queries Execution Gateway every 5 minutes to sync subscriptions.
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -42,6 +43,7 @@ class PositionBasedSubscription:
         execution_gateway_url: str,
         sync_interval: int = 300,  # 5 minutes
         initial_sync: bool = True,
+        on_sync_result: Callable[[str], None] | None = None,
     ):
         """
         Initialize position-based subscription manager.
@@ -51,11 +53,13 @@ class PositionBasedSubscription:
             execution_gateway_url: Execution Gateway base URL
             sync_interval: Seconds between syncs (default: 300 = 5 minutes)
             initial_sync: Run initial sync on startup (default: True)
+            on_sync_result: Optional callback invoked with "success" or "error"
         """
         self.stream = stream
         self.gateway_url = execution_gateway_url.rstrip("/")
         self.sync_interval = sync_interval
         self.initial_sync = initial_sync
+        self._on_sync_result = on_sync_result
 
         self._running = False
         self._last_position_symbols: set[str] = set()
@@ -243,6 +247,8 @@ class PositionBasedSubscription:
 
             if position_symbols is None:
                 logger.warning("Failed to fetch positions, skipping sync")
+                if self._on_sync_result is not None:
+                    self._on_sync_result("error")
                 return
 
             # Determine what changed
@@ -291,6 +297,8 @@ class PositionBasedSubscription:
 
             # Update tracking
             self._last_position_symbols = position_symbols
+            if self._on_sync_result is not None:
+                self._on_sync_result("success")
 
         except SubscriptionError as e:
             logger.error(
@@ -298,12 +306,16 @@ class PositionBasedSubscription:
                 extra={"error": str(e), "error_type": type(e).__name__},
                 exc_info=True,
             )
+            if self._on_sync_result is not None:
+                self._on_sync_result("error")
         except httpx.HTTPStatusError as e:
             logger.error(
                 "Subscription sync failed - HTTP error",
                 extra={"status_code": e.response.status_code, "url": str(e.request.url)},
                 exc_info=True,
             )
+            if self._on_sync_result is not None:
+                self._on_sync_result("error")
         except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
             logger.error(
                 "Subscription sync failed - Network error",
@@ -314,12 +326,16 @@ class PositionBasedSubscription:
                 },
                 exc_info=True,
             )
+            if self._on_sync_result is not None:
+                self._on_sync_result("error")
         except Exception as e:
             logger.error(
                 "Subscription sync failed - Unexpected error",
                 extra={"error": str(e), "error_type": type(e).__name__},
                 exc_info=True,
             )
+            if self._on_sync_result is not None:
+                self._on_sync_result("error")
 
     async def _fetch_position_symbols(self) -> set[str] | None:
         """

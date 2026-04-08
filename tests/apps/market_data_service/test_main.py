@@ -20,6 +20,7 @@ import httpx
 import pytest
 import redis.exceptions
 from fastapi.testclient import TestClient
+from prometheus_client.parser import text_string_to_metric_families
 
 from libs.data.market_data import SubscriptionError
 
@@ -564,6 +565,20 @@ class TestLifespanStartup:
                     pass
 
 
+def _find_metric_sample_value(
+    metrics_text: str, metric_name: str, labels: dict[str, str] | None = None
+):
+    """Return the value for a Prometheus sample matching metric name and labels."""
+    for family in text_string_to_metric_families(metrics_text):
+        for sample in family.samples:
+            if sample.name != metric_name:
+                continue
+            if labels is not None and sample.labels != labels:
+                continue
+            return sample.value
+    raise AssertionError(f"Metric sample not found: {metric_name} labels={labels}")
+
+
 class TestMetricsEndpoint:
     """Tests for Prometheus metrics endpoint."""
 
@@ -596,6 +611,160 @@ class TestMetricsEndpoint:
 
         # Check for shared latency metric (no service prefix)
         assert "market_data_processing_duration_seconds" in content
+
+
+class TestMetricCallbacks:
+    """Tests for metric callback wiring and counter increments."""
+
+    @pytest.mark.asyncio()
+    async def test_lifespan_websocket_metric_callbacks_increment_counters(self, monkeypatch):
+        """Test lifespan wires callbacks that increment websocket counters."""
+        monkeypatch.setenv("ALPACA_API_KEY", "test_key")
+        monkeypatch.setenv("ALPACA_SECRET_KEY", "test_secret")
+        monkeypatch.setenv("REDIS_HOST", "localhost")
+        monkeypatch.setenv("REDIS_PORT", "6379")
+        monkeypatch.setenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+
+        mock_redis_client = Mock()
+        mock_event_publisher = Mock()
+        mock_stream = Mock()
+        mock_stream.start = AsyncMock()
+        mock_stream.stop = AsyncMock()
+        mock_subscription_manager = Mock()
+        mock_subscription_manager.shutdown = AsyncMock()
+        mock_sync_task = Mock()
+
+        with (
+            patch("apps.market_data_service.main.RedisClient", return_value=mock_redis_client),
+            patch(
+                "apps.market_data_service.main.EventPublisher", return_value=mock_event_publisher
+            ),
+            patch(
+                "apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream
+            ) as stream_cls,
+            patch(
+                "apps.market_data_service.main.PositionBasedSubscription",
+                return_value=mock_subscription_manager,
+            ),
+            patch("apps.market_data_service.main.asyncio.create_task", return_value=mock_sync_task),
+        ):
+            from apps.market_data_service.main import app, lifespan
+
+            async with lifespan(app):
+                pass
+
+            on_message = stream_cls.call_args.kwargs["on_message"]
+            on_reconnect_attempt = stream_cls.call_args.kwargs["on_reconnect_attempt"]
+
+            test_client = TestClient(app, raise_server_exceptions=False)
+            before_response = test_client.get("/metrics")
+            before_messages = (
+                _find_metric_sample_value(
+                    before_response.text,
+                    "market_data_websocket_messages_received_total",
+                    {"message_type": "quote"},
+                )
+                if 'market_data_websocket_messages_received_total{message_type="quote"}'
+                in before_response.text
+                else 0.0
+            )
+            before_reconnects = _find_metric_sample_value(
+                before_response.text,
+                "market_data_reconnect_attempts_total",
+            )
+
+            on_message("quote")
+            on_reconnect_attempt()
+
+            after_response = test_client.get("/metrics")
+            after_messages = _find_metric_sample_value(
+                after_response.text,
+                "market_data_websocket_messages_received_total",
+                {"message_type": "quote"},
+            )
+            after_reconnects = _find_metric_sample_value(
+                after_response.text,
+                "market_data_reconnect_attempts_total",
+            )
+
+            assert after_messages == before_messages + 1
+            assert after_reconnects == before_reconnects + 1
+
+    @pytest.mark.asyncio()
+    async def test_lifespan_position_sync_metric_callback_increments_counter(self, monkeypatch):
+        """Test lifespan wires callback that increments sync counters."""
+        monkeypatch.setenv("ALPACA_API_KEY", "test_key")
+        monkeypatch.setenv("ALPACA_SECRET_KEY", "test_secret")
+        monkeypatch.setenv("REDIS_HOST", "localhost")
+        monkeypatch.setenv("REDIS_PORT", "6379")
+        monkeypatch.setenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+
+        mock_redis_client = Mock()
+        mock_event_publisher = Mock()
+        mock_stream = Mock()
+        mock_stream.start = AsyncMock()
+        mock_stream.stop = AsyncMock()
+        mock_subscription_manager = Mock()
+        mock_subscription_manager.shutdown = AsyncMock()
+        mock_sync_task = Mock()
+
+        with (
+            patch("apps.market_data_service.main.RedisClient", return_value=mock_redis_client),
+            patch(
+                "apps.market_data_service.main.EventPublisher", return_value=mock_event_publisher
+            ),
+            patch("apps.market_data_service.main.AlpacaMarketDataStream", return_value=mock_stream),
+            patch(
+                "apps.market_data_service.main.PositionBasedSubscription",
+                return_value=mock_subscription_manager,
+            ) as position_sync_cls,
+            patch("apps.market_data_service.main.asyncio.create_task", return_value=mock_sync_task),
+        ):
+            from apps.market_data_service.main import app, lifespan
+
+            async with lifespan(app):
+                pass
+
+            on_sync_result = position_sync_cls.call_args.kwargs["on_sync_result"]
+
+            test_client = TestClient(app, raise_server_exceptions=False)
+            before_response = test_client.get("/metrics")
+            before_success = (
+                _find_metric_sample_value(
+                    before_response.text,
+                    "market_data_position_syncs_total",
+                    {"status": "success"},
+                )
+                if 'market_data_position_syncs_total{status="success"}' in before_response.text
+                else 0.0
+            )
+            before_error = (
+                _find_metric_sample_value(
+                    before_response.text,
+                    "market_data_position_syncs_total",
+                    {"status": "error"},
+                )
+                if 'market_data_position_syncs_total{status="error"}' in before_response.text
+                else 0.0
+            )
+
+            on_sync_result("success")
+            on_sync_result("error")
+
+            after_response = test_client.get("/metrics")
+            after_success = _find_metric_sample_value(
+                after_response.text,
+                "market_data_position_syncs_total",
+                {"status": "success"},
+            )
+            after_error = _find_metric_sample_value(
+                after_response.text,
+                "market_data_position_syncs_total",
+                {"status": "error"},
+            )
+
+            assert after_success == before_success + 1
+            assert after_error == before_error + 1
 
 
 class TestSubscribeEndpointEdgeCases:

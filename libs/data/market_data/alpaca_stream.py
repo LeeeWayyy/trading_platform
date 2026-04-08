@@ -6,7 +6,7 @@ WebSocket client for real-time market data from Alpaca.
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -49,6 +49,8 @@ class AlpacaMarketDataStream:
         redis_client: RedisClient,
         event_publisher: EventPublisher,
         price_ttl: int = 300,  # 5 minutes
+        on_message: Callable[[str], None] | None = None,
+        on_reconnect_attempt: Callable[[], None] | None = None,
     ):
         """
         Initialize Alpaca market data stream.
@@ -59,12 +61,16 @@ class AlpacaMarketDataStream:
             redis_client: Redis client for price caching
             event_publisher: Event publisher for price updates
             price_ttl: TTL for price cache in seconds (default: 5 minutes)
+            on_message: Optional callback invoked when a WebSocket message is processed
+            on_reconnect_attempt: Optional callback invoked after each reconnect attempt
         """
         self.api_key = api_key
         self.secret_key = secret_key
         self.redis = redis_client
         self.publisher = event_publisher
         self.price_ttl = price_ttl
+        self._on_message = on_message
+        self._on_reconnect_attempt = on_reconnect_attempt
 
         # Initialize Alpaca WebSocket client
         self.stream = StockDataStream(api_key, secret_key)
@@ -314,6 +320,9 @@ class AlpacaMarketDataStream:
 
             self.publisher.publish(channel, event)
 
+            if self._on_message is not None:
+                self._on_message("quote")
+
             logger.debug(
                 f"Price update: {quote_data.symbol} = ${quote_data.mid_price:.2f} "
                 f"(spread: {quote_data.spread_bps:.1f} bps)"
@@ -375,6 +384,8 @@ class AlpacaMarketDataStream:
             except Exception as e:
                 self._connected = False
                 self._reconnect_attempts += 1
+                if self._on_reconnect_attempt is not None:
+                    self._on_reconnect_attempt()
 
                 if self._reconnect_attempts >= self._max_reconnect_attempts:
                     logger.error("Max reconnection attempts reached. Giving up.")
