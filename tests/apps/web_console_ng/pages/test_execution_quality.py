@@ -294,6 +294,48 @@ class TestFetchTCABenchmarks:
 
         assert result is None
 
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_on_request_error(self) -> None:
+        """Network-level error returns None (httpx.RequestError)."""
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = httpx.ConnectError("connection refused")
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_on_malformed_json(self) -> None:
+        """Malformed JSON body on 200 returns None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("invalid json")
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
 
 class TestDefaultDateRange:
     """Tests for default date range constant."""

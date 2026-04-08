@@ -141,6 +141,11 @@ async def _fetch_tca_benchmarks(
             "TCA benchmarks API unavailable",
             extra={"error": str(e), "client_order_id": client_order_id},
         )
+    except (ValueError, KeyError, TypeError) as e:
+        logger.warning(
+            "TCA benchmarks API returned malformed response",
+            extra={"error": str(e), "client_order_id": client_order_id},
+        )
     return None
 
 
@@ -519,10 +524,16 @@ async def _render_tca_dashboard(
                             except ValueError:
                                 return text
 
+                        def _safe_float(value: Any, default: float = 0.0) -> float:
+                            try:
+                                return float(value)
+                            except (TypeError, ValueError):
+                                return default
+
                         create_benchmark_comparison_chart(
                             timestamps=[_format_timestamp(p.get("timestamp", "")) for p in points],
-                            execution_prices=[float(p.get("execution_price", 0.0)) for p in points],
-                            benchmark_prices=[float(p.get("benchmark_price", 0.0)) for p in points],
+                            execution_prices=[_safe_float(p.get("execution_price", 0.0)) for p in points],
+                            benchmark_prices=[_safe_float(p.get("benchmark_price", 0.0)) for p in points],
                             benchmark_type=benchmark_type,
                             symbol=str(
                                 benchmark_data.get("symbol")
