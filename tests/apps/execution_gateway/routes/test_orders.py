@@ -387,6 +387,33 @@ class TestCancelAndGetOrder:
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
 
+    def test_get_order_forbidden_when_empty_strategies(self) -> None:
+        """Fail-closed: empty strategy list denies access."""
+        order_detail = _make_order_detail("client-empty-strat", status="new")
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_auth_context_with_strategies([]),
+        )
+
+        response = client.get("/api/v1/orders/client-empty-strat")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
 
 
 class TestSafetyGates:
@@ -1046,6 +1073,36 @@ class TestCancelOrder:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
+        db.update_order_status_cas.assert_not_called()
+
+    def test_cancel_order_forbidden_when_empty_strategies(self) -> None:
+        """Fail-closed: empty strategy list denies cancel access."""
+        order_detail = _make_order_detail("client-cancel-empty", status="pending_new")
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_auth_context_with_strategies([]),
+        )
+
+        response = client.post("/api/v1/orders/client-cancel-empty/cancel")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
+        db.update_order_status_cas.assert_not_called()
 
     def test_cancel_order_live_mode_success(self) -> None:
         """Test canceling order in live mode calls Alpaca."""

@@ -212,9 +212,10 @@ def _ensure_order_strategy_access(
     """Enforce fail-closed strategy-scope authorization for an order.
 
     Checks that the authenticated user's strategy list includes the order's
-    ``strategy_id``.  Returns ``[]`` (deny) for ``user=None``, which means
-    S2S internal-token callers are blocked — consistent with the existing
-    auth behavior on modify/history/audit endpoints.
+    ``strategy_id``.  Denies access when the strategy list is empty (e.g.
+    ``user=None`` for S2S internal-token callers).  Used consistently by
+    all order-level endpoints: get, cancel, modify, modification history,
+    and audit trail.
     """
     authorized_strategies = get_authorized_strategies(auth_context.user)
     if not authorized_strategies or order.strategy_id not in authorized_strategies:
