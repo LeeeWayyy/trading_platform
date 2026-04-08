@@ -148,6 +148,13 @@ class TestBuildFilterClauses:
         assert "action ILIKE" in clause
         assert "::text" not in clause
 
+    def test_malformed_filter_spec_ignored(self) -> None:
+        """Non-dict filter specs should be silently skipped, not raise."""
+        filt: dict[str, Any] = {"symbol": "AAPL"}  # bare string, not a dict spec
+        clause, params = _build_filter_clauses(filt, ["symbol"])
+        assert clause == ""
+        assert params == []
+
     def test_date_in_range_filter(self) -> None:
         filt = {
             "executed_at": {
@@ -547,3 +554,50 @@ class TestGenerateExcelContent:
         )
 
         assert row_count == 3
+
+    async def test_fills_status_column_synthesized(self) -> None:
+        """Fills export should synthesize 'status' as 'filled' since all trades are fills."""
+        rows = [
+            (
+                "fill-1",
+                "ord-1",
+                "alpha",
+                "AAPL",
+                "buy",
+                Decimal("10"),
+                Decimal("150.25"),
+                datetime(2026, 1, 1, tzinfo=UTC),
+                "filled",
+            ),
+        ]
+        col_names = [
+            "trade_id",
+            "client_order_id",
+            "strategy_id",
+            "symbol",
+            "side",
+            "qty",
+            "price",
+            "executed_at",
+            "status",
+        ]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="fills",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=["symbol", "status", "qty"],
+            sort_model=None,
+        )
+
+        assert row_count == 1
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        # 'status' column should be present in the header
+        assert ws.cell(1, 2).value == "status"
+        # Value should be the synthesized 'filled'
+        assert ws.cell(2, 2).value == "filled"

@@ -729,6 +729,11 @@ _GRID_COLUMNS: dict[str, list[str]] = {
         "qty",
         "price",
         "executed_at",
+        # ``status`` is synthesized as a literal 'filled' in the query
+        # because all records in the trades table are completed fills.
+        # The dashboard grid exposes this as a column, so we include it
+        # in the allowlist to avoid silently dropping user-selected columns.
+        "status",
     ],
     "audit": [
         "id",
@@ -877,6 +882,10 @@ def _build_filter_clauses(
 
     for col, spec in filter_params.items():
         if col not in allowed_columns:
+            continue
+        # Guard against malformed filter entries (e.g. bare strings
+        # instead of dict specs) to avoid AttributeError on .get().
+        if not isinstance(spec, dict):
             continue
         qualified = f"{col_prefix}{col}" if col_prefix else col
         filter_type = spec.get("filterType", spec.get("type", ""))
@@ -1071,12 +1080,24 @@ def _fetch_fills_data(
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch fills (trades) scoped to authorized strategies."""
+    """Fetch fills (trades) scoped to authorized strategies.
+
+    The ``status`` column is synthesized as the literal ``'filled'``
+    because every record in the trades table represents a completed fill.
+    """
     order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
-    col_list = ", ".join(f"t.{c}" for c in columns)
+    # Synthesize 'status' as a literal since it doesn't exist in the
+    # trades table -- all trade records are completed fills.
+    col_list = ", ".join(
+        "'filled' AS status" if c == "status" else f"t.{c}"
+        for c in columns
+    )
+    # Exclude the synthetic 'status' column from filter processing
+    # since it has no DB backing and cannot be filtered.
+    db_columns = [c for c in columns if c != "status"]
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
-        columns,
+        db_columns,
         col_prefix="t.",
     )
     with ctx.db.transaction() as conn:
