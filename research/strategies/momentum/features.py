@@ -25,6 +25,11 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
+# Epsilon for near-zero denominator guards.  Values below this threshold are
+# treated as zero to avoid numerically unstable divisions that could produce
+# extreme outliers on near-flat price windows.
+_EPSILON = 1e-12
+
 
 def compute_moving_averages(
     prices: pl.DataFrame,
@@ -310,8 +315,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
         - ADX < 20: Weak trend (avoid trend-following)
         - ADX direction: Rising ADX = strengthening trend
         - +DI/-DI crossover: Potential trend reversal
-        - Flat-price windows: When ATR=0 (no price range), +DI and -DI=0.
-          When +DI + -DI = 0, DX=0. ADX then smooths to 0.
+        - Flat/near-flat windows: When ATR~0 (negligible price range), +DI
+          and -DI=0. When +DI + -DI ~ 0, DX=0. ADX then smooths to 0.
 
     See Also:
         - https://www.investopedia.com/terms/a/adx.asp
@@ -370,16 +375,15 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     )
 
     # Calculate +DI and -DI
-    # Guard: when atr is 0 (flat window, no range), emit 0.0 for DI values.
-    # Exact == 0 is correct: ATR is EWM of true-range, which is exactly zero only
-    # when high==low==close for every bar in the smoothing window.
+    # Guard: when atr is near zero (flat or near-flat window, negligible range),
+    # the division would be unstable → emit 0.0 for DI values.
     df = df.with_columns(
         [
-            pl.when(pl.col("atr") == 0)
+            pl.when(pl.col("atr") < _EPSILON)
             .then(0.0)
             .otherwise((pl.col("plus_dm_smooth") / pl.col("atr")) * 100.0)
             .alias("plus_di"),
-            pl.when(pl.col("atr") == 0)
+            pl.when(pl.col("atr") < _EPSILON)
             .then(0.0)
             .otherwise((pl.col("minus_dm_smooth") / pl.col("atr")) * 100.0)
             .alias("minus_di"),
@@ -387,10 +391,10 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     )
 
     # Calculate DX
-    # Guard: when plus_di + minus_di is 0 (flat window), emit 0.0.
-    # Exact == 0 is correct: DI values are zero only via the ATR guard above.
+    # Guard: when plus_di + minus_di is near zero (flat or near-flat window),
+    # the division would be unstable → emit 0.0.
     df = df.with_columns(
-        pl.when((pl.col("plus_di") + pl.col("minus_di")) == 0)
+        pl.when((pl.col("plus_di") + pl.col("minus_di")) < _EPSILON)
         .then(0.0)
         .otherwise(
             (pl.col("plus_di") - pl.col("minus_di")).abs()

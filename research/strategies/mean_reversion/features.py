@@ -24,6 +24,11 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
+# Epsilon for near-zero denominator guards.  Values below this threshold are
+# treated as zero to avoid numerically unstable divisions that could produce
+# extreme outliers on near-flat price windows.
+_EPSILON = 1e-12
+
 
 def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -> pl.DataFrame:
     """
@@ -61,8 +66,8 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
         - RSI < 30: Oversold (potential buy signal)
         - First `period` rows will have null RSI values
         - Uses Exponential Moving Average (EMA) for smoothing gains and losses
-        - Flat-price windows: When avg_loss=0 and avg_gain>0, RSI=100.
-          When both are zero (no price movement), RSI=50 (neutral).
+        - Flat/near-flat windows: When avg_loss~0 and avg_gain>0, RSI~100.
+          When both are near zero (no significant movement), RSI=50 (neutral).
 
     See Also:
         - https://www.investopedia.com/terms/r/rsi.asp
@@ -107,12 +112,11 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
 
     # Calculate RSI using simplified formula: RSI = 100 * avg_gain / (avg_gain + avg_loss).
     # This avoids the intermediate RS division and naturally handles avg_loss=0 (RSI=100).
-    # Guard: when both avg_gain and avg_loss are exactly zero (flat-price window with no
-    # movement at all), the sum is zero and would produce NaN → emit 50.0 (neutral).
-    # Exact == 0 is correct here: these values come from EWM of non-negative series,
-    # so they are exactly zero only when all gains/losses in the window are zero.
+    # Guard: when the denominator (avg_gain + avg_loss) is near zero (flat or near-flat
+    # price window), the division would produce NaN or an extreme outlier → emit 50.0
+    # (neutral).  Uses _EPSILON threshold for numerical stability.
     df = df.with_columns(
-        pl.when((pl.col("avg_gain") + pl.col("avg_loss")) == 0)
+        pl.when((pl.col("avg_gain") + pl.col("avg_loss")) < _EPSILON)
         .then(50.0)
         .otherwise(100.0 * pl.col("avg_gain") / (pl.col("avg_gain") + pl.col("avg_loss")))
         .alias("rsi")
@@ -171,10 +175,10 @@ def compute_bollinger_bands(
         - Price touching lower band: Potential buy signal
         - Bollinger Squeeze (narrow bands): Volatility breakout may be imminent
         - First `period` rows will have null values
-        - Flat-price windows: When bb_upper == bb_lower (zero std), bb_pct=0.5
-          (neutral, price at mid-band). bb_width uses a simple difference
-          (upper - lower) rather than normalized bandwidth for consistency
-          with the mean-reversion signal thresholds.
+        - Flat/near-flat windows: When bb_upper ~= bb_lower (near-zero std),
+          bb_pct=0.5 (neutral, price at mid-band). bb_width uses a simple
+          difference (upper - lower) rather than normalized bandwidth for
+          consistency with the mean-reversion signal thresholds.
 
     See Also:
         - https://www.investopedia.com/terms/b/bollingerbands.asp
@@ -206,11 +210,10 @@ def compute_bollinger_bands(
     # %B > 1: Price above upper band
     # %B < 0: Price below lower band
     # %B = 0.5: Price at middle band
-    # Guard: when bb_upper == bb_lower (zero std on flat windows), emit 0.5 (neutral).
-    # Exact == is correct: bands differ only when rolling_std > 0, which is exactly
-    # zero only when all values in the window are identical.
+    # Guard: when bb_upper and bb_lower are within _EPSILON (near-zero std on flat or
+    # near-flat windows), the division would be unstable → emit 0.5 (neutral).
     df = df.with_columns(
-        pl.when(pl.col("bb_upper") == pl.col("bb_lower"))
+        pl.when((pl.col("bb_upper") - pl.col("bb_lower")).abs() < _EPSILON)
         .then(0.5)
         .otherwise(
             (pl.col(column) - pl.col("bb_lower")) / (pl.col("bb_upper") - pl.col("bb_lower"))
@@ -270,7 +273,7 @@ def compute_stochastic_oscillator(
         - < 20: Oversold (potential buy signal)
         - %K crossing above %D: Bullish crossover
         - %K crossing below %D: Bearish crossover
-        - Flat-price windows: When period_high == period_low, %K=50 (neutral).
+        - Flat/near-flat windows: When period_high ~= period_low, %K=50 (neutral).
 
     See Also:
         - https://www.investopedia.com/terms/s/stochasticoscillator.asp
@@ -285,11 +288,10 @@ def compute_stochastic_oscillator(
     )
 
     # Calculate %K (fast stochastic)
-    # Guard: when period_high == period_low (flat window), emit 50.0 (neutral).
-    # Exact == is correct: rolling max/min differ only when at least one value
-    # in the window differs, so equality means truly constant prices.
+    # Guard: when period_high and period_low are within _EPSILON (flat or near-flat
+    # window), the division would be unstable → emit 50.0 (neutral).
     df = df.with_columns(
-        pl.when(pl.col("period_high") == pl.col("period_low"))
+        pl.when((pl.col("period_high") - pl.col("period_low")).abs() < _EPSILON)
         .then(50.0)
         .otherwise(
             100.0
@@ -346,7 +348,7 @@ def compute_price_zscore(
         - Z-score < -2: Price is 2 std devs below mean (oversold)
         - Z-score near 0: Price close to mean (no clear signal)
         - First `period` rows will have null values
-        - Flat-price windows: When rolling_std=0, z-score=0 (price equals mean).
+        - Flat/near-flat windows: When rolling_std~0, z-score=0 (price at mean).
 
     See Also:
         - https://www.investopedia.com/terms/z/zscore.asp
@@ -361,11 +363,10 @@ def compute_price_zscore(
     )
 
     # Calculate Z-score
-    # Guard: when rolling_std is 0 (flat window), price equals mean → z-score = 0.
-    # Exact == 0 is correct: rolling_std is zero only when all values in the
-    # window are identical (sample variance = 0).
+    # Guard: when rolling_std is near zero (flat or near-flat window), the division
+    # would produce extreme outliers → emit 0.0 (price at mean).
     df = df.with_columns(
-        pl.when(pl.col("rolling_std") == 0)
+        pl.when(pl.col("rolling_std") < _EPSILON)
         .then(0.0)
         .otherwise((pl.col(column) - pl.col("rolling_mean")) / pl.col("rolling_std"))
         .alias("price_zscore")
