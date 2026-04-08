@@ -181,6 +181,52 @@ class TestBuildFilterClauses:
         assert "> %s" in clause
         assert ">=" not in clause
 
+    def test_compound_and_filter(self) -> None:
+        """AG Grid compound AND filter with conditions array."""
+        filt: dict[str, Any] = {
+            "symbol": {
+                "filterType": "text",
+                "operator": "AND",
+                "conditions": [
+                    {"type": "contains", "filter": "A"},
+                    {"type": "startsWith", "filter": "AA"},
+                ],
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["symbol"])
+        assert "AND" in clause
+        assert "%A%" in params
+        assert "AA%" in params
+
+    def test_compound_or_filter(self) -> None:
+        """AG Grid compound OR filter with conditions array."""
+        filt: dict[str, Any] = {
+            "symbol": {
+                "filterType": "text",
+                "operator": "OR",
+                "conditions": [
+                    {"type": "equals", "filter": "AAPL"},
+                    {"type": "equals", "filter": "MSFT"},
+                ],
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["symbol"])
+        assert "OR" in clause
+        assert "AAPL" in params
+        assert "MSFT" in params
+
+    def test_filter_on_hidden_column_applied(self) -> None:
+        """Filters on columns not in the projected set should still apply."""
+        filt: dict[str, Any] = {
+            "status": {"filterType": "text", "type": "equals", "filter": "new"}
+        }
+        # 'status' is not in projected columns, but is in filterable_columns
+        clause, params = _build_filter_clauses(
+            filt, ["symbol", "qty", "status"]
+        )
+        assert "status" in clause
+        assert "new" in params
+
 
 # ---------------------------------------------------------------------------
 # Integration tests for _generate_excel_content

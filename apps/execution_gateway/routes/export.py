@@ -888,24 +888,65 @@ def _build_filter_clauses(
         if not isinstance(spec, dict):
             continue
         qualified = f"{col_prefix}{col}" if col_prefix else col
-        filter_type = spec.get("filterType", spec.get("type", ""))
 
-        if filter_type == "text":
-            # Cast JSONB columns to text so ILIKE / = operators work.
-            text_col = f"{qualified}::text" if col in _jsonb else qualified
-            _apply_text_filter(text_col, spec, fragments, params)
-        elif filter_type == "number":
-            _apply_number_filter(qualified, spec, fragments, params)
-        elif filter_type == "date":
-            _apply_date_filter(qualified, spec, fragments, params)
-        elif filter_type == "set":
-            values = spec.get("values")
-            if isinstance(values, list) and values:
-                fragments.append(f"{qualified} = ANY(%s)")
-                params.append(values)
+        # AG Grid compound filters use a ``conditions`` array with an
+        # ``operator`` (AND/OR).  Flatten them into individual clauses.
+        conditions = spec.get("conditions")
+        if isinstance(conditions, list) and conditions:
+            operator = spec.get("operator", "AND").upper()
+            sql_op = "OR" if operator == "OR" else "AND"
+            sub_fragments: list[str] = []
+            sub_params: list[Any] = []
+            parent_type = spec.get("filterType", "")
+            for cond in conditions:
+                if not isinstance(cond, dict):
+                    continue
+                _apply_single_filter(
+                    col, cond, qualified, _jsonb, sub_fragments, sub_params,
+                    parent_filter_type=parent_type,
+                )
+            if sub_fragments:
+                combined = f" {sql_op} ".join(sub_fragments)
+                fragments.append(f"({combined})")
+                params.extend(sub_params)
+        else:
+            _apply_single_filter(col, spec, qualified, _jsonb, fragments, params)
 
     where = " ".join(f"AND {f}" for f in fragments)
     return where, params
+
+
+def _apply_single_filter(
+    col: str,
+    spec: dict[str, Any],
+    qualified: str,
+    jsonb_columns: set[str],
+    fragments: list[str],
+    params: list[Any],
+    *,
+    parent_filter_type: str = "",
+) -> None:
+    """Apply a single AG Grid filter condition to fragments/params.
+
+    *parent_filter_type* is used as a fallback when the condition
+    itself lacks a ``filterType`` key (common in compound filters
+    where the type lives on the outer spec).
+    """
+    filter_type = spec.get("filterType", spec.get("type", "")) or parent_filter_type
+
+    if filter_type in ("text", "contains", "equals", "startsWith", "endsWith"):
+        # Cast JSONB columns to text so ILIKE / = operators work.
+        text_col = f"{qualified}::text" if col in jsonb_columns else qualified
+        _apply_text_filter(text_col, spec, fragments, params)
+    elif filter_type in ("number", "greaterThan", "lessThan"):
+        _apply_number_filter(qualified, spec, fragments, params)
+    elif filter_type in ("date", "inRange"):
+        _apply_date_filter(qualified, spec, fragments, params)
+    elif filter_type == "set":
+        values = spec.get("values")
+        if isinstance(values, list) and values:
+            fragments.append(f"{qualified} = ANY(%s)")
+            params.append(values)
 
 
 def _apply_text_filter(
@@ -991,6 +1032,7 @@ def _fetch_positions_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
+    filterable_columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch positions data scoped to authorized strategies.
 
@@ -1008,6 +1050,7 @@ def _fetch_positions_data(
     adding ``strategy_id`` to the positions table will remove this
     limitation.
     """
+    filter_cols = filterable_columns or columns
     # Qualify sort columns with the "p." alias to avoid ambiguity when
     # joining positions with the symbol_strategy CTE.
     qualified_sort: list[dict[str, Any]] | None = None
@@ -1025,7 +1068,7 @@ def _fetch_positions_data(
     col_list = ", ".join(f"p.{c} AS {c}" for c in columns)
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
-        columns,
+        filter_cols,
         col_prefix="p.",
     )
     with ctx.db.transaction() as conn:
@@ -1050,6 +1093,7 @@ def _fetch_orders_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
+    filterable_columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch orders scoped to authorized strategies.
 
@@ -1059,11 +1103,12 @@ def _fetch_orders_data(
     ``PENDING_STATUSES`` tuple defined in
     ``apps.execution_gateway.database``.
     """
+    filter_cols = filterable_columns or columns
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
     col_list = ", ".join(columns)
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
-        columns,
+        filter_cols,
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
@@ -1086,6 +1131,7 @@ def _fetch_fills_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
+    filterable_columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch fills (trades) scoped to authorized strategies.
 
@@ -1101,7 +1147,8 @@ def _fetch_fills_data(
     )
     # Exclude the synthetic 'status' column from filter processing
     # since it has no DB backing and cannot be filtered.
-    db_columns = [c for c in columns if c != "status"]
+    filter_cols = filterable_columns or columns
+    db_columns = [c for c in filter_cols if c != "status"]
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
         db_columns,
@@ -1128,6 +1175,7 @@ def _fetch_audit_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
+    filterable_columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch audit log entries scoped to authorized strategies.
 
@@ -1139,11 +1187,12 @@ def _fetch_audit_data(
     operations to users who may only be authorized for specific
     strategies.
     """
+    filter_cols = filterable_columns or columns
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
     col_list = ", ".join(columns)
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
-        columns,
+        filter_cols,
         jsonb_columns=_JSONB_COLUMNS.get("audit"),
     )
     with ctx.db.transaction() as conn:
@@ -1166,6 +1215,7 @@ def _fetch_tca_data(
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
+    filterable_columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch TCA trade data with order context, scoped to authorized strategies.
 
@@ -1176,6 +1226,7 @@ def _fetch_tca_data(
     resolved via ``_COLUMN_ALIASES["tca"]`` before reaching this
     fetcher, so mapped columns are included correctly.
     """
+    filter_cols = filterable_columns or columns
     # Map column names to their qualified table references
     tca_col_map: dict[str, str] = {
         "trade_id": "t.trade_id",
@@ -1220,10 +1271,10 @@ def _fetch_tca_data(
     if filter_params:
         tca_filter_params = {}
         for col, spec in filter_params.items():
-            if col in columns:
+            if col in filter_cols:
                 qualified = tca_col_map.get(col, f"t.{col}")
                 tca_filter_params[qualified] = spec
-    qualified_filter_columns = [tca_col_map.get(c, f"t.{c}") for c in columns]
+    qualified_filter_columns = [tca_col_map.get(c, f"t.{c}") for c in filter_cols]
     filter_clause, filter_params_list = _build_filter_clauses(
         tca_filter_params,
         qualified_filter_columns,
@@ -1245,9 +1296,17 @@ def _fetch_tca_data(
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
-# Type alias for grid data fetcher functions
+# Type alias for grid data fetcher functions.
+# Signature: (ctx, strategy_ids, columns, sort_model, filter_params, filterable_columns)
 _GridFetcher = Callable[
-    [AppContext, list[str], list[str], list[dict[str, Any]] | None, dict[str, Any] | None],
+    [
+        AppContext,
+        list[str],
+        list[str],
+        list[dict[str, Any]] | None,
+        dict[str, Any] | None,
+        list[str],
+    ],
     list[dict[str, Any]],
 ]
 
@@ -1322,7 +1381,10 @@ async def _generate_excel_content(
         ]
 
     # Offload synchronous DB fetch to a worker thread to avoid blocking
-    # the FastAPI event loop.
+    # the FastAPI event loop.  Pass the full grid allowlist so filters on
+    # hidden columns (columns not in the projected ``columns`` list) are
+    # still applied — AG Grid allows filtering on columns the user has
+    # subsequently hidden.
     fetcher = _GRID_FETCHERS[grid_name]
     rows = await asyncio.to_thread(
         fetcher,
@@ -1331,6 +1393,7 @@ async def _generate_excel_content(
         columns,
         resolved_sort,
         resolved_filters,
+        allowed,
     )
 
     # Build workbook (CPU-bound; done in worker thread below)
