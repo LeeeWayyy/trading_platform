@@ -2016,9 +2016,7 @@ async def modify_order(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies or order.strategy_id not in authorized_strategies:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    _ensure_order_strategy_access(order, _auth_context)
 
     # Idempotency check BEFORE status check to allow retries of completed modifications
     existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
@@ -2151,9 +2149,7 @@ async def get_modification_history(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies or order.strategy_id not in authorized_strategies:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    _ensure_order_strategy_access(order, _auth_context)
 
     records = ctx.db.get_modifications_for_order(client_order_id)
     return [
@@ -2348,19 +2344,9 @@ async def get_order_audit_trail(
             detail=f"Order not found: {client_order_id}",
         )
 
-    # Verify strategy authorization (fail-closed: empty list = deny)
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies:
-        # No strategies assigned - deny access (fail-closed security)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No strategy access - cannot view audit trail",
-        )
-    if order.strategy_id not in authorized_strategies:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this order's audit trail",
-        )
+    _ensure_order_strategy_access(
+        order, _auth_context, detail="Not authorized to view this order's audit trail"
+    )
 
     # Check if user is admin (for PII visibility)
     user_is_admin = is_admin(_auth_context.user)

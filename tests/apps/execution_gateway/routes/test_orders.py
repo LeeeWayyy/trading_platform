@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -89,7 +90,7 @@ def _build_test_app(
     ctx: Any,
     config: Any,
     *,
-    auth_context_factory: Any = _mock_auth_context,
+    auth_context_factory: Callable[[], AuthContext] = _mock_auth_context,
 ) -> TestClient:
     app = FastAPI()
     app.include_router(orders.router)
@@ -979,6 +980,41 @@ class TestCancelOrder:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
+        db.update_order_status_cas.assert_not_called()
+
+    def test_cancel_order_live_forbidden_broker_not_called(self) -> None:
+        """Test canceling an order in live mode is denied before reaching broker."""
+        order_detail = _make_order_detail("client-live-deny", status="pending_new")
+        order_detail.strategy_id = "mean_reversion"
+        order_detail.broker_order_id = "broker-deny-123"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        alpaca = MagicMock()
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            alpaca=alpaca,
+        )
+        config = create_test_config(dry_run=False)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+        )
+
+        response = client.post("/api/v1/orders/client-live-deny/cancel")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized"
+        alpaca.cancel_order.assert_not_called()
         db.update_order_status_cas.assert_not_called()
 
     def test_cancel_order_live_mode_success(self) -> None:
