@@ -1364,6 +1364,7 @@ def _idempotency_payload_matches(
         and order.limit_price == existing.limit_price
         and order.stop_price == existing.stop_price
         and order.time_in_force == existing.time_in_force
+        and order.execution_style == (existing.execution_style or "instant")
         and strategy_id == existing.strategy_id
     )
 
@@ -1422,6 +1423,7 @@ async def submit_order(
 
     Raises:
         HTTPException 400: Invalid order parameters
+        HTTPException 409: Caller-supplied client_order_id collides with different order
         HTTPException 422: Order rejected by broker
         HTTPException 503: Broker connection error
     """
@@ -1668,6 +1670,7 @@ async def submit_order(
                 f"{client_order_id}",
                 extra={
                     "client_order_id": client_order_id,
+                    "strategy_id": config.strategy_id,
                     "existing_symbol": existing_order.symbol,
                     "existing_side": existing_order.side,
                     "existing_qty": existing_order.qty,
@@ -1764,6 +1767,29 @@ async def submit_order(
         )
         order_detail = ctx.db.get_order_by_client_id(client_order_id)
         if order_detail:
+            # Guard against caller-supplied ID collision in the race path
+            if order.client_order_id is not None and not _idempotency_payload_matches(
+                order, order_detail, config.strategy_id
+            ):
+                logger.warning(
+                    f"Caller-supplied client_order_id race collision with a different "
+                    f"order: {client_order_id}",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "strategy_id": config.strategy_id,
+                        "existing_symbol": order_detail.symbol,
+                        "existing_side": order_detail.side,
+                        "request_symbol": order.symbol,
+                        "request_side": order.side,
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"client_order_id '{client_order_id}' already exists for a "
+                        "different order. Supply a unique ID."
+                    ),
+                ) from None
             return OrderResponse(
                 client_order_id=client_order_id,
                 status=order_detail.status,

@@ -1168,7 +1168,7 @@
         "type": "object"
       },
       "OrderRequest": {
-        "description": "Request to submit a new order.\n\nThe order will be assigned a deterministic client_order_id based on\nthe order parameters and current date. This ensures idempotency - the\nsame order submitted multiple times will have the same ID.\n\nExamples:\n    Market buy order:\n    >>> order = OrderRequest(\n    ...     symbol=\"AAPL\",\n    ...     side=\"buy\",\n    ...     qty=10,\n    ...     order_type=\"market\"\n    ... )\n\n    Limit sell order:\n    >>> order = OrderRequest(\n    ...     symbol=\"MSFT\",\n    ...     side=\"sell\",\n    ...     qty=5,\n    ...     order_type=\"limit\",\n    ...     limit_price=300.50\n    ... )",
+        "description": "Request to submit a new order.\n\nBy default the order is assigned a deterministic client_order_id\nderived from the order parameters and current date, ensuring\nidempotency (the same order submitted multiple times gets the same\nID).  Callers may supply an explicit ``client_order_id`` to\ndisambiguate repeat orders that share identical parameters on the\nsame day.\n\nExamples:\n    Market buy order:\n    >>> order = OrderRequest(\n    ...     symbol=\"AAPL\",\n    ...     side=\"buy\",\n    ...     qty=10,\n    ...     order_type=\"market\"\n    ... )\n\n    Limit sell order:\n    >>> order = OrderRequest(\n    ...     symbol=\"MSFT\",\n    ...     side=\"sell\",\n    ...     qty=5,\n    ...     order_type=\"limit\",\n    ...     limit_price=300.50\n    ... )",
         "examples": [
           {
             "order_type": "market",
@@ -1262,6 +1262,22 @@
             ],
             "title": "Time In Force",
             "type": "string"
+          },
+          "client_order_id": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional caller-supplied order ID. Supply a unique value to place a distinct repeat order with otherwise identical parameters on the same day. If omitted, a deterministic ID is generated from the order parameters and date.",
+            "title": "Client Order Id"
           }
         },
         "required": [
@@ -1273,7 +1289,7 @@
         "type": "object"
       },
       "OrderResponse": {
-        "description": "Response after submitting an order.\n\nContains the deterministic client_order_id, current status, and\nbroker_order_id (if submitted to broker).\n\nAttributes:\n    client_order_id: Deterministic ID for idempotency\n    status: Current order status\n    broker_order_id: Alpaca's order ID (null for dry_run)\n    symbol: Stock symbol\n    side: Order side\n    qty: Order quantity\n    order_type: Order type\n    limit_price: Limit price (if applicable)\n    created_at: Order creation timestamp\n    message: Human-readable status message",
+        "description": "Response after submitting an order.\n\nContains the client_order_id (deterministic or caller-supplied),\ncurrent status, and broker_order_id (if submitted to broker).\n\nAttributes:\n    client_order_id: Order ID (deterministic or caller-supplied)\n    status: Current order status\n    broker_order_id: Alpaca's order ID (null for dry_run)\n    symbol: Stock symbol\n    side: Order side\n    qty: Order quantity\n    order_type: Order type\n    limit_price: Limit price (if applicable)\n    created_at: Order creation timestamp\n    message: Human-readable status message",
         "examples": [
           {
             "broker_order_id": "f7e6d5c4-b3a2-1098-7654-3210fedcba98",
@@ -2995,7 +3011,7 @@
     },
     "/api/v1/orders": {
       "post": {
-        "description": "Submit order with idempotent retry semantics.\n\nThe order is assigned a deterministic client_order_id based on the order\nparameters and current date. This ensures that the same order submitted\nmultiple times will have the same ID and won't create duplicates.\n\nIn DRY_RUN mode (default), orders are logged to database but NOT submitted\nto Alpaca. Set DRY_RUN=false to enable actual paper trading.\n\nArgs:\n    order: Order request (symbol, side, qty, order_type, etc.)\n\nReturns:\n    OrderResponse with client_order_id, status, and broker_order_id\n\nRaises:\n    HTTPException 400: Invalid order parameters\n    HTTPException 422: Order rejected by broker\n    HTTPException 503: Broker connection error\n\nExamples:\n    Market buy order:\n    >>> import requests\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders\",\n    ...     json={\n    ...         \"symbol\": \"AAPL\",\n    ...         \"side\": \"buy\",\n    ...         \"qty\": 10,\n    ...         \"order_type\": \"market\"\n    ...     }\n    ... )\n    >>> response.json()\n    {\n        \"client_order_id\": \"a1b2c3d4e5f6...\",\n        \"status\": \"dry_run\",  # or \"pending_new\" if DRY_RUN=false\n        \"broker_order_id\": null,\n        \"symbol\": \"AAPL\",\n        \"side\": \"buy\",\n        \"qty\": 10,\n        \"order_type\": \"market\",\n        \"limit_price\": null,\n        \"created_at\": \"2024-10-17T16:30:00Z\",\n        \"message\": \"Order logged (DRY_RUN mode)\"\n    }\n\n    Limit sell order:\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders\",\n    ...     json={\n    ...         \"symbol\": \"MSFT\",\n    ...         \"side\": \"sell\",\n    ...         \"qty\": 5,\n    ...         \"order_type\": \"limit\",\n    ...         \"limit_price\": \"300.50\"\n    ...     }\n    ... )",
+        "description": "Submit order with idempotent retry semantics.\n\nBy default the order is assigned a deterministic client_order_id\nderived from the order parameters and current date, ensuring that\nthe same order submitted multiple times gets the same ID.  Callers\nmay supply an explicit ``client_order_id`` to disambiguate repeat\norders that share identical parameters on the same day.  When a\ncaller-supplied ID collides with an existing order whose payload\ndiffers, the request is rejected with HTTP 409.\n\nIn DRY_RUN mode (default), orders are logged to database but NOT submitted\nto Alpaca. Set DRY_RUN=false to enable actual paper trading.\n\nArgs:\n    order: Order request (symbol, side, qty, order_type, etc.)\n\nReturns:\n    OrderResponse with client_order_id, status, and broker_order_id\n\nRaises:\n    HTTPException 400: Invalid order parameters\n    HTTPException 409: Caller-supplied client_order_id collides with different order\n    HTTPException 422: Order rejected by broker\n    HTTPException 503: Broker connection error\n\nExamples:\n    Market buy order:\n    >>> import requests\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders\",\n    ...     json={\n    ...         \"symbol\": \"AAPL\",\n    ...         \"side\": \"buy\",\n    ...         \"qty\": 10,\n    ...         \"order_type\": \"market\"\n    ...     }\n    ... )\n    >>> response.json()\n    {\n        \"client_order_id\": \"a1b2c3d4e5f6...\",\n        \"status\": \"dry_run\",  # or \"pending_new\" if DRY_RUN=false\n        \"broker_order_id\": null,\n        \"symbol\": \"AAPL\",\n        \"side\": \"buy\",\n        \"qty\": 10,\n        \"order_type\": \"market\",\n        \"limit_price\": null,\n        \"created_at\": \"2024-10-17T16:30:00Z\",\n        \"message\": \"Order logged (DRY_RUN mode)\"\n    }\n\n    Limit sell order:\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders\",\n    ...     json={\n    ...         \"symbol\": \"MSFT\",\n    ...         \"side\": \"sell\",\n    ...         \"qty\": 5,\n    ...         \"order_type\": \"limit\",\n    ...         \"limit_price\": \"300.50\"\n    ...     }\n    ... )",
         "operationId": "submit_order_api_v1_orders_post",
         "parameters": [
           {

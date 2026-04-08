@@ -439,6 +439,75 @@ class TestSubmitOrder:
             response = client.post("/api/v1/orders", json=order_payload)
             assert response.status_code == 422, f"Expected 422 for client_order_id={bad_id!r}"
 
+    def test_submit_order_race_path_rejects_caller_id_collision(self) -> None:
+        """UniqueViolation race path also rejects caller-supplied ID that differs from stored order."""
+        from psycopg.errors import UniqueViolation
+
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-5", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Existing order inserted by a concurrent request is for MSFT sell
+        existing = _make_order_detail("race-id-001", status="pending_new")
+        existing.symbol = "MSFT"
+        existing.side = "sell"
+        existing.qty = 50
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        # Pre-insert idempotency check returns None (concurrent insert not yet visible)
+        # After UniqueViolation, re-fetch returns the conflicting order
+        db.get_order_by_client_id.side_effect = [None, existing]
+        db.create_order.side_effect = UniqueViolation()
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "race-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "already exists for a different order" in body["detail"]
+        reservation.release.assert_called_once_with("AAPL", "token-5")
+
 
 class TestCancelAndGetOrder:
     def test_cancel_order_not_found(self) -> None:
