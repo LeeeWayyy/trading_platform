@@ -288,7 +288,7 @@ def compute_rate_of_change(
                     "count": guard_hits,
                     "symbols": display_symbols,
                     "symbols_total": len(all_affected),
-                    "strategy": "momentum",
+                    "strategy_id": "momentum",
                 },
             )
 

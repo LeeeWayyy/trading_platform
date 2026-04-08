@@ -308,8 +308,8 @@ class TestRateOfChange:
         assert rec.symbols == ["TEST"], "symbols should list affected symbols (capped)"
         assert hasattr(rec, "symbols_total"), "Warning must include 'symbols_total' extra field"
         assert rec.symbols_total == 1, "symbols_total should be 1 for single-symbol input"
-        assert hasattr(rec, "strategy"), "Warning must include 'strategy' extra field"
-        assert rec.strategy == "momentum", "strategy field must be 'momentum'"
+        assert hasattr(rec, "strategy_id"), "Warning must include 'strategy_id' extra field"
+        assert rec.strategy_id == "momentum", "strategy_id field must be 'momentum'"
 
     def test_roc_empty_dataframe_no_error(self) -> None:
         """Test that ROC handles empty DataFrames without raising (regression guard)."""
