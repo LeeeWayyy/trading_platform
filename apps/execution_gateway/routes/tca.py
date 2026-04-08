@@ -661,6 +661,11 @@ def _result_to_order_detail(
         fee_cost = None if math.isnan(fee_float) else round(fee_float, 2)
     except (TypeError, ValueError):
         fee_cost = None
+
+    # Ensure fee_cost_bps and total_fees are consistent: both null or both numeric.
+    # If fee_cost_bps is None (untrusted), total_fees is also untrusted.
+    total_fees = result.total_fees if fee_cost is not None else None
+
     return TCAOrderDetail(
         client_order_id=client_order_id,
         symbol=result.symbol,
@@ -684,7 +689,7 @@ def _result_to_order_detail(
         timing_cost_bps=round(result.timing_cost_bps, 2),
         num_fills=result.num_fills,
         execution_duration_seconds=result.execution_duration_seconds,
-        total_fees=result.total_fees,
+        total_fees=total_fees,
         warnings=result.warnings,
         vwap_coverage_pct=result.vwap_coverage_pct * 100,  # Convert to percentage
     )
