@@ -22,6 +22,9 @@ from apps.web_console_ng.pages.execution_quality import (
     DEFAULT_RANGE_DAYS,
     _fetch_tca_benchmarks,
     _fetch_tca_data,
+    _format_benchmark_timestamp,
+    _is_valid_price,
+    _parse_utc,
 )
 
 
@@ -421,6 +424,78 @@ class TestFetchTCABenchmarks:
             )
 
         assert result is None
+
+
+class TestBenchmarkHelpers:
+    """Tests for module-level benchmark transformation helpers."""
+
+    def test_parse_utc_zulu(self) -> None:
+        """Zulu suffix is parsed as UTC."""
+        from datetime import UTC
+
+        dt = _parse_utc("2024-01-15T10:30:00Z")
+        assert dt.strftime("%H:%M") == "10:30"
+        assert dt.tzinfo is not None
+
+    def test_parse_utc_offset(self) -> None:
+        """Explicit offset is normalized to UTC."""
+        dt = _parse_utc("2024-01-15T15:30:00-05:00")
+        assert dt.strftime("%H:%M") == "20:30"
+
+    def test_parse_utc_naive(self) -> None:
+        """Naive datetime is assumed UTC (no local-timezone shift)."""
+        dt = _parse_utc("2024-01-15T10:30:00")
+        assert dt.strftime("%H:%M") == "10:30"
+
+    def test_parse_utc_invalid(self) -> None:
+        """Invalid string returns datetime.min (UTC)."""
+        from datetime import UTC, datetime
+
+        dt = _parse_utc("not-a-date")
+        assert dt == datetime.min.replace(tzinfo=UTC)
+
+    def test_format_benchmark_timestamp_zulu(self) -> None:
+        """Zulu timestamp formatted as HH:MM UTC."""
+        assert _format_benchmark_timestamp("2024-01-15T10:30:00Z") == "10:30 UTC"
+
+    def test_format_benchmark_timestamp_invalid(self) -> None:
+        """Invalid timestamp returned as-is."""
+        assert _format_benchmark_timestamp("bad") == "bad"
+
+    def test_format_benchmark_timestamp_with_offset(self) -> None:
+        """Offset timestamp converted to UTC before formatting."""
+        assert _format_benchmark_timestamp("2024-01-15T15:30:00-05:00") == "20:30 UTC"
+
+    def test_is_valid_price_positive(self) -> None:
+        """Positive float is valid."""
+        assert _is_valid_price(150.5) is True
+
+    def test_is_valid_price_zero(self) -> None:
+        """Zero is not valid (used to detect missing data)."""
+        assert _is_valid_price(0.0) is False
+        assert _is_valid_price(0) is False
+
+    def test_is_valid_price_none(self) -> None:
+        """None is not valid."""
+        assert _is_valid_price(None) is False
+
+    def test_is_valid_price_string(self) -> None:
+        """Non-numeric string is not valid."""
+        assert _is_valid_price("abc") is False
+
+    def test_is_valid_price_numeric_string(self) -> None:
+        """Numeric string is valid."""
+        assert _is_valid_price("150.5") is True
+
+    def test_sort_with_mixed_offsets(self) -> None:
+        """Points with different timezone offsets sort chronologically."""
+        points = [
+            {"timestamp": "2024-01-15T15:30:00-05:00", "val": "later"},  # 20:30 UTC
+            {"timestamp": "2024-01-15T10:00:00Z", "val": "earlier"},  # 10:00 UTC
+        ]
+        points.sort(key=lambda p: _parse_utc(p["timestamp"]))
+        assert points[0]["val"] == "earlier"
+        assert points[1]["val"] == "later"
 
 
 class TestDefaultDateRange:

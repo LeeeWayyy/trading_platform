@@ -52,6 +52,38 @@ DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
 
 
+def _parse_utc(value: Any) -> datetime:
+    """Parse a timestamp to a UTC-aware datetime.
+
+    Naive values are assumed UTC.  Unparseable values map to
+    ``datetime.min`` so they sort first.
+    """
+    text = str(value)
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except ValueError:
+        return datetime.min.replace(tzinfo=UTC)
+
+
+def _format_benchmark_timestamp(value: Any) -> str:
+    """Format a benchmark point timestamp as ``HH:MM UTC``."""
+    dt = _parse_utc(value)
+    if dt == datetime.min.replace(tzinfo=UTC):
+        return str(value)
+    return dt.strftime("%H:%M UTC")
+
+
+def _is_valid_price(value: Any) -> bool:
+    """Return True if *value* can be converted to a non-zero float."""
+    try:
+        return float(value) != 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 def _build_tca_auth_headers(
     user_id: str,
     role: str,
@@ -540,29 +572,6 @@ async def _render_tca_dashboard(
                             benchmark_data.get("benchmark_type") or "vwap"
                         ).upper()
 
-                        def _format_timestamp(value: Any) -> str:
-                            text = str(value)
-                            try:
-                                dt = datetime.fromisoformat(
-                                    text.replace("Z", "+00:00")
-                                )
-                                # Treat naive timestamps as UTC to avoid
-                                # silent local-timezone shifts.
-                                if dt.tzinfo is None:
-                                    dt = dt.replace(tzinfo=UTC)
-                                else:
-                                    dt = dt.astimezone(UTC)
-                                return dt.strftime("%H:%M UTC")
-                            except ValueError:
-                                return text
-
-                        def _is_valid_price(value: Any) -> bool:
-                            """Return True if value can be converted to a non-zero float."""
-                            try:
-                                return float(value) != 0.0
-                            except (TypeError, ValueError):
-                                return False
-
                         # Drop points with missing or invalid price fields
                         # to avoid rendering misleading zero-price data.
                         valid_points = [
@@ -571,13 +580,16 @@ async def _render_tca_dashboard(
                             and _is_valid_price(p.get("benchmark_price"))
                         ]
 
-                        # Sort by timestamp to ensure chronological plotting
-                        valid_points.sort(key=lambda p: str(p.get("timestamp", "")))
+                        # Sort by normalized UTC datetime for correct
+                        # chronological plotting regardless of offset format.
+                        valid_points.sort(
+                            key=lambda p: _parse_utc(p.get("timestamp", ""))
+                        )
 
                         if valid_points:
                             create_benchmark_comparison_chart(
                                 timestamps=[
-                                    _format_timestamp(p.get("timestamp", ""))
+                                    _format_benchmark_timestamp(p.get("timestamp", ""))
                                     for p in valid_points
                                 ],
                                 execution_prices=[
@@ -603,7 +615,7 @@ async def _render_tca_dashboard(
                         ).classes("text-gray-500 p-4")
                     else:
                         ui.label(
-                            "Benchmark chart unavailable for the selected order."
+                            "Benchmark chart unavailable for the first order."
                         ).classes("text-gray-500 p-4")
 
         # Render orders table
