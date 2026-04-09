@@ -1200,7 +1200,13 @@ def _fetch_fills_data(
     because every record in the trades table represents a completed fill.
     """
     filter_cols = filterable_columns or columns
-    order_clause = _build_order_clause(sort_model, filter_cols, "executed_at DESC")
+    # Exclude the synthetic 'status' column from both sort and filter
+    # processing since it has no DB backing -- it's synthesized as a
+    # literal 'filled' in the SELECT list only.  Including it in the
+    # ORDER BY or WHERE would cause a PostgreSQL "column does not exist"
+    # error when the user hides the column but keeps a sort on it.
+    db_columns = [c for c in filter_cols if c != "status"]
+    order_clause = _build_order_clause(sort_model, db_columns, "executed_at DESC")
     # Synthesize 'status' as a literal since it doesn't exist in the
     # trades table -- all trade records are completed fills.
     col_parts: list[Composable] = []
@@ -1210,9 +1216,6 @@ def _fetch_fills_data(
         else:
             col_parts.append(SQL("t.{col}").format(col=Identifier(c)))
     col_list = SQL(", ").join(col_parts)
-    # Exclude the synthetic 'status' column from filter processing
-    # since it has no DB backing and cannot be filtered.
-    db_columns = [c for c in filter_cols if c != "status"]
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
         db_columns,
