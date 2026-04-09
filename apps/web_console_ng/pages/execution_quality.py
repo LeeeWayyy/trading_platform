@@ -52,6 +52,14 @@ DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Safely coerce a value to float, returning *default* on failure."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _build_tca_auth_headers(user_id: str, role: str, strategies: list[str]) -> dict[str, str]:
     """Build auth headers for TCA API requests."""
     return {
@@ -128,13 +136,18 @@ async def _fetch_tca_benchmarks(
                 extra={
                     "status": response.status_code,
                     "client_order_id": client_order_id,
-                    "body": response.text[:200],
                 },
             )
     except httpx.RequestError as e:
         logger.warning(
             "TCA benchmark API unavailable",
             extra={"client_order_id": client_order_id, "error": str(e)},
+        )
+    except Exception:
+        logger.warning(
+            "TCA benchmark API response parse error",
+            extra={"client_order_id": client_order_id},
+            exc_info=True,
         )
     return None
 
@@ -494,15 +507,20 @@ async def _render_tca_dashboard(
 
             if benchmark_data and benchmark_data.get("points"):
                 with ui.card().classes("w-full p-4"):
-                    ui.label("Execution vs VWAP").classes("text-lg font-bold mb-2")
+                    bm_symbol = str(
+                        benchmark_data.get("symbol", orders[0].get("symbol", ""))
+                    )
+                    ui.label(
+                        f"Execution vs VWAP — {bm_symbol} (First Order)"
+                    ).classes("text-lg font-bold mb-2")
 
                     points = benchmark_data.get("points", [])
                     create_benchmark_comparison_chart(
                         timestamps=[str(point.get("timestamp", "")) for point in points],
-                        execution_prices=[float(point.get("execution_price", 0.0)) for point in points],
-                        benchmark_prices=[float(point.get("benchmark_price", 0.0)) for point in points],
+                        execution_prices=[_safe_float(point.get("execution_price")) for point in points],
+                        benchmark_prices=[_safe_float(point.get("benchmark_price")) for point in points],
                         benchmark_type=str(benchmark_data.get("benchmark_type", "VWAP")).upper(),
-                        symbol=str(benchmark_data.get("symbol", orders[0].get("symbol", ""))),
+                        symbol=bm_symbol,
                     )
 
         # Render orders table
