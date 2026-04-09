@@ -166,6 +166,30 @@ class TestBuildFilterClause:
         assert sql == ""
         assert params == []
 
+    def test_date_greater_than_or_equal_filter(self) -> None:
+        filt = {
+            "created_at": {
+                "filterType": "date",
+                "type": "greaterThanOrEqual",
+                "dateFrom": "2026-03-01",
+            }
+        }
+        sql, params = _build_filter_clause(filt, ["created_at"])
+        assert "::date >= %s" in sql
+        assert "2026-03-01" in params
+
+    def test_date_less_than_or_equal_filter(self) -> None:
+        filt = {
+            "created_at": {
+                "filterType": "date",
+                "type": "lessThanOrEqual",
+                "dateFrom": "2026-06-01",
+            }
+        }
+        sql, params = _build_filter_clause(filt, ["created_at"])
+        assert "::date <= %s" in sql
+        assert "2026-06-01" in params
+
 
 class TestBuildOrderClause:
     def test_default_order_when_no_sort_model(self) -> None:
