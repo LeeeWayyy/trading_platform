@@ -39,6 +39,7 @@ from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.dependencies import get_context
 from apps.execution_gateway.services.auth_helpers import build_user_context
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
+from libs.core.common.constants import WORKING_ORDER_STATUSES
 from libs.data.sql.strategy_mapping_sql import SYMBOL_STRATEGY_CTE
 from libs.platform.security import sanitize_for_export
 from libs.platform.web_console_auth.permissions import Permission, get_authorized_strategies
@@ -783,22 +784,6 @@ _GRID_COLUMNS: dict[str, list[str]] = {
 # Maximum rows per export to prevent excessive memory / query time
 _EXPORT_ROW_LIMIT = 10_000
 
-# Statuses shown in the dashboard's Working-orders grid.  Must match
-# ``WORKING_ORDER_STATUSES`` in
-# ``apps.web_console_ng.components.tabbed_panel`` to ensure export
-# parity with the on-screen grid.  ``PENDING_STATUSES`` from the
-# database module is broader (includes ``submitted`` and
-# ``submitted_unconfirmed``) and would return rows not visible in
-# the grid.
-_WORKING_ORDER_STATUSES: tuple[str, ...] = (
-    "new",
-    "pending_new",
-    "partially_filled",
-    "accepted",
-    "pending_cancel",
-    "pending_replace",
-)
-
 # Columns stored as JSONB in the database.  Text filters on these columns
 # must cast to ``::text`` to avoid PostgreSQL operator errors.
 _JSONB_COLUMNS: dict[str, set[str]] = {
@@ -1085,6 +1070,7 @@ def _fetch_positions_data(
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
     filterable_columns: list[str] | None = None,
+    row_limit: int = _EXPORT_ROW_LIMIT,
 ) -> list[dict[str, Any]]:
     """Fetch positions data scoped to authorized strategies.
 
@@ -1141,7 +1127,8 @@ def _fetch_positions_data(
                 filter=SQL(filter_clause),
                 order=SQL(order_clause),
             )
-            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
+            effective_limit = min(row_limit, _EXPORT_ROW_LIMIT)
+            cur.execute(query, (strategy_ids, *filter_params_list, effective_limit))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1153,12 +1140,13 @@ def _fetch_orders_data(
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
     filterable_columns: list[str] | None = None,
+    row_limit: int = _EXPORT_ROW_LIMIT,
 ) -> list[dict[str, Any]]:
     """Fetch orders scoped to authorized strategies.
 
     Only working/pending orders are returned to match the dashboard's
     Working-orders grid.  The status filter uses
-    ``_WORKING_ORDER_STATUSES`` which mirrors the client-side
+    ``WORKING_ORDER_STATUSES`` which mirrors the client-side
     ``WORKING_ORDER_STATUSES`` set from the web console, ensuring
     export parity with what the user sees on screen.
     """
@@ -1183,13 +1171,14 @@ def _fetch_orders_data(
                 filter=SQL(filter_clause),
                 order=SQL(order_clause),
             )
+            effective_limit = min(row_limit, _EXPORT_ROW_LIMIT)
             cur.execute(
                 query,
                 (
                     strategy_ids,
-                    list(_WORKING_ORDER_STATUSES),
+                    list(WORKING_ORDER_STATUSES),
                     *filter_params_list,
-                    _EXPORT_ROW_LIMIT,
+                    effective_limit,
                 ),
             )
             col_names = [desc[0] for desc in cur.description]
@@ -1203,6 +1192,7 @@ def _fetch_fills_data(
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
     filterable_columns: list[str] | None = None,
+    row_limit: int = _EXPORT_ROW_LIMIT,
 ) -> list[dict[str, Any]]:
     """Fetch fills (trades) scoped to authorized strategies.
 
@@ -1242,7 +1232,8 @@ def _fetch_fills_data(
                 filter=SQL(filter_clause),
                 order=SQL(order_clause),
             )
-            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
+            effective_limit = min(row_limit, _EXPORT_ROW_LIMIT)
+            cur.execute(query, (strategy_ids, *filter_params_list, effective_limit))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1254,6 +1245,7 @@ def _fetch_audit_data(
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
     filterable_columns: list[str] | None = None,
+    row_limit: int = _EXPORT_ROW_LIMIT,
 ) -> list[dict[str, Any]]:
     """Fetch audit log entries scoped to authorized strategies.
 
@@ -1264,6 +1256,18 @@ def _fetch_audit_data(
     strategy-related audit entries prevents leaking sensitive system
     operations to users who may only be authorized for specific
     strategies.
+
+    .. note::
+
+       For large audit_log tables, an expression index on
+       ``(details->>'strategy_id')`` is recommended to avoid full table
+       scans::
+
+           CREATE INDEX IF NOT EXISTS idx_audit_log_details_strategy_id
+               ON audit_log ((details->>'strategy_id'));
+
+       This should be added via an Alembic migration when the table
+       grows beyond ~100k rows.
     """
     filter_cols = filterable_columns or columns
     order_clause = _build_order_clause(sort_model, filter_cols, "timestamp DESC, id DESC")
@@ -1286,7 +1290,8 @@ def _fetch_audit_data(
                 filter=SQL(filter_clause),
                 order=SQL(order_clause),
             )
-            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
+            effective_limit = min(row_limit, _EXPORT_ROW_LIMIT)
+            cur.execute(query, (strategy_ids, *filter_params_list, effective_limit))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1298,6 +1303,7 @@ def _fetch_tca_data(
     sort_model: list[dict[str, Any]] | None,
     filter_params: dict[str, Any] | None = None,
     filterable_columns: list[str] | None = None,
+    row_limit: int = _EXPORT_ROW_LIMIT,
 ) -> list[dict[str, Any]]:
     """Fetch TCA trade data with order context, scoped to authorized strategies.
 
@@ -1406,13 +1412,15 @@ def _fetch_tca_data(
                 filter=SQL(filter_clause),
                 order=SQL(order_clause),
             )
-            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
+            effective_limit = min(row_limit, _EXPORT_ROW_LIMIT)
+            cur.execute(query, (strategy_ids, *filter_params_list, effective_limit))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
 
 # Type alias for grid data fetcher functions.
-# Signature: (ctx, strategy_ids, columns, sort_model, filter_params, filterable_columns)
+# Signature: (ctx, strategy_ids, columns, sort_model, filter_params,
+#              filterable_columns, row_limit)
 _GridFetcher = Callable[
     [
         AppContext,
@@ -1421,6 +1429,7 @@ _GridFetcher = Callable[
         list[dict[str, Any]] | None,
         dict[str, Any] | None,
         list[str],
+        int,
     ],
     list[dict[str, Any]],
 ]
@@ -1506,7 +1515,12 @@ async def _generate_excel_content(
     # hidden columns (columns not in the projected ``columns`` list) are
     # still applied — AG Grid allows filtering on columns the user has
     # subsequently hidden.
+    #
+    # When row_limit is set, push it down to the SQL LIMIT so the
+    # database only returns the rows actually needed instead of always
+    # fetching up to _EXPORT_ROW_LIMIT and truncating in Python.
     fetcher = _GRID_FETCHERS[grid_name]
+    sql_limit = row_limit if row_limit is not None and row_limit >= 0 else _EXPORT_ROW_LIMIT
     rows = await asyncio.to_thread(
         fetcher,
         ctx,
@@ -1515,6 +1529,7 @@ async def _generate_excel_content(
         resolved_sort,
         resolved_filters,
         allowed,
+        sql_limit,
     )
 
     # When export_scope="visible", cap rows at the client-reported count
