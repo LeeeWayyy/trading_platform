@@ -447,6 +447,41 @@ class TestAuthMiddleware:
         call_next.assert_called_once_with(request)
 
     @pytest.mark.asyncio()
+    async def test_dispatch_handles_no_response_for_disconnected_client(
+        self, make_request: callable, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test AuthMiddleware suppresses disconnect race from downstream stack."""
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+
+        request = make_request(path="/dashboard")
+        request.state.user = {"username": "existing_user", "role": "admin"}
+        request.is_disconnected = AsyncMock(return_value=True)
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(side_effect=RuntimeError("No response returned."))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 204
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_propagates_no_response_when_client_connected(
+        self, make_request: callable, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test AuthMiddleware still raises when request is still connected."""
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+
+        request = make_request(path="/dashboard")
+        request.state.user = {"username": "existing_user", "role": "admin"}
+        request.is_disconnected = AsyncMock(return_value=False)
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(side_effect=RuntimeError("No response returned."))
+
+        with pytest.raises(RuntimeError, match="No response returned\\."):
+            await middleware.dispatch(request, call_next)
+
+    @pytest.mark.asyncio()
     async def test_dispatch_fallback_validates_session(
         self,
         make_request: callable,
@@ -642,6 +677,26 @@ class TestSessionMiddleware:
             response = await middleware.dispatch(request, call_next)
 
         assert response.status_code == 200
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_handles_no_response_for_disconnected_client(
+        self, make_request: callable, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test SessionMiddleware suppresses disconnect race from downstream stack."""
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+
+        request = make_request(path="/dashboard")
+        request.is_disconnected = AsyncMock(return_value=True)
+
+        middleware = middleware_module.SessionMiddleware(app=MagicMock())
+        call_next = AsyncMock(side_effect=RuntimeError("No response returned."))
+
+        with patch("apps.web_console_ng.auth.cookie_config.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 204
 
     @pytest.mark.asyncio()
     async def test_dispatch_valid_session(

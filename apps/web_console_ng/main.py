@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Awaitable, Callable
 
 from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import PlainTextResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from apps.web_console_ng import config
 
@@ -34,7 +36,61 @@ from apps.web_console_ng.ui.disconnect_overlay import inject_disconnect_overlay
 logger = logging.getLogger(__name__)
 
 
+def _patch_nicegui_request_tracking_middleware() -> None:
+    """Patch NiceGUI request tracking middleware to ignore disconnect sentinel."""
+    try:
+        from nicegui import storage as nicegui_storage
+    except (ImportError, AttributeError):
+        return
+
+    dispatch = nicegui_storage.RequestTrackingMiddleware.dispatch
+    if getattr(dispatch, "_no_response_patch_applied", False):
+        return
+
+    async def _dispatch_with_no_response_guard(
+        self: object, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        try:
+            return await dispatch(self, request, call_next)
+        except RuntimeError as exc:
+            if str(exc) == "No response returned.":
+                logger.debug("suppressing_no_response_returned_in_nicegui_storage")
+                return Response(status_code=204)
+            raise
+
+    setattr(_dispatch_with_no_response_guard, "_no_response_patch_applied", True)
+    nicegui_storage.RequestTrackingMiddleware.dispatch = _dispatch_with_no_response_guard
+
+
+class SuppressNoResponseReturnedMiddleware:
+    """Swallow Starlette disconnect sentinel RuntimeError for HTTP requests."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    @staticmethod
+    def _is_no_response_returned(exc: BaseException) -> bool:
+        if isinstance(exc, RuntimeError):
+            return str(exc) == "No response returned."
+        if isinstance(exc, BaseExceptionGroup):
+            return all(
+                SuppressNoResponseReturnedMiddleware._is_no_response_returned(sub_exc)
+                for sub_exc in exc.exceptions
+            )
+        return False
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except Exception as exc:
+            if scope.get("type") == "http" and self._is_no_response_returned(exc):
+                logger.debug("suppressing_no_response_returned_runtime_error_at_asgi")
+                return
+            raise
+
+
 # Initialize async DB pool via core.database (centralizes pool config and provides get_db_pool())
+_patch_nicegui_request_tracking_middleware()
 db_pool = init_db_pool()
 
 audit_logger = AuthAuditLogger.get(
@@ -69,11 +125,18 @@ app.add_middleware(
 )
 app.add_middleware(AdmissionControlMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
+app.add_middleware(SuppressNoResponseReturnedMiddleware)
 
 
 @app.exception_handler(Exception)
 async def log_unhandled_exception(request: Request, exc: Exception) -> PlainTextResponse:
     """Log unhandled exceptions with full traceback for debug."""
+    if isinstance(exc, RuntimeError) and str(exc) == "No response returned.":
+        # Starlette emits this sentinel RuntimeError when the client disconnects
+        # before any downstream response can be produced.
+        logger.debug("suppressing_no_response_returned_runtime_error")
+        return PlainTextResponse("", status_code=204)
+
     logger.error(
         "unhandled_exception path=%s type=%s message=%s",
         str(request.url.path),
