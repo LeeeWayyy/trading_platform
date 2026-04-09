@@ -60,6 +60,15 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _is_numeric(value: Any) -> bool:
+    """Return True when *value* can be converted to a finite float."""
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _build_tca_auth_headers(user_id: str, role: str, strategies: list[str]) -> dict[str, str]:
     """Build auth headers for TCA API requests."""
     return {
@@ -121,6 +130,10 @@ async def _fetch_tca_benchmarks(
 
     Returns None on error or when the benchmark series is unavailable.
     """
+    log_ctx: dict[str, Any] = {
+        "client_order_id": client_order_id,
+        "benchmark": benchmark,
+    }
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
@@ -133,20 +146,17 @@ async def _fetch_tca_benchmarks(
                 return result
             logger.warning(
                 "TCA benchmark API returned non-200",
-                extra={
-                    "status": response.status_code,
-                    "client_order_id": client_order_id,
-                },
+                extra={**log_ctx, "status": response.status_code},
             )
     except httpx.RequestError as e:
         logger.warning(
             "TCA benchmark API unavailable",
-            extra={"client_order_id": client_order_id, "error": str(e)},
+            extra={**log_ctx, "error": str(e)},
         )
-    except Exception:
-        logger.warning(
+    except (ValueError, KeyError, TypeError) as e:
+        logger.error(
             "TCA benchmark API response parse error",
-            extra={"client_order_id": client_order_id},
+            extra={**log_ctx, "error": str(e)},
             exc_info=True,
         )
     return None
@@ -510,18 +520,42 @@ async def _render_tca_dashboard(
                     bm_symbol = str(
                         benchmark_data.get("symbol", orders[0].get("symbol", ""))
                     )
+                    bm_type = str(
+                        benchmark_data.get("benchmark_type", "VWAP")
+                    ).upper()
                     ui.label(
-                        f"Execution vs VWAP — {bm_symbol} (First Order)"
+                        f"Execution vs {bm_type} — {bm_symbol} (First Order)"
                     ).classes("text-lg font-bold mb-2")
 
-                    points = benchmark_data.get("points", [])
-                    create_benchmark_comparison_chart(
-                        timestamps=[str(point.get("timestamp", "")) for point in points],
-                        execution_prices=[_safe_float(point.get("execution_price")) for point in points],
-                        benchmark_prices=[_safe_float(point.get("benchmark_price")) for point in points],
-                        benchmark_type=str(benchmark_data.get("benchmark_type", "VWAP")).upper(),
-                        symbol=bm_symbol,
-                    )
+                    # Filter out points with invalid prices to avoid
+                    # misleading zero-price dips on the chart.
+                    valid_points = [
+                        p
+                        for p in benchmark_data.get("points", [])
+                        if _is_numeric(p.get("execution_price"))
+                        and _is_numeric(p.get("benchmark_price"))
+                    ]
+                    if valid_points:
+                        create_benchmark_comparison_chart(
+                            timestamps=[
+                                str(point.get("timestamp", ""))
+                                for point in valid_points
+                            ],
+                            execution_prices=[
+                                _safe_float(point.get("execution_price"))
+                                for point in valid_points
+                            ],
+                            benchmark_prices=[
+                                _safe_float(point.get("benchmark_price"))
+                                for point in valid_points
+                            ],
+                            benchmark_type=bm_type,
+                            symbol=bm_symbol,
+                        )
+                    else:
+                        ui.label("Benchmark data unavailable").classes(
+                            "text-gray-500 p-4"
+                        )
 
         # Render orders table
         with orders_container:

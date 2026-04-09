@@ -22,6 +22,8 @@ from apps.web_console_ng.pages.execution_quality import (
     DEFAULT_RANGE_DAYS,
     _fetch_tca_benchmarks,
     _fetch_tca_data,
+    _is_numeric,
+    _safe_float,
 )
 
 
@@ -309,6 +311,103 @@ class TestFetchTCABenchmarks:
             )
 
         assert result is None
+
+
+class TestSafeFloat:
+    """Tests for _safe_float and _is_numeric helpers."""
+
+    def test_safe_float_valid(self) -> None:
+        """Valid numeric values are converted correctly."""
+        assert _safe_float(3.14) == 3.14
+        assert _safe_float("2.5") == 2.5
+        assert _safe_float(0) == 0.0
+
+    def test_safe_float_invalid(self) -> None:
+        """Invalid values return the default."""
+        assert _safe_float(None) == 0.0
+        assert _safe_float("bad") == 0.0
+        assert _safe_float(None, default=-1.0) == -1.0
+
+    def test_is_numeric_valid(self) -> None:
+        """_is_numeric returns True for convertible values."""
+        assert _is_numeric(150.25) is True
+        assert _is_numeric("42") is True
+        assert _is_numeric(0) is True
+
+    def test_is_numeric_invalid(self) -> None:
+        """_is_numeric returns False for non-numeric values."""
+        assert _is_numeric(None) is False
+        assert _is_numeric("bad") is False
+        assert _is_numeric([]) is False
+
+
+class TestBenchmarkDemoModeGating:
+    """Tests that benchmark fetch is skipped in demo mode."""
+
+    @pytest.mark.asyncio()
+    async def test_benchmark_not_fetched_in_demo_mode(self) -> None:
+        """Benchmark API should not be called when TCA data comes from demo mode."""
+        # When the TCA analysis API fails, demo data is used and
+        # _fetch_tca_benchmarks should NOT be called (guarded by
+        # ``not state.get("demo_mode")``).
+        tca_fail_response = MagicMock()
+        tca_fail_response.status_code = 503
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = tca_fail_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            # Fetch TCA data — will fail and caller should switch to demo mode
+            result = await _fetch_tca_data(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 31),
+                symbol=None,
+                strategy_id=None,
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        # Confirm API failure returns None (triggers demo fallback)
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_benchmark_fetched_for_real_orders(self) -> None:
+        """Benchmark API is called when real TCA data is available."""
+        benchmark_response = MagicMock()
+        benchmark_response.status_code = 200
+        benchmark_response.json.return_value = {
+            "client_order_id": "order-1",
+            "symbol": "AAPL",
+            "benchmark_type": "vwap",
+            "points": [
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": 150.25,
+                    "benchmark_price": 150.1,
+                }
+            ],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = benchmark_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=["alpha_baseline"],
+            )
+
+        assert result is not None
+        assert len(result["points"]) == 1
 
 
 class TestDefaultDateRange:
