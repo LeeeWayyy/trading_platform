@@ -22,6 +22,7 @@ from apps.web_console_ng.pages.execution_quality import (
     DEFAULT_RANGE_DAYS,
     _fetch_tca_benchmarks,
     _fetch_tca_data,
+    _generate_demo_benchmark_data,
     _is_numeric,
     _safe_float,
 )
@@ -495,6 +496,36 @@ class TestBenchmarkDemoModeGating:
         # returns the raw payload so the render guard can do its job.
         assert result is not None
         assert result["points"] == "bad-data"
+
+
+class TestGenerateDemoBenchmarkData:
+    """Tests for _generate_demo_benchmark_data fallback."""
+
+    def test_demo_benchmark_returns_valid_structure(self) -> None:
+        """Demo benchmark data has expected keys and non-empty points."""
+        order = {"client_order_id": "demo-0001", "symbol": "AAPL"}
+        result = _generate_demo_benchmark_data(order)
+
+        assert isinstance(result, dict)
+        assert result["symbol"] == "AAPL"
+        assert result["benchmark_type"] == "vwap"
+        assert isinstance(result["points"], list)
+        assert len(result["points"]) == 10
+
+    def test_demo_benchmark_deterministic(self) -> None:
+        """Same order produces identical demo benchmark data."""
+        order = {"client_order_id": "demo-0001", "symbol": "AAPL"}
+        r1 = _generate_demo_benchmark_data(order)
+        r2 = _generate_demo_benchmark_data(order)
+        assert r1["points"] == r2["points"]
+
+    def test_demo_benchmark_points_have_valid_prices(self) -> None:
+        """All demo benchmark points have finite numeric prices."""
+        order = {"client_order_id": "demo-0002", "symbol": "MSFT"}
+        result = _generate_demo_benchmark_data(order)
+        for point in result["points"]:
+            assert _is_numeric(point["execution_price"])
+            assert _is_numeric(point["benchmark_price"])
 
 
 class TestDefaultDateRange:

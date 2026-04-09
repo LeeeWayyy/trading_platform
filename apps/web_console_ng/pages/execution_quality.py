@@ -271,6 +271,36 @@ def _generate_demo_data(
     }
 
 
+def _generate_demo_benchmark_data(order: dict[str, Any]) -> dict[str, Any]:
+    """Generate deterministic demo benchmark comparison data for one order.
+
+    Used as fallback when in demo mode so the benchmark chart section
+    is still rendered with placeholder data.
+    """
+    import random
+
+    random.seed(_stable_hash(str(order.get("client_order_id", ""))))
+    num_points = 10
+    base_price = 150.0
+    return {
+        "client_order_id": order.get("client_order_id", "demo"),
+        "symbol": order.get("symbol", "DEMO"),
+        "benchmark_type": "vwap",
+        "points": [
+            {
+                "timestamp": f"10:{i * 5:02d}",
+                "execution_price": round(
+                    base_price * (1 + random.uniform(-0.002, 0.003)), 2
+                ),
+                "benchmark_price": round(
+                    base_price * (1 + random.uniform(-0.001, 0.001)), 2
+                ),
+            }
+            for i in range(num_points)
+        ],
+    }
+
+
 @ui.page("/execution-quality")
 @requires_auth
 @main_layout
@@ -484,6 +514,10 @@ async def _render_tca_dashboard(
                     role=role,
                     strategies=authorized_strategies,
                 )
+        elif orders and state.get("demo_mode"):
+            # Generate deterministic demo benchmark data so the chart
+            # section is still visible in demo/fallback mode.
+            benchmark_data = _generate_demo_benchmark_data(orders[0])
 
         # Render charts
         with charts_container:
@@ -559,9 +593,12 @@ async def _render_tca_dashboard(
                     bm_type = str(
                         benchmark_data.get("benchmark_type", "VWAP")
                     ).upper()
-                    ui.label(
-                        f"Execution vs {bm_type} — {bm_symbol} (First Order)"
-                    ).classes("text-lg font-bold mb-2")
+                    chart_title = f"Execution vs {bm_type} — {bm_symbol}"
+                    if state.get("demo_mode"):
+                        chart_title += " (Demo)"
+                    else:
+                        chart_title += " (First Order)"
+                    ui.label(chart_title).classes("text-lg font-bold mb-2")
 
                     # Filter out points with non-finite prices to avoid
                     # misleading zero-price dips on the chart.
@@ -592,6 +629,17 @@ async def _render_tca_dashboard(
                         ui.label("Benchmark data unavailable").classes(
                             "text-gray-500 p-4"
                         )
+            elif orders:
+                # Benchmark API returned no data or invalid payload —
+                # show a diagnostic card so the user knows the section
+                # exists but data is missing.
+                with ui.card().classes("w-full p-4"):
+                    ui.label("Execution vs Benchmark").classes(
+                        "text-lg font-bold mb-2"
+                    )
+                    ui.label("Benchmark data unavailable").classes(
+                        "text-gray-500 p-4"
+                    )
 
         # Render orders table
         with orders_container:
