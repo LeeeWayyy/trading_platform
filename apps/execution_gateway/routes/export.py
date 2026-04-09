@@ -809,6 +809,29 @@ def _validate_columns(
     return [c for c in resolved if c in allowed] or allowed
 
 
+def _resolve_sort_aliases(
+    grid_name: str,
+    sort_model: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    """Resolve frontend column aliases in sort_model items.
+
+    The web console grids may emit display-friendly column IDs in the
+    sort model (e.g. ``"type"`` instead of ``"order_type"``).  This
+    translates each ``colId`` through ``_COLUMN_ALIASES`` so that the
+    downstream ``_build_order_clause`` can match them against the
+    server-side allowlist.
+    """
+    if not sort_model:
+        return sort_model
+    aliases = _COLUMN_ALIASES.get(grid_name, {})
+    if not aliases:
+        return sort_model
+    return [
+        {**item, "colId": aliases.get(item.get("colId", ""), item.get("colId", ""))}
+        for item in sort_model
+    ]
+
+
 def _build_order_clause(
     sort_model: list[dict[str, Any]] | None,
     allowed_columns: list[str],
@@ -829,6 +852,113 @@ def _build_order_clause(
     return ", ".join(parts) if parts else default_order
 
 
+def _build_filter_clause(
+    filter_params: dict[str, Any] | None,
+    allowed_columns: list[str],
+    *,
+    col_prefix: str = "",
+) -> tuple[str, list[Any]]:
+    """Build a parameterized WHERE fragment from AG Grid filter model.
+
+    Supports the common AG Grid filter types:
+    - ``text`` filters (contains, equals, startsWith, endsWith, notEqual)
+    - ``number`` filters (equals, greaterThan, lessThan, inRange, etc.)
+    - ``date`` filters (equals, greaterThan, lessThan, inRange)
+
+    Only columns present in *allowed_columns* are accepted; unknown
+    columns are silently dropped.  All values are passed as query
+    parameters (never interpolated) to prevent SQL injection.
+
+    Args:
+        filter_params: AG Grid filter model dict.
+        allowed_columns: Server-side column allowlist.
+        col_prefix: Optional table alias prefix (e.g. ``"p."``).
+            Applied to every column reference in the generated SQL.
+
+    Returns:
+        A tuple of (sql_fragment, param_list).  *sql_fragment* is a
+        string like ``"AND col1 ILIKE %s AND col2 >= %s"`` (empty
+        string when there are no applicable filters).  *param_list*
+        contains the corresponding bind values.
+    """
+    if not filter_params:
+        return "", []
+
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    for col, spec in filter_params.items():
+        if col not in allowed_columns:
+            continue
+        if not isinstance(spec, dict):
+            continue
+
+        qcol = f"{col_prefix}{col}"
+        filter_type = spec.get("filterType", "text")
+        ftype = spec.get("type", "")
+
+        if filter_type == "text":
+            value = spec.get("filter")
+            if value is None:
+                continue
+            value = str(value)
+            if ftype == "contains":
+                clauses.append(f"{qcol}::text ILIKE %s")
+                params.append(f"%{value}%")
+            elif ftype == "equals":
+                clauses.append(f"{qcol}::text = %s")
+                params.append(value)
+            elif ftype == "startsWith":
+                clauses.append(f"{qcol}::text ILIKE %s")
+                params.append(f"{value}%")
+            elif ftype == "endsWith":
+                clauses.append(f"{qcol}::text ILIKE %s")
+                params.append(f"%{value}")
+            elif ftype == "notEqual":
+                clauses.append(f"{qcol}::text != %s")
+                params.append(value)
+
+        elif filter_type == "number":
+            value = spec.get("filter")
+            if ftype == "equals" and value is not None:
+                clauses.append(f"{qcol} = %s")
+                params.append(value)
+            elif ftype == "greaterThan" and value is not None:
+                clauses.append(f"{qcol} > %s")
+                params.append(value)
+            elif ftype == "lessThan" and value is not None:
+                clauses.append(f"{qcol} < %s")
+                params.append(value)
+            elif ftype == "greaterThanOrEqual" and value is not None:
+                clauses.append(f"{qcol} >= %s")
+                params.append(value)
+            elif ftype == "lessThanOrEqual" and value is not None:
+                clauses.append(f"{qcol} <= %s")
+                params.append(value)
+            elif ftype == "inRange":
+                lo = spec.get("filter")
+                hi = spec.get("filterTo")
+                if lo is not None and hi is not None:
+                    clauses.append(f"{qcol} >= %s AND {qcol} <= %s")
+                    params.extend([lo, hi])
+
+        elif filter_type == "date":
+            date_from = spec.get("dateFrom")
+            date_to = spec.get("dateTo")
+            if ftype in ("equals", "greaterThan", "lessThan") and date_from is not None:
+                op = {"equals": "=", "greaterThan": ">", "lessThan": "<"}[ftype]
+                clauses.append(f"{qcol}::date {op} %s")
+                params.append(date_from)
+            elif ftype == "inRange" and date_from is not None and date_to is not None:
+                clauses.append(f"{qcol}::date >= %s AND {qcol}::date <= %s")
+                params.extend([date_from, date_to])
+
+    sql = " AND ".join(clauses)
+    if sql:
+        sql = f"AND {sql} "
+    return sql, params
+
+
 # ---------------------------------------------------------------------------
 # Per-grid data fetchers
 # ---------------------------------------------------------------------------
@@ -839,6 +969,8 @@ def _fetch_positions_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_clause: str = "",
+    filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch positions data scoped to authorized strategies.
 
@@ -854,7 +986,7 @@ def _fetch_positions_data(
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": f"p.{item['colId']}"} if item.get("colId") in columns else item
+            {**item, "colId": f"p.{item.get('colId')}"} if item.get("colId") in columns else item
             for item in sort_model
         ]
     qualified_columns = [f"p.{c}" for c in columns]
@@ -862,6 +994,10 @@ def _fetch_positions_data(
         qualified_sort, qualified_columns, "p.symbol ASC",
     )
     col_list = ", ".join(f"p.{c} AS {c}" for c in columns)
+    query_params: list[Any] = [strategy_ids]
+    if filter_params_list:
+        query_params.extend(filter_params_list)
+    query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -869,9 +1005,10 @@ def _fetch_positions_data(
                 f"SELECT {col_list} FROM positions p "
                 f"JOIN symbol_strategy ss ON p.symbol = ss.symbol "
                 f"WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
+                f"{filter_clause}"
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                query_params,
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -882,18 +1019,25 @@ def _fetch_orders_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_clause: str = "",
+    filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch orders scoped to authorized strategies."""
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
     col_list = ", ".join(columns)
+    query_params: list[Any] = [strategy_ids]
+    if filter_params_list:
+        query_params.extend(filter_params_list)
+    query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM orders "  # noqa: S608
                 f"WHERE strategy_id = ANY(%s) "
+                f"{filter_clause}"
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                query_params,
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -904,19 +1048,26 @@ def _fetch_fills_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_clause: str = "",
+    filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch fills (trades) scoped to authorized strategies."""
     order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
     col_list = ", ".join(f"t.{c}" for c in columns)
+    query_params: list[Any] = [strategy_ids]
+    if filter_params_list:
+        query_params.extend(filter_params_list)
+    query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM trades t "  # noqa: S608
                 f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
                 f"AND t.strategy_id = ANY(%s) "
+                f"{filter_clause}"
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                query_params,
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -927,6 +1078,8 @@ def _fetch_audit_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_clause: str = "",
+    filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch audit log entries scoped to authorized strategies.
 
@@ -940,14 +1093,19 @@ def _fetch_audit_data(
     """
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
     col_list = ", ".join(columns)
+    query_params: list[Any] = [strategy_ids]
+    if filter_params_list:
+        query_params.extend(filter_params_list)
+    query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {col_list} FROM audit_log "  # noqa: S608
                 f"WHERE details->>'strategy_id' = ANY(%s) "
+                f"{filter_clause}"
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                query_params,
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -958,6 +1116,8 @@ def _fetch_tca_data(
     strategy_ids: list[str],
     columns: list[str],
     sort_model: list[dict[str, Any]] | None,
+    filter_clause: str = "",
+    filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch TCA trade data with order context, scoped to authorized strategies."""
     # Map column names to their qualified table references
@@ -992,6 +1152,10 @@ def _fetch_tca_data(
     order_clause = _build_order_clause(
         qualified_sort, qualified_tca_columns, "t.executed_at DESC",
     )
+    query_params: list[Any] = [strategy_ids]
+    if filter_params_list:
+        query_params.extend(filter_params_list)
+    query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1000,9 +1164,10 @@ def _fetch_tca_data(
                 f"LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
                 f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
                 f"AND t.strategy_id = ANY(%s) "
+                f"{filter_clause}"
                 f"ORDER BY {order_clause} "
                 f"LIMIT %s",
-                (strategy_ids, _EXPORT_ROW_LIMIT),
+                query_params,
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -1059,22 +1224,40 @@ async def _generate_excel_content(
     # Validate requested columns against server allowlist
     columns = _validate_columns(grid_name, visible_columns)
 
-    # Log when filter_params are provided but not yet applied.
-    # AG Grid filter model support is not yet implemented; exports
-    # return strategy-scoped data without additional column filters.
+    # Resolve frontend aliases in sort_model before building ORDER BY
+    resolved_sort = _resolve_sort_aliases(grid_name, sort_model)
+
+    # Grids that use table aliases in their SQL queries need a prefix
+    # so that filter column references match the aliased table.
+    _GRID_FILTER_PREFIX: dict[str, str] = {
+        "positions": "p.",
+        "fills": "t.",
+        "tca": "t.",
+    }
+    col_prefix = _GRID_FILTER_PREFIX.get(grid_name, "")
+
+    # Also resolve aliases in filter_params keys before building the
+    # filter clause (e.g. "type" -> "order_type" for orders grid).
+    resolved_filter = filter_params
     if filter_params:
-        logger.warning(
-            "export_filter_params_not_applied",
-            extra={
-                "grid_name": grid_name,
-                "filter_keys": list(filter_params.keys()),
-            },
-        )
+        aliases = _COLUMN_ALIASES.get(grid_name, {})
+        if aliases:
+            resolved_filter = {
+                aliases.get(k, k): v for k, v in filter_params.items()
+            }
+
+    # Build filter WHERE clause from AG Grid filter model
+    filter_clause, filter_params_list = _build_filter_clause(
+        resolved_filter, columns, col_prefix=col_prefix,
+    )
 
     # Offload synchronous DB fetch to a worker thread to avoid blocking
     # the FastAPI event loop.
     fetcher = _GRID_FETCHERS[grid_name]
-    rows = await asyncio.to_thread(fetcher, ctx, strategy_ids, columns, sort_model)
+    rows = await asyncio.to_thread(
+        fetcher, ctx, strategy_ids, columns, resolved_sort,
+        filter_clause, filter_params_list,
+    )
 
     # Build workbook (CPU-bound; done in worker thread below)
     def _build_workbook() -> bytes:
