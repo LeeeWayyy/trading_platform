@@ -25,6 +25,7 @@ from apps.web_console_ng.pages.execution_quality import (
     _generate_demo_benchmark_data,
     _is_numeric,
     _safe_float,
+    _should_fetch_benchmark,
 )
 
 
@@ -390,44 +391,38 @@ class TestSafeFloat:
         assert _is_numeric(False) is False
 
 
-class TestBenchmarkDemoModeGating:
-    """Tests that benchmark fetch is gated on demo mode and data validity."""
+class TestShouldFetchBenchmark:
+    """Tests for the _should_fetch_benchmark gating function."""
 
-    @pytest.mark.asyncio()
-    async def test_tca_api_failure_returns_none_for_demo_fallback(self) -> None:
-        """When TCA analysis API returns non-200, _fetch_tca_data returns None.
+    def test_returns_order_id_for_real_mode(self) -> None:
+        """Returns first order's client_order_id when not in demo mode."""
+        orders = [{"client_order_id": "order-abc"}]
+        assert _should_fetch_benchmark(orders, demo_mode=False) == "order-abc"
 
-        The dashboard code uses this None result to enter demo mode and
-        skip _fetch_tca_benchmarks.  This test verifies the precondition
-        (API failure => None) that the dashboard guard depends on.
+    def test_returns_none_in_demo_mode(self) -> None:
+        """Returns None when in demo mode (benchmark fetch should be skipped)."""
+        orders = [{"client_order_id": "order-abc"}]
+        assert _should_fetch_benchmark(orders, demo_mode=True) is None
 
-        Note: Full end-to-end gating test of _render_tca_dashboard is not
-        feasible without NiceGUI server context; the guard logic is:
-            ``if orders and not state.get("demo_mode"):``
-        which is verified by code inspection.
-        """
-        tca_fail_response = MagicMock()
-        tca_fail_response.status_code = 503
+    def test_returns_none_with_no_orders(self) -> None:
+        """Returns None when there are no orders."""
+        assert _should_fetch_benchmark([], demo_mode=False) is None
+        assert _should_fetch_benchmark([], demo_mode=True) is None
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = tca_fail_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+    def test_returns_none_for_empty_order_id(self) -> None:
+        """Returns None when first order has empty client_order_id."""
+        orders: list[dict[str, Any]] = [{"client_order_id": ""}]
+        assert _should_fetch_benchmark(orders, demo_mode=False) is None
 
-            tca_result = await _fetch_tca_data(
-                start_date=date(2024, 1, 1),
-                end_date=date(2024, 1, 31),
-                symbol=None,
-                strategy_id=None,
-                user_id="test_user",
-                role="trader",
-                strategies=[],
-            )
+    def test_returns_none_for_whitespace_order_id(self) -> None:
+        """Returns None when first order has whitespace-only client_order_id."""
+        orders: list[dict[str, Any]] = [{"client_order_id": "   "}]
+        assert _should_fetch_benchmark(orders, demo_mode=False) is None
 
-        # API failure returns None, which triggers demo_mode in the dashboard
-        assert tca_result is None
+    def test_returns_none_for_missing_order_id(self) -> None:
+        """Returns None when first order has no client_order_id key."""
+        orders: list[dict[str, Any]] = [{"symbol": "AAPL"}]
+        assert _should_fetch_benchmark(orders, demo_mode=False) is None
 
     @pytest.mark.asyncio()
     async def test_benchmark_fetched_for_real_orders(self) -> None:

@@ -150,11 +150,12 @@ async def _fetch_tca_benchmarks(
     log_ctx: dict[str, Any] = {
         "client_order_id": client_order_id,
         "benchmark": benchmark,
-        "user_id": user_id,
-        "strategies": strategies,
     }
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # Use a shorter timeout than the main TCA analysis call since
+        # the benchmark chart is supplementary and should not block
+        # the rest of the dashboard from rendering.
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
                 f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
                 params={"client_order_id": client_order_id, "benchmark": benchmark},
@@ -275,20 +276,23 @@ def _generate_demo_benchmark_data(order: dict[str, Any]) -> dict[str, Any]:
     """Generate deterministic demo benchmark comparison data for one order.
 
     Used as fallback when in demo mode so the benchmark chart section
-    is still rendered with placeholder data.
+    is still rendered with placeholder data.  Timestamps use UTC ISO-8601
+    format to match the real API response shape.
     """
     import random
 
     random.seed(_stable_hash(str(order.get("client_order_id", ""))))
     num_points = 10
     base_price = 150.0
+    # Use a fixed demo date with UTC timestamps matching API format
+    demo_date = "2024-01-15"
     return {
         "client_order_id": order.get("client_order_id", "demo"),
         "symbol": order.get("symbol", "DEMO"),
         "benchmark_type": "vwap",
         "points": [
             {
-                "timestamp": f"10:{i * 5:02d}",
+                "timestamp": f"{demo_date}T{10 + i // 12:02d}:{(i * 5) % 60:02d}:00Z",
                 "execution_price": round(
                     base_price * (1 + random.uniform(-0.002, 0.003)), 2
                 ),
@@ -299,6 +303,19 @@ def _generate_demo_benchmark_data(order: dict[str, Any]) -> dict[str, Any]:
             for i in range(num_points)
         ],
     }
+
+
+def _should_fetch_benchmark(orders: list[dict[str, Any]], demo_mode: bool) -> str | None:
+    """Determine whether to fetch benchmark data and return the order ID.
+
+    Returns the client_order_id of the first order when a real benchmark
+    fetch should be made, or None when it should be skipped (demo mode,
+    no orders, or empty order ID).
+    """
+    if not orders or demo_mode:
+        return None
+    first_order_id = str(orders[0].get("client_order_id", "")).strip()
+    return first_order_id or None
 
 
 @ui.page("/execution-quality")
@@ -368,6 +385,10 @@ async def _render_tca_dashboard(
         "strategy_id": None,
         "data": None,
         "demo_mode": False,
+        # Cache benchmark data to avoid re-fetching on filter changes
+        # when the first order hasn't changed.
+        "_benchmark_cache_key": None,
+        "_benchmark_cache_data": None,
     }
 
     # Filters section
@@ -505,15 +526,21 @@ async def _render_tca_dashboard(
             )
 
         benchmark_data: dict[str, Any] | None = None
-        if orders and not state.get("demo_mode"):
-            first_order_id = str(orders[0].get("client_order_id", "")).strip()
-            if first_order_id:
+        fetch_order_id = _should_fetch_benchmark(orders, bool(state.get("demo_mode")))
+        if fetch_order_id:
+            # Use cached benchmark data if the first order hasn't
+            # changed, avoiding redundant API calls on filter tweaks.
+            if state.get("_benchmark_cache_key") == fetch_order_id:
+                benchmark_data = state["_benchmark_cache_data"]
+            else:
                 benchmark_data = await _fetch_tca_benchmarks(
-                    client_order_id=first_order_id,
+                    client_order_id=fetch_order_id,
                     user_id=user_id,
                     role=role,
                     strategies=authorized_strategies,
                 )
+                state["_benchmark_cache_key"] = fetch_order_id
+                state["_benchmark_cache_data"] = benchmark_data
         elif orders and state.get("demo_mode"):
             # Generate deterministic demo benchmark data so the chart
             # section is still visible in demo/fallback mode.
