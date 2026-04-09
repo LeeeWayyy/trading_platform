@@ -945,9 +945,15 @@ def _build_filter_clause(
         elif filter_type == "date":
             date_from = spec.get("dateFrom")
             date_to = spec.get("dateTo")
-            if ftype in ("equals", "greaterThan", "lessThan") and date_from is not None:
-                op = {"equals": "=", "greaterThan": ">", "lessThan": "<"}[ftype]
-                clauses.append(f"{qcol}::date {op} %s")
+            _date_ops = {
+                "equals": "=",
+                "greaterThan": ">",
+                "lessThan": "<",
+                "greaterThanOrEqual": ">=",
+                "lessThanOrEqual": "<=",
+            }
+            if ftype in _date_ops and date_from is not None:
+                clauses.append(f"{qcol}::date {_date_ops[ftype]} %s")
                 params.append(date_from)
             elif ftype == "inRange" and date_from is not None and date_to is not None:
                 clauses.append(f"{qcol}::date >= %s AND {qcol}::date <= %s")
@@ -1120,7 +1126,11 @@ def _fetch_tca_data(
     filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch TCA trade data with order context, scoped to authorized strategies."""
-    # Map column names to their qualified table references
+    # Map column names to their qualified table references.
+    # Every column in _GRID_COLUMNS["tca"] MUST have an entry here so
+    # that SELECT / ORDER BY / filter references are unambiguous across
+    # the trades (t) and orders (o) tables.  Columns missing from this
+    # map are silently skipped to prevent incorrect table attribution.
     tca_col_map: dict[str, str] = {
         "trade_id": "t.trade_id",
         "client_order_id": "t.client_order_id",
@@ -1134,21 +1144,24 @@ def _fetch_tca_data(
         "order_qty": "o.qty",
         "filled_avg_price": "o.filled_avg_price",
     }
+    # Only include columns that have an explicit mapping to prevent
+    # incorrect table attribution for unmapped columns.
+    mapped_columns = [c for c in columns if c in tca_col_map]
     select_cols = ", ".join(
-        f"{tca_col_map.get(c, 't.' + c)} AS {c}" for c in columns
+        f"{tca_col_map[c]} AS {c}" for c in mapped_columns
     )
     # Qualify sort columns with table aliases via tca_col_map to
     # avoid ambiguity when trades and orders share column names
-    # (e.g. symbol, qty, client_order_id).
+    # (e.g. symbol, qty, client_order_id).  Only mapped columns
+    # are accepted; unmapped sort entries are dropped.
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": tca_col_map.get(item.get("colId", ""), f"t.{item.get('colId', '')}")}
-            if item.get("colId") in columns
-            else item
+            {**item, "colId": tca_col_map[item.get("colId", "")]}
             for item in sort_model
+            if item.get("colId", "") in tca_col_map
         ]
-    qualified_tca_columns = [tca_col_map.get(c, f"t.{c}") for c in columns]
+    qualified_tca_columns = [tca_col_map[c] for c in mapped_columns]
     order_clause = _build_order_clause(
         qualified_sort, qualified_tca_columns, "t.executed_at DESC",
     )
