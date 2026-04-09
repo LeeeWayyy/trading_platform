@@ -18,7 +18,9 @@ from apps.execution_gateway.app_factory import create_mock_context
 from apps.execution_gateway.routes import export as export_module
 from apps.execution_gateway.routes.export import (
     _GRID_COLUMNS,
+    _build_filter_clause,
     _build_order_clause,
+    _resolve_sort_aliases,
     _validate_columns,
 )
 
@@ -53,6 +55,116 @@ class TestValidateColumns:
         """Frontend alias "type" is resolved to "order_type" for orders."""
         result = _validate_columns("orders", ["symbol", "type", "status"])
         assert result == ["symbol", "order_type", "status"]
+
+
+class TestResolveSortAliases:
+    def test_returns_none_when_no_sort_model(self) -> None:
+        assert _resolve_sort_aliases("orders", None) is None
+
+    def test_resolves_orders_type_alias(self) -> None:
+        model = [{"colId": "type", "sort": "asc"}]
+        result = _resolve_sort_aliases("orders", model)
+        assert result is not None
+        assert result[0]["colId"] == "order_type"
+
+    def test_resolves_fills_time_alias(self) -> None:
+        model = [{"colId": "time", "sort": "desc"}]
+        result = _resolve_sort_aliases("fills", model)
+        assert result is not None
+        assert result[0]["colId"] == "executed_at"
+
+    def test_no_change_for_grids_without_aliases(self) -> None:
+        model = [{"colId": "symbol", "sort": "asc"}]
+        result = _resolve_sort_aliases("positions", model)
+        assert result is model  # Same object returned (no aliases to resolve)
+
+    def test_preserves_sort_direction(self) -> None:
+        model = [{"colId": "type", "sort": "desc"}]
+        result = _resolve_sort_aliases("orders", model)
+        assert result is not None
+        assert result[0]["sort"] == "desc"
+
+    def test_unknown_aliases_pass_through(self) -> None:
+        model = [{"colId": "symbol", "sort": "asc"}, {"colId": "type", "sort": "desc"}]
+        result = _resolve_sort_aliases("orders", model)
+        assert result is not None
+        assert result[0]["colId"] == "symbol"
+        assert result[1]["colId"] == "order_type"
+
+
+class TestBuildFilterClause:
+    def test_returns_empty_when_no_filter(self) -> None:
+        sql, params = _build_filter_clause(None, ["symbol"])
+        assert sql == ""
+        assert params == []
+
+    def test_text_contains_filter(self) -> None:
+        filt = {"symbol": {"filterType": "text", "type": "contains", "filter": "AAPL"}}
+        sql, params = _build_filter_clause(filt, ["symbol"])
+        assert "ILIKE" in sql
+        assert "%AAPL%" in params
+
+    def test_text_equals_filter(self) -> None:
+        filt = {"status": {"filterType": "text", "type": "equals", "filter": "filled"}}
+        sql, params = _build_filter_clause(filt, ["status"])
+        assert "= %s" in sql
+        assert "filled" in params
+
+    def test_number_greater_than_filter(self) -> None:
+        filt = {"qty": {"filterType": "number", "type": "greaterThan", "filter": 10}}
+        sql, params = _build_filter_clause(filt, ["qty"])
+        assert "> %s" in sql
+        assert 10 in params
+
+    def test_number_in_range_filter(self) -> None:
+        filt = {"qty": {"filterType": "number", "type": "inRange", "filter": 5, "filterTo": 20}}
+        sql, params = _build_filter_clause(filt, ["qty"])
+        assert ">= %s" in sql
+        assert "<= %s" in sql
+        assert 5 in params
+        assert 20 in params
+
+    def test_date_in_range_filter(self) -> None:
+        filt = {
+            "created_at": {
+                "filterType": "date",
+                "type": "inRange",
+                "dateFrom": "2026-01-01",
+                "dateTo": "2026-02-01",
+            }
+        }
+        sql, params = _build_filter_clause(filt, ["created_at"])
+        assert "::date >= %s" in sql
+        assert "::date <= %s" in sql
+        assert "2026-01-01" in params
+        assert "2026-02-01" in params
+
+    def test_ignores_unknown_columns(self) -> None:
+        filt = {"evil_col": {"filterType": "text", "type": "contains", "filter": "x"}}
+        sql, params = _build_filter_clause(filt, ["symbol"])
+        assert sql == ""
+        assert params == []
+
+    def test_col_prefix_applied(self) -> None:
+        filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
+        sql, params = _build_filter_clause(filt, ["symbol"], col_prefix="p.")
+        assert "p.symbol" in sql
+        assert "AAPL" in params
+
+    def test_multiple_filters(self) -> None:
+        filt = {
+            "symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"},
+            "qty": {"filterType": "number", "type": "greaterThan", "filter": 5},
+        }
+        sql, params = _build_filter_clause(filt, ["symbol", "qty"])
+        assert "AND" in sql
+        assert len(params) == 2
+
+    def test_non_dict_spec_skipped(self) -> None:
+        filt = {"symbol": "not-a-dict"}
+        sql, params = _build_filter_clause(filt, ["symbol"])
+        assert sql == ""
+        assert params == []
 
 
 class TestBuildOrderClause:
@@ -256,6 +368,57 @@ class TestGenerateExcelContent:
         assert not isinstance(updated_val, str), (
             f"updated_at should be datetime, got str: {updated_val!r}"
         )
+
+    async def test_filter_params_applied_to_query(self) -> None:
+        """Verify that filter_params produce SQL WHERE clauses in the query."""
+        rows = [
+            ("ord-1", "alpha", "AAPL", "buy", 10, "market", None, None, "day", "filled", Decimal("10"), Decimal("150"), datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
+        ]
+        col_names = ["client_order_id", "strategy_id", "symbol", "side", "qty", "order_type", "limit_price", "stop_price", "time_in_force", "status", "filled_qty", "filled_avg_price", "created_at", "filled_at"]
+        cursor = _make_cursor_mock(rows, col_names)
+        conn = _make_conn_mock(cursor)
+        ctx = create_mock_context()
+        ctx.db.transaction.return_value = conn
+
+        _content, row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="orders",
+            strategy_ids=["alpha"],
+            filter_params={"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}},
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        # The SQL executed should contain the filter clause
+        executed_sql = cursor.execute.call_args[0][0]
+        assert "symbol::text = %s" in executed_sql
+        # The bind parameters should include the filter value
+        executed_params = cursor.execute.call_args[0][1]
+        assert "AAPL" in executed_params
+
+    async def test_sort_aliases_resolved_before_order_by(self) -> None:
+        """Verify that frontend aliases in sort_model are resolved before ORDER BY."""
+        rows = [
+            ("ord-1", "alpha", "AAPL", "buy", 10, "market", None, None, "day", "filled", Decimal("10"), Decimal("150"), datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
+        ]
+        col_names = ["client_order_id", "strategy_id", "symbol", "side", "qty", "order_type", "limit_price", "stop_price", "time_in_force", "status", "filled_qty", "filled_avg_price", "created_at", "filled_at"]
+        cursor = _make_cursor_mock(rows, col_names)
+        conn = _make_conn_mock(cursor)
+        ctx = create_mock_context()
+        ctx.db.transaction.return_value = conn
+
+        _content, _row_count = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="orders",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=[{"colId": "type", "sort": "desc"}],
+        )
+
+        # "type" should be resolved to "order_type" in the ORDER BY
+        executed_sql = cursor.execute.call_args[0][0]
+        assert "order_type DESC" in executed_sql
 
     async def test_audit_row_count_matches_data(self) -> None:
         """Verify row_count reflects actual exported rows, not a placeholder."""
