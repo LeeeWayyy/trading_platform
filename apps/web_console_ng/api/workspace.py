@@ -13,6 +13,7 @@ from apps.web_console_ng.auth.csrf import verify_csrf_token
 from apps.web_console_ng.core.workspace_persistence import (
     MAX_STATE_SIZE,
     DatabaseUnavailableError,
+    WorkspaceSchemaUnavailableError,
     get_workspace_service,
 )
 
@@ -151,6 +152,11 @@ async def save_grid_state(
             grid_id=grid_id,
             state=state.model_dump(exclude_none=True),
         )
+    except WorkspaceSchemaUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Workspace schema unavailable",
+        ) from None
     except DatabaseUnavailableError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -177,6 +183,11 @@ async def load_grid_state(
     service = get_workspace_service()
     try:
         return await service.load_grid_state(user_id=user["user_id"], grid_id=grid_id)
+    except WorkspaceSchemaUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Workspace schema unavailable",
+        ) from None
     except DatabaseUnavailableError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -200,6 +211,11 @@ async def reset_grid_state(
     service = get_workspace_service()
     try:
         await service.reset_workspace(user["user_id"], f"grid.{grid_id}")
+    except WorkspaceSchemaUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Workspace schema unavailable",
+        ) from None
     except DatabaseUnavailableError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

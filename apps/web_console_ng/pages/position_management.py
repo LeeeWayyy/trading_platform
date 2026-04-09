@@ -189,7 +189,7 @@ async def position_management_page(client: Client) -> None:
                 ],
                 "rowData": [],
                 "domLayout": "autoHeight",
-                ":getRowId": "params => params.data.symbol",
+                "getRowId": "params => params.data.symbol",
                 "rowSelection": "single",
             }
         ).classes("w-full mb-4")

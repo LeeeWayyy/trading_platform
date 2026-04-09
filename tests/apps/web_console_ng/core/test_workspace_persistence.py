@@ -11,6 +11,7 @@ from apps.web_console_ng.core import workspace_persistence
 from apps.web_console_ng.core.workspace_persistence import (
     DatabaseUnavailableError,
     WorkspacePersistenceService,
+    WorkspaceSchemaUnavailableError,
     get_workspace_service,
 )
 
@@ -88,7 +89,7 @@ async def test_save_grid_state_success(service: WorkspacePersistenceService, mon
 
 
 @pytest.mark.asyncio()
-async def test_save_grid_state_missing_table_returns_false(
+async def test_save_grid_state_missing_table_raises_schema_unavailable(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
     cursor = AsyncMock()
@@ -96,9 +97,8 @@ async def test_save_grid_state_missing_table_returns_false(
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
-    result = await service.save_grid_state("user-1", "grid-1", {"columns": []})
-
-    assert result is False
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.save_grid_state("user-1", "grid-1", {"columns": []})
 
 
 @pytest.mark.asyncio()
@@ -131,7 +131,7 @@ async def test_load_grid_state_missing(service: WorkspacePersistenceService, mon
 
 
 @pytest.mark.asyncio()
-async def test_load_grid_state_missing_table_returns_none(
+async def test_load_grid_state_missing_table_raises_schema_unavailable(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
     cursor = AsyncMock()
@@ -139,7 +139,8 @@ async def test_load_grid_state_missing_table_returns_none(
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
-    assert await service.load_grid_state("user", "grid") is None
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.load_grid_state("user", "grid")
 
 
 @pytest.mark.asyncio()
@@ -266,7 +267,7 @@ async def test_reset_workspace_all(service: WorkspacePersistenceService, monkeyp
 
 
 @pytest.mark.asyncio()
-async def test_reset_workspace_missing_table_noop(
+async def test_reset_workspace_missing_table_raises_schema_unavailable(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
     cursor = AsyncMock()
@@ -274,7 +275,8 @@ async def test_reset_workspace_missing_table_noop(
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
-    await service.reset_workspace("user-1")
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.reset_workspace("user-1")
 
     cursor.execute.assert_called_once()
 

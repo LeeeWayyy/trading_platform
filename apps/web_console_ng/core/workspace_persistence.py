@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from psycopg.errors import UndefinedColumn, UndefinedObject, UndefinedTable
 
@@ -28,11 +28,53 @@ class DatabaseUnavailableError(Exception):
     pass
 
 
+class WorkspaceSchemaUnavailableError(DatabaseUnavailableError):
+    """Raised when workspace_state schema elements are missing."""
+
+    def __init__(
+        self,
+        operation: str,
+        workspace_key: str,
+        *,
+        cause: Exception | None = None,
+    ) -> None:
+        message = (
+            f"workspace_state schema unavailable during {operation} for key={workspace_key}"
+        )
+        if cause is not None:
+            message = f"{message} ({type(cause).__name__})"
+        super().__init__(message)
+        self.operation = operation
+        self.workspace_key = workspace_key
+
+
 def _is_workspace_schema_missing_error(exc: Exception) -> bool:
     """Return True for workspace_state schema drift/missing-table errors."""
     if not isinstance(exc, UndefinedTable | UndefinedColumn | UndefinedObject):
         return False
     return "workspace_state" in str(exc).lower()
+
+
+def _raise_workspace_schema_unavailable(
+    exc: Exception,
+    *,
+    operation: str,
+    workspace_key: str,
+) -> NoReturn:
+    """Log and re-raise schema drift errors as a typed workspace exception."""
+    logger.warning(
+        "workspace_state_schema_unavailable",
+        extra={
+            "operation": operation,
+            "workspace_key": workspace_key,
+            "error": type(exc).__name__,
+        },
+    )
+    raise WorkspaceSchemaUnavailableError(
+        operation,
+        workspace_key,
+        cause=exc,
+    ) from exc
 
 
 @dataclass
@@ -119,12 +161,11 @@ class WorkspacePersistenceService:
                 await conn.commit()
         except Exception as exc:
             if _is_workspace_schema_missing_error(exc):
-                logger.warning(
-                    "workspace_state_schema_unavailable: operation=save_grid_state key=%s error=%s",
-                    workspace_key,
-                    type(exc).__name__,
+                _raise_workspace_schema_unavailable(
+                    exc,
+                    operation="save_grid_state",
+                    workspace_key=workspace_key,
                 )
-                return False
             raise
 
         logger.info(
@@ -167,12 +208,11 @@ class WorkspacePersistenceService:
                     row = await cur.fetchone()
         except Exception as exc:
             if _is_workspace_schema_missing_error(exc):
-                logger.warning(
-                    "workspace_state_schema_unavailable: operation=load_grid_state key=%s error=%s",
-                    workspace_key,
-                    type(exc).__name__,
+                _raise_workspace_schema_unavailable(
+                    exc,
+                    operation="load_grid_state",
+                    workspace_key=workspace_key,
                 )
-                return None
             raise
 
         if not row:
@@ -284,12 +324,11 @@ class WorkspacePersistenceService:
                 await conn.commit()
         except Exception as exc:
             if _is_workspace_schema_missing_error(exc):
-                logger.warning(
-                    "workspace_state_schema_unavailable: operation=save_panel_state key=%s error=%s",
-                    workspace_key,
-                    type(exc).__name__,
+                _raise_workspace_schema_unavailable(
+                    exc,
+                    operation="save_panel_state",
+                    workspace_key=workspace_key,
                 )
-                return False
             raise
 
         logger.info(
@@ -331,12 +370,11 @@ class WorkspacePersistenceService:
                     row = await cur.fetchone()
         except Exception as exc:
             if _is_workspace_schema_missing_error(exc):
-                logger.warning(
-                    "workspace_state_schema_unavailable: operation=load_panel_state key=%s error=%s",
-                    workspace_key,
-                    type(exc).__name__,
+                _raise_workspace_schema_unavailable(
+                    exc,
+                    operation="load_panel_state",
+                    workspace_key=workspace_key,
                 )
-                return None
             raise
 
         if not row:
@@ -422,12 +460,11 @@ class WorkspacePersistenceService:
                 await conn.commit()
         except Exception as exc:
             if _is_workspace_schema_missing_error(exc):
-                logger.warning(
-                    "workspace_state_schema_unavailable: operation=reset_workspace key=%s error=%s",
-                    workspace_key or "all",
-                    type(exc).__name__,
+                _raise_workspace_schema_unavailable(
+                    exc,
+                    operation="reset_workspace",
+                    workspace_key=workspace_key or "all",
                 )
-                return
             raise
 
         logger.info(
@@ -452,6 +489,7 @@ __all__ = [
     "WorkspaceState",
     "WorkspacePersistenceService",
     "DatabaseUnavailableError",
+    "WorkspaceSchemaUnavailableError",
     "get_workspace_service",
     "SCHEMA_VERSIONS",
 ]

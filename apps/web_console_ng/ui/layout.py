@@ -247,8 +247,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         # Header
         status_bar = StatusBar()
-        log_drawer = LogDrawer(notification_router)
-        log_drawer.create()
 
         with ui.header().classes(
             "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"
@@ -258,6 +256,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
             # Header metrics (NLV, Leverage, Day Change) - P6T2
             header_metrics = HeaderMetrics()
+            log_drawer = LogDrawer(notification_router)
+            log_drawer.create()
 
             latency_monitor = LatencyMonitor()
             latency_badge = (
