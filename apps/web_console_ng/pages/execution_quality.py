@@ -55,10 +55,12 @@ MAX_RANGE_DAYS = 90
 def _safe_float(value: Any, default: float = 0.0) -> float:
     """Safely coerce a value to a finite float, returning *default* on failure.
 
-    Returns *default* for None, non-numeric strings, NaN, and +/-inf.
+    Returns *default* for None, booleans, non-numeric strings, NaN, and +/-inf.
     """
     import math
 
+    if isinstance(value, bool):
+        return default
     try:
         result = float(value)
     except (TypeError, ValueError):
@@ -71,10 +73,12 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 def _is_numeric(value: Any) -> bool:
     """Return True when *value* can be converted to a finite float.
 
-    Rejects None, non-numeric strings, NaN, and +/-inf.
+    Rejects None, booleans, non-numeric strings, NaN, and +/-inf.
     """
     import math
 
+    if isinstance(value, bool):
+        return False
     try:
         result = float(value)
     except (TypeError, ValueError):
@@ -146,6 +150,8 @@ async def _fetch_tca_benchmarks(
     log_ctx: dict[str, Any] = {
         "client_order_id": client_order_id,
         "benchmark": benchmark,
+        "user_id": user_id,
+        "strategies": strategies,
     }
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -155,7 +161,13 @@ async def _fetch_tca_benchmarks(
                 headers=_build_tca_auth_headers(user_id, role, strategies),
             )
             if response.status_code == 200:
-                result: dict[str, Any] = response.json()
+                result = response.json()
+                if not isinstance(result, dict):
+                    logger.warning(
+                        "TCA benchmark API returned unexpected payload type",
+                        extra={**log_ctx, "type": type(result).__name__},
+                    )
+                    return None
                 return result
             logger.warning(
                 "TCA benchmark API returned non-200",

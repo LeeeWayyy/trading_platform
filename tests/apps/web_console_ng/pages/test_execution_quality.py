@@ -312,6 +312,29 @@ class TestFetchTCABenchmarks:
 
         assert result is None
 
+    @pytest.mark.asyncio()
+    async def test_fetch_benchmarks_non_dict_json(self) -> None:
+        """JSON response that is not a dict returns None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = ["unexpected", "list"]
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=["alpha_baseline"],
+            )
+
+        assert result is None
+
 
 class TestSafeFloat:
     """Tests for _safe_float and _is_numeric helpers."""
@@ -336,6 +359,11 @@ class TestSafeFloat:
         assert _safe_float("nan") == 0.0
         assert _safe_float("inf") == 0.0
 
+    def test_safe_float_rejects_booleans(self) -> None:
+        """Booleans are not valid price values."""
+        assert _safe_float(True) == 0.0
+        assert _safe_float(False) == 0.0
+
     def test_is_numeric_valid(self) -> None:
         """_is_numeric returns True for convertible values."""
         assert _is_numeric(150.25) is True
@@ -355,16 +383,28 @@ class TestSafeFloat:
         assert _is_numeric(float("-inf")) is False
         assert _is_numeric("nan") is False
 
+    def test_is_numeric_rejects_booleans(self) -> None:
+        """Booleans are not valid numeric price values."""
+        assert _is_numeric(True) is False
+        assert _is_numeric(False) is False
+
 
 class TestBenchmarkDemoModeGating:
     """Tests that benchmark fetch is gated on demo mode and data validity."""
 
     @pytest.mark.asyncio()
-    async def test_benchmark_not_fetched_when_tca_api_fails(self) -> None:
-        """When TCA analysis API fails (returns None), the caller enters demo
-        mode and should skip _fetch_tca_benchmarks.  We verify the precondition
-        by confirming _fetch_tca_data returns None and asserting
-        _fetch_tca_benchmarks is NOT invoked (via the demo_mode guard)."""
+    async def test_tca_api_failure_returns_none_for_demo_fallback(self) -> None:
+        """When TCA analysis API returns non-200, _fetch_tca_data returns None.
+
+        The dashboard code uses this None result to enter demo mode and
+        skip _fetch_tca_benchmarks.  This test verifies the precondition
+        (API failure => None) that the dashboard guard depends on.
+
+        Note: Full end-to-end gating test of _render_tca_dashboard is not
+        feasible without NiceGUI server context; the guard logic is:
+            ``if orders and not state.get("demo_mode"):``
+        which is verified by code inspection.
+        """
         tca_fail_response = MagicMock()
         tca_fail_response.status_code = 503
 
@@ -385,25 +425,8 @@ class TestBenchmarkDemoModeGating:
                 strategies=[],
             )
 
-        # TCA API failure returns None -- caller must set demo_mode=True
+        # API failure returns None, which triggers demo_mode in the dashboard
         assert tca_result is None
-
-        # Simulate the demo_mode guard used in _render_tca_dashboard:
-        # ``if orders and not state.get("demo_mode"): ...``
-        demo_mode = tca_result is None  # True when API failed
-        with patch(
-            "apps.web_console_ng.pages.execution_quality._fetch_tca_benchmarks",
-            new_callable=AsyncMock,
-        ) as mock_bench:
-            if not demo_mode:
-                await mock_bench(
-                    client_order_id="order-1",
-                    user_id="test_user",
-                    role="trader",
-                    strategies=[],
-                )
-            # In demo mode the function must never be called
-            mock_bench.assert_not_called()
 
     @pytest.mark.asyncio()
     async def test_benchmark_fetched_for_real_orders(self) -> None:
