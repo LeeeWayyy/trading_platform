@@ -24,6 +24,7 @@ from typing import Any
 
 import polars as pl
 import pytest
+from psycopg.errors import UndefinedColumn
 
 from apps.web_console_ng.pages import backtest as backtest_module
 
@@ -520,9 +521,6 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
 
 def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
     """Older schemas without cost_summary should still render backtest jobs."""
-
-    class UndefinedColumn(Exception):
-        pass
 
     class FakeCursor:
         def __init__(self) -> None:

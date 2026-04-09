@@ -71,14 +71,14 @@ from libs.data.data_providers.yfinance_provider import (
 try:
     from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 except ModuleNotFoundError:
-    SyncManager = None  # type: ignore[assignment]
-    SyncProgress = None  # type: ignore[assignment]
+    SyncManager = None  # type: ignore[assignment,misc]
+    SyncProgress = None  # type: ignore[assignment,misc]
 
 try:
     from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 except ModuleNotFoundError:
-    WRDSClient = None  # type: ignore[assignment]
-    WRDSConfig = None  # type: ignore[assignment]
+    WRDSClient = None  # type: ignore[assignment,misc]
+    WRDSConfig = None  # type: ignore[assignment,misc]
 
 __all__ = [
     # CRSP Local Provider

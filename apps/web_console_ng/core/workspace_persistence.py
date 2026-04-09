@@ -7,6 +7,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from psycopg.errors import UndefinedColumn, UndefinedObject, UndefinedTable
+
 from apps.web_console_ng.core.database import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -28,8 +30,7 @@ class DatabaseUnavailableError(Exception):
 
 def _is_workspace_schema_missing_error(exc: Exception) -> bool:
     """Return True for workspace_state schema drift/missing-table errors."""
-    exc_type = type(exc).__name__
-    if exc_type not in {"UndefinedTable", "UndefinedColumn", "UndefinedObject"}:
+    if not isinstance(exc, (UndefinedTable, UndefinedColumn, UndefinedObject)):
         return False
     return "workspace_state" in str(exc).lower()
 

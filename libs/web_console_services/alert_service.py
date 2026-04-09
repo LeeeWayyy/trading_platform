@@ -24,20 +24,24 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 
 logger = logging.getLogger(__name__)
 
+_EMAIL_CHANNEL_IMPORT_ERROR: str | None
 try:
-    from libs.platform.alerts.channels.email import EmailChannel as _EmailChannel
+    from libs.platform.alerts.channels.email import EmailChannel as _ImportedEmailChannel
 except ModuleNotFoundError as exc:
-    _EmailChannel = None
+    _EmailChannel: type[BaseChannel] | None = None
     _EMAIL_CHANNEL_IMPORT_ERROR = str(exc)
 else:
+    _EmailChannel = _ImportedEmailChannel
     _EMAIL_CHANNEL_IMPORT_ERROR = None
 
+_SMS_CHANNEL_IMPORT_ERROR: str | None
 try:
-    from libs.platform.alerts.channels.sms import SMSChannel as _SMSChannel
+    from libs.platform.alerts.channels.sms import SMSChannel as _ImportedSMSChannel
 except ModuleNotFoundError as exc:
-    _SMSChannel = None
+    _SMSChannel: type[BaseChannel] | None = None
     _SMS_CHANNEL_IMPORT_ERROR = str(exc)
 else:
+    _SMSChannel = _ImportedSMSChannel
     _SMS_CHANNEL_IMPORT_ERROR = None
 
 EmailChannel: type[BaseChannel] | None = _EmailChannel

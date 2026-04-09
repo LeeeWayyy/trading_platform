@@ -7,12 +7,12 @@ from libs.platform.alerts.channels.slack import SlackChannel
 try:
     from libs.platform.alerts.channels.email import EmailChannel
 except ModuleNotFoundError:
-    EmailChannel = None  # type: ignore[assignment]
+    EmailChannel = None  # type: ignore[assignment,misc]
 
 try:
     from libs.platform.alerts.channels.sms import SMSChannel
 except ModuleNotFoundError:
-    SMSChannel = None  # type: ignore[assignment]
+    SMSChannel = None  # type: ignore[assignment,misc]
 
 __all__ = [
     "BaseChannel",

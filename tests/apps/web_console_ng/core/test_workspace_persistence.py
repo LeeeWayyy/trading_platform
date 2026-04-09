@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from psycopg.errors import UndefinedTable
 
 from apps.web_console_ng.core import workspace_persistence
 from apps.web_console_ng.core.workspace_persistence import (
@@ -90,9 +91,6 @@ async def test_save_grid_state_success(service: WorkspacePersistenceService, mon
 async def test_save_grid_state_missing_table_returns_false(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
-    class UndefinedTable(Exception):
-        pass
-
     cursor = AsyncMock()
     cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)
@@ -136,9 +134,6 @@ async def test_load_grid_state_missing(service: WorkspacePersistenceService, mon
 async def test_load_grid_state_missing_table_returns_none(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
-    class UndefinedTable(Exception):
-        pass
-
     cursor = AsyncMock()
     cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)
@@ -274,9 +269,6 @@ async def test_reset_workspace_all(service: WorkspacePersistenceService, monkeyp
 async def test_reset_workspace_missing_table_noop(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
-    class UndefinedTable(Exception):
-        pass
-
     cursor = AsyncMock()
     cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)

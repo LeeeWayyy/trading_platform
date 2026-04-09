@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import traceback
 from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -43,23 +44,31 @@ def _patch_nicegui_request_tracking_middleware() -> None:
     except (ImportError, AttributeError):
         return
 
-    dispatch = nicegui_storage.RequestTrackingMiddleware.dispatch
+    dispatch = cast(
+        Callable[[Any, Request, Callable[[Request], Awaitable[Response]]], Awaitable[Response]],
+        nicegui_storage.RequestTrackingMiddleware.dispatch,
+    )
     if getattr(dispatch, "_no_response_patch_applied", False):
         return
 
     async def _dispatch_with_no_response_guard(
-        self: object, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        self: Any, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         try:
             return await dispatch(self, request, call_next)
         except RuntimeError as exc:
             if str(exc) == "No response returned.":
-                logger.debug("suppressing_no_response_returned_in_nicegui_storage")
-                return Response(status_code=204)
+                if await request.is_disconnected():
+                    logger.debug("suppressing_no_response_returned_in_nicegui_storage")
+                    return Response(status_code=204)
             raise
 
     setattr(_dispatch_with_no_response_guard, "_no_response_patch_applied", True)
-    nicegui_storage.RequestTrackingMiddleware.dispatch = _dispatch_with_no_response_guard
+    setattr(
+        nicegui_storage.RequestTrackingMiddleware,
+        "dispatch",
+        _dispatch_with_no_response_guard,
+    )
 
 
 class SuppressNoResponseReturnedMiddleware:
@@ -79,11 +88,20 @@ class SuppressNoResponseReturnedMiddleware:
             )
         return False
 
+    @staticmethod
+    async def _is_client_disconnected(scope: Scope, receive: Receive) -> bool:
+        if scope.get("type") != "http":
+            return False
+        request = Request(scope, receive)
+        return await request.is_disconnected()
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:
             await self.app(scope, receive, send)
         except Exception as exc:
-            if scope.get("type") == "http" and self._is_no_response_returned(exc):
+            if self._is_no_response_returned(exc) and await self._is_client_disconnected(
+                scope, receive
+            ):
                 logger.debug("suppressing_no_response_returned_runtime_error_at_asgi")
                 return
             raise
@@ -131,7 +149,11 @@ app.add_middleware(SuppressNoResponseReturnedMiddleware)
 @app.exception_handler(Exception)
 async def log_unhandled_exception(request: Request, exc: Exception) -> PlainTextResponse:
     """Log unhandled exceptions with full traceback for debug."""
-    if isinstance(exc, RuntimeError) and str(exc) == "No response returned.":
+    if (
+        isinstance(exc, RuntimeError)
+        and str(exc) == "No response returned."
+        and await request.is_disconnected()
+    ):
         # Starlette emits this sentinel RuntimeError when the client disconnects
         # before any downstream response can be produced.
         logger.debug("suppressing_no_response_returned_runtime_error")

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import plotly.graph_objects as go
 import polars as pl
 from nicegui import run, ui
+from psycopg.errors import UndefinedColumn
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -96,10 +97,7 @@ def _get_rq_redis_client() -> Redis:
 
 def _is_missing_column_error(exc: Exception, column_name: str) -> bool:
     """Return True when a DB error indicates a missing column."""
-    return (
-        type(exc).__name__ == "UndefinedColumn"
-        and f'column "{column_name}"' in str(exc).lower()
-    )
+    return isinstance(exc, UndefinedColumn) and f'column "{column_name}"' in str(exc).lower()
 
 
 def _get_user_id(user: dict[str, Any]) -> str:
