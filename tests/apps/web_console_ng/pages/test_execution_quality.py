@@ -493,6 +493,62 @@ class TestShouldFetchBenchmark:
         assert result["points"] == "bad-data"
 
 
+class TestBenchmarkCacheBehavior:
+    """Tests for benchmark cache contract (only cache successes, retry failures)."""
+
+    @pytest.mark.asyncio()
+    async def test_successful_fetch_is_cacheable(self) -> None:
+        """Successful benchmark response should be cached (non-None result)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "symbol": "AAPL",
+            "benchmark_type": "vwap",
+            "points": [{"timestamp": "T", "execution_price": 100, "benchmark_price": 99}],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=["s1"],
+            )
+
+        # Result is not None so the dashboard can safely cache it
+        assert result is not None
+
+    @pytest.mark.asyncio()
+    async def test_failed_fetch_returns_none_for_retry(self) -> None:
+        """Failed benchmark fetch returns None so the dashboard does NOT cache it."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        # None tells the dashboard NOT to cache, enabling retry on next load
+        assert result is None
+
+
 class TestGenerateDemoBenchmarkData:
     """Tests for _generate_demo_benchmark_data fallback."""
 

@@ -142,20 +142,26 @@ async def _fetch_tca_benchmarks(
     role: str,
     strategies: list[str],
     benchmark: str = "vwap",
+    *,
+    symbol: str = "",
 ) -> dict[str, Any] | None:
     """Fetch benchmark comparison series for a specific order.
 
     Returns None on error or when the benchmark series is unavailable.
+
+    Args:
+        symbol: Optional symbol for structured log context (not sent to API).
     """
     log_ctx: dict[str, Any] = {
         "client_order_id": client_order_id,
         "benchmark": benchmark,
+        "symbol": symbol,
     }
     try:
-        # Use a shorter timeout than the main TCA analysis call since
-        # the benchmark chart is supplementary and should not block
-        # the rest of the dashboard from rendering.
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        # Use a short timeout since the benchmark chart is supplementary;
+        # a slow or unavailable benchmark API should not noticeably delay
+        # the main dashboard (summary cards + decomposition chart + table).
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(
                 f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
                 params={"client_order_id": client_order_id, "benchmark": benchmark},
@@ -530,6 +536,8 @@ async def _render_tca_dashboard(
         if fetch_order_id:
             # Use cached benchmark data if the first order hasn't
             # changed, avoiding redundant API calls on filter tweaks.
+            # Only cache successful responses so transient failures
+            # are retried on the next load_data invocation.
             if state.get("_benchmark_cache_key") == fetch_order_id:
                 benchmark_data = state["_benchmark_cache_data"]
             else:
@@ -538,9 +546,16 @@ async def _render_tca_dashboard(
                     user_id=user_id,
                     role=role,
                     strategies=authorized_strategies,
+                    symbol=str(orders[0].get("symbol", "")),
                 )
-                state["_benchmark_cache_key"] = fetch_order_id
-                state["_benchmark_cache_data"] = benchmark_data
+                if benchmark_data is not None:
+                    state["_benchmark_cache_key"] = fetch_order_id
+                    state["_benchmark_cache_data"] = benchmark_data
+                else:
+                    # Clear stale cache so transient failures don't
+                    # stick if the order changes later.
+                    state["_benchmark_cache_key"] = None
+                    state["_benchmark_cache_data"] = None
         elif orders and state.get("demo_mode"):
             # Generate deterministic demo benchmark data so the chart
             # section is still visible in demo/fallback mode.
