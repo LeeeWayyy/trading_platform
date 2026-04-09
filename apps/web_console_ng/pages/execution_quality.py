@@ -53,20 +53,33 @@ MAX_RANGE_DAYS = 90
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
-    """Safely coerce a value to float, returning *default* on failure."""
+    """Safely coerce a value to a finite float, returning *default* on failure.
+
+    Returns *default* for None, non-numeric strings, NaN, and +/-inf.
+    """
+    import math
+
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(result):
+        return default
+    return result
 
 
 def _is_numeric(value: Any) -> bool:
-    """Return True when *value* can be converted to a finite float."""
+    """Return True when *value* can be converted to a finite float.
+
+    Rejects None, non-numeric strings, NaN, and +/-inf.
+    """
+    import math
+
     try:
-        float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return False
-    return True
+    return math.isfinite(result)
 
 
 def _build_tca_auth_headers(user_id: str, role: str, strategies: list[str]) -> dict[str, str]:
@@ -515,7 +528,18 @@ async def _render_tca_dashboard(
                 else:
                     ui.label("No order data available").classes("text-gray-500 p-4")
 
-            if benchmark_data and benchmark_data.get("points"):
+            # Validate benchmark payload shape before rendering.
+            raw_points = (
+                benchmark_data.get("points", []) if benchmark_data else []
+            )
+            # Guard: points must be a list of dict-like objects.
+            if not isinstance(raw_points, list):
+                raw_points = []
+            validated_points: list[dict[str, Any]] = [
+                p for p in raw_points if isinstance(p, dict)
+            ]
+
+            if benchmark_data and validated_points:
                 with ui.card().classes("w-full p-4"):
                     bm_symbol = str(
                         benchmark_data.get("symbol", orders[0].get("symbol", ""))
@@ -527,11 +551,11 @@ async def _render_tca_dashboard(
                         f"Execution vs {bm_type} — {bm_symbol} (First Order)"
                     ).classes("text-lg font-bold mb-2")
 
-                    # Filter out points with invalid prices to avoid
+                    # Filter out points with non-finite prices to avoid
                     # misleading zero-price dips on the chart.
                     valid_points = [
                         p
-                        for p in benchmark_data.get("points", [])
+                        for p in validated_points
                         if _is_numeric(p.get("execution_price"))
                         and _is_numeric(p.get("benchmark_price"))
                     ]
