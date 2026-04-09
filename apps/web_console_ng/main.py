@@ -63,12 +63,8 @@ def _patch_nicegui_request_tracking_middleware() -> None:
                     return Response(status_code=204)
             raise
 
-    setattr(_dispatch_with_no_response_guard, "_no_response_patch_applied", True)
-    setattr(
-        nicegui_storage.RequestTrackingMiddleware,
-        "dispatch",
-        _dispatch_with_no_response_guard,
-    )
+    _dispatch_with_no_response_guard._no_response_patch_applied = True  # type: ignore[attr-defined]
+    nicegui_storage.RequestTrackingMiddleware.dispatch = _dispatch_with_no_response_guard  # type: ignore[method-assign]
 
 
 class SuppressNoResponseReturnedMiddleware:

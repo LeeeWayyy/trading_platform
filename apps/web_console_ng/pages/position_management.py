@@ -98,7 +98,7 @@ def _coerce_numeric(value: Any) -> float:
         return 0.0
     if isinstance(value, bool):
         return 0.0
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
         normalized = value.strip().replace(",", "")
