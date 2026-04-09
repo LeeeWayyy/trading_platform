@@ -27,6 +27,18 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 
 logger = logging.getLogger(__name__)
 
+_ALPHA158_IMPORT_ERROR: str | None
+try:
+    from strategies.alpha_baseline.features import (
+        get_alpha158_features as _imported_alpha158_features,
+    )
+except ModuleNotFoundError as exc:
+    _get_alpha158_features: Any | None = None
+    _ALPHA158_IMPORT_ERROR = str(exc)
+else:
+    _get_alpha158_features = _imported_alpha158_features
+    _ALPHA158_IMPORT_ERROR = None
+
 _MAX_CACHE_DAYS = 30
 _MAX_CACHE_SYMBOLS = 5
 _MAX_LOOKBACK_DAYS = 60
@@ -169,12 +181,12 @@ async def feature_browser_page() -> None:
 
         loading_state["feature_data_loading"] = True
         try:
-            try:
-                from strategies.alpha_baseline.features import get_alpha158_features
-            except ModuleNotFoundError as exc:
+            if _get_alpha158_features is None:
                 logger.warning(
-                    "feature_browser_dependency_missing: %s",
-                    exc,
+                    "feature_browser_dependency_missing",
+                    extra={
+                        "reason": _ALPHA158_IMPORT_ERROR or "feature dependencies unavailable",
+                    },
                 )
                 ui.notify(
                     "Feature engine dependencies are not available in this runtime.",
@@ -186,7 +198,7 @@ async def feature_browser_page() -> None:
             start_dt = end_dt - timedelta(days=_MAX_CACHE_DAYS + _MAX_LOOKBACK_DAYS)
             symbols = _DEFAULT_SYMBOLS[:_MAX_CACHE_SYMBOLS]
             features_df = await asyncio.to_thread(
-                get_alpha158_features,
+                _get_alpha158_features,
                 symbols=symbols,
                 start_date=start_dt.isoformat(),
                 end_date=end_dt.isoformat(),

@@ -115,32 +115,36 @@ class AlertConfigService:
                 self._channel_handlers[ChannelType.EMAIL] = EmailChannel()
 
             # SMS requires Twilio credentials - skip if not configured
-            if SMSChannel is None:
-                logger.warning(
-                    "sms_channel_disabled",
-                    extra={
-                        "reason": _SMS_CHANNEL_IMPORT_ERROR or "sms dependencies unavailable",
-                        "hint": (
-                            "Install twilio and set TWILIO_ACCOUNT_SID, "
-                            "TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"
-                        ),
-                    },
-                )
-            # PagerDuty uses routing key per-recipient, no global credentials needed
-            else:
-                try:
-                    self._channel_handlers[ChannelType.SMS] = SMSChannel()
-                except ConfigurationError as exc:
-                    logger.warning(
-                        "sms_channel_disabled",
-                        extra={
-                            "reason": str(exc),
-                            "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
-                        },
-                    )
+            self._add_sms_channel_handler(self._channel_handlers)
             # PagerDuty uses routing key per-recipient, no global credentials needed
             self._channel_handlers[ChannelType.PAGERDUTY] = PagerDutyChannel()
         return self._channel_handlers
+
+    def _add_sms_channel_handler(self, handlers: dict[ChannelType, BaseChannel]) -> None:
+        """Attach SMS handler when dependencies and credentials are available."""
+        if SMSChannel is None:
+            logger.warning(
+                "sms_channel_disabled",
+                extra={
+                    "reason": _SMS_CHANNEL_IMPORT_ERROR or "sms dependencies unavailable",
+                    "hint": (
+                        "Install twilio and set TWILIO_ACCOUNT_SID, "
+                        "TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"
+                    ),
+                },
+            )
+            return
+
+        try:
+            handlers[ChannelType.SMS] = SMSChannel()
+        except ConfigurationError as exc:
+            logger.warning(
+                "sms_channel_disabled",
+                extra={
+                    "reason": str(exc),
+                    "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                },
+            )
 
     async def get_rules(self) -> list[AlertRule]:
         """Fetch all alert rules."""

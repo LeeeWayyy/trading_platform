@@ -50,7 +50,7 @@ class WorkspaceSchemaUnavailableError(DatabaseUnavailableError):
 
 def _is_workspace_schema_missing_error(exc: Exception) -> bool:
     """Return True for workspace_state schema drift/missing-table errors."""
-    if not isinstance(exc, UndefinedTable | UndefinedColumn | UndefinedObject):
+    if not isinstance(exc, (UndefinedTable, UndefinedColumn, UndefinedObject)):
         return False
     return "workspace_state" in str(exc).lower()
 
