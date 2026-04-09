@@ -493,12 +493,18 @@ class TestShouldFetchBenchmark:
         assert result["points"] == "bad-data"
 
 
-class TestBenchmarkCacheBehavior:
-    """Tests for benchmark cache contract (only cache successes, retry failures)."""
+class TestBenchmarkFetchCacheContract:
+    """Tests verifying _fetch_tca_benchmarks return value contract for caching.
+
+    The dashboard caches successful (non-None) responses and retries on
+    None.  These tests verify the return value contract that enables
+    that behavior.  Full dashboard cache-state-transition tests require
+    NiceGUI server context and are not feasible in unit tests.
+    """
 
     @pytest.mark.asyncio()
-    async def test_successful_fetch_is_cacheable(self) -> None:
-        """Successful benchmark response should be cached (non-None result)."""
+    async def test_successful_fetch_returns_dict_for_caching(self) -> None:
+        """Successful benchmark response returns dict (dashboard can cache it)."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -526,8 +532,8 @@ class TestBenchmarkCacheBehavior:
         assert result is not None
 
     @pytest.mark.asyncio()
-    async def test_failed_fetch_returns_none_for_retry(self) -> None:
-        """Failed benchmark fetch returns None so the dashboard does NOT cache it."""
+    async def test_failed_fetch_returns_none_enabling_retry(self) -> None:
+        """Failed benchmark fetch returns None so dashboard skips caching and retries."""
         mock_response = MagicMock()
         mock_response.status_code = 500
 

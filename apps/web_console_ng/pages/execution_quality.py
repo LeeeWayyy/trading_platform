@@ -144,6 +144,7 @@ async def _fetch_tca_benchmarks(
     benchmark: str = "vwap",
     *,
     symbol: str = "",
+    strategy_id: str = "",
 ) -> dict[str, Any] | None:
     """Fetch benchmark comparison series for a specific order.
 
@@ -151,11 +152,13 @@ async def _fetch_tca_benchmarks(
 
     Args:
         symbol: Optional symbol for structured log context (not sent to API).
+        strategy_id: Optional strategy for structured log context (not sent to API).
     """
     log_ctx: dict[str, Any] = {
         "client_order_id": client_order_id,
         "benchmark": benchmark,
         "symbol": symbol,
+        "strategy_id": strategy_id,
     }
     try:
         # Use a short timeout since the benchmark chart is supplementary;
@@ -395,6 +398,9 @@ async def _render_tca_dashboard(
         # when the first order hasn't changed.
         "_benchmark_cache_key": None,
         "_benchmark_cache_data": None,
+        # Request versioning to prevent stale async results from
+        # overwriting newer UI state on rapid filter changes.
+        "_load_generation": 0,
     }
 
     # Filters section
@@ -454,7 +460,14 @@ async def _render_tca_dashboard(
     orders_container = ui.column().classes("w-full")
 
     async def load_data() -> None:
-        """Load TCA data and update UI."""
+        """Load TCA data and update UI.
+
+        Uses a generation counter to discard results from superseded
+        requests when rapid filter changes trigger overlapping loads.
+        """
+        state["_load_generation"] += 1
+        current_generation = state["_load_generation"]
+
         summary_container.clear()
         charts_container.clear()
         orders_container.clear()
@@ -498,6 +511,10 @@ async def _render_tca_dashboard(
         data = await _fetch_tca_data(
             start_dt, end_dt, symbol, strategy, user_id, role, authorized_strategies
         )
+
+        # Discard results from superseded requests (rapid filter changes)
+        if current_generation != state["_load_generation"]:
+            return
 
         # Check for demo mode: API failure OR API returned demo data
         summary = data.get("summary", {}) if data else {}
@@ -547,6 +564,7 @@ async def _render_tca_dashboard(
                     role=role,
                     strategies=authorized_strategies,
                     symbol=str(orders[0].get("symbol", "")),
+                    strategy_id=str(state.get("strategy_id") or ""),
                 )
                 if benchmark_data is not None:
                     state["_benchmark_cache_key"] = fetch_order_id
