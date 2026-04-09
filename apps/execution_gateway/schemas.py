@@ -1430,11 +1430,14 @@ class TCAAnalysisSummary(BaseModel):
     """Aggregated TCA metrics summary for a date range.
 
     Breaking change (issue #158): ``avg_fee_cost_bps`` is now ``float | None``
-    (was ``float``). Returns ``None`` when fee data is untrusted (mixed/non-USD
-    currencies) or no orders have trustworthy fee data. ``total_fees`` on
-    ``TCAOrderDetail`` is also now ``float | None`` for the same reason.
+    (was ``float``). Returns ``None`` when there are zero orders, when all
+    orders have untrusted fee data (mixed/non-USD currencies), or when fee
+    data is otherwise unavailable. ``total_fees`` on ``TCAOrderDetail`` is
+    also now ``float | None`` for the same reason.
     Internal consumers (web console) have been updated. External consumers
-    should handle ``null``.
+    should handle ``null``. If external typed clients are added in the future,
+    introduce ``/api/v2/tca`` with a backwards-compatible default (e.g., 0.0)
+    and a deprecation period for v1.
     """
 
     # Time range
@@ -1464,7 +1467,7 @@ class TCAAnalysisSummary(BaseModel):
         ..., description="Average VWAP benchmark slippage"
     )
     avg_fee_cost_bps: float | None = Field(
-        ..., description="Average fee cost component (None only when ALL orders have untrusted fee data; otherwise averages trustworthy values over total order count)"
+        ..., description="Average fee cost component (None when zero orders exist OR all orders have untrusted fee data; otherwise averages trustworthy values over total order count)"
     )
     avg_opportunity_cost_bps: float = Field(
         ..., description="Average opportunity cost (unfilled qty)"
@@ -1490,6 +1493,8 @@ class TCAOrderDetail(BaseModel):
     Breaking change (issue #158): ``fee_cost_bps`` and ``total_fees`` are now
     ``float | None`` (were ``float``). Return ``None`` when fee currency is
     mixed or non-USD (summing fees across different currencies is invalid).
+    If external typed clients are added, introduce ``/api/v2/tca`` with a
+    backwards-compatible default and a deprecation period for v1.
     """
 
     # Order identification

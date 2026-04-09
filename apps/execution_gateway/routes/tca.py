@@ -160,8 +160,10 @@ def _get_taq_provider() -> Any | None:
 # NOTE (breaking change, issue #158): fee_cost_bps, avg_fee_cost_bps, and
 # total_fees changed from float to float|None.  Version bump not needed because
 # the only consumer is the NiceGUI web console (same repo, already updated).
-# No external typed clients exist for this internal-only API.  If external
-# consumers are added in the future, introduce /api/v2/tca.
+# No external typed clients exist for this internal-only API.
+# COMPATIBILITY: If external consumers are added, introduce /api/v2/tca with a
+# backwards-compatible default (e.g., 0.0 instead of None) and a deprecation
+# period for v1.  See schemas.py TCAAnalysisSummary / TCAOrderDetail docstrings.
 router = APIRouter(prefix="/api/v1/tca", tags=["TCA"])
 
 # TCA auth dependency - requires VIEW_TCA permission
@@ -419,13 +421,14 @@ def _build_fill_batch(
             continue
 
         # Extract fee from order metadata if available.
-        # ALPACA ASSUMPTION: Default fee_currency="USD" because Alpaca is a
-        # US-only broker and all fees are denominated in USD.  When fee_amount
-        # is 0.0, currency is irrelevant.  When metadata provides a non-zero
-        # fee without specifying fee_currency, we log a warning but keep USD
-        # since that is the only currency Alpaca uses.
-        # If a non-USD broker is added, change the default to "UNKNOWN" to
-        # trigger fail-closed via has_non_usd_fees.
+        # ALPACA ASSUMPTION (fail-open): Default fee_currency="USD" because
+        # Alpaca is a US-only broker and all fees are denominated in USD.
+        # When fee_amount is 0.0, currency is irrelevant.  When metadata
+        # provides a non-zero fee without specifying fee_currency, we log a
+        # warning but keep USD since that is the only currency Alpaca uses.
+        # IMPORTANT: If a non-USD broker is added, change the default to
+        # "UNKNOWN" to trigger fail-closed via has_non_usd_fees, ensuring
+        # fee metrics are excluded rather than silently misrepresented.
         fee_amount = 0.0
         fee_currency = "USD"
         order_metadata = trade.get("order_metadata")
@@ -443,12 +446,15 @@ def _build_fill_batch(
                     if isinstance(stored_currency, str) and stored_currency.strip():
                         fee_currency = stored_currency  # normalized by Fill validator
                     elif fee_amount != 0.0:
-                        logger.debug(
+                        logger.warning(
                             "Fill metadata has non-zero fee but no fee_currency; "
                             "defaulting to USD (Alpaca assumption)",
                             extra={
                                 "fill_id": fm.get("fill_id"),
                                 "fee_amount": fee_amount,
+                                "client_order_id": client_order_id,
+                                "symbol": trade.get("symbol"),
+                                "strategy_id": trade.get("strategy_id"),
                             },
                         )
                     break
@@ -821,7 +827,8 @@ def _avg_fee_cost_bps(orders: list[TCAOrderDetail]) -> float | None:
 
     Uses total order count as denominator (same as other cost components)
     so that avg_price + avg_fee + avg_opportunity ≈ avg_implementation_shortfall.
-    Returns None only if no orders have any trustworthy fee data.
+    Returns None when the orders list is empty (zero orders) or when no orders
+    have any trustworthy fee data (all fee_cost_bps are None).
     """
     if not orders:
         return None

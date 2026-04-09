@@ -226,6 +226,9 @@ class TestGetTCAAnalysis:
         data = response.json()
         assert data["orders"] == []
         assert data["summary"]["total_orders"] == 0
+        assert data["summary"]["avg_fee_cost_bps"] is None, (
+            "avg_fee_cost_bps should be None when no orders exist"
+        )
 
     def test_analysis_truncation_warning(
         self, test_client: TestClient, mock_db: MagicMock
@@ -1960,6 +1963,53 @@ class TestFeeCurrencyPropagationEndToEnd:
         assert result.fee_cost_bps is not None, "fee_cost_bps should be valid for USD"
         assert isinstance(result.fee_cost_bps, float)
         assert result.total_fees is not None, "total_fees should be valid for USD"
+        assert result.total_fees == pytest.approx(0.50)
+
+
+class TestMissingFeeCurrencyDefaultsToUSD:
+    """When fill metadata has a non-zero fee but no fee_currency, the default
+    is USD (Alpaca assumption) so fee metrics remain trusted."""
+
+    def test_fee_without_currency_defaults_usd(self) -> None:
+        """Non-zero fee with missing fee_currency defaults to USD, fee_cost_bps is valid."""
+        base_time = datetime.now(UTC) - timedelta(hours=1)
+        trades = [
+            {
+                "trade_id": "trade-0",
+                "client_order_id": "order-no-currency",
+                "broker_order_id": "broker-no-currency",
+                "strategy_id": "alpha_baseline",
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 100,
+                "price": 100.0,
+                "executed_at": base_time,
+                "source": "webhook",
+                "order_submitted_at": base_time - timedelta(minutes=1),
+                "order_qty": 100,
+                "order_filled_qty": 100,
+                "filled_avg_price": 100.0,
+                "order_metadata": {
+                    "fills": [
+                        {
+                            "fill_id": "trade-0",
+                            "fee": "0.50",
+                            # No fee_currency key — defaults to USD
+                        }
+                    ]
+                },
+            },
+        ]
+
+        batch = tca._build_fill_batch("order-no-currency", trades)
+        assert batch is not None
+        assert batch.fills[0].fee_currency == "USD", "Missing fee_currency should default to USD"
+        assert batch.has_non_usd_fees is False
+
+        result = tca._compute_simple_tca(batch)
+        assert result is not None
+        assert result.fee_cost_bps is not None, "fee_cost_bps should be valid (Alpaca USD default)"
+        assert result.total_fees is not None, "total_fees should be valid (Alpaca USD default)"
         assert result.total_fees == pytest.approx(0.50)
 
 
