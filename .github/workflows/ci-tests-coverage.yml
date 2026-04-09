@@ -35,7 +35,6 @@ jobs:
   e2e-tests:
     name: Run E2E tests (Docker stack)
     runs-on: ubuntu-latest
-
     steps:
       - name: Maximize disk space on runner
         uses: mathio/gha-cleanup@v1
@@ -103,20 +102,6 @@ jobs:
           done
           echo "::endgroup::"
 
-      - name: Start services
-        run: |
-          echo "::group::Starting services with docker compose"
-          docker compose -f docker-compose.ci.yml up -d
-          echo "::endgroup::"
-
-      - name: Wait for services to be healthy
-        uses: ./.github/actions/wait-for-services
-        with:
-          compose-file: docker-compose.ci.yml
-          max-iterations: 30
-          sleep-seconds: 4
-          fail-on-timeout: true
-
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -134,18 +119,30 @@ jobs:
 
       - name: Run Alembic migrations
         env:
+          # Host-side DB URL (localhost:5433 maps to postgres:5432
+          # in docker-compose.ci.yml; credentials must match POSTGRES_USER/PASSWORD there)
           DATABASE_URL: postgresql://trader:test_password@localhost:5433/trader_test
         run: |
           echo "::group::Running Alembic migrations"
           # SQL migrations above handle legacy + numbered .sql files.
           # Alembic manages newer Python-based migrations (e.g. auth_audit_log).
-          if [ -f db/alembic.ini ]; then
-            python -m alembic -c db/alembic.ini upgrade head
-            echo "✅ Alembic migrations applied"
-          else
-            echo "⚠️  Alembic not configured, skipping"
-          fi
+          python -m alembic -c db/alembic.ini upgrade head
+          echo "Alembic migrations applied"
           echo "::endgroup::"
+
+      - name: Start services
+        run: |
+          echo "::group::Starting services with docker compose"
+          docker compose -f docker-compose.ci.yml up -d
+          echo "::endgroup::"
+
+      - name: Wait for services to be healthy
+        uses: ./.github/actions/wait-for-services
+        with:
+          compose-file: docker-compose.ci.yml
+          max-iterations: 30
+          sleep-seconds: 4
+          fail-on-timeout: true
 
       - name: Run E2E integration tests
         run: |
