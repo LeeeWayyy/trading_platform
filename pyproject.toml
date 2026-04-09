@@ -97,6 +97,7 @@ pre-commit = "^3.6.0"
 respx = "^0.22.0"
 types-PyYAML = "^6.0"  # Type stubs for PyYAML
 types-defusedxml = "^0.7.0"  # Type stubs for defusedxml
+types-openpyxl = "^3.1.5"  # Type stubs for openpyxl (Excel export)
 
 
 [tool.poetry.group.web-console-ng.dependencies]

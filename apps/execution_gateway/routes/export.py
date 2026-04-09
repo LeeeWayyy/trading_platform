@@ -30,6 +30,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from psycopg.sql import SQL, Composable, Identifier
 from pydantic import BaseModel, Field
 
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
@@ -929,7 +930,12 @@ def _build_filter_clauses(
                 if not isinstance(cond, dict):
                     continue
                 _apply_single_filter(
-                    col, cond, qualified, _jsonb, sub_fragments, sub_params,
+                    col,
+                    cond,
+                    qualified,
+                    _jsonb,
+                    sub_fragments,
+                    sub_params,
                     parent_filter_type=parent_type,
                 )
             if sub_fragments:
@@ -969,11 +975,7 @@ def _apply_single_filter(
     with the text-filter check and would cause number/date ``equals``
     conditions inside compound filters to be misrouted as text filters.
     """
-    filter_type = (
-        spec.get("filterType")
-        or parent_filter_type
-        or spec.get("type", "")
-    )
+    filter_type = spec.get("filterType") or parent_filter_type or spec.get("type", "")
 
     if filter_type in ("text", "contains", "equals", "startsWith", "endsWith"):
         # Cast JSONB columns to text so ILIKE / = operators work.
@@ -1051,19 +1053,22 @@ def _apply_date_filter(
         fragments.append(f"{col}::date = %s::date")
         params.append(date_from)
     elif op == "greaterThan" and date_from:
-        fragments.append(f"{col} > %s::timestamp")
+        # AG Grid date filters are day-based: "greaterThan 2026-01-01"
+        # means "after that entire day", so we use >= dateFrom + 1 day
+        # to exclude all rows on the selected day.
+        fragments.append(f"{col} >= (%s::date + interval '1 day')")
         params.append(date_from)
     elif op == "lessThan" and date_from:
-        fragments.append(f"{col} < %s::timestamp")
+        # AG Grid "lessThan" is also day-based: exclude the selected day
+        # entirely by using < dateFrom (midnight of that day).
+        fragments.append(f"{col} < %s::date")
         params.append(date_from)
     elif op == "inRange" and date_from and date_to:
         # AG Grid sends dateTo as the selected calendar day (midnight).
         # Use ``dateTo::date + interval '1 day'`` so the entire end date
         # is included and single-day ranges (same dateFrom/dateTo) return
         # rows from that day.
-        fragments.append(
-            f"{col} >= %s::timestamp AND {col} < (%s::date + interval '1 day')"
-        )
+        fragments.append(f"{col} >= %s::timestamp AND {col} < (%s::date + interval '1 day')")
         params.append(date_from)
         params.append(date_to)
 
@@ -1099,20 +1104,22 @@ def _fetch_positions_data(
     """
     filter_cols = filterable_columns or columns
     # Qualify sort columns with the "p." alias to avoid ambiguity when
-    # joining positions with the symbol_strategy CTE.
+    # joining positions with the symbol_strategy CTE.  Use filter_cols
+    # (the full allowlist) rather than columns (projected) so sorts on
+    # hidden-but-allowed columns are still honoured.
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": f"p.{item['colId']}"} if item.get("colId") in columns else item
+            {**item, "colId": f"p.{item['colId']}"} if item.get("colId") in filter_cols else item
             for item in sort_model
         ]
-    qualified_columns = [f"p.{c}" for c in columns]
+    qualified_columns = [f"p.{c}" for c in filter_cols]
     order_clause = _build_order_clause(
         qualified_sort,
         qualified_columns,
         "p.symbol ASC",
     )
-    col_list = ", ".join(f"p.{c} AS {c}" for c in columns)
+    col_list = SQL(", ").join(SQL("p.{col} AS {col}").format(col=Identifier(c)) for c in columns)
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
         filter_cols,
@@ -1120,16 +1127,21 @@ def _fetch_positions_data(
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"WITH {SYMBOL_STRATEGY_CTE} "  # noqa: S608
-                f"SELECT {col_list} FROM positions p "
-                f"JOIN symbol_strategy ss ON p.symbol = ss.symbol "
-                f"WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
-                f"{filter_clause} "
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
+            query = SQL(
+                "WITH {cte} "
+                "SELECT {cols} FROM positions p "
+                "JOIN symbol_strategy ss ON p.symbol = ss.symbol "
+                "WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
+                "{filter} "
+                "ORDER BY {order} "
+                "LIMIT %s"
+            ).format(
+                cte=SQL(SYMBOL_STRATEGY_CTE),
+                cols=col_list,
+                filter=SQL(filter_clause),
+                order=SQL(order_clause),
             )
+            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1151,22 +1163,34 @@ def _fetch_orders_data(
     export parity with what the user sees on screen.
     """
     filter_cols = filterable_columns or columns
-    order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
-    col_list = ", ".join(columns)
+    order_clause = _build_order_clause(sort_model, filter_cols, "created_at DESC")
+    col_list = SQL(", ").join(Identifier(c) for c in columns)
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
         filter_cols,
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
+            query = SQL(
+                "SELECT {cols} FROM orders "
+                "WHERE strategy_id = ANY(%s) "
+                "AND status = ANY(%s) "
+                "{filter} "
+                "ORDER BY {order} "
+                "LIMIT %s"
+            ).format(
+                cols=col_list,
+                filter=SQL(filter_clause),
+                order=SQL(order_clause),
+            )
             cur.execute(
-                f"SELECT {col_list} FROM orders "  # noqa: S608
-                f"WHERE strategy_id = ANY(%s) "
-                f"AND status = ANY(%s) "
-                f"{filter_clause} "
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                (strategy_ids, list(_WORKING_ORDER_STATUSES), *filter_params_list, _EXPORT_ROW_LIMIT),
+                query,
+                (
+                    strategy_ids,
+                    list(_WORKING_ORDER_STATUSES),
+                    *filter_params_list,
+                    _EXPORT_ROW_LIMIT,
+                ),
             )
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
@@ -1185,16 +1209,19 @@ def _fetch_fills_data(
     The ``status`` column is synthesized as the literal ``'filled'``
     because every record in the trades table represents a completed fill.
     """
-    order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
+    filter_cols = filterable_columns or columns
+    order_clause = _build_order_clause(sort_model, filter_cols, "executed_at DESC")
     # Synthesize 'status' as a literal since it doesn't exist in the
     # trades table -- all trade records are completed fills.
-    col_list = ", ".join(
-        "'filled' AS status" if c == "status" else f"t.{c}"
-        for c in columns
-    )
+    col_parts: list[Composable] = []
+    for c in columns:
+        if c == "status":
+            col_parts.append(SQL("'filled' AS status"))
+        else:
+            col_parts.append(SQL("t.{col}").format(col=Identifier(c)))
+    col_list = SQL(", ").join(col_parts)
     # Exclude the synthetic 'status' column from filter processing
     # since it has no DB backing and cannot be filtered.
-    filter_cols = filterable_columns or columns
     db_columns = [c for c in filter_cols if c != "status"]
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
@@ -1203,15 +1230,19 @@ def _fetch_fills_data(
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {col_list} FROM trades t "  # noqa: S608
-                f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
-                f"AND t.strategy_id = ANY(%s) "
-                f"{filter_clause} "
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
+            query = SQL(
+                "SELECT {cols} FROM trades t "
+                "WHERE COALESCE(t.superseded, FALSE) = FALSE "
+                "AND t.strategy_id = ANY(%s) "
+                "{filter} "
+                "ORDER BY {order} "
+                "LIMIT %s"
+            ).format(
+                cols=col_list,
+                filter=SQL(filter_clause),
+                order=SQL(order_clause),
             )
+            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1235,8 +1266,8 @@ def _fetch_audit_data(
     strategies.
     """
     filter_cols = filterable_columns or columns
-    order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
-    col_list = ", ".join(columns)
+    order_clause = _build_order_clause(sort_model, filter_cols, "timestamp DESC, id DESC")
+    col_list = SQL(", ").join(Identifier(c) for c in columns)
     filter_clause, filter_params_list = _build_filter_clauses(
         filter_params,
         filter_cols,
@@ -1244,14 +1275,18 @@ def _fetch_audit_data(
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {col_list} FROM audit_log "  # noqa: S608
-                f"WHERE details->>'strategy_id' = ANY(%s) "
-                f"{filter_clause} "
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
+            query = SQL(
+                "SELECT {cols} FROM audit_log "
+                "WHERE details->>'strategy_id' = ANY(%s) "
+                "{filter} "
+                "ORDER BY {order} "
+                "LIMIT %s"
+            ).format(
+                cols=col_list,
+                filter=SQL(filter_clause),
+                order=SQL(order_clause),
             )
+            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1298,7 +1333,17 @@ def _fetch_tca_data(
         "order_qty": "o.qty",
         "filled_avg_price": "o.filled_avg_price",
     }
-    select_cols = ", ".join(f"{tca_col_map.get(c, 't.' + c)} AS {c}" for c in columns)
+    # Build SELECT list using psycopg.sql -- column aliases from
+    # tca_col_map are pre-qualified table.column references that are
+    # safe because they come from a hardcoded mapping above, not user
+    # input.  The output alias uses Identifier for proper quoting.
+    select_cols = SQL(", ").join(
+        SQL("{ref} AS {alias}").format(
+            ref=SQL(tca_col_map.get(c, "t." + c)),
+            alias=Identifier(c),
+        )
+        for c in columns
+    )
     # Qualify sort columns with table aliases via tca_col_map to
     # avoid ambiguity when trades and orders share column names
     # (e.g. symbol, qty, client_order_id).
@@ -1310,12 +1355,12 @@ def _fetch_tca_data(
                     **item,
                     "colId": tca_col_map.get(item.get("colId", ""), f"t.{item.get('colId', '')}"),
                 }
-                if item.get("colId") in columns
+                if item.get("colId") in filter_cols
                 else item
             )
             for item in sort_model
         ]
-    qualified_tca_columns = [tca_col_map.get(c, f"t.{c}") for c in columns]
+    qualified_tca_columns = [tca_col_map.get(c, f"t.{c}") for c in filter_cols]
     order_clause = _build_order_clause(
         qualified_sort,
         qualified_tca_columns,
@@ -1323,9 +1368,16 @@ def _fetch_tca_data(
         # return the same rows the user sees in the dashboard grid.
         "t.executed_at ASC",
     )
-    # For TCA filters, qualify column names via tca_col_map so the
+    # For TCA filters, pre-qualify column names via tca_col_map so the
     # WHERE clause references the correct table alias (e.g. "o.qty"
     # for order_qty, not "t.order_qty").
+    #
+    # NOTE: Unlike the other single-table fetchers (which use the
+    # ``col_prefix`` parameter of ``_build_filter_clauses``), TCA
+    # requires per-column qualification because the JOIN spans two
+    # tables with different column owners.  Pre-qualifying here keeps
+    # ``_build_filter_clauses`` simple (single-prefix mode) while
+    # correctly routing each column to its owning table.
     tca_filter_params: dict[str, Any] | None = None
     if filter_params:
         tca_filter_params = {}
@@ -1340,17 +1392,21 @@ def _fetch_tca_data(
     )
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {select_cols} "  # noqa: S608
-                f"FROM trades t "
-                f"LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
-                f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
-                f"AND t.strategy_id = ANY(%s) "
-                f"{filter_clause} "
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT),
+            query = SQL(
+                "SELECT {cols} "
+                "FROM trades t "
+                "LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
+                "WHERE COALESCE(t.superseded, FALSE) = FALSE "
+                "AND t.strategy_id = ANY(%s) "
+                "{filter} "
+                "ORDER BY {order} "
+                "LIMIT %s"
+            ).format(
+                cols=select_cols,
+                filter=SQL(filter_clause),
+                order=SQL(order_clause),
             )
+            cur.execute(query, (strategy_ids, *filter_params_list, _EXPORT_ROW_LIMIT))
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1475,6 +1531,7 @@ async def _generate_excel_content(
     def _build_workbook() -> bytes:
         wb = Workbook()
         ws = wb.active
+        assert ws is not None  # Workbook() always creates an active sheet
         ws.title = grid_name.title()
 
         # Header row -- sanitize headers

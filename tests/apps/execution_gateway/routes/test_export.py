@@ -133,18 +133,14 @@ class TestBuildFilterClauses:
     def test_jsonb_column_cast_to_text(self) -> None:
         """JSONB columns should be cast to ::text for text filters."""
         filt = {"details": {"filterType": "text", "type": "contains", "filter": "login"}}
-        clause, params = _build_filter_clauses(
-            filt, ["details"], jsonb_columns={"details"}
-        )
+        clause, params = _build_filter_clauses(filt, ["details"], jsonb_columns={"details"})
         assert "details::text ILIKE" in clause
         assert "%login%" in params
 
     def test_non_jsonb_column_not_cast(self) -> None:
         """Non-JSONB columns should not be cast even when jsonb_columns is provided."""
         filt = {"action": {"filterType": "text", "type": "contains", "filter": "login"}}
-        clause, params = _build_filter_clauses(
-            filt, ["action"], jsonb_columns={"details"}
-        )
+        clause, params = _build_filter_clauses(filt, ["action"], jsonb_columns={"details"})
         assert "action ILIKE" in clause
         assert "::text" not in clause
 
@@ -188,8 +184,8 @@ class TestBuildFilterClauses:
         # single-day range can actually match rows on that date.
         assert "+ interval '1 day'" in clause
 
-    def test_date_greater_than_uses_strict_gt(self) -> None:
-        """greaterThan date filter should use strict '>' not '>='."""
+    def test_date_greater_than_excludes_selected_day(self) -> None:
+        """greaterThan date filter uses dateFrom + 1 day (day-based semantics)."""
         filt = {
             "executed_at": {
                 "filterType": "date",
@@ -198,8 +194,23 @@ class TestBuildFilterClauses:
             }
         }
         clause, params = _build_filter_clauses(filt, ["executed_at"])
-        assert "> %s" in clause
-        assert ">=" not in clause
+        # Day-based: "greaterThan 2026-01-01" means >= 2026-01-02
+        assert ">= (%s::date + interval '1 day')" in clause
+        assert params == ["2026-01-01"]
+
+    def test_date_less_than_excludes_selected_day(self) -> None:
+        """lessThan date filter excludes the selected day entirely."""
+        filt = {
+            "executed_at": {
+                "filterType": "date",
+                "type": "lessThan",
+                "dateFrom": "2026-03-15",
+            }
+        }
+        clause, params = _build_filter_clauses(filt, ["executed_at"])
+        # Day-based: "lessThan 2026-03-15" means < midnight of that day
+        assert "< %s::date" in clause
+        assert params == ["2026-03-15"]
 
     def test_compound_and_filter(self) -> None:
         """AG Grid compound AND filter with conditions array."""
@@ -276,13 +287,9 @@ class TestBuildFilterClauses:
 
     def test_filter_on_hidden_column_applied(self) -> None:
         """Filters on columns not in the projected set should still apply."""
-        filt: dict[str, Any] = {
-            "status": {"filterType": "text", "type": "equals", "filter": "new"}
-        }
+        filt: dict[str, Any] = {"status": {"filterType": "text", "type": "equals", "filter": "new"}}
         # 'status' is not in projected columns, but is in filterable_columns
-        clause, params = _build_filter_clauses(
-            filt, ["symbol", "qty", "status"]
-        )
+        clause, params = _build_filter_clauses(filt, ["symbol", "qty", "status"])
         assert "status" in clause
         assert "new" in params
 
@@ -370,6 +377,7 @@ class TestGenerateExcelContent:
 
         wb = load_workbook(io.BytesIO(content))
         ws = wb.active
+        assert ws is not None
         assert ws.title == "Positions"
         # Header row
         assert ws.cell(1, 1).value == "symbol"
@@ -430,6 +438,7 @@ class TestGenerateExcelContent:
 
         wb = load_workbook(io.BytesIO(content))
         ws = wb.active
+        assert ws is not None
         # Only requested (valid) columns appear
         assert ws.cell(1, 1).value == "symbol"
         assert ws.cell(1, 2).value == "side"
@@ -508,6 +517,7 @@ class TestGenerateExcelContent:
 
         wb = load_workbook(io.BytesIO(content))
         ws = wb.active
+        assert ws is not None
         # The dangerous formula should be prefixed with '
         assert ws.cell(2, 1).value == "'=IMPORTDATA(url)"
 
@@ -548,6 +558,7 @@ class TestGenerateExcelContent:
 
         wb = load_workbook(io.BytesIO(content))
         ws = wb.active
+        assert ws is not None
         # String column stays string
         assert ws.cell(2, 1).value == "AAPL"
         # Numeric columns must NOT be stringified — openpyxl stores Decimal
@@ -646,11 +657,20 @@ class TestGenerateExcelContent:
             sort_model=None,
         )
 
-        # Verify the SQL was executed with pending status filter
+        # Verify the SQL was executed with pending status filter.
+        # The query is a psycopg.sql.Composed object; use as_string()
+        # with no argument (psycopg3 supports it for non-adaptive SQL).
         cursor_mock = ctx.db.transaction().__enter__().cursor().__enter__()
         call_args = cursor_mock.execute.call_args
-        sql = call_args[0][0]
-        assert "status = ANY" in sql
+        query_obj = call_args[0][0]
+        # psycopg.sql.Composed.as_string() can accept None for basic SQL
+        from psycopg.sql import Composable
+
+        if isinstance(query_obj, Composable):
+            sql_str = query_obj.as_string(None)
+        else:
+            sql_str = str(query_obj)
+        assert "status = ANY" in sql_str
 
     async def test_audit_row_count_matches_data(self) -> None:
         """Verify row_count reflects actual exported rows, not a placeholder."""
@@ -715,6 +735,7 @@ class TestGenerateExcelContent:
 
         wb = load_workbook(io.BytesIO(content))
         ws = wb.active
+        assert ws is not None
         # 'status' column should be present in the header
         assert ws.cell(1, 2).value == "status"
         # Value should be the synthesized 'filled'
@@ -778,6 +799,7 @@ class TestGenerateExcelContent:
 
         wb = load_workbook(io.BytesIO(content))
         ws = wb.active
+        assert ws is not None
         assert ws.cell(2, 1).value == "AAPL"
         assert ws.cell(3, 1).value == "MSFT"
         assert ws.cell(4, 1).value is None  # No third data row
