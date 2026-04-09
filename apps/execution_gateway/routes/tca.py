@@ -157,13 +157,16 @@ def _get_taq_provider() -> Any | None:
         return _taq_provider
 
 
-# NOTE (breaking change, issue #158): fee_cost_bps, avg_fee_cost_bps, and
+# ADR-0040 (breaking change, issue #158): fee_cost_bps, avg_fee_cost_bps, and
 # total_fees changed from float to float|None.  Version bump not needed because
 # the only consumer is the NiceGUI web console (same repo, already updated).
 # No external typed clients exist for this internal-only API.
+# RATIONALE: Silent incorrect fee aggregation (mixed/non-USD currencies) was
+# worse than a nullable field.  Fail-closed returns None for untrusted data.
 # COMPATIBILITY: If external consumers are added, introduce /api/v2/tca with a
 # backwards-compatible default (e.g., 0.0 instead of None) and a deprecation
-# period for v1.  See schemas.py TCAAnalysisSummary / TCAOrderDetail docstrings.
+# period for v1.  See schemas.py TCAAnalysisSummary / TCAOrderDetail docstrings
+# and docs/ADRs/ADR-0040-tca-nullable-fee-fields.md.
 router = APIRouter(prefix="/api/v1/tca", tags=["TCA"])
 
 # TCA auth dependency - requires VIEW_TCA permission

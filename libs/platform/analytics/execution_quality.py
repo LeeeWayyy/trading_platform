@@ -373,9 +373,11 @@ class ExecutionAnalysisResult:
 
     Cost decomposition (v7):
     - price_shortfall_bps: Price-only component on filled qty
-    - fee_cost_bps: Fee component (positive=cost, negative=rebate)
+    - fee_cost_bps: Fee component (positive=cost, negative=rebate);
+      NaN when fee currencies are mixed or non-USD (untrusted)
     - opportunity_cost_bps: Cost of unfilled qty (weighted by unfilled fraction)
-    - total_cost_bps: price_shortfall + fees + opportunity (true IS)
+    - total_cost_bps: price_shortfall + fees + opportunity (true IS);
+      excludes fee_cost_bps when it is NaN (untrusted currency)
     - market_impact_bps: Estimated permanent price impact
     - timing_cost_bps: price_shortfall - market_impact (delay cost)
     """

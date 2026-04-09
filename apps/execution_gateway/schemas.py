@@ -1538,6 +1538,19 @@ class TCAOrderDetail(BaseModel):
         default=100.0, description="% of window with benchmark data", ge=0, le=100
     )
 
+    @model_validator(mode="after")
+    def _fee_fields_consistent(self) -> "TCAOrderDetail":
+        """Enforce that fee_cost_bps and total_fees are both None or both numeric."""
+        fee_bps_none = self.fee_cost_bps is None
+        total_fees_none = self.total_fees is None
+        if fee_bps_none != total_fees_none:
+            raise ValueError(
+                "fee_cost_bps and total_fees must both be None or both numeric; "
+                f"got fee_cost_bps={'None' if fee_bps_none else self.fee_cost_bps}, "
+                f"total_fees={'None' if total_fees_none else self.total_fees}"
+            )
+        return self
+
 
 class TCABenchmarkPoint(BaseModel):
     """Single point in benchmark comparison time series."""

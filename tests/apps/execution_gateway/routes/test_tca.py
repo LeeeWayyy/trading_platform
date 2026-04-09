@@ -1058,6 +1058,9 @@ class TestResultToOrderDetailNanConversion:
         assert order_detail.fee_cost_bps is None, (
             "NaN fee_cost_bps must be converted to None"
         )
+        assert order_detail.total_fees is None, (
+            "total_fees must also be None when fee_cost_bps is NaN (consistency invariant)"
+        )
         assert order_detail.price_shortfall_bps == 1.5  # Other fields unaffected
 
     def test_valid_fee_cost_bps_preserved(self) -> None:
@@ -1756,7 +1759,7 @@ class TestAvgFeeCostBpsAggregation:
             total_fees=0.20,
         )
         order_without_fee = order_with_fee.model_copy(
-            update={"client_order_id": "o2", "fee_cost_bps": None}
+            update={"client_order_id": "o2", "fee_cost_bps": None, "total_fees": None}
         )
 
         result = tca._avg_fee_cost_bps([order_with_fee, order_without_fee])
@@ -1788,7 +1791,7 @@ class TestAvgFeeCostBpsAggregation:
             timing_cost_bps=0.0,
             num_fills=1,
             execution_duration_seconds=1.0,
-            total_fees=0.20,
+            total_fees=None,
         )
 
         result = tca._avg_fee_cost_bps([order])
