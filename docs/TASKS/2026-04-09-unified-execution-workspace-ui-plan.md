@@ -637,3 +637,9 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
 - Model activation/deactivation dialog now requires contextual typed token:
   - `strategy_name:version`
   - includes explicit impact summary before confirmation
+
+8. Navigation IA grouping (phase-1)
+- Updated sidebar rendering in `ui/layout.py` to grouped sections:
+  - `Execute`, `Monitor`, `Analysis`, `Research`, `Governance`
+- Preserved existing `nav_items` permissions and feature-flag logic.
+- Added grouped-section rendering with fallback for unmapped future routes.
