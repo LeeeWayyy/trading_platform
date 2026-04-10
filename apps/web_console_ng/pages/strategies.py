@@ -7,6 +7,7 @@ requires confirmation when open positions exist.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import psycopg
@@ -41,6 +42,28 @@ def _get_strategy_service(db_pool: AsyncConnectionPool) -> StrategyService:
 
     service: StrategyService = getattr(app.storage, "_strategy_service")  # noqa: B009
     return service
+
+
+def _format_updated_label(updated_at: Any, updated_by: Any) -> str:
+    """Format updated-at/by metadata for compact row rendering."""
+    if isinstance(updated_at, datetime):
+        timestamp = updated_at.strftime("%Y-%m-%d %H:%M:%S")
+    elif updated_at is None:
+        timestamp = "—"
+    else:
+        timestamp = str(updated_at)
+    updater = str(updated_by or "system")
+    return f"{timestamp} · {updater}"
+
+
+def _activity_badge(activity: str) -> tuple[str, str]:
+    """Return activity label and style class for strategy activity state."""
+    normalized = activity.strip().lower()
+    if normalized == "active":
+        return "ACTIVE", "workspace-v2-pill workspace-v2-pill-positive"
+    if normalized == "idle":
+        return "IDLE", "workspace-v2-pill workspace-v2-pill-warning"
+    return "UNKNOWN", "workspace-v2-pill"
 
 
 @ui.page("/strategies")
@@ -92,8 +115,10 @@ async def strategies_page() -> None:
 
     await fetch_strategies()
 
-    # Page title
-    ui.label("Strategy Management").classes("text-2xl font-bold mb-4")
+    ui.label("Strategy Management").classes("text-2xl font-bold mb-2")
+    ui.label(
+        "Dense strategy control surface with explicit status, activity, and guarded actions."
+    ).classes("text-xs text-slate-400 mb-3")
 
     @ui.refreshable
     def strategy_list() -> None:
@@ -101,41 +126,76 @@ async def strategies_page() -> None:
             ui.label("No strategies found.").classes("text-gray-500")
             return
 
-        with ui.column().classes("w-full gap-3"):
+        active_count = sum(1 for strat in strategies_data if bool(strat.get("active")))
+        idle_count = sum(
+            1
+            for strat in strategies_data
+            if str(strat.get("activity_status", "unknown")).lower() == "idle"
+        )
+        unknown_count = sum(
+            1
+            for strat in strategies_data
+            if str(strat.get("activity_status", "unknown")).lower() == "unknown"
+        )
+
+        with ui.row().classes("w-full gap-2 mb-2"):
+            ui.label(f"{len(strategies_data)} strategies").classes(
+                "workspace-v2-pill workspace-v2-data-mono"
+            )
+            ui.label(f"{active_count} active").classes(
+                "workspace-v2-pill workspace-v2-pill-positive workspace-v2-data-mono"
+            )
+            ui.label(f"{idle_count} idle").classes(
+                "workspace-v2-pill workspace-v2-pill-warning workspace-v2-data-mono"
+            )
+            ui.label(f"{unknown_count} unknown").classes("workspace-v2-pill workspace-v2-data-mono")
+
+        with ui.row().classes(
+            "w-full items-center gap-3 px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400"
+        ):
+            ui.label("Status").classes("w-20")
+            ui.label("Name").classes("w-44")
+            ui.label("Strategy ID").classes("w-40")
+            ui.label("Activity").classes("w-28")
+            ui.label("Exposure").classes("w-28")
+            ui.label("Updated At / By").classes("flex-1")
+            ui.label("Actions").classes("w-28 text-right")
+
+        with ui.column().classes("w-full gap-2"):
             for strat in strategies_data:
-                with ui.card().classes("w-full p-4"):
-                    with ui.row().classes("items-center justify-between w-full"):
-                        with ui.column().classes("gap-1"):
-                            with ui.row().classes("items-center gap-2"):
-                                ui.label(strat["name"] or strat["strategy_id"]).classes(
-                                    "text-lg font-semibold"
-                                )
-                                # Active badge
-                                if strat["active"]:
-                                    ui.badge("Active", color="green").classes("text-xs")
-                                else:
-                                    ui.badge("Inactive", color="red").classes("text-xs")
-                                # Activity status badge
-                                activity = strat.get("activity_status", "unknown")
-                                if activity == "active":
-                                    ui.badge("Recent Activity", color="blue").classes("text-xs")
-                                elif activity == "idle":
-                                    ui.badge("Idle", color="gray").classes("text-xs")
+                strategy_id = str(strat["strategy_id"])
+                strategy_name = str(strat["name"] or strategy_id)
+                is_active = bool(strat["active"])
+                activity_label, activity_style = _activity_badge(
+                    str(strat.get("activity_status", "unknown"))
+                )
+                status_label = "ACTIVE" if is_active else "INACTIVE"
+                status_style = (
+                    "workspace-v2-pill workspace-v2-pill-positive"
+                    if is_active
+                    else "workspace-v2-pill workspace-v2-pill-negative"
+                )
 
-                            ui.label(strat["strategy_id"]).classes("text-sm text-gray-500")
-                            if strat.get("description"):
-                                ui.label(strat["description"]).classes("text-sm text-gray-600")
+                with ui.card().classes("w-full p-0 bg-slate-900/35 border border-slate-800"):
+                    with ui.row().classes("w-full items-center gap-3 px-3 py-2 text-sm"):
+                        ui.label(status_label).classes(f"w-20 {status_style}")
+                        ui.label(strategy_name).classes("w-44 text-sm font-semibold text-slate-100")
+                        ui.label(strategy_id).classes(
+                            "w-40 text-xs text-slate-400 workspace-v2-data-mono"
+                        )
+                        ui.label(activity_label).classes(f"w-28 {activity_style}")
+                        ui.label("CHECK ON TOGGLE").classes(
+                            "w-28 text-[11px] text-slate-500 workspace-v2-data-mono"
+                        )
+                        ui.label(_format_updated_label(strat.get("updated_at"), strat.get("updated_by"))).classes(
+                            "flex-1 text-xs text-slate-400 workspace-v2-data-mono"
+                        )
 
-                        # Toggle button (admin-only)
                         if can_toggle:
-                            strategy_id = strat["strategy_id"]
-                            is_active = strat["active"]
-                            name = strat["name"] or strategy_id
-
                             async def on_toggle(
                                 sid: str = strategy_id,
                                 currently_active: bool = is_active,
-                                sname: str = name,
+                                sname: str = strategy_name,
                             ) -> None:
                                 await _show_toggle_dialog(
                                     service,
@@ -148,23 +208,23 @@ async def strategies_page() -> None:
                                 )
 
                             if is_active:
-                                ui.button(
-                                    "Deactivate",
-                                    on_click=on_toggle,
-                                    color="red",
-                                ).props("outline size=sm")
+                                ui.button("Deactivate", on_click=on_toggle, color="red").props(
+                                    "outline size=sm"
+                                ).classes("w-24")
                             else:
-                                ui.button(
-                                    "Activate",
-                                    on_click=on_toggle,
-                                    color="green",
-                                ).props("outline size=sm")
+                                ui.button("Activate", on_click=on_toggle, color="green").props(
+                                    "outline size=sm"
+                                ).classes("w-24")
+                        else:
+                            ui.label("Read only").classes("w-24 text-xs text-slate-500 text-right")
 
-                    # Updated info
-                    if strat.get("updated_at"):
+                    with ui.expansion("Details").classes("w-full px-3 pb-3 pt-1"):
+                        ui.label(strat.get("description") or "No strategy description.").classes(
+                            "text-xs text-slate-300"
+                        )
                         ui.label(
-                            f"Last updated: {strat['updated_at']} by {strat.get('updated_by') or 'system'}"
-                        ).classes("text-xs text-gray-400 mt-2")
+                            "Deactivation requires explicit typed confirmation and exposure check."
+                        ).classes("text-[11px] text-slate-500 mt-1")
 
     strategy_list()
 

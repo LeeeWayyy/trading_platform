@@ -184,7 +184,31 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ),  # Visibility controlled by permission check
                 ]
 
-                for label, path, icon, _required_role in nav_items:
+                nav_groups: list[tuple[str, list[str]]] = [
+                    ("Execute", ["/", "/manual-order", "/circuit-breaker"]),
+                    ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
+                    (
+                        "Analysis",
+                        ["/risk", "/risk/exposure", "/execution-quality", "/tax-lots"],
+                    ),
+                    (
+                        "Research",
+                        [
+                            "/research/universes",
+                            "/alpha-explorer",
+                            "/compare",
+                            "/notebooks",
+                            "/backtest",
+                            "/strategies",
+                            "/models",
+                        ],
+                    ),
+                    ("Governance", ["/admin"]),
+                ]
+
+                nav_lookup = {path: (label, path, icon, role) for label, path, icon, role in nav_items}
+
+                def is_nav_item_visible(path: str) -> bool:
                     # Admin link requires MANAGE_API_KEYS or MANAGE_SYSTEM_CONFIG or VIEW_AUDIT
                     if path == "/admin" and not any(
                         has_permission(user, p)
@@ -194,45 +218,83 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             Permission.VIEW_AUDIT,
                         )
                     ):
-                        continue
+                        return False
 
                     # Tax Lots link requires VIEW_TAX_LOTS
                     if path == "/tax-lots" and not has_permission(
                         user, Permission.VIEW_TAX_LOTS
                     ):
-                        continue
+                        return False
 
                     # Exposure link requires VIEW_STRATEGY_EXPOSURE
                     if path == "/risk/exposure" and not has_permission(
                         user, Permission.VIEW_STRATEGY_EXPOSURE
                     ):
-                        continue
+                        return False
 
                     # Universes link requires VIEW_UNIVERSES
                     if path == "/research/universes" and not has_permission(
                         user, Permission.VIEW_UNIVERSES
                     ):
-                        continue
+                        return False
 
                     # Strategies link requires feature flag + MANAGE_STRATEGIES
                     if path == "/strategies" and (
                         not config.FEATURE_STRATEGY_MANAGEMENT
                         or not has_permission(user, Permission.MANAGE_STRATEGIES)
                     ):
-                        continue
+                        return False
 
                     # Models link requires feature flag + VIEW_MODELS
                     if path == "/models" and (
                         not config.FEATURE_MODEL_REGISTRY
                         or not has_permission(user, Permission.VIEW_MODELS)
                     ):
-                        continue
+                        return False
 
                     # Alerts link requires feature flag + VIEW_ALERTS
                     if path == "/alerts" and (
                         not config.FEATURE_ALERTS
                         or not has_permission(user, Permission.VIEW_ALERTS)
                     ):
+                        return False
+
+                    return True
+
+                rendered_paths: set[str] = set()
+
+                for section_label, section_paths in nav_groups:
+                    section_items = [
+                        nav_lookup[path]
+                        for path in section_paths
+                        if path in nav_lookup and is_nav_item_visible(path)
+                    ]
+                    if not section_items:
+                        continue
+
+                    ui.label(section_label).classes(
+                        "text-[10px] text-gray-500 uppercase tracking-wide mt-2 mb-1"
+                    )
+
+                    for label, path, icon, _required_role in section_items:
+                        rendered_paths.add(path)
+                        is_active = current_path == path
+                        active_classes = (
+                            "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
+                        )
+
+                        with ui.link(target=path).classes(
+                            f"nav-link w-full rounded {active_classes}"
+                        ):
+                            with ui.row().classes("items-center gap-3 p-2"):
+                                ui.icon(icon).classes(
+                                    "text-blue-600" if is_active else "text-gray-600"
+                                )
+                                ui.label(label).classes("text-sm")
+
+                # Fallback rendering for any future nav item not mapped to a section.
+                for label, path, icon, _required_role in nav_items:
+                    if path in rendered_paths or not is_nav_item_visible(path):
                         continue
 
                     is_active = current_path == path
