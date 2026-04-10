@@ -17,6 +17,7 @@ from apps.alert_worker.entrypoint import (
     _get_allowed_queues,
     _get_channels,
     _get_rq_queue,
+    _get_rq_redis,
     _require_env,
     _reset_queue_state,
     execute_delivery_job,
@@ -119,7 +120,7 @@ class TestGetRQQueue:
             assert result == mock_queue
 
     def test_get_rq_queue_falls_back_for_unrecognised_origin(self, monkeypatch):
-        """Test that an unrecognised origin falls back to first allowed queue and logs a warning."""
+        """Test that an unrecognised origin falls back to first allowed queue and logs an error."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         mock_redis = Mock()
 
@@ -140,14 +141,14 @@ class TestGetRQQueue:
 
             result = _get_rq_queue()
 
-            # Should fall back to "alerts" (first allowed queue) and log warning
+            # Should fall back to "alerts" (first allowed queue) and log error
             mock_queue_class.assert_called_once_with("alerts", connection=mock_redis)
             assert result == mock_queue
-            mock_logger.warning.assert_called_once()
-            warning_extra = mock_logger.warning.call_args[1]["extra"]
-            assert warning_extra["requested_queue"] == "rogue_queue"
-            assert warning_extra["fallback_queue"] == "alerts"
-            assert warning_extra["rq_job_id"] == "job-123"
+            mock_logger.error.assert_called_once()
+            error_extra = mock_logger.error.call_args[1]["extra"]
+            assert error_extra["requested_queue"] == "rogue_queue"
+            assert error_extra["fallback_queue"] == "alerts"
+            assert error_extra["rq_job_id"] == "job-123"
 
     def test_get_rq_queue_falls_back_to_first_allowed_when_alerts_not_configured(self, monkeypatch):
         """Test fallback uses first (highest-priority) allowed queue when 'alerts' is not in RQ_QUEUES."""
@@ -176,7 +177,7 @@ class TestGetRQQueue:
             # Should fall back to first allowed queue ("alerts_low" - highest priority)
             mock_queue_class.assert_called_once_with("alerts_low", connection=mock_redis)
             assert result == mock_queue
-            mock_logger.warning.assert_called_once()
+            mock_logger.error.assert_called_once()
 
     def test_get_rq_queue_default_uses_first_allowed_when_no_job(self, monkeypatch):
         """Test default queue is first allowed queue when no current job exists."""
@@ -350,36 +351,77 @@ class TestGetCurrentJobContract:
         assert get_current_job() is None
 
 
+class TestGetRqRedis:
+    """Test _get_rq_redis function."""
+
+    def test_creates_redis_from_env(self, monkeypatch):
+        """Test _get_rq_redis creates Redis client from REDIS_URL env var."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", None),
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+
+            result = _get_rq_redis()
+
+            mock_redis_class.from_url.assert_called_once_with("redis://localhost:6379")
+            assert result is mock_redis
+
+    def test_returns_cached_client(self):
+        """Test _get_rq_redis returns cached client on subsequent calls."""
+        mock_redis = Mock()
+
+        with patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis):
+            result = _get_rq_redis()
+            assert result is mock_redis
+
+
 class TestRetryRoutingEndToEnd:
     """Verify the full retry scheduling path enqueues to the correct queue.
 
-    This simulates the _build_executor -> schedule_retry path to confirm
-    retries are enqueued to the originating queue, not a hard-coded default.
+    Uses the real _get_rq_queue (not mocked) to verify origin resolution
+    through _build_executor -> schedule_retry.
     """
 
     @pytest.mark.asyncio()
     async def test_retry_enqueues_to_origin_queue(self):
-        """Verify schedule_retry callback enqueues to the current job's origin queue."""
+        """Verify schedule_retry uses the queue resolved from current job's origin."""
         mock_db_pool = AsyncMock()
-        mock_redis = AsyncMock()
+        mock_redis_async = AsyncMock()
         mock_poison = Mock()
         mock_limiter = Mock()
+        mock_redis_sync = Mock()
         mock_queue = Mock()
 
         resources = AsyncResources(
             db_pool=mock_db_pool,
-            redis_client=mock_redis,
+            redis_client=mock_redis_async,
             poison_queue=mock_poison,
             rate_limiter=mock_limiter,
         )
 
         with (
-            patch("apps.alert_worker.entrypoint._get_rq_queue") as mock_get_queue,
+            # Use real _get_rq_queue, mock its dependencies
+            patch(
+                "apps.alert_worker.entrypoint.get_current_job",
+                return_value=Mock(origin="alerts_high", id="job-456"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis_sync),
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts", "alerts_high"),
+            ),
+            patch(
+                "apps.alert_worker.entrypoint.Queue", return_value=mock_queue
+            ) as mock_queue_class,
             patch("apps.alert_worker.entrypoint._get_channels"),
             patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class,
             patch("apps.alert_worker.entrypoint.asyncio.to_thread") as mock_to_thread,
         ):
-            mock_get_queue.return_value = mock_queue
             mock_to_thread.return_value = None
 
             await _build_executor(
@@ -391,14 +433,14 @@ class TestRetryRoutingEndToEnd:
                 body="Test Body",
             )
 
-            # Verify _get_rq_queue was called (inherits current job's origin)
-            mock_get_queue.assert_called_once()
+            # _get_rq_queue should have resolved to "alerts_high" from job origin
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis_sync)
 
             # Get the retry_scheduler and invoke it
             retry_scheduler = mock_executor_class.call_args[1]["retry_scheduler"]
             await retry_scheduler(delay=30, next_attempt=1)
 
-            # Verify the retry was enqueued to the queue from _get_rq_queue
+            # Verify the retry was enqueued to the origin queue
             mock_to_thread.assert_called_once()
             enqueue_fn = mock_to_thread.call_args[0][0]
             assert enqueue_fn == mock_queue.enqueue_in

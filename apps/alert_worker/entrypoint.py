@@ -124,7 +124,7 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
 
     if queue_name not in allowed:
         job_id = getattr(current_job, "id", None)
-        logger.warning(
+        logger.error(
             "queue_name_not_allowed",
             extra={
                 "requested_queue": queue_name,
