@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Middleware is already registered at module level with _cors_allow_origins;
         # we populate the shared list in-place here.
         cors_origins = _resolve_cors_origins()
-        _cors_allow_origins.extend(cors_origins)
+        _cors_allow_origins[:] = cors_origins  # atomic replace, safe across restarts
         logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
 
         if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":

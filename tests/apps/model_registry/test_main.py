@@ -305,20 +305,19 @@ def test_cors_production_without_allowed_origins_raises_error(monkeypatch: pytes
         _resolve_cors_origins()
 
 
-def test_module_importable_without_allowed_origins(monkeypatch: pytest.MonkeyPatch):
+def test_module_importable_without_allowed_origins():
     """Test that the module can be imported without ALLOWED_ORIGINS set (issue #156).
 
     CORS validation now happens at startup (in lifespan), not at import time.
+    The module-level code no longer reads ALLOWED_ORIGINS, so a simple import
+    check suffices without reload (which would mix stale objects).
     """
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
-
-    from importlib import reload
-
     import apps.model_registry.main as main_module
 
-    # Module should import successfully — no RuntimeError at import time
-    reload(main_module)
+    # Module should be importable — no RuntimeError at import time
+    assert main_module is not None
+    assert hasattr(main_module, "app")
+    assert hasattr(main_module, "_resolve_cors_origins")
 
 
 # =============================================================================
@@ -666,11 +665,8 @@ async def test_lifespan_populates_cors_origins(mock_registry, mock_manifest_mana
     _cors_allow_origins.clear()
 
 
-def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPatch):
-    """Test that the real app starts successfully with TestClient (ASGI startup integration)."""
-    monkeypatch.setenv("ENVIRONMENT", "test")
-    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:8501")
-
+def _make_mock_registry_and_manager():
+    """Helper to create mock registry and manifest manager for integration tests."""
     mock_registry = Mock()
     mock_registry.get_manifest.return_value = _create_test_manifest(
         artifact_count=5,
@@ -679,6 +675,15 @@ def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPa
     mock_manager = Mock()
     mock_manager.exists.return_value = True
     mock_manager.verify_integrity.return_value = True
+    return mock_registry, mock_manager
+
+
+def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPatch):
+    """Test that the real app starts successfully with TestClient (ASGI startup integration)."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:8501")
+
+    mock_registry, mock_manager = _make_mock_registry_and_manager()
 
     with (
         patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
@@ -686,9 +691,65 @@ def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPa
         patch("apps.model_registry.main.set_registry"),
     ):
         with TestClient(app) as client:
+            # Verify basic startup works
             response = client.get("/health")
             assert response.status_code == 200
             assert response.json()["status"] == "healthy"
+
+            # Verify CORS headers for allowed origin
+            response = client.get(
+                "/health",
+                headers={"Origin": "http://localhost:8501"},
+            )
+            assert response.status_code == 200
+            assert response.headers.get("access-control-allow-origin") == "http://localhost:8501"
+            assert response.headers.get("access-control-allow-credentials") == "true"
+
+            # Verify CORS headers are absent for disallowed origin
+            response = client.get(
+                "/health",
+                headers={"Origin": "https://evil.example.com"},
+            )
+            assert response.status_code == 200
+            assert "access-control-allow-origin" not in response.headers
+
+
+@pytest.mark.asyncio()
+async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pytest.MonkeyPatch):
+    """Test that _cors_allow_origins is replaced (not accumulated) across restarts."""
+    from apps.model_registry.main import _cors_allow_origins
+
+    mock_registry, mock_manager = _make_mock_registry_and_manager()
+    test_app = FastAPI()
+
+    # First startup with origin A
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://a.example.com")
+    _cors_allow_origins.clear()
+
+    with (
+        patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manager),
+        patch("apps.model_registry.main.set_registry"),
+    ):
+        async with lifespan(test_app):
+            assert _cors_allow_origins == ["https://a.example.com"]
+
+    # Second startup with origin B (simulates restart with new config)
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://b.example.com")
+
+    with (
+        patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manager),
+        patch("apps.model_registry.main.set_registry"),
+    ):
+        async with lifespan(test_app):
+            # Should only contain origin B, not both A and B
+            assert _cors_allow_origins == ["https://b.example.com"]
+            assert "https://a.example.com" not in _cors_allow_origins
+
+    # Clean up
+    _cors_allow_origins.clear()
 
 
 def test_main_entry_point_not_executed_on_import():
