@@ -94,6 +94,12 @@ class TestOrderEntryContextComponentSetters:
         context.set_price_chart(price_chart)
         assert context._price_chart is price_chart
 
+    def test_set_connection_state_callback(self, context: OrderEntryContext) -> None:
+        """set_connection_state_callback stores callback reference."""
+        callback = MagicMock()
+        context.set_connection_state_callback(callback)
+        assert context._connection_state_callback is callback
+
     def test_set_strategy_context_widget(self, context: OrderEntryContext) -> None:
         """set_strategy_context_widget stores component reference."""
         strategy_widget = MagicMock()
@@ -630,9 +636,13 @@ class TestConnectionStateCallback:
     @pytest.mark.asyncio()
     async def test_connection_connected(self, context: OrderEntryContext) -> None:
         """CONNECTED state sets is_read_only=False."""
+        callback = MagicMock()
+        context.set_connection_state_callback(callback)
+
         await context._on_connection_update({"state": "CONNECTED"})
 
         context._order_ticket.set_connection_state.assert_called_with("CONNECTED", False)
+        callback.assert_called_with("CONNECTED", False)
 
     @pytest.mark.asyncio()
     async def test_connection_disconnected(self, context: OrderEntryContext) -> None:
@@ -665,9 +675,13 @@ class TestConnectionStateCallback:
     @pytest.mark.asyncio()
     async def test_connection_invalid_payload(self, context: OrderEntryContext) -> None:
         """Invalid payload is treated as UNKNOWN."""
+        callback = MagicMock()
+        context.set_connection_state_callback(callback)
+
         await context._on_connection_update("not-a-dict")  # type: ignore[arg-type]
 
         context._order_ticket.set_connection_state.assert_called_with("UNKNOWN", True)
+        callback.assert_called_with("UNKNOWN", True)
 
 
 class TestPositionUpdateCallback:

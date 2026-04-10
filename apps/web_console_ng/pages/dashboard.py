@@ -87,6 +87,8 @@ logger = logging.getLogger(__name__)
 
 # Maximum fills to keep in memory to prevent unbounded growth
 MAX_FILLS_ITEMS = 100
+# Workspace live-data staleness threshold before interaction lock
+WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
 
 ScopeKey = tuple[str, frozenset[str]]
 
@@ -400,6 +402,10 @@ async def dashboard(client: Client) -> None:
     strategy_context_widget: StrategyContextWidget | None = None
     tabs_host: ui.column | None = None
     log_tail_host: ui.column | None = None
+    workspace_root: Any | None = None
+    workspace_overlay: Any | None = None
+    workspace_overlay_title: ui.label | None = None
+    workspace_overlay_detail: ui.label | None = None
     authorized_strategy_scope = [
         str(strategy).strip()
         for strategy in get_authorized_strategies(user)
@@ -414,7 +420,7 @@ async def dashboard(client: Client) -> None:
 
     # Metrics strip/cards
     if use_workspace_v2:
-        with ui.element("section").classes("workspace-v2 w-full mb-3"):
+        with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
             with ui.element("div").classes("workspace-v2-command-strip"):
                 pnl_card = _MetricStripValue(
                     "UNR P&L",
@@ -463,6 +469,15 @@ async def dashboard(client: Client) -> None:
 
                     tabs_host = ui.column().classes("workspace-v2-tabs-area")
                     log_tail_host = ui.column().classes("shrink-0")
+
+            with ui.element("div").classes("workspace-v2-overlay hidden") as workspace_overlay:
+                with ui.card().classes("workspace-v2-overlay-card"):
+                    workspace_overlay_title = ui.label("Connection unavailable").classes(
+                        "workspace-v2-overlay-title"
+                    )
+                    workspace_overlay_detail = ui.label(
+                        "Trading actions are locked until the workspace stream recovers."
+                    ).classes("workspace-v2-overlay-detail")
     else:
         with trading_grid().classes("w-full mb-2"):
             pnl_card = MetricCard(
@@ -697,6 +712,78 @@ async def dashboard(client: Client) -> None:
     orders_snapshot: list[dict[str, Any]] = []
     fills_snapshot: list[dict[str, Any]] = []
     history_snapshot: list[dict[str, Any]] = []
+    workspace_last_live_data_at: float | None = None
+    workspace_connection_state = "CONNECTED"
+    workspace_connection_read_only = False
+
+    def _set_workspace_mask(*, locked: bool, title: str = "", detail: str = "") -> None:
+        """Show/hide workspace interaction mask for safety-critical stale/disconnect states."""
+        if not use_workspace_v2 or workspace_root is None or workspace_overlay is None:
+            return
+
+        if locked:
+            workspace_root.classes(add="workspace-v2-locked")
+            workspace_overlay.classes(remove="hidden")
+            if workspace_overlay_title is not None:
+                workspace_overlay_title.text = title
+            if workspace_overlay_detail is not None:
+                workspace_overlay_detail.text = detail
+        else:
+            workspace_root.classes(remove="workspace-v2-locked")
+            workspace_overlay.classes(add="hidden")
+
+    def _mark_workspace_live_data() -> None:
+        """Record latest successful live update timestamp for stale masking."""
+        nonlocal workspace_last_live_data_at
+        workspace_last_live_data_at = time.monotonic()
+
+    def _is_workspace_data_stale(now: float | None = None) -> tuple[bool, float]:
+        """Return (is_stale, age_seconds)."""
+        if workspace_last_live_data_at is None:
+            return (False, 0.0)
+        current = now if now is not None else time.monotonic()
+        age = current - workspace_last_live_data_at
+        return (age > WORKSPACE_DATA_STALE_THRESHOLD_S, age)
+
+    def _evaluate_workspace_mask() -> None:
+        """Lock interactive workspace zones when connection is read-only or live data is stale."""
+        if not use_workspace_v2:
+            return
+
+        if workspace_connection_read_only:
+            _set_workspace_mask(
+                locked=True,
+                title=f"Connection {workspace_connection_state}",
+                detail=(
+                    "Trading actions are locked while the workspace is read-only. "
+                    "Waiting for reconnection."
+                ),
+            )
+            return
+
+        stale, age_s = _is_workspace_data_stale()
+        if stale:
+            _set_workspace_mask(
+                locked=True,
+                title="Live data stale",
+                detail=(
+                    f"No live updates for {age_s:.0f}s. Trading actions are locked "
+                    "until stream freshness is restored."
+                ),
+            )
+            return
+
+        _set_workspace_mask(locked=False)
+
+    def _on_workspace_connection_state(state: str, is_read_only: bool) -> None:
+        """Bridge OrderEntryContext connection updates into dashboard workspace mask."""
+        nonlocal workspace_connection_state, workspace_connection_read_only
+        workspace_connection_state = str(state or "UNKNOWN").upper()
+        workspace_connection_read_only = bool(is_read_only)
+        _evaluate_workspace_mask()
+
+    order_context.set_connection_state_callback(_on_workspace_connection_state)
+    _evaluate_workspace_mask()
 
     def _current_symbol_filter() -> str | None:
         if tabbed_panel is None:
@@ -952,6 +1039,8 @@ async def dashboard(client: Client) -> None:
         normalized_events = [_format_event_time(dict(event)) for event in recent_events]
         _update_last_sync_label(normalized_events)
         await activity_feed.add_items(normalized_events, highlight=False)
+        _mark_workspace_live_data()
+        _evaluate_workspace_mask()
 
     await load_initial_data()
 
@@ -986,6 +1075,8 @@ async def dashboard(client: Client) -> None:
 
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols, positions_snapshot
+        _mark_workspace_live_data()
+        _evaluate_workspace_mask()
         if "total_unrealized_pl" in data:
             pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
         if "total_positions" in data:
@@ -1073,6 +1164,8 @@ async def dashboard(client: Client) -> None:
 
     async def on_orders_update(data: dict[str, Any]) -> None:
         nonlocal order_ids, orders_snapshot
+        _mark_workspace_live_data()
+        _evaluate_workspace_mask()
         if "orders" in data:
             orders_snapshot = list(data["orders"])
             _update_filter_options()
@@ -1094,6 +1187,8 @@ async def dashboard(client: Client) -> None:
 
     async def on_fill_event(data: dict[str, Any]) -> None:
         nonlocal fills_snapshot
+        _mark_workspace_live_data()
+        _evaluate_workspace_mask()
         normalized = _format_event_time(dict(data))
         fills_snapshot.insert(
             0,
@@ -1288,6 +1383,8 @@ async def dashboard(client: Client) -> None:
             role=user_role,
             strategies=user_strategies,
         )
+        _mark_workspace_live_data()
+        _evaluate_workspace_mask()
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
     timers.append(market_timer)
@@ -1296,6 +1393,7 @@ async def dashboard(client: Client) -> None:
         for card in [pnl_card, positions_card, realized_card, bp_card]:
             if card.is_stale(threshold=30.0):
                 card.mark_stale()
+        _evaluate_workspace_mask()
 
     stale_timer = ui.timer(config.DASHBOARD_STALE_CHECK_SECONDS, check_stale_data)
     timers.append(stale_timer)

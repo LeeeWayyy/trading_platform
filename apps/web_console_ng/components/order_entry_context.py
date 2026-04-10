@@ -143,6 +143,8 @@ class OrderEntryContext:
         self._channel_callbacks: dict[str, Callable[[dict[str, Any]], Any]] = {}
         # Failed subscriptions to retry on reconnect
         self._failed_subscriptions: dict[str, tuple[set[str], Callable[..., Any]]] = {}
+        # Optional dashboard callback for connection state masking/UX
+        self._connection_state_callback: Callable[[str, bool], None] | None = None
 
         # Track current selected channel for unsubscribe
         self._current_selected_channel: str | None = None
@@ -218,6 +220,12 @@ class OrderEntryContext:
         self._one_click_handler = handler
         # Sync initial cached state
         self._sync_one_click_cached_state()
+
+    def set_connection_state_callback(
+        self, callback: Callable[[str, bool], None] | None
+    ) -> None:
+        """Set optional callback for connection state changes."""
+        self._connection_state_callback = callback
 
     def dispatch_strategy_model_context(
         self,
@@ -901,6 +909,11 @@ class OrderEntryContext:
             self._cached_connection_state = "UNKNOWN"
             if self._order_ticket:
                 self._order_ticket.set_connection_state("UNKNOWN", True)
+            if self._connection_state_callback:
+                try:
+                    self._connection_state_callback("UNKNOWN", True)
+                except Exception as callback_exc:
+                    logger.warning(f"Connection callback failed for UNKNOWN state: {callback_exc}")
             # Sync to T7 components so risk-increasing actions fail closed
             self._sync_one_click_cached_state()
             return
@@ -945,6 +958,11 @@ class OrderEntryContext:
 
         if self._order_ticket:
             self._order_ticket.set_connection_state(state, is_read_only)
+        if self._connection_state_callback:
+            try:
+                self._connection_state_callback(state, is_read_only)
+            except Exception as callback_exc:
+                logger.warning(f"Connection callback failed for state {state}: {callback_exc}")
 
         # Sync to T7 components
         self._sync_one_click_cached_state()
