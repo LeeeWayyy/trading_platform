@@ -47,6 +47,8 @@ def _get_allowed_queues() -> tuple[str, ...]:
     listed has the highest polling priority in RQ.  Falls back to
     ``("alerts",)`` when the variable is unset or empty.  The result is
     cached in ``_ALLOWED_QUEUES`` for the lifetime of the process.
+
+    Call ``_reset_queue_state()`` to invalidate the cache (useful in tests).
     """
     global _ALLOWED_QUEUES
     if _ALLOWED_QUEUES is None:
@@ -59,6 +61,14 @@ def _get_allowed_queues() -> tuple[str, ...]:
         )
         _ALLOWED_QUEUES = parsed if parsed else ("alerts",)
     return _ALLOWED_QUEUES
+
+
+def _reset_queue_state() -> None:
+    """Reset all queue-related caches.  Intended for test teardown only."""
+    global _ALLOWED_QUEUES, _RQ_REDIS
+    _ALLOWED_QUEUES = None
+    _RQ_REDIS = None
+    _RQ_QUEUES.clear()
 
 
 @dataclass

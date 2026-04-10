@@ -18,6 +18,7 @@ from apps.alert_worker.entrypoint import (
     _get_channels,
     _get_rq_queue,
     _require_env,
+    _reset_queue_state,
     execute_delivery_job,
     main,
 )
@@ -290,6 +291,55 @@ class TestGetAllowedQueues:
         with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", cached):
             result = _get_allowed_queues()
             assert result is cached
+
+
+class TestResetQueueState:
+    """Test _reset_queue_state function."""
+
+    def test_reset_clears_all_queue_caches(self, monkeypatch):
+        """Test _reset_queue_state clears allowed queues, Redis client, and queue cache."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        import apps.alert_worker.entrypoint as mod
+
+        # Set some state
+        mod._ALLOWED_QUEUES = ("test",)
+        mod._RQ_REDIS = Mock()
+        mod._RQ_QUEUES["test"] = Mock()
+
+        _reset_queue_state()
+
+        assert mod._ALLOWED_QUEUES is None
+        assert mod._RQ_REDIS is None
+        assert len(mod._RQ_QUEUES) == 0
+
+
+class TestGetCurrentJobContract:
+    """Verify rq.get_current_job contract assumptions.
+
+    These tests ensure our assumptions about the RQ API remain valid
+    across library version upgrades, reducing the risk of silent
+    misrouting that would only surface in integration tests.
+    """
+
+    def test_rq_job_has_origin_attribute(self):
+        """Verify rq.Job instances expose the 'origin' attribute we rely on."""
+        import inspect
+
+        from rq.job import Job
+
+        # origin is set as an instance attribute in Job.__init__
+        init_source = inspect.getsource(Job.__init__)
+        assert "self.origin" in init_source, (
+            "rq.Job.__init__ no longer sets 'self.origin'; "
+            "_get_rq_queue queue routing will not work correctly"
+        )
+
+    def test_get_current_job_returns_none_outside_worker(self):
+        """Verify get_current_job() returns None when not inside a worker."""
+        from rq import get_current_job
+
+        assert get_current_job() is None
 
 
 class TestCreateAsyncResources:
