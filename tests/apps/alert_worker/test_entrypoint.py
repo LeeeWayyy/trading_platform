@@ -123,7 +123,7 @@ class TestGetRQQueue:
             assert result == mock_queue
 
     def test_get_rq_queue_falls_back_for_unrecognised_origin(self, monkeypatch):
-        """Test that an unrecognised origin falls back to 'alerts' and logs a warning."""
+        """Test that an unrecognised origin falls back to first allowed queue and logs a warning."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
 
         with (
@@ -145,12 +145,68 @@ class TestGetRQQueue:
 
             result = _get_rq_queue()
 
-            # Should fall back to "alerts" and log warning
+            # Should fall back to "alerts" (first allowed queue) and log warning
             mock_queue_class.assert_called_once_with("alerts", connection=mock_redis)
             assert result == mock_queue
             mock_logger.warning.assert_called_once()
             warning_extra = mock_logger.warning.call_args[1]["extra"]
             assert warning_extra["requested_queue"] == "rogue_queue"
+
+    def test_get_rq_queue_falls_back_to_first_allowed_when_alerts_not_configured(self, monkeypatch):
+        """Test fallback uses first allowed queue when 'alerts' is not in RQ_QUEUES."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                frozenset({"alerts_high", "alerts_low"}),
+            ),
+            patch("apps.alert_worker.entrypoint.logger") as mock_logger,
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            # Simulate rogue origin when "alerts" is not even in the allowed set
+            mock_get_current_job.return_value = Mock(origin="rogue_queue")
+
+            result = _get_rq_queue()
+
+            # Should fall back to first sorted allowed queue ("alerts_high")
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
+            assert result == mock_queue
+            mock_logger.warning.assert_called_once()
+
+    def test_get_rq_queue_default_uses_first_allowed_when_no_job(self, monkeypatch):
+        """Test default queue is first allowed queue when no current job exists."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                frozenset({"alerts_high"}),
+            ),
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            # No current job
+            mock_get_current_job.return_value = None
+
+            result = _get_rq_queue()
+
+            # Should default to "alerts_high" (only allowed queue)
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
+            assert result == mock_queue
 
     def test_get_rq_queue_caches_per_origin_without_cross_contamination(self, monkeypatch):
         """Test multiple distinct origins each get their own cached Queue."""
@@ -722,6 +778,7 @@ class TestMain:
             patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
             patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
             patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None),
         ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -755,6 +812,7 @@ class TestMain:
             patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
             patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
             patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None),
         ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -773,7 +831,7 @@ class TestMain:
 
             main()
 
-            # Verify worker was created with custom queues
+            # Verify worker was created with custom queues (sorted)
             mock_worker_class.assert_called_once_with(
                 ["alerts", "high_priority", "low_priority"], connection=mock_redis
             )
@@ -789,6 +847,7 @@ class TestMain:
             patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
             patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
             patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None),
         ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True

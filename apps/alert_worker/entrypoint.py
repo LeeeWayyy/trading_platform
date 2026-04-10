@@ -80,24 +80,27 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
     """Return (and cache) an RQ ``Queue`` for the given *queue_name*.
 
     When *queue_name* is ``None`` the function infers the name from the
-    current RQ job's ``origin`` attribute, falling back to ``"alerts"``.
+    current RQ job's ``origin`` attribute, falling back to the first
+    queue in the allowed set.
 
     The resolved name is validated against the set of queues this worker
     is allowed to process (``_get_allowed_queues``).  Unrecognised names
-    are replaced with ``"alerts"`` and a warning is logged so that a
-    rogue ``origin`` value cannot cause unbounded cache growth.
+    are replaced with the first allowed queue and a warning is logged so
+    that a rogue ``origin`` value cannot cause unbounded cache growth.
     """
+    allowed = _get_allowed_queues()
+    default_queue = sorted(allowed)[0]
+
     if queue_name is None:
         current_job = get_current_job()
-        queue_name = getattr(current_job, "origin", None) or "alerts"
+        queue_name = getattr(current_job, "origin", None) or default_queue
 
-    allowed = _get_allowed_queues()
     if queue_name not in allowed:
         logger.warning(
             "queue_name_not_allowed",
             extra={"requested_queue": queue_name, "allowed_queues": sorted(allowed)},
         )
-        queue_name = "alerts"
+        queue_name = default_queue
 
     queue = _RQ_QUEUES.get(queue_name)
     if queue is None:
@@ -302,8 +305,7 @@ def main() -> None:
 
     asyncio.run(_sync_startup_metrics())
 
-    queues_env = os.getenv("RQ_QUEUES")
-    queues = [q.strip() for q in queues_env.split(",") if q.strip()] if queues_env else ["alerts"]
+    queues = sorted(_get_allowed_queues())
 
     worker = Worker(queues, connection=redis_client)
     logger.info("alert_worker_starting", extra={"queues": queues, "pid": os.getpid()})
