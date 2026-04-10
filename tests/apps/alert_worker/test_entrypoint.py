@@ -60,7 +60,7 @@ class TestGetRQQueue:
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
-            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", frozenset({"alerts"})),
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", ("alerts",)),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -81,7 +81,7 @@ class TestGetRQQueue:
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
-            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", frozenset({"alerts"})),
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", ("alerts",)),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -108,7 +108,7 @@ class TestGetRQQueue:
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch(
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
-                frozenset({"alerts", "alerts_high"}),
+                ("alerts", "alerts_high"),
             ),
         ):
             mock_redis = Mock()
@@ -133,7 +133,7 @@ class TestGetRQQueue:
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch(
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
-                frozenset({"alerts"}),
+                ("alerts",),
             ),
             patch("apps.alert_worker.entrypoint.logger") as mock_logger,
         ):
@@ -153,7 +153,7 @@ class TestGetRQQueue:
             assert warning_extra["requested_queue"] == "rogue_queue"
 
     def test_get_rq_queue_falls_back_to_first_allowed_when_alerts_not_configured(self, monkeypatch):
-        """Test fallback uses first allowed queue when 'alerts' is not in RQ_QUEUES."""
+        """Test fallback uses first (highest-priority) allowed queue when 'alerts' is not in RQ_QUEUES."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
 
         with (
@@ -161,9 +161,10 @@ class TestGetRQQueue:
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            # alerts_low listed first = highest priority
             patch(
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
-                frozenset({"alerts_high", "alerts_low"}),
+                ("alerts_low", "alerts_high"),
             ),
             patch("apps.alert_worker.entrypoint.logger") as mock_logger,
         ):
@@ -176,8 +177,8 @@ class TestGetRQQueue:
 
             result = _get_rq_queue()
 
-            # Should fall back to first sorted allowed queue ("alerts_high")
-            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
+            # Should fall back to first allowed queue ("alerts_low" - highest priority)
+            mock_queue_class.assert_called_once_with("alerts_low", connection=mock_redis)
             assert result == mock_queue
             mock_logger.warning.assert_called_once()
 
@@ -192,7 +193,7 @@ class TestGetRQQueue:
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch(
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
-                frozenset({"alerts_high"}),
+                ("alerts_high",),
             ),
         ):
             mock_redis = Mock()
@@ -218,7 +219,7 @@ class TestGetRQQueue:
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch(
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
-                frozenset({"alerts", "alerts_high"}),
+                ("alerts", "alerts_high"),
             ),
         ):
             mock_redis = Mock()
@@ -247,22 +248,29 @@ class TestGetAllowedQueues:
     """Test _get_allowed_queues function."""
 
     def test_defaults_to_alerts_when_env_unset(self, monkeypatch):
-        """Test _get_allowed_queues returns {'alerts'} when RQ_QUEUES is unset."""
+        """Test _get_allowed_queues returns ('alerts',) when RQ_QUEUES is unset."""
         monkeypatch.delenv("RQ_QUEUES", raising=False)
         with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
             result = _get_allowed_queues()
-            assert result == frozenset({"alerts"})
+            assert result == ("alerts",)
 
-    def test_parses_comma_separated_env(self, monkeypatch):
-        """Test _get_allowed_queues parses RQ_QUEUES env var."""
-        monkeypatch.setenv("RQ_QUEUES", "alerts, alerts_high, alerts_low")
+    def test_parses_comma_separated_env_preserving_order(self, monkeypatch):
+        """Test _get_allowed_queues parses RQ_QUEUES preserving operator-defined priority order."""
+        monkeypatch.setenv("RQ_QUEUES", "alerts_high, alerts, alerts_low")
         with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
             result = _get_allowed_queues()
-            assert result == frozenset({"alerts", "alerts_high", "alerts_low"})
+            assert result == ("alerts_high", "alerts", "alerts_low")
+
+    def test_deduplicates_preserving_first_occurrence(self, monkeypatch):
+        """Test _get_allowed_queues deduplicates while preserving first occurrence order."""
+        monkeypatch.setenv("RQ_QUEUES", "alerts_high, alerts, alerts_high, alerts_low")
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
+            result = _get_allowed_queues()
+            assert result == ("alerts_high", "alerts", "alerts_low")
 
     def test_returns_cached_result(self, monkeypatch):
         """Test _get_allowed_queues caches result."""
-        cached = frozenset({"cached_queue"})
+        cached = ("cached_queue",)
         with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", cached):
             result = _get_allowed_queues()
             assert result is cached
@@ -801,11 +809,12 @@ class TestMain:
             mock_worker_class.assert_called_once_with(["alerts"], connection=mock_redis)
             mock_worker.work.assert_called_once_with(with_scheduler=True)
 
-    def test_main_starts_worker_with_custom_queues(self, monkeypatch):
-        """Test main starts RQ worker with custom queues from RQ_QUEUES env."""
+    def test_main_starts_worker_with_custom_queues_preserving_priority_order(self, monkeypatch):
+        """Test main starts RQ worker with custom queues in operator-defined priority order."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
-        monkeypatch.setenv("RQ_QUEUES", "alerts,high_priority,low_priority")
+        # Intentionally non-alphabetical: high_priority first = highest polling priority
+        monkeypatch.setenv("RQ_QUEUES", "high_priority,alerts,low_priority")
 
         with (
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
@@ -831,9 +840,9 @@ class TestMain:
 
             main()
 
-            # Verify worker was created with custom queues (sorted)
+            # Verify worker was created with queues in operator-defined order (not sorted)
             mock_worker_class.assert_called_once_with(
-                ["alerts", "high_priority", "low_priority"], connection=mock_redis
+                ["high_priority", "alerts", "low_priority"], connection=mock_redis
             )
             mock_worker.work.assert_called_once_with(with_scheduler=True)
 

@@ -36,25 +36,27 @@ logger = logging.getLogger(__name__)
 # function in the worker process without reusing asyncio event loops.
 _CHANNELS: dict[ChannelType, BaseChannel] | None = None
 _RQ_QUEUES: dict[str, Queue] = {}
-_ALLOWED_QUEUES: frozenset[str] | None = None
+_ALLOWED_QUEUES: tuple[str, ...] | None = None
 
 
-def _get_allowed_queues() -> frozenset[str]:
-    """Return the set of queue names this worker is configured to process.
+def _get_allowed_queues() -> tuple[str, ...]:
+    """Return queue names this worker is configured to process, in priority order.
 
-    Parsed from ``RQ_QUEUES`` env var (comma-separated).  Falls back to
-    ``{"alerts"}`` when the variable is unset or empty.  The result is
+    Parsed from ``RQ_QUEUES`` env var (comma-separated).  The first queue
+    listed has the highest polling priority in RQ.  Falls back to
+    ``("alerts",)`` when the variable is unset or empty.  The result is
     cached in ``_ALLOWED_QUEUES`` for the lifetime of the process.
     """
     global _ALLOWED_QUEUES
     if _ALLOWED_QUEUES is None:
         queues_env = os.getenv("RQ_QUEUES")
+        # Use dict.fromkeys to deduplicate while preserving insertion order
         parsed = (
-            frozenset(q.strip() for q in queues_env.split(",") if q.strip())
+            tuple(dict.fromkeys(q.strip() for q in queues_env.split(",") if q.strip()))
             if queues_env
-            else frozenset({"alerts"})
+            else ("alerts",)
         )
-        _ALLOWED_QUEUES = parsed if parsed else frozenset({"alerts"})
+        _ALLOWED_QUEUES = parsed if parsed else ("alerts",)
     return _ALLOWED_QUEUES
 
 
@@ -81,7 +83,7 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
 
     When *queue_name* is ``None`` the function infers the name from the
     current RQ job's ``origin`` attribute, falling back to the first
-    queue in the allowed set.
+    (highest-priority) queue in the allowed tuple.
 
     The resolved name is validated against the set of queues this worker
     is allowed to process (``_get_allowed_queues``).  Unrecognised names
@@ -89,7 +91,7 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
     that a rogue ``origin`` value cannot cause unbounded cache growth.
     """
     allowed = _get_allowed_queues()
-    default_queue = sorted(allowed)[0]
+    default_queue = allowed[0]
 
     if queue_name is None:
         current_job = get_current_job()
@@ -98,7 +100,7 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
     if queue_name not in allowed:
         logger.warning(
             "queue_name_not_allowed",
-            extra={"requested_queue": queue_name, "allowed_queues": sorted(allowed)},
+            extra={"requested_queue": queue_name, "allowed_queues": list(allowed)},
         )
         queue_name = default_queue
 
@@ -305,7 +307,7 @@ def main() -> None:
 
     asyncio.run(_sync_startup_metrics())
 
-    queues = sorted(_get_allowed_queues())
+    queues = list(_get_allowed_queues())
 
     worker = Worker(queues, connection=redis_client)
     logger.info("alert_worker_starting", extra={"queues": queues, "pid": os.getpid()})
