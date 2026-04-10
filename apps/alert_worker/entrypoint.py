@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # function in the worker process without reusing asyncio event loops.
 _CHANNELS: dict[ChannelType, BaseChannel] | None = None
 _RQ_QUEUES: dict[str, Queue] = {}
+_RQ_REDIS: Redis | None = None
 _ALLOWED_QUEUES: tuple[str, ...] | None = None
 
 
@@ -78,6 +79,19 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _get_rq_redis() -> Redis:
+    """Return a shared sync Redis client for RQ queue operations.
+
+    A single connection is reused across all cached queues to avoid
+    creating unnecessary connection pools in multi-queue setups.
+    """
+    global _RQ_REDIS
+    if _RQ_REDIS is None:
+        redis_url = _require_env("REDIS_URL")
+        _RQ_REDIS = Redis.from_url(redis_url)
+    return _RQ_REDIS
+
+
 def _get_rq_queue(queue_name: str | None = None) -> Queue:
     """Return (and cache) an RQ ``Queue`` for the given *queue_name*.
 
@@ -93,21 +107,27 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
     allowed = _get_allowed_queues()
     default_queue = allowed[0]
 
+    current_job = get_current_job()
+
     if queue_name is None:
-        current_job = get_current_job()
         queue_name = getattr(current_job, "origin", None) or default_queue
 
     if queue_name not in allowed:
+        job_id = getattr(current_job, "id", None)
         logger.warning(
             "queue_name_not_allowed",
-            extra={"requested_queue": queue_name, "allowed_queues": list(allowed)},
+            extra={
+                "requested_queue": queue_name,
+                "fallback_queue": default_queue,
+                "allowed_queues": list(allowed),
+                "rq_job_id": job_id,
+            },
         )
         queue_name = default_queue
 
     queue = _RQ_QUEUES.get(queue_name)
     if queue is None:
-        redis_url = _require_env("REDIS_URL")
-        redis_sync = Redis.from_url(redis_url)
+        redis_sync = _get_rq_redis()
         queue = Queue(queue_name, connection=redis_sync)
         _RQ_QUEUES[queue_name] = queue
     return queue

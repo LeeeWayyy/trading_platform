@@ -55,36 +55,33 @@ class TestGetRQQueue:
     def test_get_rq_queue_creates_queue(self, monkeypatch):
         """Test _get_rq_queue creates Queue with correct parameters."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", ("alerts",)),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
 
             result = _get_rq_queue()
 
-            mock_redis_class.from_url.assert_called_once_with("redis://localhost:6379")
             mock_queue_class.assert_called_once_with("alerts", connection=mock_redis)
             assert result == mock_queue
 
     def test_get_rq_queue_returns_cached_instance(self, monkeypatch):
         """Test _get_rq_queue returns cached instance on subsequent calls."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", ("alerts",)),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
 
@@ -93,16 +90,15 @@ class TestGetRQQueue:
             # Second call
             result2 = _get_rq_queue()
 
-            assert mock_redis_class.from_url.call_count == 1
             assert mock_queue_class.call_count == 1
             assert result1 == result2
 
     def test_get_rq_queue_uses_current_job_origin_when_available(self, monkeypatch):
         """Test retries target the current job's origin queue instead of hard-coded alerts."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
@@ -110,9 +106,8 @@ class TestGetRQQueue:
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
                 ("alerts", "alerts_high"),
             ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
             mock_get_current_job.return_value = Mock(origin="alerts_high")
@@ -125,9 +120,9 @@ class TestGetRQQueue:
     def test_get_rq_queue_falls_back_for_unrecognised_origin(self, monkeypatch):
         """Test that an unrecognised origin falls back to first allowed queue and logs a warning."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
@@ -135,13 +130,12 @@ class TestGetRQQueue:
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
                 ("alerts",),
             ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
             patch("apps.alert_worker.entrypoint.logger") as mock_logger,
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
-            mock_get_current_job.return_value = Mock(origin="rogue_queue")
+            mock_get_current_job.return_value = Mock(origin="rogue_queue", id="job-123")
 
             result = _get_rq_queue()
 
@@ -151,13 +145,15 @@ class TestGetRQQueue:
             mock_logger.warning.assert_called_once()
             warning_extra = mock_logger.warning.call_args[1]["extra"]
             assert warning_extra["requested_queue"] == "rogue_queue"
+            assert warning_extra["fallback_queue"] == "alerts"
+            assert warning_extra["rq_job_id"] == "job-123"
 
     def test_get_rq_queue_falls_back_to_first_allowed_when_alerts_not_configured(self, monkeypatch):
         """Test fallback uses first (highest-priority) allowed queue when 'alerts' is not in RQ_QUEUES."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
@@ -166,10 +162,9 @@ class TestGetRQQueue:
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
                 ("alerts_low", "alerts_high"),
             ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
             patch("apps.alert_worker.entrypoint.logger") as mock_logger,
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
             # Simulate rogue origin when "alerts" is not even in the allowed set
@@ -185,9 +180,9 @@ class TestGetRQQueue:
     def test_get_rq_queue_default_uses_first_allowed_when_no_job(self, monkeypatch):
         """Test default queue is first allowed queue when no current job exists."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
@@ -195,9 +190,8 @@ class TestGetRQQueue:
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
                 ("alerts_high",),
             ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
             # No current job
@@ -209,22 +203,44 @@ class TestGetRQQueue:
             mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
             assert result == mock_queue
 
-    def test_get_rq_queue_caches_per_origin_without_cross_contamination(self, monkeypatch):
-        """Test multiple distinct origins each get their own cached Queue."""
+    def test_get_rq_queue_shares_single_redis_connection(self, monkeypatch):
+        """Test all cached queues share a single Redis connection."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
             patch(
                 "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
                 ("alerts", "alerts_high"),
             ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
+            mock_queue_class.side_effect = [Mock(name="q1"), Mock(name="q2")]
 
+            _get_rq_queue("alerts")
+            _get_rq_queue("alerts_high")
+
+            # Both queues should share the same Redis connection
+            calls = mock_queue_class.call_args_list
+            assert calls[0][1]["connection"] is mock_redis
+            assert calls[1][1]["connection"] is mock_redis
+
+    def test_get_rq_queue_caches_per_origin_without_cross_contamination(self, monkeypatch):
+        """Test multiple distinct origins each get their own cached Queue."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts", "alerts_high"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+        ):
             queue_alerts = Mock(name="queue_alerts")
             queue_high = Mock(name="queue_alerts_high")
             mock_queue_class.side_effect = [queue_alerts, queue_high]
