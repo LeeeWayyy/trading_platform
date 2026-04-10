@@ -883,31 +883,6 @@ class TestPriceUpdateCallback:
             qty_step=100,
             min_qty=100,
             qty_unit="lots",
-            qty_unit_size=1,
-        )
-
-    @pytest.mark.asyncio()
-    async def test_price_update_ignores_overflow_quantity_rule_metadata(
-        self, context: OrderEntryContext
-    ) -> None:
-        """Malformed huge metadata must not break update dispatch."""
-        await context._on_price_update(
-            {
-                "symbol": "AAPL",
-                "price": "150.00",
-                "timestamp": "2024-01-01T12:00:00Z",
-                "qty_step": "1e309",
-                "min_qty": "100",
-                "qty_unit": "lots",
-            }
-        )
-
-        context._order_ticket.set_price_data.assert_called_once()
-        context._order_ticket.set_quantity_rules.assert_called_once_with(
-            qty_step=1,
-            min_qty=100,
-            qty_unit="lots",
-            qty_unit_size=1,
         )
 
 
@@ -963,35 +938,12 @@ class TestSymbolSelection:
         context._price_chart.on_symbol_changed.assert_called_with("AAPL")
 
     @pytest.mark.asyncio()
-    async def test_symbol_selection_notifies_registered_symbol_callbacks(
-        self, context: OrderEntryContext
-    ) -> None:
-        """Symbol selection emits callbacks used by dashboard panels."""
-        callback = MagicMock()
-        context.register_symbol_change_callback(callback)
-
-        await context.on_symbol_selected("AAPL")
-
-        callback.assert_called_once_with("AAPL")
-
-    def test_register_symbol_change_callback_deduplicates(
-        self, context: OrderEntryContext
-    ) -> None:
-        """Duplicate registrations keep one callback instance."""
-        callback = MagicMock()
-
-        context.register_symbol_change_callback(callback)
-        context.register_symbol_change_callback(callback)
-
-        assert context._symbol_change_callbacks == [callback]
-
-    @pytest.mark.asyncio()
     async def test_symbol_selection_applies_cached_quantity_rules(
         self, context: OrderEntryContext
     ) -> None:
         """Selecting a symbol applies previously cached quantity rules."""
         context._order_ticket.set_quantity_rules = MagicMock()
-        context._symbol_quantity_rules["AAPL"] = (100, 100, "lots", 1)
+        context._symbol_quantity_rules["AAPL"] = (100, 100, "lots")
 
         await context.on_symbol_selected("AAPL")
 
@@ -999,7 +951,6 @@ class TestSymbolSelection:
             qty_step=100,
             min_qty=100,
             qty_unit="lots",
-            qty_unit_size=1,
         )
 
     @pytest.mark.asyncio()

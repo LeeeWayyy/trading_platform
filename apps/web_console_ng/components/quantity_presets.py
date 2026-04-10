@@ -156,16 +156,14 @@ class QuantityPresetsComponent:
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
 
-        # Apply safety margin and quantize to the same min+N*step lattice used by
-        # OrderTicket quantity normalization logic.
-        # We intentionally do not re-escalate to raw max_qty after quantization,
-        # because that can bypass the safety margin at boundary conditions.
-        safe_max_qty = int(max_qty * self.MAX_SAFETY_MARGIN)
-        if safe_max_qty >= min_qty:
-            quantized_qty = min_qty + ((safe_max_qty - min_qty) // qty_step) * qty_step
-        else:
-            quantized_qty = 0
-        safe_max = quantized_qty if quantized_qty >= min_qty else 0
+        # Apply safety margin (95% to avoid edge cases)
+        safe_max = int(max_qty * self.MAX_SAFETY_MARGIN)
+        if safe_max < min_qty and max_qty >= min_qty:
+            safe_max = min_qty
+        safe_max = (safe_max // qty_step) * qty_step
+
+        if safe_max < min_qty and max_qty >= min_qty:
+            safe_max = (max_qty // qty_step) * qty_step
 
         if safe_max > 0:
             self._on_preset_selected(safe_max)
@@ -213,37 +211,6 @@ class QuantityPresetsComponent:
         self._side = side
         self._qty_step = max(1, int(qty_step))
         self._min_qty = max(self._qty_step, int(min_qty))
-
-    def _render_buttons(self) -> None:
-        """Render quick-size controls inside the container."""
-        if self._container is None:
-            return
-        self._container.clear()
-        self._preset_buttons = []
-        self._close_button = None
-        self._max_button = None
-
-        with self._container:
-            for preset in self._presets:
-                btn = ui.button(
-                    str(preset),
-                    on_click=lambda _, p=preset: self._on_preset_selected(p),
-                ).classes("workspace-v2-preset-btn")
-                btn.set_enabled(self._enabled)
-                self._preset_buttons.append(btn)
-
-            if self._show_close and self._on_close_selected is not None:
-                self._close_button = ui.button(
-                    "CLOSE",
-                    on_click=self._on_close_selected,
-                ).classes("workspace-v2-preset-btn workspace-v2-preset-close")
-                self._close_button.set_enabled(self._enabled)
-
-            self._max_button = ui.button(
-                "MAX",
-                on_click=self._calculate_and_select_max,
-            ).classes("workspace-v2-preset-btn workspace-v2-preset-max")
-            self._max_button.set_enabled(self._enabled)
 
 
 __all__ = ["QuantityPresetsComponent"]

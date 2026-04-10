@@ -643,3 +643,14 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - `Execute`, `Monitor`, `Analysis`, `Research`, `Governance`
 - Preserved existing `nav_items` permissions and feature-flag logic.
 - Added grouped-section rendering with fallback for unmapped future routes.
+
+9. Symbol-aware quantity step plumbing (phase-1)
+- Added quantity rule support to ticket and presets:
+  - `OrderTicketComponent` now supports `set_quantity_rules` / `reset_quantity_rules`
+  - quantity label/unit updates dynamically (`shares|lots|contracts`)
+  - quantity min/step constraints are enforced in submission safety checks
+  - presets/MAX quantize to symbol step/minimum constraints
+- Added `OrderEntryContext` metadata bridge:
+  - parses optional `qty_step`/`min_qty`/`qty_unit` metadata from price updates
+  - caches per-symbol rules and applies them on selected symbol updates
+  - preserves current behavior when metadata is absent (default step=1, unit=shares)

@@ -1847,90 +1847,24 @@ class TestOrderTicketQuantityRules:
         """Quantity rules update internal state and input metadata."""
         component._quantity_label = MagicMock()
         component._quantity_input = MagicMock()
-        component._quantity_presets = MagicMock()
 
         component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
 
         assert component._qty_step == 100
         assert component._min_qty == 100
         assert component._qty_unit == "lots"
-        assert component._qty_unit_size == 1
         component._quantity_label.set_text.assert_called_once_with("QTY (LOTS)")
         component._quantity_input.props.assert_called_with("min=100 step=100")
-        component._quantity_presets.set_presets.assert_called_with([100])
 
-    def test_set_quantity_rules_aligns_min_qty_to_step(self, component: OrderTicketComponent) -> None:
-        """Unaligned metadata minimum is rounded up to the nearest step."""
-        component._quantity_input = MagicMock()
-
-        component.set_quantity_rules(qty_step=100, min_qty=150, qty_unit="lots")
-
-        assert component._min_qty == 200
-        component._quantity_input.props.assert_called_with("min=200 step=100")
-
-    def test_set_quantity_rules_uses_contract_preset_profile(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Contract unit uses compact 1/5/10-style presets."""
-        component._quantity_presets = MagicMock()
-
-        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="contracts")
-
-        component._quantity_presets.set_presets.assert_called_with([1, 5, 10])
-
-    def test_set_quantity_rules_defaults_lot_size_for_small_lot_units(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Small lot-unit rules use default 100-share canonical multiplier."""
-        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
-
-        assert component._qty_unit_size == 100
-        assert component._canonical_quantity(1) == 100
-
-    def test_position_display_keeps_canonical_share_units(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Position label remains in canonical units even when order entry uses lots."""
-        component._position_label = MagicMock()
-        component._state.symbol = "AAPL"
-        component._current_position = 200
-        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
-
-        component._update_position_display()
-
-        component._position_label.set_text.assert_called_with("+200 shares")
-
-    def test_quantity_input_keeps_typed_value_during_edit(self, component: OrderTicketComponent) -> None:
-        """Manual quantity entry should not snap while user is still typing."""
+    def test_quantity_input_snaps_down_to_step(self, component: OrderTicketComponent) -> None:
+        """Manual quantity entry snaps to nearest valid step."""
         component._quantity_input = MagicMock()
         component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
 
         component._on_quantity_changed(250.0)
 
-        assert component._state.quantity == 250
-        component._quantity_input.set_value.assert_not_called()
-
-    def test_set_quantity_rules_noop_when_rules_unchanged(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Repeated identical rules should not trigger UI churn."""
-        component._apply_quantity_rules_to_ui = MagicMock()
-        component._refresh_quantity_preset_profile = MagicMock()
-        component._update_buying_power_impact = MagicMock()
-        component._update_quantity_presets_context = MagicMock()
-
-        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
-        component._apply_quantity_rules_to_ui.reset_mock()
-        component._refresh_quantity_preset_profile.reset_mock()
-        component._update_buying_power_impact.reset_mock()
-        component._update_quantity_presets_context.reset_mock()
-
-        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
-
-        component._apply_quantity_rules_to_ui.assert_not_called()
-        component._refresh_quantity_preset_profile.assert_not_called()
-        component._update_buying_power_impact.assert_not_called()
-        component._update_quantity_presets_context.assert_not_called()
+        assert component._state.quantity == 200
+        component._quantity_input.set_value.assert_called_with(200)
 
     def test_submission_blocks_invalid_step_quantity(self, component: OrderTicketComponent) -> None:
         """Submission is blocked when qty does not match symbol step rules."""
@@ -1952,94 +1886,4 @@ class TestOrderTicketQuantityRules:
         disabled, reason = component._should_disable_submission()
 
         assert disabled is True
-        assert reason == "Quantity must increment by 100 shares (lots)"
-
-    def test_submission_allows_risk_reducing_exit_below_minimum(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Risk-reducing exits bypass min qty gate so residuals can be flattened."""
-        now = datetime.now(UTC)
-        component._safety_state_loaded = True
-        component._connection_read_only = False
-        component._kill_switch_engaged = False
-        component._circuit_breaker_tripped = False
-        component._limits_loaded = True
-        component._state.symbol = "AAPL"
-        component._state.side = "sell"
-        component._state.quantity = 50
-        component._current_position = 50
-        component._position_last_updated = now
-        component._price_last_updated = now
-        component._buying_power_last_updated = now
-        component._limits_last_updated = now
-        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
-        component._state.quantity = 50
-
-        disabled, reason = component._should_disable_submission()
-
-        assert disabled is False
-        assert reason == ""
-
-    def test_submission_allows_risk_reducing_exit_off_step(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Risk-reducing exits bypass step gate when the full position is irregular."""
-        now = datetime.now(UTC)
-        component._safety_state_loaded = True
-        component._connection_read_only = False
-        component._kill_switch_engaged = False
-        component._circuit_breaker_tripped = False
-        component._limits_loaded = True
-        component._state.symbol = "AAPL"
-        component._state.side = "sell"
-        component._state.quantity = 150
-        component._current_position = 150
-        component._position_last_updated = now
-        component._price_last_updated = now
-        component._buying_power_last_updated = now
-        component._limits_last_updated = now
-        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
-        component._state.quantity = 150
-
-        disabled, reason = component._should_disable_submission()
-
-        assert disabled is False
-        assert reason == ""
-
-    def test_submission_step_check_uses_minimum_baseline(self, component: OrderTicketComponent) -> None:
-        """Step validation remains correct even when legacy state has unaligned minimum."""
-        now = datetime.now(UTC)
-        component._safety_state_loaded = True
-        component._connection_read_only = False
-        component._kill_switch_engaged = False
-        component._circuit_breaker_tripped = False
-        component._limits_loaded = True
-        component._state.symbol = "AAPL"
-        component._position_last_updated = now
-        component._price_last_updated = now
-        component._buying_power_last_updated = now
-        component._limits_last_updated = now
-        component._qty_step = 100
-        component._min_qty = 150
-        component._qty_unit = "lots"
-        component._state.quantity = 250
-
-        disabled, reason = component._should_disable_submission()
-
-        assert disabled is False
-        assert reason == ""
-
-    def test_position_limit_check_uses_canonical_qty_for_lot_units(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Lot-unit entry is converted to canonical shares for exposure checks."""
-        component._state.symbol = "AAPL"
-        component._state.side = "buy"
-        component._state.quantity = 1  # 1 lot
-        component._max_position_per_symbol = 50
-        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
-
-        violation = component._check_position_limits()
-
-        assert violation is not None
-        assert "Order exceeds position limit" in violation
+        assert reason == "Quantity must increment by 100 lots"
