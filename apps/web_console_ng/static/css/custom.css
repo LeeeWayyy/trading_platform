@@ -465,6 +465,33 @@
     font-size: 0.72rem;
 }
 
+.workspace-v2-quick-link {
+    align-items: center;
+    background: rgba(30, 41, 59, 0.86);
+    border: 1px solid rgba(71, 85, 105, 0.72);
+    border-radius: 999px;
+    color: #cbd5e1;
+    display: inline-flex;
+    line-height: 1;
+    min-height: 24px;
+    padding: 4px 9px;
+    text-decoration: none;
+    transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.workspace-v2-quick-link:hover {
+    background: rgba(30, 41, 59, 0.96);
+    border-color: rgba(56, 189, 248, 0.45);
+}
+
+.workspace-v2-quick-link .workspace-v2-kv {
+    color: inherit;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
 .workspace-v2-field-label {
     color: var(--workspace-text-muted);
     font-size: 0.64rem;

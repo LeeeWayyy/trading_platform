@@ -230,3 +230,33 @@ def test_determine_workspace_lock_state_unlocked_when_healthy() -> None:
     assert not locked
     assert title == ""
     assert detail == ""
+
+
+def test_resolve_workspace_quick_links_for_trader() -> None:
+    links = dashboard_module.resolve_workspace_quick_links(
+        user_role="operator",
+        feature_alerts_enabled=True,
+        can_view_alerts=True,
+        can_view_data_quality=True,
+    )
+    paths = {path for _, path in links}
+    assert "/manual-order" in paths
+    assert "/position-management" in paths
+    assert "/circuit-breaker" in paths
+    assert "/alerts" in paths
+    assert "/journal" in paths
+    assert "/compare" in paths
+    assert "/data/inspector" in paths
+
+
+def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
+    links = dashboard_module.resolve_workspace_quick_links(
+        user_role="viewer",
+        feature_alerts_enabled=False,
+        can_view_alerts=False,
+        can_view_data_quality=False,
+    )
+    paths = {path for _, path in links}
+    assert "/position-management" not in paths
+    assert "/alerts" not in paths
+    assert "/data/inspector" not in paths
