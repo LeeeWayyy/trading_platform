@@ -624,3 +624,16 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - `tests/apps/web_console_ng/pages/test_dashboard.py`
   - `tests/apps/web_console_ng/pages/test_dashboard_dispatch.py`
   - `tests/apps/web_console_ng/test_order_entry_context.py`
+
+7. `/strategies` + `/models` dense-grid modernization (phase-1 of page alignment)
+- `pages/strategies.py` now renders a compact dense row surface:
+  - status/name/strategy_id/activity/exposure placeholder/updated metadata/actions
+  - expandable detail row per strategy
+  - existing admin toggle flow and exposure safety confirmation preserved
+- `pages/models.py` now renders strategy-grouped dense rows:
+  - status/version/strategy/deployed-at/metrics/path/actions
+  - compact status summary pills
+  - expandable detail row with metrics/config metadata
+- Model activation/deactivation dialog now requires contextual typed token:
+  - `strategy_name:version`
+  - includes explicit impact summary before confirmation
