@@ -903,6 +903,11 @@ def _build_order_clause(
     return ", ".join(parts) if parts else default_order
 
 
+# Columns that are JSONB in the database and need an explicit ::text
+# cast when used in text filter operations (ILIKE, =, !=).
+_JSONB_COLUMNS: frozenset[str] = frozenset({"details"})
+
+
 def _build_filter_clause(
     filter_params: dict[str, Any] | None,
     allowed_columns: list[str],
@@ -964,23 +969,24 @@ def _build_filter_clause(
             if value is None:
                 continue
             value = str(value)
-            # Avoid explicit ::text casts -- they are redundant for text/varchar
-            # columns and can prevent the database from using B-tree indexes.
-            # PostgreSQL implicitly handles text comparisons via ILIKE/=.
+            # JSONB columns need an explicit ::text cast for text
+            # operators; for text/varchar columns the cast is omitted
+            # to allow B-tree index usage.
+            text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
             if ftype == "contains":
-                clauses.append(f"{qcol} ILIKE %s")
+                clauses.append(f"{text_col} ILIKE %s")
                 params.append(f"%{value}%")
             elif ftype == "equals":
-                clauses.append(f"{qcol} = %s")
+                clauses.append(f"{text_col} = %s")
                 params.append(value)
             elif ftype == "startsWith":
-                clauses.append(f"{qcol} ILIKE %s")
+                clauses.append(f"{text_col} ILIKE %s")
                 params.append(f"{value}%")
             elif ftype == "endsWith":
-                clauses.append(f"{qcol} ILIKE %s")
+                clauses.append(f"{text_col} ILIKE %s")
                 params.append(f"%{value}")
             elif ftype == "notEqual":
-                clauses.append(f"{qcol} != %s")
+                clauses.append(f"{text_col} != %s")
                 params.append(value)
 
         elif filter_type == "number":
@@ -1412,9 +1418,14 @@ async def _generate_excel_content(
                 aliases.get(k, k): v for k, v in filter_params.items()
             }
 
-    # Build filter WHERE clause from AG Grid filter model
+    # Build filter WHERE clause from AG Grid filter model.
+    # Use the full grid allowlist (not just the export projection) so
+    # that filters on hidden columns are preserved.  For example, if
+    # a user filters by "status" but only exports "symbol"/"qty", the
+    # status predicate must still be applied.
+    full_allowlist = _GRID_COLUMNS[grid_name]
     filter_clause, filter_params_list = _build_filter_clause(
-        resolved_filter, columns, col_prefix=col_prefix,
+        resolved_filter, full_allowlist, col_prefix=col_prefix,
         col_prefix_map=tca_filter_map,
     )
 

@@ -243,6 +243,20 @@ class TestBuildFilterClause:
         assert "t.symbol" in result_sql
         assert "AAPL" in params
 
+    def test_jsonb_column_gets_text_cast(self) -> None:
+        """JSONB columns like 'details' need ::text for text operators."""
+        filt = {"details": {"filterType": "text", "type": "contains", "filter": "login"}}
+        result_sql, params = _build_filter_clause(filt, ["details"])
+        assert "details::text ILIKE %s" in result_sql
+        assert "%login%" in params
+
+    def test_non_jsonb_column_no_text_cast(self) -> None:
+        """Regular text columns should not get ::text cast."""
+        filt = {"symbol": {"filterType": "text", "type": "contains", "filter": "AAPL"}}
+        result_sql, params = _build_filter_clause(filt, ["symbol"])
+        assert "symbol ILIKE %s" in result_sql
+        assert "::text" not in result_sql
+
 
 class TestBuildOrderClause:
     def test_default_order_when_no_sort_model(self) -> None:
