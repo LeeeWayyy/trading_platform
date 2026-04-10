@@ -633,6 +633,17 @@ async def dashboard(client: Client) -> None:
     strategy_context_widget: StrategyContextWidget | None = None
     tabs_host: ui.column | None = None
     log_tail_host: ui.column | None = None
+    authorized_strategy_scope = [
+        str(strategy).strip()
+        for strategy in get_authorized_strategies(user)
+        if str(strategy).strip()
+    ]
+    if not authorized_strategy_scope:
+        authorized_strategy_scope = list(user_strategies)
+    pnl_card: _MetricStripValue | MetricCard
+    positions_card: _MetricStripValue | MetricCard
+    realized_card: _MetricStripValue | MetricCard
+    bp_card: _MetricStripValue | MetricCard
 
     # Metrics strip/cards
     if use_workspace_v2:
@@ -678,6 +689,7 @@ async def dashboard(client: Client) -> None:
 
                     strategy_context_widget = StrategyContextWidget(strategies=user_strategies)
                     strategy_context_widget.create()
+                    order_context.set_strategy_context_widget(strategy_context_widget)
 
                     order_context.create_market_context()
                     order_context.create_order_ticket()
@@ -1667,6 +1679,226 @@ async def dashboard(client: Client) -> None:
 
     flow_symbol_timer = ui.timer(0.5, sync_order_flow_symbol)
     timers.append(flow_symbol_timer)
+
+    async def _resolve_strategy_for_symbol(symbol: str) -> str | None:
+        """Resolve symbol -> strategy mapping using fail-closed uniqueness rules."""
+        if len(authorized_strategy_scope) == 1:
+            return authorized_strategy_scope[0]
+        if async_pool is None:
+            return None
+
+        try:
+            normalized_symbol = validate_and_normalize_symbol(symbol)
+        except ValueError:
+            return None
+
+        sql = (
+            "SELECT strategy_id "
+            "FROM orders "
+            "WHERE symbol = %s AND strategy_id IS NOT NULL "
+        )
+        params: tuple[Any, ...]
+        if authorized_strategy_scope:
+            sql += "AND strategy_id = ANY(%s) "
+            params = (normalized_symbol, authorized_strategy_scope)
+        else:
+            params = (normalized_symbol,)
+        sql += "GROUP BY strategy_id ORDER BY strategy_id LIMIT 2"
+
+        try:
+            async with acquire_connection(async_pool) as conn:
+                cursor = await conn.execute(sql, params)
+                rows = await cursor.fetchall()
+        except Exception as exc:
+            logger.warning(
+                "strategy_symbol_resolution_failed",
+                extra={
+                    "client_id": client_id,
+                    "symbol": symbol,
+                    "error": type(exc).__name__,
+                },
+            )
+            return None
+
+        if len(rows) != 1:
+            return None
+
+        first = rows[0]
+        strategy_id = first.get("strategy_id") if isinstance(first, dict) else first[0]
+        if not strategy_id:
+            return None
+        return str(strategy_id)
+
+    async def _fetch_model_registry_context(strategy_id: str) -> tuple[str, str | None]:
+        """Fetch model status/version for a strategy from model_registry."""
+        if async_pool is None:
+            return ("unknown", None)
+
+        try:
+            async with acquire_connection(async_pool) as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT status, version
+                    FROM model_registry
+                    WHERE strategy_name = %s
+                    ORDER BY
+                        CASE
+                            WHEN status = 'active' THEN 1
+                            WHEN status = 'testing' THEN 2
+                            WHEN status = 'inactive' THEN 3
+                            WHEN status = 'failed' THEN 4
+                            ELSE 5
+                        END,
+                        activated_at DESC NULLS LAST,
+                        created_at DESC
+                    LIMIT 1
+                    """,
+                    (strategy_id,),
+                )
+                row = await cursor.fetchone()
+        except Exception as exc:
+            logger.warning(
+                "strategy_model_context_fetch_failed",
+                extra={
+                    "client_id": client_id,
+                    "strategy_id": strategy_id,
+                    "error": type(exc).__name__,
+                },
+            )
+            return ("unknown", None)
+
+        if row is None:
+            return ("unknown", None)
+
+        if isinstance(row, dict):
+            status_raw = row.get("status")
+            version_raw = row.get("version")
+        else:
+            status_raw = row[0]
+            version_raw = row[1]
+
+        status = str(status_raw or "unknown").strip().lower()
+        version = str(version_raw).strip() if version_raw else None
+        return (status, version)
+
+    def _build_strategy_context_banner(
+        *,
+        strategy_status: str,
+        model_status: str,
+        gate_reason: str | None,
+    ) -> str:
+        strategy_safe = strategy_status in {"active", "idle"}
+        model_safe = model_status in {"active", "testing"}
+        if strategy_safe and model_safe:
+            return "Execution context healthy."
+        if gate_reason:
+            return f"Execution context degraded: {gate_reason}"
+        return "Execution context degraded: strategy/model state unresolved."
+
+    strategy_context_refresh_task: asyncio.Task[None] | None = None
+
+    async def _refresh_strategy_model_context() -> None:
+        selected_symbol = order_context.get_selected_symbol()
+        if strategy_context_widget is not None:
+            strategy_context_widget.set_symbol(selected_symbol)
+
+        gate_enabled = config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING
+        if not selected_symbol:
+            order_context.dispatch_strategy_model_context(
+                strategy_status="unknown",
+                model_status="unknown",
+                gate_enabled=gate_enabled,
+                gate_reason="Select a symbol to resolve execution context",
+                strategy_label="Strategy: --",
+                model_label="Model: --",
+                banner="Select a symbol to resolve strategy/model execution context.",
+            )
+            return
+
+        strategy_id = await _resolve_strategy_for_symbol(selected_symbol)
+        if not strategy_id:
+            unresolved_reason = "No unique strategy mapping for selected symbol"
+            order_context.dispatch_strategy_model_context(
+                strategy_status="unknown",
+                model_status="unknown",
+                gate_enabled=gate_enabled,
+                gate_reason=unresolved_reason,
+                strategy_label="Strategy: unresolved",
+                model_label="Model: unresolved",
+                banner=f"{unresolved_reason}. Risk-increasing orders may be gated.",
+            )
+            return
+
+        strategy_status = "unknown"
+        model_status = "unknown"
+        model_version: str | None = None
+        reason_parts: list[str] = []
+
+        try:
+            strategy_payload = await trading_client.fetch_strategy_status(
+                strategy_id,
+                user_id=user_id,
+                role=user_role,
+                strategies=user_strategies,
+            )
+            strategy_status = str(strategy_payload.get("status") or "unknown").strip().lower()
+            payload_model_status = strategy_payload.get("model_status")
+            if payload_model_status:
+                model_status = str(payload_model_status).strip().lower()
+            payload_model_version = strategy_payload.get("model_version")
+            if payload_model_version:
+                model_version = str(payload_model_version).strip()
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
+            reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
+
+        db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
+        if model_status == "unknown":
+            model_status = db_model_status
+        if model_version is None:
+            model_version = db_model_version
+
+        strategy_safe = strategy_status in {"active", "idle"}
+        model_safe = model_status in {"active", "testing"}
+
+        gate_reason: str | None = None
+        if not strategy_safe:
+            gate_reason = f"strategy is {strategy_status.upper()}"
+        elif not model_safe:
+            gate_reason = f"model is {model_status.upper()}"
+        if reason_parts:
+            context_reason = "; ".join(reason_parts)
+            gate_reason = f"{gate_reason}; {context_reason}" if gate_reason else context_reason
+
+        strategy_label = f"Strategy: {strategy_id}"
+        model_label = f"Model: {model_version or 'unassigned'}"
+        banner = _build_strategy_context_banner(
+            strategy_status=strategy_status,
+            model_status=model_status,
+            gate_reason=gate_reason,
+        )
+
+        order_context.dispatch_strategy_model_context(
+            strategy_status=strategy_status,
+            model_status=model_status,
+            gate_enabled=gate_enabled,
+            gate_reason=gate_reason,
+            strategy_label=strategy_label,
+            model_label=model_label,
+            banner=banner,
+        )
+
+    def _schedule_strategy_model_context_refresh() -> None:
+        nonlocal strategy_context_refresh_task
+        if strategy_context_refresh_task and not strategy_context_refresh_task.done():
+            return
+        strategy_context_refresh_task = asyncio.create_task(_refresh_strategy_model_context())
+
+    _schedule_strategy_model_context_refresh()
+    strategy_context_timer = ui.timer(
+        config.DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS,
+        _schedule_strategy_model_context_refresh,
+    )
+    timers.append(strategy_context_timer)
 
     def cleanup_timers() -> None:
         nonlocal strategy_context_dashboard_closing, strategy_context_refresh_pending

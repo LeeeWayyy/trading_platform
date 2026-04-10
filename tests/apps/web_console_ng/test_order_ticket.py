@@ -346,22 +346,6 @@ class TestStrategyModelExecutionGate:
         assert disabled is False
         assert reason == ""
 
-    def test_ready_statuses_allow_risk_increasing_orders(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """READY status is treated as healthy by execution gate checks."""
-        component._current_position = 0
-        component.set_strategy_model_context(
-            strategy_status="ready",
-            model_status="ready",
-            gate_enabled=True,
-        )
-
-        disabled, reason = component._should_disable_submission()
-
-        assert disabled is False
-        assert reason == ""
-
 
 class TestOrderTicketStalenessChecks:
     """Tests for data staleness checks."""

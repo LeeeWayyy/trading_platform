@@ -226,12 +226,6 @@ class OrderEntryContext:
         # Sync initial cached state
         self._sync_one_click_cached_state()
 
-    def set_connection_state_callback(
-        self, callback: Callable[[str, bool], None] | None
-    ) -> None:
-        """Set optional callback for connection state changes."""
-        self._connection_state_callback = callback
-
     def dispatch_strategy_model_context(
         self,
         *,
@@ -256,8 +250,6 @@ class OrderEntryContext:
             self._strategy_context_widget.set_status(
                 strategy_status=strategy_status or "unknown",
                 model_status=model_status or "unknown",
-                gate_enabled=gate_enabled,
-                gate_reason=gate_reason,
                 strategy_label=strategy_label,
                 model_label=model_label,
                 banner=banner,

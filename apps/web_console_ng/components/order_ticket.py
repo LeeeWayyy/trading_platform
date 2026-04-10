@@ -709,13 +709,13 @@ class OrderTicketComponent:
         """Update strategy/model execution context used by submit safety gate.
 
         Args:
-            strategy_status: Strategy runtime status (active/idle/ready/inactive/unknown).
-            model_status: Model runtime status (active/testing/ready/failed/inactive/unknown).
+            strategy_status: Strategy runtime status (active/idle/inactive/unknown).
+            model_status: Model runtime status (active/testing/failed/inactive/unknown).
             gate_enabled: Whether strategy/model gating should be enforced.
             gate_reason: Optional reason produced by upstream context resolver.
         """
-        self._strategy_status = normalize_execution_status(strategy_status)
-        self._model_status = normalize_execution_status(model_status)
+        self._strategy_status = str(strategy_status or "unknown").strip().lower()
+        self._model_status = str(model_status or "unknown").strip().lower()
         self._execution_gate_enabled = bool(gate_enabled)
         self._execution_gate_reason = str(gate_reason) if gate_reason else None
 
@@ -1156,8 +1156,8 @@ class OrderTicketComponent:
         if not self._execution_gate_enabled:
             return None
 
-        strategy_safe = is_strategy_execution_safe(self._strategy_status)
-        model_safe = is_model_execution_safe(self._model_status)
+        strategy_safe = self._strategy_status in {"active", "idle"}
+        model_safe = self._model_status in {"active", "testing"}
         if strategy_safe and model_safe:
             return None
 
@@ -1175,8 +1175,8 @@ class OrderTicketComponent:
 
     def _is_risk_reducing_order(self) -> bool:
         """Return True only when order strictly reduces current open exposure."""
-        qty = self._state_canonical_quantity()
-        if qty is None:
+        qty = self._state.quantity
+        if qty is None or qty <= 0:
             return False
 
         if self._current_position > 0 and self._state.side == "sell":

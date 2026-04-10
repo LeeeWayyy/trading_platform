@@ -462,9 +462,6 @@ FEATURE_MODEL_REGISTRY = _get_bool_env("FEATURE_MODEL_REGISTRY")
 FEATURE_STRATEGY_MODEL_EXECUTION_GATING = _get_bool_env(
     "FEATURE_STRATEGY_MODEL_EXECUTION_GATING"
 )
-FEATURE_STRATEGY_SYMBOL_MONITORING_MODE = _get_bool_env(
-    "FEATURE_STRATEGY_SYMBOL_MONITORING_MODE"
-)
 
 # =============================================================================
 # Auto-refresh and UI settings (P5T7)
@@ -477,30 +474,6 @@ DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS = _parse_float(
     "DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS",
     5.0,
 )
-
-
-def _parse_ratio_env(env_var: str, default: float) -> float:
-    """Parse and clamp ratio config values to [0, 1]."""
-    value = _parse_float(env_var, default)
-    if value < 0 or value > 1:
-        logger.warning(f"Out-of-range {env_var} value '{value}', clamping to [0, 1]")
-    return max(0.0, min(1.0, value))
-
-
-# Unified workspace buying-power gauge thresholds
-WORKSPACE_BP_IMPACT_WARNING_RATIO = _parse_ratio_env(
-    "WORKSPACE_BP_IMPACT_WARNING_RATIO",
-    0.5,
-)
-WORKSPACE_BP_IMPACT_DANGER_RATIO = _parse_ratio_env(
-    "WORKSPACE_BP_IMPACT_DANGER_RATIO",
-    0.8,
-)
-if WORKSPACE_BP_IMPACT_WARNING_RATIO > WORKSPACE_BP_IMPACT_DANGER_RATIO:
-    logger.warning(
-        "WORKSPACE_BP_IMPACT_WARNING_RATIO exceeds danger ratio; aligning warning to danger"
-    )
-    WORKSPACE_BP_IMPACT_WARNING_RATIO = WORKSPACE_BP_IMPACT_DANGER_RATIO
 
 # Minimum characters required for circuit breaker reset reason
 MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH = int(

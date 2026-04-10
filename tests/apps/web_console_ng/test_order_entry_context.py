@@ -94,12 +94,6 @@ class TestOrderEntryContextComponentSetters:
         context.set_price_chart(price_chart)
         assert context._price_chart is price_chart
 
-    def test_set_connection_state_callback(self, context: OrderEntryContext) -> None:
-        """set_connection_state_callback stores callback reference."""
-        callback = MagicMock()
-        context.set_connection_state_callback(callback)
-        assert context._connection_state_callback is callback
-
     def test_set_strategy_context_widget(self, context: OrderEntryContext) -> None:
         """set_strategy_context_widget stores component reference."""
         strategy_widget = MagicMock()
@@ -150,8 +144,6 @@ class TestStrategyModelContextDispatch:
         context._strategy_context_widget.set_status.assert_called_once_with(
             strategy_status="active",
             model_status="testing",
-            gate_enabled=True,
-            gate_reason="manual review",
             strategy_label="Strategy: alpha",
             model_label="Model: v2.1",
             banner="Execution context healthy.",
