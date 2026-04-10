@@ -92,9 +92,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         cors_origins = _resolve_cors_origins()
         _cors_allow_origins[:] = cors_origins  # atomic replace, safe across restarts
 
-        # Verify CORSMiddleware kept a live reference to _cors_allow_origins.
-        # If Starlette changes to copy/freeze allow_origins at init, this
-        # assertion will fire during startup, preventing a silent CORS failure.
+        # Best-effort check: verify CORSMiddleware kept a live reference to
+        # _cors_allow_origins.  Logs ERROR if Starlette changes behavior but
+        # does not abort startup (degraded CORS > hard outage).
         _verify_cors_middleware_uses_shared_origins(app)
 
         logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
@@ -272,10 +272,14 @@ def _resolve_cors_origins() -> list[str]:
 # through the normal startup error path instead of crashing at import time
 # (see issue #156).
 #
-# NOTE: This is intentionally process-global.  This service follows a
-# single-app-per-process architecture (one uvicorn worker = one app).
-# The slice assignment ``_cors_allow_origins[:] = cors_origins`` ensures
-# idempotent replacement across test restarts.
+# Design constraints:
+# 1. Process-global by design: this service uses a single-app-per-process
+#    architecture (one uvicorn worker = one app instance).  The slice
+#    assignment ``_cors_allow_origins[:] = cors_origins`` ensures idempotent
+#    replacement across test restarts.
+# 2. Requires ASGI lifespan: CORS origins are populated during lifespan
+#    startup.  Running with ``--lifespan off`` would leave origins empty,
+#    effectively blocking all cross-origin requests (fail-closed).
 _cors_allow_origins: list[str] = []
 
 app.add_middleware(
