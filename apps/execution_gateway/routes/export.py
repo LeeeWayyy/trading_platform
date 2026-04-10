@@ -23,7 +23,7 @@ import asyncio
 import io
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -789,6 +789,9 @@ _COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "fills": {
         "time": "executed_at",
     },
+    "tca": {
+        "execution_date": "executed_at",
+    },
 }
 
 
@@ -855,11 +858,19 @@ def _build_order_clause(
     """Build a safe ORDER BY clause from an AG Grid sort model.
 
     Only column names that appear in *allowed_columns* are accepted.
+    Items are sorted by their ``sortIndex`` (if present) so that
+    multi-column sort precedence matches the user's grid configuration.
     """
     if not sort_model:
         return default_order
+    # Sort by sortIndex to preserve multi-column sort precedence.
+    # Items without sortIndex are appended in their original order.
+    indexed = sorted(
+        sort_model,
+        key=lambda item: (item.get("sortIndex") is None, item.get("sortIndex", 0)),
+    )
     parts: list[str] = []
-    for item in sort_model:
+    for item in indexed:
         col = item.get("colId", "")
         direction = "DESC" if item.get("sort") == "desc" else "ASC"
         if col in allowed_columns:
@@ -1149,6 +1160,12 @@ def _fetch_audit_data(
     strategy-related audit entries prevents leaking sensitive system
     operations to users who may only be authorized for specific
     strategies.
+
+    Note: ``details->>'strategy_id'`` assumes strategy_id is stored as a
+    top-level key in the JSONB ``details`` column.  This matches the
+    current audit_log schema.  If the schema evolves to nest strategy_id
+    differently, update the WHERE clause below and the corresponding
+    GIN index on ``audit_log.details``.
     """
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
     select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
@@ -1386,6 +1403,11 @@ async def _generate_excel_content(
                         value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
                     else:
                         value_to_set = raw_value
+                elif isinstance(raw_value, date):
+                    # PostgreSQL DATE columns are returned as datetime.date
+                    # objects by psycopg.  openpyxl handles date natively,
+                    # so pass through as-is (date has no timezone concept).
+                    value_to_set = raw_value
                 else:
                     value_to_set = raw_value
 

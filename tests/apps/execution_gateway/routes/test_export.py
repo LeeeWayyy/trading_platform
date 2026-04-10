@@ -7,7 +7,7 @@ and that all cell values are sanitised against formula injection.
 from __future__ import annotations
 
 import io
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
@@ -60,13 +60,22 @@ class TestValidateColumns:
         """TCA grid sends computed columns (fill_rate_pct, is_bps etc.) alongside
         a few raw ones.  When fewer than half survive validation, fall back to
         the full allowlist so TCA exports are not misleadingly incomplete."""
-        # Simulate what the TCA grid sends: mostly computed + a couple raw
+        # Simulate TCA grid sending mostly computed columns (no aliases)
         result = _validate_columns(
             "tca",
-            ["execution_date", "fill_rate_pct", "is_bps", "symbol", "side"],
+            ["fill_rate_pct", "is_bps", "slippage_bps", "vwap_deviation", "symbol"],
         )
-        # Only symbol and side are valid (2/5 < half), so full fallback
+        # Only symbol is valid (1/5 < half), so full fallback
         assert result == _GRID_COLUMNS["tca"]
+
+    def test_tca_execution_date_alias_resolved(self) -> None:
+        """Frontend alias 'execution_date' is resolved to 'executed_at' for TCA."""
+        result = _validate_columns(
+            "tca",
+            ["execution_date", "symbol", "side", "qty", "price"],
+        )
+        # All 5 resolve to valid columns (execution_date -> executed_at)
+        assert result == ["executed_at", "symbol", "side", "qty", "price"]
 
     def test_no_fallback_when_majority_valid(self) -> None:
         """When the majority of requested columns are valid, keep the subset."""
@@ -246,6 +255,24 @@ class TestBuildOrderClause:
         model = [{"colId": "DROP TABLE", "sort": "asc"}]
         result = _build_order_clause(model, ["symbol"], "symbol ASC")
         assert result == "symbol ASC"
+
+    def test_sort_index_determines_precedence(self) -> None:
+        """Multi-column sorts should respect sortIndex for precedence."""
+        model = [
+            {"colId": "qty", "sort": "asc", "sortIndex": 1},
+            {"colId": "symbol", "sort": "desc", "sortIndex": 0},
+        ]
+        result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
+        assert result == "symbol DESC, qty ASC"
+
+    def test_sort_index_missing_appended_at_end(self) -> None:
+        """Items without sortIndex are appended after indexed items."""
+        model = [
+            {"colId": "qty", "sort": "asc"},
+            {"colId": "symbol", "sort": "desc", "sortIndex": 0},
+        ]
+        result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
+        assert result == "symbol DESC, qty ASC"
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +462,44 @@ class TestGenerateExcelContent:
             f"updated_at should be datetime, got str: {updated_val!r}"
         )
 
+    async def test_date_objects_preserved_in_excel(self) -> None:
+        """PostgreSQL DATE columns (datetime.date) should be stored natively."""
+        rows = [
+            (
+                "AAPL",
+                Decimal("10"),
+                Decimal("150.25"),
+                Decimal("152.00"),
+                Decimal("17.50"),
+                Decimal("0"),
+                date(2026, 1, 1),
+            ),
+        ]
+        col_names = [
+            "symbol", "qty", "avg_entry_price", "current_price",
+            "unrealized_pl", "realized_pl", "updated_at",
+        ]
+        ctx = _make_ctx_with_rows(rows, col_names)
+
+        content, _ = await export_module._generate_excel_content(
+            ctx=ctx,
+            grid_name="positions",
+            strategy_ids=["alpha"],
+            filter_params=None,
+            visible_columns=None,
+            sort_model=None,
+        )
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        # date object should be preserved as a date, not stringified
+        updated_val = ws.cell(2, 7).value
+        assert not isinstance(updated_val, str), (
+            f"updated_at should be date, got str: {updated_val!r}"
+        )
+
     async def test_filter_params_applied_to_query(self) -> None:
         """Verify that filter_params produce SQL WHERE clauses in the query."""
         rows = [
@@ -455,8 +520,10 @@ class TestGenerateExcelContent:
             sort_model=None,
         )
 
-        # The SQL executed should contain the filter clause
-        executed_sql = cursor.execute.call_args[0][0]
+        # The SQL executed should contain the filter clause.
+        # psycopg.sql.Composed objects are passed to execute(); convert
+        # to string representation for assertion.
+        executed_sql = str(cursor.execute.call_args[0][0])
         assert "symbol::text = %s" in executed_sql
         # The bind parameters should include the filter value
         executed_params = cursor.execute.call_args[0][1]
@@ -483,7 +550,7 @@ class TestGenerateExcelContent:
         )
 
         # "type" should be resolved to "order_type" in the ORDER BY
-        executed_sql = cursor.execute.call_args[0][0]
+        executed_sql = str(cursor.execute.call_args[0][0])
         assert "order_type DESC" in executed_sql
 
     async def test_audit_row_count_matches_data(self) -> None:
