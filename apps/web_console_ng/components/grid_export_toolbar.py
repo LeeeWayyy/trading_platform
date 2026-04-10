@@ -173,8 +173,11 @@ class GridExportToolbar:
 
             # Merge extra_filters into the AG Grid filter model so that
             # tab-scoped predicates are included in the export query.
-            filter_model = dict(grid_state.get("filterModel") or {})
-            filter_model.update(self.extra_filters)
+            # User-specified filters take precedence over extra_filters
+            # to preserve narrower selections (e.g. user filters to only
+            # "accepted" within the working-status set).
+            filter_model = dict(self.extra_filters)
+            filter_model.update(grid_state.get("filterModel") or {})
 
             headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:

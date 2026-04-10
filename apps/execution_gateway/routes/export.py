@@ -29,6 +29,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
 from psycopg import sql
 from pydantic import BaseModel, Field
 
@@ -1360,6 +1361,79 @@ _GRID_FETCHERS = {
 }
 
 
+def _build_workbook(
+    grid_name: str,
+    columns: list[str],
+    rows: list[dict[str, Any]],
+) -> bytes:
+    """Build an Excel workbook from grid data.
+
+    Sanitises every cell value to prevent formula-injection attacks.
+    Numeric and temporal types are preserved as native Excel types.
+
+    Args:
+        grid_name: Name of the grid (used as worksheet title).
+        columns: Ordered list of column names to include.
+        rows: Row data dicts keyed by column name.
+
+    Returns:
+        Raw bytes of the ``.xlsx`` file.
+    """
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None  # A new Workbook always has an active sheet
+    ws.title = grid_name.title()
+
+    # Header row -- sanitize headers
+    for col_idx, header in enumerate(columns, 1):
+        ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
+
+    # Data rows -- sanitize only string values to prevent formula
+    # injection while preserving native Excel types (numbers, dates)
+    # for proper formatting and calculations.
+    for row_idx, row_data in enumerate(rows, 2):
+        for col_idx, col_name in enumerate(columns, 1):
+            raw_value = row_data.get(col_name)
+            if isinstance(raw_value, dict | list):
+                raw_value = json.dumps(raw_value, default=str)
+
+            # Only sanitize strings to prevent formula injection
+            # while preserving numeric/date types that openpyxl
+            # handles natively.
+            if isinstance(raw_value, str):
+                value_to_set: Any = sanitize_for_export(raw_value)
+            elif raw_value is None:
+                value_to_set = ""
+            elif isinstance(raw_value, datetime):
+                # openpyxl does not support timezone-aware datetimes.
+                # Normalize all datetimes to UTC before stripping tzinfo:
+                # - tz-aware: convert to UTC via astimezone()
+                # - naive: assume UTC per project coding standards and
+                #   explicitly tag with UTC for documentation clarity
+                # Then strip tzinfo to satisfy openpyxl.
+                if raw_value.tzinfo is None:
+                    raw_value = raw_value.replace(tzinfo=UTC)
+                value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
+            elif isinstance(raw_value, date):
+                # PostgreSQL DATE columns are returned as datetime.date
+                # objects by psycopg.  openpyxl handles date natively,
+                # so pass through as-is (date has no timezone concept).
+                value_to_set = raw_value
+            else:
+                value_to_set = raw_value
+
+            ws.cell(
+                row=row_idx,
+                column=col_idx,
+                value=value_to_set,
+            )
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 async def _generate_excel_content(
     ctx: AppContext,
     grid_name: str,
@@ -1398,13 +1472,6 @@ async def _generate_excel_content(
     Raises:
         NotImplementedError: If grid type not supported or openpyxl missing
     """
-    try:
-        from openpyxl import Workbook
-    except ImportError as e:
-        raise NotImplementedError(
-            "Excel export requires openpyxl: pip install openpyxl"
-        ) from e
-
     if grid_name not in _GRID_FETCHERS:
         raise NotImplementedError(f"Excel export not implemented for grid: {grid_name}")
 
@@ -1457,63 +1524,9 @@ async def _generate_excel_content(
         filter_clause, filter_params_list,
     )
 
-    # Build workbook (CPU-bound; done in worker thread below)
-    def _build_workbook() -> bytes:
-        wb = Workbook()
-        # A new Workbook always has an active worksheet.
-        ws = wb.active if wb.active is not None else wb.create_sheet()
-        ws.title = grid_name.title()
-
-        # Header row -- sanitize headers
-        for col_idx, header in enumerate(columns, 1):
-            ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
-
-        # Data rows -- sanitize only string values to prevent formula
-        # injection while preserving native Excel types (numbers, dates)
-        # for proper formatting and calculations.
-        for row_idx, row_data in enumerate(rows, 2):
-            for col_idx, col_name in enumerate(columns, 1):
-                raw_value = row_data.get(col_name)
-                if isinstance(raw_value, dict | list):
-                    raw_value = json.dumps(raw_value, default=str)
-
-                # Only sanitize strings to prevent formula injection
-                # while preserving numeric/date types that openpyxl
-                # handles natively.
-                if isinstance(raw_value, str):
-                    value_to_set: Any = sanitize_for_export(raw_value)
-                elif raw_value is None:
-                    value_to_set = ""
-                elif isinstance(raw_value, datetime):
-                    # openpyxl does not support timezone-aware datetimes.
-                    # Normalize all datetimes to UTC before stripping tzinfo:
-                    # - tz-aware: convert to UTC via astimezone()
-                    # - naive: assume UTC per project coding standards and
-                    #   explicitly tag with UTC for documentation clarity
-                    # Then strip tzinfo to satisfy openpyxl.
-                    if raw_value.tzinfo is None:
-                        raw_value = raw_value.replace(tzinfo=UTC)
-                    value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
-                elif isinstance(raw_value, date):
-                    # PostgreSQL DATE columns are returned as datetime.date
-                    # objects by psycopg.  openpyxl handles date natively,
-                    # so pass through as-is (date has no timezone concept).
-                    value_to_set = raw_value
-                else:
-                    value_to_set = raw_value
-
-                ws.cell(
-                    row=row_idx,
-                    column=col_idx,
-                    value=value_to_set,
-                )
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        return buf.getvalue()
-
-    excel_bytes = await asyncio.to_thread(_build_workbook)
+    excel_bytes = await asyncio.to_thread(
+        _build_workbook, grid_name, columns, rows,
+    )
     row_count = len(rows)
     return excel_bytes, row_count
 
