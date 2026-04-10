@@ -665,3 +665,14 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - symbol-change refreshes can explicitly invalidate stale in-flight work
 - Added cleanup-safe refresh behavior to avoid spawning new tasks after dashboard teardown.
 - Expanded dispatch tests for refresh scheduling state-machine helpers.
+
+11. Workspace stale/disconnect lock-state hardening + tests (phase-1.2)
+- Extracted workspace lock-state decisions in `pages/dashboard.py` into pure helpers:
+  - `compute_workspace_data_staleness(...)`
+  - `determine_workspace_lock_state(...)`
+- Wired dashboard mask evaluation to use helper outputs for consistent lock-title/detail messaging.
+- Added dispatch-level tests covering:
+  - no-live-data and negative-age staleness computation safety
+  - stale threshold behavior
+  - read-only precedence over stale state
+  - stale lock messaging and healthy unlocked state

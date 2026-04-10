@@ -166,3 +166,68 @@ def test_should_run_pending_strategy_context_refresh() -> None:
     assert not dashboard_module.should_run_pending_strategy_context_refresh(
         refresh_pending=False, dashboard_closing=False
     )
+
+
+def test_compute_workspace_data_staleness_no_live_data() -> None:
+    stale, age = dashboard_module.compute_workspace_data_staleness(
+        last_live_data_at=None,
+        now=200.0,
+    )
+    assert not stale
+    assert age == 0.0
+
+
+def test_compute_workspace_data_staleness_clamps_negative_age() -> None:
+    stale, age = dashboard_module.compute_workspace_data_staleness(
+        last_live_data_at=250.0,
+        now=200.0,
+        threshold_s=30.0,
+    )
+    assert not stale
+    assert age == 0.0
+
+
+def test_compute_workspace_data_staleness_marks_stale_after_threshold() -> None:
+    stale, age = dashboard_module.compute_workspace_data_staleness(
+        last_live_data_at=100.0,
+        now=132.0,
+        threshold_s=30.0,
+    )
+    assert stale
+    assert age == 32.0
+
+
+def test_determine_workspace_lock_state_read_only_precedence() -> None:
+    locked, title, detail = dashboard_module.determine_workspace_lock_state(
+        connection_read_only=True,
+        connection_state="DISCONNECTED",
+        data_stale=True,
+        data_age_s=120.0,
+    )
+    assert locked
+    assert title == "Connection DISCONNECTED"
+    assert "read-only" in detail
+
+
+def test_determine_workspace_lock_state_stale_when_connected() -> None:
+    locked, title, detail = dashboard_module.determine_workspace_lock_state(
+        connection_read_only=False,
+        connection_state="CONNECTED",
+        data_stale=True,
+        data_age_s=45.2,
+    )
+    assert locked
+    assert title == "Live data stale"
+    assert "45s" in detail
+
+
+def test_determine_workspace_lock_state_unlocked_when_healthy() -> None:
+    locked, title, detail = dashboard_module.determine_workspace_lock_state(
+        connection_read_only=False,
+        connection_state="CONNECTED",
+        data_stale=False,
+        data_age_s=0.0,
+    )
+    assert not locked
+    assert title == ""
+    assert detail == ""
