@@ -73,3 +73,95 @@ def test_dispatch_trading_state_event_handles_unserializable_payload(
 
     assert "trading_state_dispatch_failed" in caplog.text
     assert called is False
+
+
+def test_should_apply_strategy_context_result_true_when_generation_and_symbol_match() -> None:
+    assert dashboard_module.should_apply_strategy_context_result(
+        refresh_generation=4,
+        active_generation=4,
+        expected_symbol="AAPL",
+        current_symbol="AAPL",
+    )
+
+
+def test_should_apply_strategy_context_result_false_when_stale() -> None:
+    assert not dashboard_module.should_apply_strategy_context_result(
+        refresh_generation=4,
+        active_generation=5,
+        expected_symbol="AAPL",
+        current_symbol="AAPL",
+    )
+    assert not dashboard_module.should_apply_strategy_context_result(
+        refresh_generation=5,
+        active_generation=5,
+        expected_symbol="AAPL",
+        current_symbol="MSFT",
+    )
+
+
+def test_plan_strategy_context_refresh_request_starts_when_idle() -> None:
+    generation, mark_pending, start_generation = (
+        dashboard_module.plan_strategy_context_refresh_request(
+            current_generation=2,
+            task_running=False,
+            dashboard_closing=False,
+            invalidate_running=False,
+        )
+    )
+    assert generation == 3
+    assert mark_pending is False
+    assert start_generation == 3
+
+
+def test_plan_strategy_context_refresh_request_marks_pending_without_invalidation() -> None:
+    generation, mark_pending, start_generation = (
+        dashboard_module.plan_strategy_context_refresh_request(
+            current_generation=5,
+            task_running=True,
+            dashboard_closing=False,
+            invalidate_running=False,
+        )
+    )
+    assert generation == 5
+    assert mark_pending is True
+    assert start_generation is None
+
+
+def test_plan_strategy_context_refresh_request_marks_pending_with_invalidation() -> None:
+    generation, mark_pending, start_generation = (
+        dashboard_module.plan_strategy_context_refresh_request(
+            current_generation=5,
+            task_running=True,
+            dashboard_closing=False,
+            invalidate_running=True,
+        )
+    )
+    assert generation == 6
+    assert mark_pending is True
+    assert start_generation is None
+
+
+def test_plan_strategy_context_refresh_request_noop_when_dashboard_closing() -> None:
+    generation, mark_pending, start_generation = (
+        dashboard_module.plan_strategy_context_refresh_request(
+            current_generation=7,
+            task_running=True,
+            dashboard_closing=True,
+            invalidate_running=True,
+        )
+    )
+    assert generation == 7
+    assert mark_pending is False
+    assert start_generation is None
+
+
+def test_should_run_pending_strategy_context_refresh() -> None:
+    assert dashboard_module.should_run_pending_strategy_context_refresh(
+        refresh_pending=True, dashboard_closing=False
+    )
+    assert not dashboard_module.should_run_pending_strategy_context_refresh(
+        refresh_pending=True, dashboard_closing=True
+    )
+    assert not dashboard_module.should_run_pending_strategy_context_refresh(
+        refresh_pending=False, dashboard_closing=False
+    )

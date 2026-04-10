@@ -155,6 +155,48 @@ def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) 
         )
 
 
+def should_apply_strategy_context_result(
+    *,
+    refresh_generation: int,
+    active_generation: int,
+    expected_symbol: str | None,
+    current_symbol: str | None,
+) -> bool:
+    """Return True only when async strategy-context result still matches live selection."""
+    return refresh_generation == active_generation and expected_symbol == current_symbol
+
+
+def plan_strategy_context_refresh_request(
+    *,
+    current_generation: int,
+    task_running: bool,
+    dashboard_closing: bool,
+    invalidate_running: bool,
+) -> tuple[int, bool, int | None]:
+    """Plan refresh scheduling outcome.
+
+    Returns: (next_generation, mark_pending, start_generation)
+    """
+    if dashboard_closing:
+        return current_generation, False, None
+
+    if task_running:
+        next_generation = current_generation + (1 if invalidate_running else 0)
+        return next_generation, True, None
+
+    next_generation = current_generation + 1
+    return next_generation, False, next_generation
+
+
+def should_run_pending_strategy_context_refresh(
+    *,
+    refresh_pending: bool,
+    dashboard_closing: bool,
+) -> bool:
+    """Return True if queued refresh should run after current task exits."""
+    return refresh_pending and not dashboard_closing
+
+
 class MarketPriceCache:
     """Per-scope cache for market prices.
 
@@ -1398,11 +1440,21 @@ async def dashboard(client: Client) -> None:
     stale_timer = ui.timer(config.DASHBOARD_STALE_CHECK_SECONDS, check_stale_data)
     timers.append(stale_timer)
 
+    strategy_context_refresh_generation = 0
+    strategy_context_refresh_task: asyncio.Task[None] | None = None
+    strategy_context_refresh_pending = False
+    strategy_context_dashboard_closing = False
+    last_strategy_context_symbol: str | None = order_context.get_selected_symbol()
+
     def sync_order_flow_symbol() -> None:
+        nonlocal last_strategy_context_symbol
         selected_symbol = order_context.get_selected_symbol()
         order_flow_panel.set_symbol(selected_symbol)
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
+        if selected_symbol != last_strategy_context_symbol:
+            last_strategy_context_symbol = selected_symbol
+            _schedule_strategy_model_context_refresh(invalidate_running=True)
 
     flow_symbol_timer = ui.timer(0.5, sync_order_flow_symbol)
     timers.append(flow_symbol_timer)
@@ -1522,15 +1574,28 @@ async def dashboard(client: Client) -> None:
             return f"Execution context degraded: {gate_reason}"
         return "Execution context degraded: strategy/model state unresolved."
 
-    strategy_context_refresh_task: asyncio.Task[None] | None = None
+    def _is_strategy_context_refresh_stale(
+        refresh_generation: int,
+        expected_symbol: str | None,
+    ) -> bool:
+        return not should_apply_strategy_context_result(
+            refresh_generation=refresh_generation,
+            active_generation=strategy_context_refresh_generation,
+            expected_symbol=expected_symbol,
+            current_symbol=order_context.get_selected_symbol(),
+        )
 
-    async def _refresh_strategy_model_context() -> None:
+    async def _refresh_strategy_model_context(refresh_generation: int) -> None:
         selected_symbol = order_context.get_selected_symbol()
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
 
         gate_enabled = config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING
         if not selected_symbol:
+            if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+                return
             order_context.dispatch_strategy_model_context(
                 strategy_status="unknown",
                 model_status="unknown",
@@ -1543,6 +1608,8 @@ async def dashboard(client: Client) -> None:
             return
 
         strategy_id = await _resolve_strategy_for_symbol(selected_symbol)
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
         if not strategy_id:
             unresolved_reason = "No unique strategy mapping for selected symbol"
             order_context.dispatch_strategy_model_context(
@@ -1577,8 +1644,12 @@ async def dashboard(client: Client) -> None:
                 model_version = str(payload_model_version).strip()
         except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
             reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
 
         db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
         if model_status == "unknown":
             model_status = db_model_status
         if model_version is None:
@@ -1604,6 +1675,8 @@ async def dashboard(client: Client) -> None:
             gate_reason=gate_reason,
         )
 
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
         order_context.dispatch_strategy_model_context(
             strategy_status=strategy_status,
             model_status=model_status,
@@ -1614,22 +1687,62 @@ async def dashboard(client: Client) -> None:
             banner=banner,
         )
 
-    def _schedule_strategy_model_context_refresh() -> None:
+    async def _run_strategy_model_context_refresh(refresh_generation: int) -> None:
+        nonlocal strategy_context_refresh_task, strategy_context_refresh_pending
+        try:
+            await _refresh_strategy_model_context(refresh_generation)
+        finally:
+            strategy_context_refresh_task = None
+
+            should_run_pending = should_run_pending_strategy_context_refresh(
+                refresh_pending=strategy_context_refresh_pending,
+                dashboard_closing=strategy_context_dashboard_closing,
+            )
+            strategy_context_refresh_pending = False
+            if should_run_pending:
+                _start_strategy_model_context_refresh(strategy_context_refresh_generation)
+
+    def _start_strategy_model_context_refresh(refresh_generation: int) -> None:
         nonlocal strategy_context_refresh_task
-        if strategy_context_refresh_task and not strategy_context_refresh_task.done():
+        strategy_context_refresh_task = asyncio.create_task(
+            _run_strategy_model_context_refresh(refresh_generation)
+        )
+
+    def _schedule_strategy_model_context_refresh(*, invalidate_running: bool = False) -> None:
+        nonlocal strategy_context_dashboard_closing
+        nonlocal strategy_context_refresh_generation
+        nonlocal strategy_context_refresh_pending
+        nonlocal strategy_context_refresh_task
+        next_generation, mark_pending, start_generation = plan_strategy_context_refresh_request(
+            current_generation=strategy_context_refresh_generation,
+            task_running=bool(
+                strategy_context_refresh_task and not strategy_context_refresh_task.done()
+            ),
+            dashboard_closing=strategy_context_dashboard_closing,
+            invalidate_running=invalidate_running,
+        )
+        strategy_context_refresh_generation = next_generation
+        if mark_pending:
+            strategy_context_refresh_pending = True
             return
-        strategy_context_refresh_task = asyncio.create_task(_refresh_strategy_model_context())
+        if start_generation is not None:
+            _start_strategy_model_context_refresh(start_generation)
 
     _schedule_strategy_model_context_refresh()
     strategy_context_timer = ui.timer(
         config.DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS,
-        _schedule_strategy_model_context_refresh,
+        lambda: _schedule_strategy_model_context_refresh(invalidate_running=False),
     )
     timers.append(strategy_context_timer)
 
     def cleanup_timers() -> None:
+        nonlocal strategy_context_dashboard_closing, strategy_context_refresh_pending
+        strategy_context_dashboard_closing = True
+        strategy_context_refresh_pending = False
         for timer in timers:
             timer.cancel()
+        if strategy_context_refresh_task and not strategy_context_refresh_task.done():
+            strategy_context_refresh_task.cancel()
 
     await lifecycle.register_cleanup_callback(client_id, cleanup_timers)
     await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
