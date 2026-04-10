@@ -19,6 +19,7 @@ from apps.orchestrator.orchestrator import PriceUnavailableError, TradingOrchest
 def _make_orchestrator(
     redis_client: MagicMock | None = None,
     price_cache: dict[str, Decimal] | None = None,
+    max_price_age_seconds: int = 30,
 ) -> TradingOrchestrator:
     return TradingOrchestrator(
         signal_service_url="http://localhost:8001",
@@ -27,6 +28,7 @@ def _make_orchestrator(
         max_position_size=Decimal("10000"),
         price_cache=price_cache,
         redis_client=redis_client,
+        max_price_age_seconds=max_price_age_seconds,
     )
 
 
@@ -247,3 +249,127 @@ class TestGetCurrentPriceEdgeCases:
         ) as mock_to_thread:
             await orch._get_current_price("AAPL")
             mock_to_thread.assert_called_once()
+
+
+class TestCacheFreshnessRevalidation:
+    """Tests for in-memory cache freshness revalidation on lookup."""
+
+    @pytest.mark.asyncio()
+    async def test_cached_price_evicted_when_stale(self) -> None:
+        """In-memory cached price is evicted and re-fetched when it ages out."""
+        redis = MagicMock()
+        redis.get.return_value = _fresh_price_json(mid="160.00")
+        orch = _make_orchestrator(redis_client=redis, max_price_age_seconds=10)
+
+        # Seed cache with a price that has an old timestamp
+        stale_ts = datetime.now(UTC) - timedelta(seconds=15)
+        orch.price_cache["AAPL"] = Decimal("150.00")
+        orch._price_timestamps["AAPL"] = stale_ts
+
+        # Should evict stale entry and fetch fresh price from Redis
+        price = await orch._get_current_price("AAPL")
+        assert price == Decimal("160.00")
+        redis.get.assert_called_once_with("price:AAPL")
+
+    @pytest.mark.asyncio()
+    async def test_cached_price_served_when_fresh(self) -> None:
+        """In-memory cached price is served without Redis call when still fresh."""
+        redis = MagicMock()
+        orch = _make_orchestrator(redis_client=redis, max_price_age_seconds=30)
+
+        # Seed cache with a recent timestamp
+        fresh_ts = datetime.now(UTC) - timedelta(seconds=5)
+        orch.price_cache["AAPL"] = Decimal("150.00")
+        orch._price_timestamps["AAPL"] = fresh_ts
+
+        price = await orch._get_current_price("AAPL")
+        assert price == Decimal("150.00")
+        redis.get.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_custom_max_price_age_respected(self) -> None:
+        """Custom max_price_age_seconds value is used for staleness check."""
+        redis = MagicMock()
+        redis.get.return_value = _fresh_price_json(mid="170.00")
+        # Set a very short max age
+        orch = _make_orchestrator(redis_client=redis, max_price_age_seconds=2)
+
+        # Seed cache with a 5-second-old timestamp (stale for 2s threshold)
+        ts = datetime.now(UTC) - timedelta(seconds=5)
+        orch.price_cache["AAPL"] = Decimal("150.00")
+        orch._price_timestamps["AAPL"] = ts
+
+        price = await orch._get_current_price("AAPL")
+        assert price == Decimal("170.00")
+        redis.get.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_redis_stale_with_custom_max_age(self) -> None:
+        """Redis price that exceeds custom max_price_age_seconds is rejected."""
+        stale_ts = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+        redis = MagicMock()
+        redis.get.return_value = _fresh_price_json(timestamp=stale_ts)
+        orch = _make_orchestrator(redis_client=redis, max_price_age_seconds=5)
+
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+
+
+class TestBatchPrefetch:
+    """Tests for _prefetch_prices batch MGET."""
+
+    @pytest.mark.asyncio()
+    async def test_prefetch_populates_cache(self) -> None:
+        """_prefetch_prices populates price_cache for all symbols."""
+        redis = MagicMock()
+        redis.mget.return_value = [
+            _fresh_price_json(symbol="AAPL", mid="150.00"),
+            _fresh_price_json(symbol="MSFT", mid="300.00"),
+        ]
+        orch = _make_orchestrator(redis_client=redis)
+
+        await orch._prefetch_prices(["AAPL", "MSFT"])
+
+        assert orch.price_cache["AAPL"] == Decimal("150.00")
+        assert orch.price_cache["MSFT"] == Decimal("300.00")
+        redis.mget.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_prefetch_skips_fresh_cached(self) -> None:
+        """_prefetch_prices skips symbols already fresh in cache."""
+        redis = MagicMock()
+        redis.mget.return_value = [_fresh_price_json(symbol="MSFT", mid="300.00")]
+        orch = _make_orchestrator(redis_client=redis, max_price_age_seconds=30)
+
+        # Seed AAPL as fresh
+        orch.price_cache["AAPL"] = Decimal("150.00")
+        orch._price_timestamps["AAPL"] = datetime.now(UTC)
+
+        await orch._prefetch_prices(["AAPL", "MSFT"])
+
+        # Only MSFT should be fetched
+        redis.mget.assert_called_once()
+        keys_arg = redis.mget.call_args[0][0]
+        assert len(keys_arg) == 1
+        assert keys_arg[0] == "price:MSFT"
+
+    @pytest.mark.asyncio()
+    async def test_prefetch_no_redis_client_is_noop(self) -> None:
+        """_prefetch_prices is a no-op when redis_client is None."""
+        orch = _make_orchestrator(redis_client=None)
+        await orch._prefetch_prices(["AAPL"])
+        assert orch.price_cache == {}
+
+    @pytest.mark.asyncio()
+    async def test_prefetch_error_is_non_fatal(self) -> None:
+        """_prefetch_prices catches errors so per-symbol fallback still works."""
+        redis = MagicMock()
+        redis.mget.side_effect = ConnectionError("Redis down")
+        redis.get.return_value = _fresh_price_json()
+        orch = _make_orchestrator(redis_client=redis)
+
+        # Should not raise
+        await orch._prefetch_prices(["AAPL"])
+
+        # Cache is empty — per-symbol GET will work later
+        assert "AAPL" not in orch.price_cache

@@ -209,6 +209,7 @@ class TradingOrchestrator:
         allocation_method: AllocMethod = "rank_aggregation",
         per_strategy_max: float = 0.40,
         redis_client: RedisClient | None = None,
+        max_price_age_seconds: int = 30,
     ):
         """
         Initialize Trading Orchestrator.
@@ -222,6 +223,9 @@ class TradingOrchestrator:
             allocation_method: Method for multi-alpha allocation ('rank_aggregation', 'inverse_vol', 'equal_weight')
             per_strategy_max: Maximum allocation to any single strategy (default 0.40 = 40%)
             redis_client: Optional Redis client for fetching live prices from market data cache
+            max_price_age_seconds: Maximum age in seconds for Redis price data before
+                treating as stale. Should match execution-gateway's
+                FAT_FINGER_MAX_PRICE_AGE_SECONDS for consistency (default: 30)
         """
         self.signal_client = SignalServiceClient(signal_service_url)
         self.execution_client = ExecutionGatewayClient(execution_gateway_url)
@@ -230,12 +234,21 @@ class TradingOrchestrator:
         self.allocation_method = allocation_method
         self.per_strategy_max = per_strategy_max
         self.redis_client = redis_client
+        self.max_price_age_seconds = max_price_age_seconds
+
+        # Active strategy context for structured logging (set by run())
+        self._active_strategy_ids: list[str] = []
 
         # M1 Fix: Validate and normalize price_cache to ensure all values are Decimal
         self.price_cache: dict[str, Decimal] = {}
+        # Tracks when each cached price was fetched for freshness revalidation
+        self._price_timestamps: dict[str, datetime] = {}
         if price_cache:
+            # Test-provided prices use current timestamp so they pass freshness checks
+            cache_ts = datetime.now(UTC)
             for symbol, price in price_cache.items():
                 self.price_cache[symbol] = self._normalize_price(symbol, price)
+                self._price_timestamps[symbol] = cache_ts
 
         # Validate allocation method configuration
         if allocation_method == "inverse_vol":
@@ -345,6 +358,9 @@ class TradingOrchestrator:
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
         is_multi_strategy = len(strategy_ids) > 1
+
+        # Set strategy context for structured logging in downstream methods
+        self._active_strategy_ids = strategy_ids
 
         logger.info(
             f"Starting orchestration run {run_id}",
@@ -853,6 +869,10 @@ class TradingOrchestrator:
         """
         logger.info(f"Mapping {len(signals)} signals to orders")
 
+        # Batch pre-fetch prices from Redis (O(1) network round-trip via MGET)
+        signal_symbols = [s.symbol for s in signals if s.target_weight != 0]
+        await self._prefetch_prices(signal_symbols)
+
         mappings = []
 
         for signal in signals:
@@ -1091,16 +1111,137 @@ class TradingOrchestrator:
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"unexpected_error: {str(e)}"
 
-    # Maximum age (seconds) for Redis price data before treating as stale.
-    # Matches execution-gateway's FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT.
-    MAX_PRICE_AGE_SECONDS: int = 30
+    def _log_extra(self, symbol: str, **kwargs: Any) -> dict[str, Any]:
+        """Build structured-log extra dict with strategy context."""
+        extra: dict[str, Any] = {"symbol": symbol}
+        if self._active_strategy_ids:
+            extra["strategy_id"] = ",".join(self._active_strategy_ids)
+        extra.update(kwargs)
+        return extra
+
+    async def _prefetch_prices(self, symbols: list[str]) -> None:
+        """
+        Batch-fetch prices from Redis for all symbols using MGET.
+
+        Populates the in-memory price_cache so that subsequent
+        ``_get_current_price`` calls are served from memory without
+        individual Redis round-trips.
+
+        Args:
+            symbols: List of stock symbols to pre-fetch prices for
+        """
+        if self.redis_client is None or not symbols:
+            return
+
+        # Filter to symbols not already cached (or cached but stale)
+        now = datetime.now(UTC)
+        needed: list[str] = []
+        for sym in symbols:
+            if sym not in self.price_cache:
+                needed.append(sym)
+            else:
+                cached_ts = self._price_timestamps.get(sym)
+                if cached_ts is None or (now - cached_ts).total_seconds() > self.max_price_age_seconds:
+                    needed.append(sym)
+
+        if not needed:
+            return
+
+        try:
+            keys = [RedisKeys.price(sym) for sym in needed]
+            raw_values = await asyncio.to_thread(self.redis_client.mget, keys)
+            for sym, raw in zip(needed, raw_values, strict=True):
+                if raw is None:
+                    continue
+                self._parse_and_cache_price(sym, raw)
+        except Exception as e:
+            logger.warning(
+                "Batch price pre-fetch from Redis failed, will fall back to per-symbol",
+                extra=self._log_extra(
+                    symbol=",".join(needed),
+                    error=str(e),
+                    error_type=type(e).__name__,
+                ),
+                exc_info=True,
+            )
+
+    def _parse_and_cache_price(self, symbol: str, raw: str) -> Decimal | None:
+        """
+        Parse a Redis price JSON payload and cache in-memory if valid.
+
+        Returns:
+            Parsed mid price as Decimal, or None if invalid/stale.
+        """
+        try:
+            price_data = json.loads(raw)
+
+            # Validate timestamp freshness (matches execution-gateway pattern)
+            ts_raw = price_data.get("timestamp")
+            if ts_raw is None:
+                logger.warning(
+                    "Redis price missing timestamp for %s, treating as unavailable",
+                    symbol,
+                    extra=self._log_extra(symbol=symbol),
+                )
+                return None
+
+            price_ts = datetime.fromisoformat(str(ts_raw))
+            if price_ts.tzinfo is None:
+                price_ts = price_ts.replace(tzinfo=UTC)
+            age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
+            if age_seconds > self.max_price_age_seconds:
+                logger.warning(
+                    "Redis price stale for %s, treating as unavailable",
+                    symbol,
+                    extra=self._log_extra(
+                        symbol=symbol,
+                        price_age_seconds=max(age_seconds, 0),
+                        max_price_age_seconds=self.max_price_age_seconds,
+                    ),
+                )
+                return None
+
+            mid = Decimal(str(price_data["mid"]))
+            if mid > 0 and mid.is_finite():
+                # Cache locally with timestamp for freshness revalidation
+                self.price_cache[symbol] = mid
+                self._price_timestamps[symbol] = price_ts
+                logger.debug(
+                    "Price fetched from Redis",
+                    extra=self._log_extra(symbol=symbol, mid_price=str(mid)),
+                )
+                return mid
+
+            logger.warning(
+                "Redis price has invalid mid for %s, treating as unavailable",
+                symbol,
+                extra=self._log_extra(symbol=symbol, mid=str(mid)),
+            )
+            return None
+        except (
+            json.JSONDecodeError,
+            KeyError,
+            ValueError,
+            TypeError,
+            InvalidOperation,
+        ) as e:
+            logger.warning(
+                "Failed to parse price from Redis",
+                extra=self._log_extra(
+                    symbol=symbol,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                ),
+                exc_info=True,
+            )
+            return None
 
     async def _get_current_price(self, symbol: str) -> Decimal:
         """
         Get current market price for symbol.
 
         Resolution order:
-            1. In-memory price_cache (populated by tests or prior Redis fetch)
+            1. In-memory price_cache (if entry exists and is still fresh)
             2. Redis market data cache (populated by market_data_service)
             3. Raise PriceUnavailableError
 
@@ -1118,9 +1259,28 @@ class TradingOrchestrator:
             >>> print(price)
             Decimal('150.00')
         """
-        # Check in-memory cache first
+        # Check in-memory cache first, with freshness revalidation
         if symbol in self.price_cache:
-            return self.price_cache[symbol]
+            cached_ts = self._price_timestamps.get(symbol)
+            if cached_ts is not None:
+                age_seconds = (datetime.now(UTC) - cached_ts).total_seconds()
+                if age_seconds <= self.max_price_age_seconds:
+                    return self.price_cache[symbol]
+                # Stale cached entry — evict and fall through to Redis
+                del self.price_cache[symbol]
+                del self._price_timestamps[symbol]
+                logger.debug(
+                    "Evicted stale cached price for %s",
+                    symbol,
+                    extra=self._log_extra(
+                        symbol=symbol,
+                        price_age_seconds=max(age_seconds, 0),
+                        max_price_age_seconds=self.max_price_age_seconds,
+                    ),
+                )
+            else:
+                # No timestamp (shouldn't happen, but be safe) — evict
+                del self.price_cache[symbol]
 
         # Fetch from Redis market data cache (populated by market_data_service)
         if self.redis_client is not None:
@@ -1129,71 +1289,17 @@ class TradingOrchestrator:
                 # (RedisClient.get has retry/backoff that can sleep)
                 raw = await asyncio.to_thread(self.redis_client.get, RedisKeys.price(symbol))
                 if raw is not None:
-                    price_data = json.loads(raw)
-
-                    # Validate timestamp freshness (matches execution-gateway pattern)
-                    ts_raw = price_data.get("timestamp")
-                    if ts_raw is not None:
-                        price_ts = datetime.fromisoformat(str(ts_raw))
-                        if price_ts.tzinfo is None:
-                            price_ts = price_ts.replace(tzinfo=UTC)
-                        age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
-                        if age_seconds > self.MAX_PRICE_AGE_SECONDS:
-                            logger.warning(
-                                "Redis price stale for %s, treating as unavailable",
-                                symbol,
-                                extra={
-                                    "symbol": symbol,
-                                    "price_age_seconds": max(age_seconds, 0),
-                                    "max_price_age_seconds": self.MAX_PRICE_AGE_SECONDS,
-                                },
-                            )
-                            # Fall through to PriceUnavailableError
-                        else:
-                            mid = Decimal(str(price_data["mid"]))
-                            if mid > 0 and mid.is_finite():
-                                # Cache locally to avoid repeated Redis lookups
-                                self.price_cache[symbol] = mid
-                                logger.debug(
-                                    "Price fetched from Redis",
-                                    extra={"symbol": symbol, "mid_price": str(mid)},
-                                )
-                                return mid
-                            logger.warning(
-                                "Redis price has invalid mid for %s, " "treating as unavailable",
-                                symbol,
-                                extra={"symbol": symbol, "mid": str(mid)},
-                            )
-                    else:
-                        logger.warning(
-                            "Redis price missing timestamp for %s, " "treating as unavailable",
-                            symbol,
-                            extra={"symbol": symbol},
-                        )
-            except (
-                json.JSONDecodeError,
-                KeyError,
-                ValueError,
-                TypeError,
-                InvalidOperation,
-            ) as e:
-                logger.warning(
-                    "Failed to parse price from Redis",
-                    extra={
-                        "symbol": symbol,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
-                    exc_info=True,
-                )
+                    mid = self._parse_and_cache_price(symbol, raw)
+                    if mid is not None:
+                        return mid
             except Exception as e:
                 logger.warning(
                     "Failed to fetch price from Redis",
-                    extra={
-                        "symbol": symbol,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
+                    extra=self._log_extra(
+                        symbol=symbol,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    ),
                     exc_info=True,
                 )
 
