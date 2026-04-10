@@ -91,6 +91,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # we populate the shared list in-place here.
         cors_origins = _resolve_cors_origins()
         _cors_allow_origins[:] = cors_origins  # atomic replace, safe across restarts
+
+        # Verify CORSMiddleware kept a live reference to _cors_allow_origins.
+        # If Starlette changes to copy/freeze allow_origins at init, this
+        # assertion will fire during startup, preventing a silent CORS failure.
+        _verify_cors_middleware_uses_shared_origins(app)
+
         logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
 
         if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":
@@ -274,6 +280,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _verify_cors_middleware_uses_shared_origins(app: FastAPI) -> None:
+    """Verify that CORSMiddleware kept a live reference to _cors_allow_origins.
+
+    Starlette currently stores ``allow_origins`` by reference, so mutating
+    the list in-place during lifespan works.  If a future Starlette version
+    copies or freezes the sequence at init, this check will catch the
+    regression at startup rather than letting CORS silently fail.
+
+    Raises:
+        RuntimeError: If the middleware's allow_origins is not the same object.
+    """
+    # Walk the middleware stack to find CORSMiddleware
+    middleware = app.middleware_stack
+    while middleware is not None:
+        if isinstance(middleware, CORSMiddleware):
+            if middleware.allow_origins is not _cors_allow_origins:
+                raise RuntimeError(
+                    "CORSMiddleware does not hold a live reference to "
+                    "_cors_allow_origins; Starlette may have changed its "
+                    "init behavior. CORS origins will not be applied."
+                )
+            return
+        middleware = getattr(middleware, "app", None)
+    # CORSMiddleware not found in stack — unexpected but non-fatal during
+    # testing when lifespan is invoked on a bare FastAPI instance.
+    logger.warning("CORSMiddleware not found in middleware stack")
 
 
 # =============================================================================
