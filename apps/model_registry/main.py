@@ -89,12 +89,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # so validation errors go through the normal lifespan error path.
         # Middleware is already registered at module level with _cors_allow_origins;
         # we populate the shared list in-place here.
+        _cors_allow_origins.clear()  # clear first to avoid stale origins on failure
         cors_origins = _resolve_cors_origins()
-        _cors_allow_origins[:] = cors_origins  # atomic replace, safe across restarts
+        _cors_allow_origins[:] = cors_origins
 
-        # Best-effort check: verify CORSMiddleware kept a live reference to
-        # _cors_allow_origins.  Logs ERROR if Starlette changes behavior but
-        # does not abort startup (degraded CORS > hard outage).
+        # Verify CORSMiddleware kept a live reference to _cors_allow_origins.
+        # Raises RuntimeError if the reference is broken (CORS would silently
+        # fail).  Logs ERROR if middleware is missing from stack (less severe).
         _verify_cors_middleware_uses_shared_origins(app)
 
         logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
@@ -292,18 +293,24 @@ app.add_middleware(
 
 
 def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
-    """Best-effort check that CORSMiddleware holds a live reference to origins.
+    """Verify CORSMiddleware holds a live reference to _cors_allow_origins.
 
     Starlette currently stores ``allow_origins`` by reference, so mutating
     the list in-place during lifespan works.  If a future Starlette version
-    copies or freezes the sequence at init, this check emits a loud ERROR
-    log so operators notice, but does **not** abort startup -- degraded CORS
-    is preferable to a hard outage on a non-breaking framework upgrade.
+    copies or freezes the sequence at init, this function **raises**
+    RuntimeError to prevent silently broken CORS.
+
+    If CORSMiddleware is not found in the stack at all (less severe -- could
+    be a test or config issue), an ERROR is logged but startup continues.
 
     Note:
         ``_cors_allow_origins`` is process-global by design (single-app-per-
         process architecture).  See the module-level comment above the list
         declaration for rationale.
+
+    Raises:
+        RuntimeError: If CORSMiddleware exists but its allow_origins is not
+            the same object as _cors_allow_origins (reference mismatch).
     """
     # When lifespan is called on a bare FastAPI instance (e.g. in tests),
     # the middleware stack is not built yet.  Skip silently.
@@ -318,11 +325,10 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
     while middleware is not None:
         if isinstance(middleware, CORSMiddleware):
             if middleware.allow_origins is not _cors_allow_origins:
-                logger.error(
+                raise RuntimeError(
                     "CORSMiddleware does not hold a live reference to "
                     "_cors_allow_origins. Starlette may have changed its "
-                    "init behavior. CORS origins may not be applied. "
-                    "Consider pinning starlette or reverting to module-level "
+                    "init behavior. Pin starlette or revert to module-level "
                     "CORS configuration."
                 )
             return

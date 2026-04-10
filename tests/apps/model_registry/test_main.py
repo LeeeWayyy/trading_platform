@@ -735,6 +735,30 @@ def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPa
             assert response.status_code == 200
             assert "access-control-allow-origin" not in response.headers
 
+            # Verify OPTIONS preflight for allowed origin
+            response = client.options(
+                "/health",
+                headers={
+                    "Origin": "http://localhost:8501",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "Authorization",
+                },
+            )
+            assert response.status_code == 200
+            assert response.headers.get("access-control-allow-origin") == "http://localhost:8501"
+            assert response.headers.get("access-control-allow-credentials") == "true"
+            assert "GET" in response.headers.get("access-control-allow-methods", "")
+
+            # Verify OPTIONS preflight denied for disallowed origin
+            response = client.options(
+                "/health",
+                headers={
+                    "Origin": "https://evil.example.com",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+            assert response.status_code == 400
+
 
 def test_cors_production_startup_fails_without_allowed_origins(monkeypatch: pytest.MonkeyPatch):
     """Test that ASGI startup fails in production when ALLOWED_ORIGINS is unset."""
@@ -783,13 +807,9 @@ async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pyt
         _cors_allow_origins.clear()
 
 
-def test_verify_cors_guard_logs_error_on_copied_origins(caplog):
-    """Test guard logs ERROR when allow_origins is a different object."""
-    import logging
-
+def test_verify_cors_guard_raises_on_copied_origins():
+    """Test guard raises RuntimeError when allow_origins is a different object."""
     from starlette.middleware.cors import CORSMiddleware as RealCORSMiddleware
-
-    caplog.set_level(logging.ERROR, logger="apps.model_registry.main")
 
     # Create a middleware with a different list (simulates copy/freeze)
     test_app = FastAPI()
@@ -800,9 +820,8 @@ def test_verify_cors_guard_logs_error_on_copied_origins(caplog):
     guard_app = FastAPI()
     guard_app.middleware_stack = cors_mw
 
-    # Should not raise, but should log an error
-    _verify_cors_middleware_uses_shared_origins(guard_app)
-    assert "does not hold a live reference" in caplog.text
+    with pytest.raises(RuntimeError, match="does not hold a live reference"):
+        _verify_cors_middleware_uses_shared_origins(guard_app)
 
 
 def test_verify_cors_guard_logs_error_when_middleware_missing(caplog):
