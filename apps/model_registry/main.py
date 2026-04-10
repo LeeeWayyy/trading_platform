@@ -288,27 +288,23 @@ app.add_middleware(
 
 
 def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
-    """Verify that CORSMiddleware kept a live reference to _cors_allow_origins.
+    """Best-effort check that CORSMiddleware holds a live reference to origins.
 
     Starlette currently stores ``allow_origins`` by reference, so mutating
     the list in-place during lifespan works.  If a future Starlette version
-    copies or freezes the sequence at init, this check will catch the
-    regression at startup rather than letting CORS silently fail.
+    copies or freezes the sequence at init, this check emits a loud ERROR
+    log so operators notice, but does **not** abort startup -- degraded CORS
+    is preferable to a hard outage on a non-breaking framework upgrade.
 
     Note:
         ``_cors_allow_origins`` is process-global by design (single-app-per-
         process architecture).  See the module-level comment above the list
         declaration for rationale.
-
-    Raises:
-        RuntimeError: If the middleware's allow_origins is not the same object
-            or if CORSMiddleware is not found in the middleware stack.
     """
-    # Walk the middleware stack to find CORSMiddleware.
     # When lifespan is called on a bare FastAPI instance (e.g. in tests),
-    # the middleware stack is not built yet.  Log a warning and skip.
+    # the middleware stack is not built yet.  Skip silently.
     if target_app.middleware_stack is None:
-        logger.warning(
+        logger.debug(
             "CORS middleware guard skipped: middleware_stack is None "
             "(expected only in tests with bare FastAPI instances)"
         )
@@ -318,19 +314,20 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
     while middleware is not None:
         if isinstance(middleware, CORSMiddleware):
             if middleware.allow_origins is not _cors_allow_origins:
-                raise RuntimeError(
+                logger.error(
                     "CORSMiddleware does not hold a live reference to "
-                    "_cors_allow_origins; Starlette may have changed its "
-                    "init behavior. CORS origins will not be applied."
+                    "_cors_allow_origins. Starlette may have changed its "
+                    "init behavior. CORS origins may not be applied. "
+                    "Consider pinning starlette or reverting to module-level "
+                    "CORS configuration."
                 )
             return
         middleware = getattr(middleware, "app", None)
 
-    # Fail closed: if middleware stack exists but CORSMiddleware is missing,
-    # something is misconfigured.
-    raise RuntimeError(
+    # CORSMiddleware not found — log error but allow startup.
+    logger.error(
         "CORSMiddleware not found in middleware stack. "
-        "CORS will not be enforced. Check middleware registration."
+        "CORS may not be enforced. Check middleware registration."
     )
 
 

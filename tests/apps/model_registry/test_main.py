@@ -736,6 +736,16 @@ def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPa
             assert "access-control-allow-origin" not in response.headers
 
 
+def test_cors_production_startup_fails_without_allowed_origins(monkeypatch: pytest.MonkeyPatch):
+    """Test that ASGI startup fails in production when ALLOWED_ORIGINS is unset."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
+    with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
+        with TestClient(app):
+            pass  # pragma: no cover — startup should fail before reaching here
+
+
 @pytest.mark.asyncio()
 async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pytest.MonkeyPatch):
     """Test that _cors_allow_origins is replaced (not accumulated) across restarts."""
@@ -773,9 +783,13 @@ async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pyt
         _cors_allow_origins.clear()
 
 
-def test_verify_cors_guard_raises_on_copied_origins():
-    """Test guard raises RuntimeError when allow_origins is a different object."""
+def test_verify_cors_guard_logs_error_on_copied_origins(caplog):
+    """Test guard logs ERROR when allow_origins is a different object."""
+    import logging
+
     from starlette.middleware.cors import CORSMiddleware as RealCORSMiddleware
+
+    caplog.set_level(logging.ERROR, logger="apps.model_registry.main")
 
     # Create a middleware with a different list (simulates copy/freeze)
     test_app = FastAPI()
@@ -786,19 +800,25 @@ def test_verify_cors_guard_raises_on_copied_origins():
     guard_app = FastAPI()
     guard_app.middleware_stack = cors_mw
 
-    with pytest.raises(RuntimeError, match="does not hold a live reference"):
-        _verify_cors_middleware_uses_shared_origins(guard_app)
+    # Should not raise, but should log an error
+    _verify_cors_middleware_uses_shared_origins(guard_app)
+    assert "does not hold a live reference" in caplog.text
 
 
-def test_verify_cors_guard_raises_when_middleware_missing():
-    """Test guard raises RuntimeError when CORSMiddleware is not in stack."""
+def test_verify_cors_guard_logs_error_when_middleware_missing(caplog):
+    """Test guard logs ERROR when CORSMiddleware is not in stack."""
+    import logging
+
+    caplog.set_level(logging.ERROR, logger="apps.model_registry.main")
+
     guard_app = FastAPI()
     # Set a non-None middleware_stack without CORSMiddleware
     guard_app.middleware_stack = Mock()
     guard_app.middleware_stack.app = None  # terminate the walk
 
-    with pytest.raises(RuntimeError, match="CORSMiddleware not found"):
-        _verify_cors_middleware_uses_shared_origins(guard_app)
+    # Should not raise, but should log an error
+    _verify_cors_middleware_uses_shared_origins(guard_app)
+    assert "CORSMiddleware not found" in caplog.text
 
 
 def test_verify_cors_guard_skips_when_no_middleware_stack():
