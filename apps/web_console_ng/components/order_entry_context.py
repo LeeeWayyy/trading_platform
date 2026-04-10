@@ -170,6 +170,8 @@ class OrderEntryContext:
 
         # Cached prices for one-click trading (symbol -> (price, timestamp))
         self._cached_prices: dict[str, tuple[Decimal, datetime]] = {}
+        # Optional symbol-level quantity rules from market-data metadata
+        self._symbol_quantity_rules: dict[str, tuple[int, int, str]] = {}
 
         # Current selected symbol (shared state)
         self._selected_symbol: str | None = None
@@ -1065,6 +1067,84 @@ class OrderEntryContext:
             self._current_l2_channel = None
             self._current_l2_symbol = None
 
+    def _parse_positive_int(self, value: Any) -> int | None:
+        """Parse positive integer metadata value."""
+        try:
+            parsed = int(value)
+        except (ValueError, TypeError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def _extract_symbol_quantity_rules(self, data: dict[str, Any]) -> tuple[int, int, str] | None:
+        """Extract optional symbol quantity rules from price payload."""
+        step_candidates = (
+            data.get("qty_step"),
+            data.get("quantity_step"),
+            data.get("lot_size"),
+            data.get("qty_increment"),
+        )
+        min_candidates = (
+            data.get("min_qty"),
+            data.get("minimum_qty"),
+            data.get("min_order_qty"),
+        )
+        unit_candidates = (
+            data.get("qty_unit"),
+            data.get("quantity_unit"),
+            data.get("unit"),
+        )
+
+        qty_step: int | None = None
+        for candidate in step_candidates:
+            parsed = self._parse_positive_int(candidate)
+            if parsed is not None:
+                qty_step = parsed
+                break
+
+        min_qty: int | None = None
+        for candidate in min_candidates:
+            parsed = self._parse_positive_int(candidate)
+            if parsed is not None:
+                min_qty = parsed
+                break
+
+        qty_unit: str | None = None
+        for candidate in unit_candidates:
+            if candidate is None:
+                continue
+            parsed_unit = str(candidate).strip().lower()
+            if parsed_unit in {"shares", "lots", "contracts"}:
+                qty_unit = parsed_unit
+                break
+
+        if qty_step is None and min_qty is None and qty_unit is None:
+            return None
+
+        normalized_step = qty_step or 1
+        normalized_min = max(normalized_step, min_qty or normalized_step)
+        normalized_unit = qty_unit or "shares"
+        return (normalized_step, normalized_min, normalized_unit)
+
+    def _cache_symbol_quantity_rules(self, symbol: str, data: dict[str, Any]) -> None:
+        """Cache symbol quantity rules if present in payload metadata."""
+        rules = self._extract_symbol_quantity_rules(data)
+        if rules is not None:
+            self._symbol_quantity_rules[symbol] = rules
+
+    def _apply_symbol_quantity_rules(self, symbol: str | None) -> None:
+        """Apply cached quantity rules to ticket for selected symbol."""
+        if not self._order_ticket or not symbol:
+            return
+        rules = self._symbol_quantity_rules.get(symbol)
+        if rules is None:
+            return
+        qty_step, min_qty, qty_unit = rules
+        self._order_ticket.set_quantity_rules(
+            qty_step=qty_step,
+            min_qty=min_qty,
+            qty_unit=qty_unit,
+        )
+
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""
         if self._disposed:
@@ -1086,6 +1166,8 @@ class OrderEntryContext:
                 self._order_ticket.set_price_data(self._selected_symbol, None, None)
             return
 
+        self._cache_symbol_quantity_rules(symbol, data)
+
         timestamp: datetime | None = None
         if raw_timestamp:
             try:
@@ -1095,6 +1177,7 @@ class OrderEntryContext:
 
         # Dispatch to OrderTicket for selected symbol
         if self._order_ticket and self._selected_symbol and symbol == self._selected_symbol:
+            self._apply_symbol_quantity_rules(symbol)
             price: Decimal | None = None
             if raw_price is not None:
                 try:
@@ -1259,6 +1342,7 @@ class OrderEntryContext:
         # Notify all child components
         if self._order_ticket:
             await self._order_ticket.on_symbol_changed(symbol)
+            self._apply_symbol_quantity_rules(symbol)
             if self._selection_version != current_version:
                 return
 

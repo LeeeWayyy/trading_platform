@@ -59,6 +59,8 @@ class QuantityPresetsComponent:
         self._max_notional_per_order: Decimal | None = None
         self._side: str = "buy"
         self._effective_price: Decimal | None = None  # Limit/stop price
+        self._qty_step: int = 1
+        self._min_qty: int = 1
 
     def create(self) -> ui.row:
         """Create preset buttons row."""
@@ -150,9 +152,17 @@ class QuantityPresetsComponent:
             applicable_limits.append(max_by_notional)
 
         max_qty = min(applicable_limits)
+        qty_step = max(1, self._qty_step)
+        min_qty = max(qty_step, self._min_qty)
 
         # Apply safety margin (95% to avoid edge cases)
         safe_max = int(max_qty * self.MAX_SAFETY_MARGIN)
+        if safe_max < min_qty and max_qty >= min_qty:
+            safe_max = min_qty
+        safe_max = (safe_max // qty_step) * qty_step
+
+        if safe_max < min_qty and max_qty >= min_qty:
+            safe_max = (max_qty // qty_step) * qty_step
 
         if safe_max > 0:
             self._on_preset_selected(safe_max)
@@ -174,6 +184,8 @@ class QuantityPresetsComponent:
         max_notional_per_order: Decimal | None = None,
         side: str = "buy",
         effective_price: Decimal | None = None,
+        qty_step: int = 1,
+        min_qty: int = 1,
     ) -> None:
         """Update context for MAX calculation.
 
@@ -186,6 +198,8 @@ class QuantityPresetsComponent:
             side: Order side ('buy' or 'sell') - affects position limit calc.
             effective_price: Limit/stop price for non-market orders. If provided,
                 used for buying power and notional calculations instead of current_price.
+            qty_step: Required quantity increment for selected symbol.
+            min_qty: Minimum allowed quantity for selected symbol.
         """
         self._buying_power = buying_power
         self._current_price = current_price
@@ -194,6 +208,8 @@ class QuantityPresetsComponent:
         self._max_position_per_symbol = max_position_per_symbol
         self._max_notional_per_order = max_notional_per_order
         self._side = side
+        self._qty_step = max(1, int(qty_step))
+        self._min_qty = max(self._qty_step, int(min_qty))
 
 
 __all__ = ["QuantityPresetsComponent"]

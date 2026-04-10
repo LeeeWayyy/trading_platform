@@ -1737,3 +1737,70 @@ class TestOrderTicketUIDisable:
         component._set_ui_disabled(False, "")
 
         component._disabled_banner.classes.assert_called_with(add="hidden")
+
+
+class TestOrderTicketQuantityRules:
+    """Tests for symbol-aware quantity stepping behavior."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create test component."""
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=["alpha"],
+        )
+        return comp
+
+    def test_set_quantity_rules_updates_ui_constraints(self, component: OrderTicketComponent) -> None:
+        """Quantity rules update internal state and input metadata."""
+        component._quantity_label = MagicMock()
+        component._quantity_input = MagicMock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        assert component._qty_step == 100
+        assert component._min_qty == 100
+        assert component._qty_unit == "lots"
+        component._quantity_label.set_text.assert_called_once_with("QTY (LOTS)")
+        component._quantity_input.props.assert_called_with("min=100 step=100")
+
+    def test_quantity_input_snaps_down_to_step(self, component: OrderTicketComponent) -> None:
+        """Manual quantity entry snaps to nearest valid step."""
+        component._quantity_input = MagicMock()
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        component._on_quantity_changed(250.0)
+
+        assert component._state.quantity == 200
+        component._quantity_input.set_value.assert_called_with(200)
+
+    def test_submission_blocks_invalid_step_quantity(self, component: OrderTicketComponent) -> None:
+        """Submission is blocked when qty does not match symbol step rules."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._state.quantity = 150
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._state.quantity = 150
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert reason == "Quantity must increment by 100 lots"

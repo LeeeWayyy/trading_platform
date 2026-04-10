@@ -67,6 +67,9 @@ class OrderTicketComponent:
 
     # Configuration
     QUANTITY_PRESETS = [100, 500, 1000]
+    DEFAULT_QTY_STEP = 1
+    DEFAULT_MIN_QTY = 1
+    DEFAULT_QTY_UNIT = "shares"
 
     def __init__(
         self,
@@ -109,6 +112,7 @@ class OrderTicketComponent:
         self._buy_action_button: ui.button | None = None
         self._sell_action_button: ui.button | None = None
         self._quantity_input: ui.number | None = None
+        self._quantity_label: ui.label | None = None
         self._order_type_select: ui.select | None = None
         self._limit_price_input: ui.number | None = None
         self._stop_price_input: ui.number | None = None
@@ -129,6 +133,9 @@ class OrderTicketComponent:
         self._buying_power: Decimal | None = None
         self._last_price: Decimal | None = None
         self._pending_client_order_id: str | None = None
+        self._qty_step: int = self.DEFAULT_QTY_STEP
+        self._min_qty: int = self.DEFAULT_MIN_QTY
+        self._qty_unit: str = self.DEFAULT_QTY_UNIT
 
         # Safety state (FAIL-CLOSED defaults)
         self._kill_switch_engaged: bool = True  # Default: engaged (unsafe)
@@ -223,11 +230,13 @@ class OrderTicketComponent:
 
             with ui.row().classes("w-full gap-2 mt-2 items-end"):
                 with ui.column().classes("w-[132px] gap-1"):
-                    ui.label("QTY (SHARES)").classes("workspace-v2-field-label")
+                    self._quantity_label = ui.label(self._format_quantity_label()).classes(
+                        "workspace-v2-field-label"
+                    )
                     self._quantity_input = ui.number(
                         value=None,
-                        min=1,
-                        step=1,
+                        min=self._min_qty,
+                        step=self._qty_step,
                         on_change=lambda e: self._on_quantity_changed(e.value),
                     ).classes("workspace-v2-input workspace-v2-input-qty")
                 with ui.column().classes("flex-1 gap-1"):
@@ -411,17 +420,48 @@ class OrderTicketComponent:
     def _on_quantity_changed(self, value: float | None) -> None:
         """Handle quantity input change."""
         if value is not None and value > 0:
-            self._state.quantity = int(value)
+            normalized_qty = self._normalize_quantity(int(value))
+            self._state.quantity = normalized_qty
+            if self._quantity_input and normalized_qty != int(value):
+                self._quantity_input.set_value(normalized_qty)
         else:
             self._state.quantity = None
         self._update_buying_power_impact()
 
     def _on_preset_selected(self, preset: int) -> None:
         """Handle quantity preset selection."""
-        self._state.quantity = preset
+        normalized_qty = self._normalize_quantity(preset)
+        self._state.quantity = normalized_qty
         if self._quantity_input:
-            self._quantity_input.set_value(preset)
+            self._quantity_input.set_value(normalized_qty)
         self._update_buying_power_impact()
+
+    def set_quantity_rules(
+        self,
+        *,
+        qty_step: int | None,
+        min_qty: int | None,
+        qty_unit: str | None,
+    ) -> None:
+        """Update quantity stepping/minimum rules for selected symbol."""
+        self._qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
+        raw_min = max(1, int(min_qty)) if min_qty is not None else self.DEFAULT_MIN_QTY
+        self._min_qty = max(self._qty_step, raw_min)
+        self._qty_unit = self._normalize_qty_unit(qty_unit)
+        self._apply_quantity_rules_to_ui()
+
+        if self._state.quantity is not None:
+            normalized_qty = self._normalize_quantity(self._state.quantity)
+            self._state.quantity = normalized_qty
+            if self._quantity_input:
+                self._quantity_input.set_value(normalized_qty)
+
+        self._update_buying_power_impact()
+        self._update_quantity_presets_context()
+
+    def reset_quantity_rules(self) -> None:
+        """Reset quantity rules to safe defaults."""
+        self.set_quantity_rules(qty_step=None, min_qty=None, qty_unit=None)
 
     def _on_close_preset_selected(self) -> None:
         """Prefill quantity/side to close open position (never auto-submit)."""
@@ -694,6 +734,7 @@ class OrderTicketComponent:
     async def on_symbol_changed(self, symbol: str | None) -> None:
         """Called by OrderEntryContext when selected symbol changes externally."""
         self._state.symbol = symbol
+        self.reset_quantity_rules()
 
         # Reset symbol-scoped state only - NOT risk limits
         # Risk limits are global (not per-symbol), so keep them intact
@@ -709,6 +750,33 @@ class OrderTicketComponent:
         self._update_ui_from_state()
 
     # ================= UI Updates =================
+
+    def _format_quantity_label(self) -> str:
+        """Return uppercase quantity label based on unit."""
+        return f"QTY ({self._qty_unit.upper()})"
+
+    def _normalize_qty_unit(self, qty_unit: str | None) -> str:
+        """Normalize quantity unit to safe labels."""
+        candidate = str(qty_unit or "").strip().lower()
+        if candidate in {"shares", "lots", "contracts"}:
+            return candidate
+        return self.DEFAULT_QTY_UNIT
+
+    def _normalize_quantity(self, qty: int) -> int:
+        """Clamp quantity to configured min/step constraints."""
+        if qty <= 0:
+            return self._min_qty
+        clamped = max(self._min_qty, qty)
+        if self._qty_step <= 1:
+            return clamped
+        return max(self._min_qty, (clamped // self._qty_step) * self._qty_step)
+
+    def _apply_quantity_rules_to_ui(self) -> None:
+        """Apply quantity rules to UI controls."""
+        if self._quantity_label:
+            self._quantity_label.set_text(self._format_quantity_label())
+        if self._quantity_input:
+            self._quantity_input.props(f"min={self._min_qty} step={self._qty_step}")
 
     def _update_position_display(self) -> None:
         """Update position label."""
@@ -791,6 +859,8 @@ class OrderTicketComponent:
                 max_notional_per_order=self._max_notional_per_order,
                 side=self._state.side,
                 effective_price=self._state.limit_price or self._state.stop_price,
+                qty_step=self._qty_step,
+                min_qty=self._min_qty,
             )
 
     def _update_ui_from_state(self) -> None:
@@ -931,6 +1001,12 @@ class OrderTicketComponent:
 
         if not self._state.quantity or self._state.quantity <= 0:
             return (True, "Enter quantity")
+
+        if self._state.quantity < self._min_qty:
+            return (True, f"Minimum quantity is {self._min_qty} {self._qty_unit}")
+
+        if self._state.quantity % self._qty_step != 0:
+            return (True, f"Quantity must increment by {self._qty_step} {self._qty_unit}")
 
         if self._is_position_data_stale():
             return (True, "Position data stale")
@@ -1523,7 +1599,8 @@ class OrderTicketComponent:
                 if not raw or not isinstance(raw, str):
                     return None
                 try:
-                    return validate_and_normalize_symbol(raw)
+                    normalized = validate_and_normalize_symbol(raw)
+                    return str(normalized)
                 except ValueError:
                     return None
 
@@ -1674,7 +1751,9 @@ class OrderTicketComponent:
         timestamp_str = positions_resp.get("timestamp")
         if timestamp_str:
             try:
-                return parse_iso_timestamp(timestamp_str)
+                parsed = parse_iso_timestamp(timestamp_str)
+                if isinstance(parsed, datetime):
+                    return parsed
             except (ValueError, TypeError):
                 pass
 
@@ -1696,7 +1775,9 @@ class OrderTicketComponent:
         timestamp_str = account_resp.get("timestamp")
         if timestamp_str:
             try:
-                return parse_iso_timestamp(timestamp_str)
+                parsed = parse_iso_timestamp(timestamp_str)
+                if isinstance(parsed, datetime):
+                    return parsed
             except (ValueError, TypeError):
                 pass
 
@@ -1705,7 +1786,9 @@ class OrderTicketComponent:
             alt_timestamp = account_resp.get(alt_field)
             if alt_timestamp:
                 try:
-                    return parse_iso_timestamp(str(alt_timestamp))
+                    parsed_alt = parse_iso_timestamp(str(alt_timestamp))
+                    if isinstance(parsed_alt, datetime):
+                        return parsed_alt
                 except (ValueError, TypeError):
                     continue
         return None

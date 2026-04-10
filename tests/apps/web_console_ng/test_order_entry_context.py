@@ -863,6 +863,28 @@ class TestPriceUpdateCallback:
         call_args = context._order_ticket.set_price_data.call_args
         assert call_args[0][1] is None
 
+    @pytest.mark.asyncio()
+    async def test_price_update_applies_symbol_quantity_rules(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Selected-symbol price updates can carry quantity rule metadata."""
+        await context._on_price_update(
+            {
+                "symbol": "AAPL",
+                "price": "150.00",
+                "timestamp": "2024-01-01T12:00:00Z",
+                "qty_step": 100,
+                "min_qty": 100,
+                "qty_unit": "lots",
+            }
+        )
+
+        context._order_ticket.set_quantity_rules.assert_called_once_with(
+            qty_step=100,
+            min_qty=100,
+            qty_unit="lots",
+        )
+
 
 class TestSymbolSelection:
     """Tests for symbol selection."""
@@ -914,6 +936,22 @@ class TestSymbolSelection:
         context._order_ticket.on_symbol_changed.assert_called_with("AAPL")
         context._market_context.on_symbol_changed.assert_called_with("AAPL")
         context._price_chart.on_symbol_changed.assert_called_with("AAPL")
+
+    @pytest.mark.asyncio()
+    async def test_symbol_selection_applies_cached_quantity_rules(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Selecting a symbol applies previously cached quantity rules."""
+        context._order_ticket.set_quantity_rules = MagicMock()
+        context._symbol_quantity_rules["AAPL"] = (100, 100, "lots")
+
+        await context.on_symbol_selected("AAPL")
+
+        context._order_ticket.set_quantity_rules.assert_called_once_with(
+            qty_step=100,
+            min_qty=100,
+            qty_unit="lots",
+        )
 
     @pytest.mark.asyncio()
     async def test_symbol_selection_none_clears_state(self, context: OrderEntryContext) -> None:
