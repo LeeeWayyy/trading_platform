@@ -271,6 +271,11 @@ def _resolve_cors_origins() -> list[str]:
 # by _resolve_cors_origins() during lifespan so that configuration errors go
 # through the normal startup error path instead of crashing at import time
 # (see issue #156).
+#
+# NOTE: This is intentionally process-global.  This service follows a
+# single-app-per-process architecture (one uvicorn worker = one app).
+# The slice assignment ``_cors_allow_origins[:] = cors_origins`` ensures
+# idempotent replacement across test restarts.
 _cors_allow_origins: list[str] = []
 
 app.add_middleware(
@@ -282,7 +287,7 @@ app.add_middleware(
 )
 
 
-def _verify_cors_middleware_uses_shared_origins(app: FastAPI) -> None:
+def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
     """Verify that CORSMiddleware kept a live reference to _cors_allow_origins.
 
     Starlette currently stores ``allow_origins`` by reference, so mutating
@@ -291,10 +296,16 @@ def _verify_cors_middleware_uses_shared_origins(app: FastAPI) -> None:
     regression at startup rather than letting CORS silently fail.
 
     Raises:
-        RuntimeError: If the middleware's allow_origins is not the same object.
+        RuntimeError: If the middleware's allow_origins is not the same object
+            or if CORSMiddleware is not found in the middleware stack.
     """
-    # Walk the middleware stack to find CORSMiddleware
-    middleware = app.middleware_stack
+    # Walk the middleware stack to find CORSMiddleware.
+    # When lifespan is called on a bare FastAPI instance (e.g. in tests),
+    # the middleware stack is not built yet.  Skip verification in that case.
+    if target_app.middleware_stack is None:
+        return
+
+    middleware = target_app.middleware_stack
     while middleware is not None:
         if isinstance(middleware, CORSMiddleware):
             if middleware.allow_origins is not _cors_allow_origins:
@@ -305,9 +316,13 @@ def _verify_cors_middleware_uses_shared_origins(app: FastAPI) -> None:
                 )
             return
         middleware = getattr(middleware, "app", None)
-    # CORSMiddleware not found in stack — unexpected but non-fatal during
-    # testing when lifespan is invoked on a bare FastAPI instance.
-    logger.warning("CORSMiddleware not found in middleware stack")
+
+    # Fail closed: if middleware stack exists but CORSMiddleware is missing,
+    # something is misconfigured.
+    raise RuntimeError(
+        "CORSMiddleware not found in middleware stack. "
+        "CORS will not be enforced. Check middleware registration."
+    )
 
 
 # =============================================================================

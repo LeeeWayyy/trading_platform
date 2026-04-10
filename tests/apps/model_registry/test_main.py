@@ -27,7 +27,14 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:8501")
 
-from apps.model_registry.main import _resolve_cors_origins, app, get_settings, lifespan
+from apps.model_registry.main import (
+    _cors_allow_origins,
+    _resolve_cors_origins,
+    _verify_cors_middleware_uses_shared_origins,
+    app,
+    get_settings,
+    lifespan,
+)
 from libs.models.models import ManifestIntegrityError, RegistryManifest
 
 
@@ -654,7 +661,6 @@ async def test_lifespan_uses_settings_registry_dir(mock_registry, mock_manifest_
 @pytest.mark.asyncio()
 async def test_lifespan_populates_cors_origins(mock_registry, mock_manifest_manager, monkeypatch: pytest.MonkeyPatch):
     """Test lifespan populates the shared _cors_allow_origins list."""
-    from apps.model_registry.main import _cors_allow_origins
 
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
@@ -733,7 +739,6 @@ def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPa
 @pytest.mark.asyncio()
 async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pytest.MonkeyPatch):
     """Test that _cors_allow_origins is replaced (not accumulated) across restarts."""
-    from apps.model_registry.main import _cors_allow_origins
 
     mock_registry, mock_manager = _make_mock_registry_and_manager()
     test_app = FastAPI()
@@ -766,6 +771,43 @@ async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pyt
                 assert "https://a.example.com" not in _cors_allow_origins
     finally:
         _cors_allow_origins.clear()
+
+
+def test_verify_cors_guard_raises_on_copied_origins():
+    """Test guard raises RuntimeError when allow_origins is a different object."""
+    from starlette.middleware.cors import CORSMiddleware as RealCORSMiddleware
+
+    # Create a middleware with a different list (simulates copy/freeze)
+    test_app = FastAPI()
+    copied_origins = ["http://localhost:8501"]
+    cors_mw = RealCORSMiddleware(app=test_app, allow_origins=copied_origins)
+
+    # Build a fake middleware stack: the guard walks .app attributes
+    guard_app = FastAPI()
+    guard_app.middleware_stack = cors_mw
+
+    with pytest.raises(RuntimeError, match="does not hold a live reference"):
+        _verify_cors_middleware_uses_shared_origins(guard_app)
+
+
+def test_verify_cors_guard_raises_when_middleware_missing():
+    """Test guard raises RuntimeError when CORSMiddleware is not in stack."""
+    guard_app = FastAPI()
+    # Set a non-None middleware_stack without CORSMiddleware
+    guard_app.middleware_stack = Mock()
+    guard_app.middleware_stack.app = None  # terminate the walk
+
+    with pytest.raises(RuntimeError, match="CORSMiddleware not found"):
+        _verify_cors_middleware_uses_shared_origins(guard_app)
+
+
+def test_verify_cors_guard_skips_when_no_middleware_stack():
+    """Test guard silently returns when middleware_stack is None (bare test app)."""
+    guard_app = FastAPI()
+    assert guard_app.middleware_stack is None
+
+    # Should not raise — bare app in tests
+    _verify_cors_middleware_uses_shared_origins(guard_app)
 
 
 def test_main_entry_point_not_executed_on_import():
