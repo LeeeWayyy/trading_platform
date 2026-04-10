@@ -685,3 +685,13 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - `/position-management` hidden for `viewer` role
   - `/data/inspector` requires `Permission.VIEW_DATA_QUALITY`
 - Expanded layout tests to verify route presence and permission-hidden behavior for new links.
+
+13. Workspace quick-panel launchers (phase-2 entrypoint bridge)
+- Added a compact `Quick Panels` launcher block inside Zone C on the dashboard workspace.
+- Launcher surfaces placement-target workflows from within the execution plane:
+  - `/manual-order`, `/position-management`, `/circuit-breaker`, `/alerts`, `/journal`, `/compare`, `/data/inspector`
+- Added route visibility helper (`resolve_workspace_quick_links`) with role/feature/permission filtering:
+  - hides `/position-management` for `viewer`
+  - hides `/alerts` when alerts feature/permission unavailable
+  - hides `/data/inspector` without data-quality permission
+- Added helper unit tests in dashboard dispatch suite.

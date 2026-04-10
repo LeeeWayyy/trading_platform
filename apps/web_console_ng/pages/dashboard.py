@@ -248,6 +248,35 @@ def determine_workspace_lock_state(
     return (False, "", "")
 
 
+def resolve_workspace_quick_links(
+    *,
+    user_role: str,
+    feature_alerts_enabled: bool,
+    can_view_alerts: bool,
+    can_view_data_quality: bool,
+) -> list[tuple[str, str]]:
+    """Return workspace quick-link routes visible for the current user context."""
+    links = [
+        ("Manual", "/manual-order"),
+        ("Positions", "/position-management"),
+        ("Circuit", "/circuit-breaker"),
+        ("Alerts", "/alerts"),
+        ("Journal", "/journal"),
+        ("Compare", "/compare"),
+        ("Inspector", "/data/inspector"),
+    ]
+    visible_links: list[tuple[str, str]] = []
+    for label, path in links:
+        if path == "/position-management" and user_role == "viewer":
+            continue
+        if path == "/alerts" and (not feature_alerts_enabled or not can_view_alerts):
+            continue
+        if path == "/data/inspector" and not can_view_data_quality:
+            continue
+        visible_links.append((label, path))
+    return visible_links
+
+
 class MarketPriceCache:
     """Per-scope cache for market prices.
 
@@ -532,6 +561,12 @@ async def dashboard(client: Client) -> None:
     positions_card: _MetricStripValue | MetricCard
     realized_card: _MetricStripValue | MetricCard
     bp_card: _MetricStripValue | MetricCard
+    workspace_quick_links = resolve_workspace_quick_links(
+        user_role=user_role,
+        feature_alerts_enabled=config.FEATURE_ALERTS,
+        can_view_alerts=has_permission(user, Permission.VIEW_ALERTS),
+        can_view_data_quality=has_permission(user, Permission.VIEW_DATA_QUALITY),
+    )
 
     # Metrics strip/cards
     if use_workspace_v2:
@@ -574,6 +609,14 @@ async def dashboard(client: Client) -> None:
                     with ui.element("div").classes("workspace-v2-panel"):
                         ui.label("Watchlist").classes("workspace-v2-panel-title mb-1")
                         order_context.create_watchlist().classes("w-full")
+
+                    if workspace_quick_links:
+                        with ui.element("div").classes("workspace-v2-panel"):
+                            ui.label("Quick Panels").classes("workspace-v2-panel-title mb-1")
+                            with ui.row().classes("w-full gap-1 flex-wrap"):
+                                for quick_label, quick_path in workspace_quick_links:
+                                    with ui.link(target=quick_path).classes("workspace-v2-quick-link"):
+                                        ui.label(quick_label).classes("workspace-v2-kv")
 
                     strategy_context_widget = StrategyContextWidget(strategies=user_strategies)
                     strategy_context_widget.create()
