@@ -175,7 +175,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Data Hub", "/data", "storage", None),  # P6T13
                     ("Coverage", "/data/coverage", "dataset", None),  # P6T13
                     ("Sources", "/data/sources", "cloud", None),  # P6T13
-                    ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
                     ("Features", "/data/features", "auto_awesome", None),  # P6T13
                     ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
                     ("Backtest", "/backtest", "science", None),
@@ -197,7 +196,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
                         "Analysis",
-                        ["/risk", "/risk/exposure", "/execution-quality", "/tax-lots"],
+                        [
+                            "/risk",
+                            "/risk/exposure",
+                            "/execution-quality",
+                            "/attribution",
+                            "/tax-lots",
+                        ],
                     ),
                     (
                         "Research",
@@ -210,6 +215,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             "/strategies",
                             "/models",
                         ],
+                    ),
+                    (
+                        "Data",
+                        ["/data", "/data/coverage", "/data/sources", "/data/features", "/data/sql-explorer"],
                     ),
                     ("Governance", ["/admin"]),
                 ]
@@ -240,9 +249,33 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ):
                         return False
 
+                    # Execution quality requires feature flag.
+                    if path == "/execution-quality" and not config.FEATURE_TCA_DASHBOARD:
+                        return False
+
+                    # Attribution link requires VIEW_PNL
+                    if path == "/attribution" and not has_permission(user, Permission.VIEW_PNL):
+                        return False
+
                     # Universes link requires VIEW_UNIVERSES
                     if path == "/research/universes" and not has_permission(
                         user, Permission.VIEW_UNIVERSES
+                    ):
+                        return False
+
+                    # Data pages require explicit data-access permissions.
+                    if path in {"/data", "/data/sources", "/data/coverage"} and not has_permission(
+                        user, Permission.VIEW_DATA_SYNC
+                    ):
+                        return False
+
+                    if path == "/data/features" and not has_permission(
+                        user, Permission.VIEW_FEATURES
+                    ):
+                        return False
+
+                    if path == "/data/sql-explorer" and not has_permission(
+                        user, Permission.QUERY_DATA
                     ):
                         return False
 

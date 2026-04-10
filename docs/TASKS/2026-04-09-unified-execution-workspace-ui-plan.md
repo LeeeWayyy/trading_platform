@@ -640,7 +640,10 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
 
 8. Navigation IA grouping (phase-1)
 - Updated sidebar rendering in `ui/layout.py` to grouped sections:
-  - `Execute`, `Monitor`, `Analysis`, `Research`, `Governance`
+  - `Execute`, `Monitor`, `Analysis`, `Research`, `Data`, `Governance`
+- Added explicit nav coverage for remaining dedicated analytics/data pages:
+  - `/attribution`
+  - `/data`, `/data/coverage`, `/data/sources`, `/data/features`, `/data/sql-explorer`
 - Preserved existing `nav_items` permissions and feature-flag logic.
 - Added grouped-section rendering with fallback for unmapped future routes.
 

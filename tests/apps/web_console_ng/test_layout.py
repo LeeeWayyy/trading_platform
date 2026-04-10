@@ -328,7 +328,6 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
         "/data",
         "/data/coverage",
         "/data/sources",
-        "/data/inspector",
         "/data/features",
         "/data/sql-explorer",
         "/backtest",
@@ -363,7 +362,6 @@ async def test_data_and_attribution_hidden_without_permissions(
         denied_permissions={
             Permission.VIEW_PNL,
             Permission.VIEW_DATA_SYNC,
-            Permission.VIEW_DATA_QUALITY,
             Permission.VIEW_FEATURES,
             Permission.QUERY_DATA,
         },
@@ -374,7 +372,6 @@ async def test_data_and_attribution_hidden_without_permissions(
     assert "/data" not in targets
     assert "/data/coverage" not in targets
     assert "/data/sources" not in targets
-    assert "/data/inspector" not in targets
     assert "/data/features" not in targets
     assert "/data/sql-explorer" not in targets
 
