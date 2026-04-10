@@ -31,7 +31,7 @@ class LogTailPanel:
     async def add_items(self, events: list[dict[str, Any]], *, highlight: bool = False) -> None:
         """Append a batch of event lines (oldest to newest)."""
         _ = highlight
-        for event in reversed(events):
+        for event in events:
             self._push_line(self._format_line(event))
 
     def _push_line(self, line: str) -> None:

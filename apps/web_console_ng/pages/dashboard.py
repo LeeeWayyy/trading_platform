@@ -140,49 +140,16 @@ class _MetricStripValue:
                 self._value_label.classes(add=new_color)
             self._current_color = new_color
         self._value_label.classes(remove="opacity-55")
-        self._last_update = time.monotonic()
+        self._last_update = time.time()
 
     def is_stale(self, threshold: float = 30.0) -> bool:
         if self._last_update is None:
             return False
-        return (time.monotonic() - self._last_update) > threshold
+        return (time.time() - self._last_update) > threshold
 
     def mark_stale(self) -> None:
         if self._value_label is not None:
             self._value_label.classes(add="opacity-55")
-
-
-class _CommandStatusPill:
-    """Compact status pill used in workspace command strip."""
-
-    _tone_classes = {
-        "muted": "workspace-v2-command-pill-muted",
-        "normal": "workspace-v2-command-pill-normal",
-        "warning": "workspace-v2-command-pill-warning",
-        "danger": "workspace-v2-command-pill-danger",
-    }
-
-    def __init__(self, text: str = "--", *, enter_delay_ms: int = 0) -> None:
-        self._pill: Any | None = None
-        self._label: ui.label | None = None
-        self._tone_class = self._tone_classes["muted"]
-        self._pill = ui.element("div").classes(
-            f"workspace-v2-command-pill workspace-v2-enter-item {self._tone_class}"
-        )
-        if enter_delay_ms > 0:
-            self._pill.style(f"animation-delay: {enter_delay_ms}ms")
-        with self._pill:
-            self._label = ui.label(text).classes("workspace-v2-command-pill-text")
-
-    def set_state(self, text: str, tone: str) -> None:
-        if self._label is None or self._pill is None:
-            return
-        new_tone = self._tone_classes.get(tone, self._tone_classes["muted"])
-        self._label.text = text
-        if new_tone != self._tone_class:
-            self._pill.classes(remove=self._tone_class)
-            self._pill.classes(add=new_tone)
-            self._tone_class = new_tone
 
 
 def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) -> None:
@@ -666,43 +633,10 @@ async def dashboard(client: Client) -> None:
     strategy_context_widget: StrategyContextWidget | None = None
     tabs_host: ui.column | None = None
     log_tail_host: ui.column | None = None
-    workspace_root: Any | None = None
-    workspace_overlay: Any | None = None
-    workspace_overlay_title: ui.label | None = None
-    workspace_overlay_detail: ui.label | None = None
-    authorized_strategy_scope = [
-        str(strategy).strip()
-        for strategy in get_authorized_strategies(user)
-        if str(strategy).strip()
-    ]
-    if not authorized_strategy_scope:
-        authorized_strategy_scope = list(user_strategies)
-    pnl_card: _MetricStripValue | MetricCard
-    positions_card: _MetricStripValue | MetricCard
-    realized_card: _MetricStripValue | MetricCard
-    bp_card: _MetricStripValue | MetricCard
-    connection_status_pill: _CommandStatusPill | None = None
-    kill_switch_status_pill: _CommandStatusPill | None = None
-    circuit_breaker_status_pill: _CommandStatusPill | None = None
-    session_clock_pill: _CommandStatusPill | None = None
-    can_view_alerts = has_permission(user, Permission.VIEW_ALERTS)
-    can_view_data_quality = has_permission(user, Permission.VIEW_DATA_QUALITY)
-    can_manage_strategies = has_permission(user, Permission.MANAGE_STRATEGIES)
-    can_view_models = has_permission(user, Permission.VIEW_MODELS)
-    workspace_quick_links = resolve_workspace_quick_links(
-        user_role=user_role,
-        feature_alerts_enabled=config.FEATURE_ALERTS,
-        can_view_alerts=can_view_alerts,
-        can_view_data_quality=can_view_data_quality,
-        feature_strategy_management_enabled=config.FEATURE_STRATEGY_MANAGEMENT,
-        can_manage_strategies=can_manage_strategies,
-        feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
-        can_view_models=can_view_models,
-    )
 
     # Metrics strip/cards
     if use_workspace_v2:
-        with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
+        with ui.element("section").classes("workspace-v2 w-full mb-3"):
             with ui.element("div").classes("workspace-v2-command-strip"):
                 pnl_card = _MetricStripValue(
                     "UNR P&L",
@@ -726,10 +660,6 @@ async def dashboard(client: Client) -> None:
                     format_fn=lambda v: f"${v:,.2f}",
                     enter_delay_ms=160,
                 )
-                connection_status_pill = _CommandStatusPill("CONN --", enter_delay_ms=200)
-                kill_switch_status_pill = _CommandStatusPill("KILL --", enter_delay_ms=240)
-                circuit_breaker_status_pill = _CommandStatusPill("CB --", enter_delay_ms=280)
-                session_clock_pill = _CommandStatusPill("UTC --:--:--", enter_delay_ms=320)
 
             with ui.element("div").classes("workspace-v2-body"):
                 with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
@@ -740,46 +670,20 @@ async def dashboard(client: Client) -> None:
                     with ui.element("div").classes("workspace-v2-microstructure"):
                         order_flow_panel.create().classes("h-full overflow-hidden")
                         order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
-                        order_context.create_market_context().classes(
-                            "h-full overflow-hidden workspace-v2-market-context"
-                        )
 
                 with ui.element("div").classes("workspace-v2-zone-c workspace-v2-enter-zone workspace-v2-enter-zone-c"):
                     with ui.element("div").classes("workspace-v2-panel"):
                         ui.label("Watchlist").classes("workspace-v2-panel-title mb-1")
                         order_context.create_watchlist().classes("w-full")
 
-                    if workspace_quick_links:
-                        with ui.element("div").classes("workspace-v2-panel"):
-                            ui.label("Quick Panels").classes("workspace-v2-panel-title mb-1")
-                            with ui.row().classes("w-full gap-1 flex-wrap"):
-                                for quick_label, quick_path in workspace_quick_links:
-                                    with ui.link(target=quick_path).classes("workspace-v2-quick-link"):
-                                        ui.label(quick_label).classes("workspace-v2-kv")
-
-                    strategy_context_widget = StrategyContextWidget(
-                        strategies=user_strategies,
-                        show_strategy_link=(
-                            config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
-                        ),
-                        show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
-                    )
+                    strategy_context_widget = StrategyContextWidget(strategies=user_strategies)
                     strategy_context_widget.create()
-                    order_context.set_strategy_context_widget(strategy_context_widget)
 
+                    order_context.create_market_context()
                     order_context.create_order_ticket()
 
                     tabs_host = ui.column().classes("workspace-v2-tabs-area")
                     log_tail_host = ui.column().classes("shrink-0")
-
-            with ui.element("div").classes("workspace-v2-overlay hidden") as workspace_overlay:
-                with ui.card().classes("workspace-v2-overlay-card"):
-                    workspace_overlay_title = ui.label("Connection unavailable").classes(
-                        "workspace-v2-overlay-title"
-                    )
-                    workspace_overlay_detail = ui.label(
-                        "Trading actions are locked until the workspace stream recovers."
-                    ).classes("workspace-v2-overlay-detail")
     else:
         with trading_grid().classes("w-full mb-2"):
             pnl_card = MetricCard(
@@ -1333,8 +1237,7 @@ async def dashboard(client: Client) -> None:
                         "status": trade.get("status") or "filled",
                     }
                 )
-            # get_trades returns newest->oldest; add_trades expects oldest->newest.
-            order_flow_panel.add_trades(list(reversed(recent_trades)))
+            order_flow_panel.add_trades(recent_trades)
 
         _update_filter_options()
         if tabbed_panel is not None:
@@ -1756,342 +1659,14 @@ async def dashboard(client: Client) -> None:
     stale_timer = ui.timer(config.DASHBOARD_STALE_CHECK_SECONDS, check_stale_data)
     timers.append(stale_timer)
 
-    strategy_context_refresh_generation = 0
-    strategy_context_refresh_task: asyncio.Task[None] | None = None
-    strategy_context_refresh_pending = False
-    strategy_context_dashboard_closing = False
-    last_strategy_context_symbol: str | None = order_context.get_selected_symbol()
-    strategy_context_refresh_enabled = should_enable_strategy_context_refresh(
-        gate_enabled=config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING,
-        has_strategy_widget=strategy_context_widget is not None,
-    )
-
-    def _on_order_context_symbol_changed(selected_symbol: str | None) -> None:
-        nonlocal last_strategy_context_symbol
+    def sync_order_flow_symbol() -> None:
+        selected_symbol = order_context.get_selected_symbol()
         order_flow_panel.set_symbol(selected_symbol)
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
-        if strategy_context_refresh_enabled and selected_symbol != last_strategy_context_symbol:
-            last_strategy_context_symbol = selected_symbol
-            _schedule_strategy_model_context_refresh(invalidate_running=True)
 
-    _on_order_context_symbol_changed(last_strategy_context_symbol)
-
-    async def _resolve_strategy_for_symbol(symbol: str) -> tuple[str | None, str]:
-        """Resolve symbol -> strategy mapping using fail-closed uniqueness rules."""
-        if len(authorized_strategy_scope) == 1:
-            return (authorized_strategy_scope[0], "single_scope")
-        if not authorized_strategy_scope:
-            return (None, "scope_empty")
-        if async_pool is None:
-            return (None, "pool_unavailable")
-
-        try:
-            normalized_symbol = validate_and_normalize_symbol(symbol)
-        except ValueError:
-            return (None, "invalid_symbol")
-
-        strategy_lookback_start = datetime.now(UTC) - timedelta(
-            days=STRATEGY_RESOLUTION_LOOKBACK_DAYS
-        )
-
-        sql = (
-            "SELECT strategy_id, MAX(created_at) AS last_order_at "
-            "FROM orders "
-            "WHERE symbol = %s AND strategy_id IS NOT NULL "
-            "AND strategy_id = ANY(%s) "
-            "AND created_at >= %s "
-        )
-        params: tuple[Any, ...] = (
-            normalized_symbol,
-            authorized_strategy_scope,
-            strategy_lookback_start,
-        )
-        sql += "GROUP BY strategy_id ORDER BY last_order_at DESC, strategy_id ASC LIMIT 2"
-
-        try:
-            async with acquire_connection(async_pool) as conn:
-                cursor = await conn.execute(sql, params)
-                rows = await cursor.fetchall()
-        except Exception as exc:
-            logger.warning(
-                "strategy_symbol_resolution_failed",
-                extra={
-                    "client_id": client_id,
-                    "symbol": symbol,
-                    "error": type(exc).__name__,
-                },
-            )
-            return (None, "query_failed")
-
-        if not rows:
-            return (None, "no_history")
-        if len(rows) != 1:
-            return (None, "ambiguous")
-
-        first = rows[0]
-        strategy_id = first.get("strategy_id") if isinstance(first, dict) else first[0]
-        if not strategy_id:
-            return (None, "missing_strategy")
-        return (str(strategy_id), "resolved")
-
-    async def _fetch_model_registry_context(strategy_id: str) -> tuple[str, str | None]:
-        """Fetch model status/version for a strategy from model_registry."""
-        if async_pool is None or not config.FEATURE_MODEL_REGISTRY:
-            return ("unknown", None)
-
-        try:
-            async with acquire_connection(async_pool) as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT status, version
-                    FROM model_registry
-                    WHERE strategy_name = %s
-                    ORDER BY
-                        CASE
-                            WHEN status = 'active' THEN 1
-                            WHEN status = 'testing' THEN 2
-                            WHEN status = 'inactive' THEN 3
-                            WHEN status = 'failed' THEN 4
-                            ELSE 5
-                        END,
-                        activated_at DESC NULLS LAST,
-                        created_at DESC
-                    LIMIT 1
-                    """,
-                    (strategy_id,),
-                )
-                row = await cursor.fetchone()
-        except Exception as exc:
-            logger.warning(
-                "strategy_model_context_fetch_failed",
-                extra={
-                    "client_id": client_id,
-                    "strategy_id": strategy_id,
-                    "error": type(exc).__name__,
-                },
-            )
-            return ("unknown", None)
-
-        if row is None:
-            return ("unknown", None)
-
-        if isinstance(row, dict):
-            status_raw = row.get("status")
-            version_raw = row.get("version")
-        else:
-            status_raw = row[0]
-            version_raw = row[1]
-
-        status = normalize_execution_status(status_raw)
-        version = str(version_raw).strip() if version_raw else None
-        return (status, version)
-
-    def _build_strategy_context_banner(
-        *,
-        strategy_status: str,
-        model_status: str,
-        gate_reason: str | None,
-    ) -> str:
-        return resolve_strategy_context_banner(
-            strategy_status=strategy_status,
-            model_status=model_status,
-            gate_reason=gate_reason,
-        )
-
-    def _is_strategy_context_refresh_stale(
-        refresh_generation: int,
-        expected_symbol: str | None,
-    ) -> bool:
-        return not should_apply_strategy_context_result(
-            refresh_generation=refresh_generation,
-            active_generation=strategy_context_refresh_generation,
-            expected_symbol=expected_symbol,
-            current_symbol=order_context.get_selected_symbol(),
-        )
-
-    async def _refresh_strategy_model_context(refresh_generation: int) -> None:
-        selected_symbol = order_context.get_selected_symbol()
-        if strategy_context_widget is not None:
-            strategy_context_widget.set_symbol(selected_symbol)
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
-
-        gate_enabled = config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING
-        if not selected_symbol:
-            if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-                return
-            order_context.dispatch_strategy_model_context(
-                strategy_status="unknown",
-                model_status="unknown",
-                gate_enabled=gate_enabled,
-                gate_reason="Select a symbol to resolve execution context",
-                strategy_label="Strategy: --",
-                model_label="Model: --",
-                banner="Select a symbol to resolve strategy/model execution context.",
-            )
-            return
-
-        strategy_id, resolution_reason = await _resolve_strategy_for_symbol(selected_symbol)
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
-        if not strategy_id:
-            unresolved_reason = "No unique strategy mapping for selected symbol"
-            unresolved_gate_enabled = gate_enabled
-            unresolved_gate_reason: str | None = unresolved_reason
-            unresolved_banner = (
-                f"{unresolved_reason}. Risk-increasing orders may be gated."
-            )
-            if (
-                resolution_reason == "no_history"
-                and authorized_strategy_scope
-                and config.FEATURE_STRATEGY_SYMBOL_MONITORING_MODE
-            ):
-                unresolved_reason = "No strategy history for selected symbol yet"
-                unresolved_gate_enabled = False
-                unresolved_gate_reason = None
-                unresolved_banner = (
-                    f"{unresolved_reason}. Monitoring mode enabled while history is established."
-                )
-            elif resolution_reason == "no_history" and authorized_strategy_scope:
-                unresolved_reason = "No strategy history for selected symbol yet"
-                unresolved_gate_reason = (
-                    "No symbol ownership history available; execution remains gated"
-                )
-                unresolved_banner = (
-                    f"{unresolved_reason}. Execution remains gated until symbol ownership is established."
-                )
-            order_context.dispatch_strategy_model_context(
-                strategy_status="unknown",
-                model_status="unknown",
-                gate_enabled=unresolved_gate_enabled,
-                gate_reason=unresolved_gate_reason,
-                strategy_label="Strategy: unresolved",
-                model_label="Model: unresolved",
-                banner=unresolved_banner,
-            )
-            return
-
-        strategy_status = "unknown"
-        model_status = "unknown"
-        model_version: str | None = None
-        reason_parts: list[str] = []
-
-        try:
-            strategy_payload = await trading_client.fetch_strategy_status(
-                strategy_id,
-                user_id=user_id,
-                role=user_role,
-                strategies=user_strategies,
-            )
-            strategy_status = normalize_execution_status(strategy_payload.get("status"))
-            payload_model_status = strategy_payload.get("model_status")
-            if payload_model_status:
-                model_status = normalize_execution_status(payload_model_status)
-            payload_model_version = strategy_payload.get("model_version")
-            if payload_model_version:
-                model_version = str(payload_model_version).strip()
-        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
-            reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
-
-        if model_status == "unknown" or model_version is None:
-            db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
-            if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-                return
-            if model_status == "unknown":
-                model_status = db_model_status
-            if model_version is None:
-                model_version = db_model_version
-
-        model_status, model_version, enforce_model_gate = resolve_model_gate_inputs(
-            model_status=model_status,
-            model_version=model_version,
-            feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
-        )
-        strategy_safe = is_strategy_execution_safe(strategy_status)
-        model_safe = is_model_execution_safe(model_status)
-
-        gate_reason: str | None = None
-        if not strategy_safe:
-            gate_reason = f"strategy is {strategy_status.upper()}"
-        elif enforce_model_gate and not model_safe:
-            gate_reason = f"model is {model_status.upper()}"
-        if reason_parts:
-            context_reason = "; ".join(reason_parts)
-            gate_reason = f"{gate_reason}; {context_reason}" if gate_reason else context_reason
-
-        strategy_label = f"Strategy: {strategy_id}"
-        model_label = f"Model: {model_version or 'unassigned'}"
-        banner = _build_strategy_context_banner(
-            strategy_status=strategy_status,
-            model_status=model_status,
-            gate_reason=gate_reason,
-        )
-
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
-        order_context.dispatch_strategy_model_context(
-            strategy_status=strategy_status,
-            model_status=model_status,
-            gate_enabled=gate_enabled,
-            gate_reason=gate_reason,
-            strategy_label=strategy_label,
-            model_label=model_label,
-            banner=banner,
-        )
-
-    async def _run_strategy_model_context_refresh(refresh_generation: int) -> None:
-        nonlocal strategy_context_refresh_task, strategy_context_refresh_pending
-        try:
-            await _refresh_strategy_model_context(refresh_generation)
-        finally:
-            strategy_context_refresh_task = None
-
-            should_run_pending = should_run_pending_strategy_context_refresh(
-                refresh_pending=strategy_context_refresh_pending,
-                dashboard_closing=strategy_context_dashboard_closing,
-            )
-            strategy_context_refresh_pending = False
-            if should_run_pending:
-                _start_strategy_model_context_refresh(strategy_context_refresh_generation)
-
-    def _start_strategy_model_context_refresh(refresh_generation: int) -> None:
-        nonlocal strategy_context_refresh_task
-        strategy_context_refresh_task = asyncio.create_task(
-            _run_strategy_model_context_refresh(refresh_generation)
-        )
-
-    def _schedule_strategy_model_context_refresh(*, invalidate_running: bool = False) -> None:
-        nonlocal strategy_context_dashboard_closing
-        nonlocal strategy_context_refresh_generation
-        nonlocal strategy_context_refresh_pending
-        nonlocal strategy_context_refresh_task
-        next_generation, mark_pending, start_generation = plan_strategy_context_refresh_request(
-            current_generation=strategy_context_refresh_generation,
-            task_running=bool(
-                strategy_context_refresh_task and not strategy_context_refresh_task.done()
-            ),
-            dashboard_closing=strategy_context_dashboard_closing,
-            invalidate_running=invalidate_running,
-        )
-        strategy_context_refresh_generation = next_generation
-        if mark_pending:
-            strategy_context_refresh_pending = True
-            return
-        if start_generation is not None:
-            _start_strategy_model_context_refresh(start_generation)
-
-    order_context.register_symbol_change_callback(_on_order_context_symbol_changed)
-
-    if strategy_context_refresh_enabled:
-        _schedule_strategy_model_context_refresh()
-        strategy_context_timer = ui.timer(
-            config.DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS,
-            lambda: _schedule_strategy_model_context_refresh(invalidate_running=False),
-        )
-        timers.append(strategy_context_timer)
+    flow_symbol_timer = ui.timer(0.5, sync_order_flow_symbol)
+    timers.append(flow_symbol_timer)
 
     def cleanup_timers() -> None:
         nonlocal strategy_context_dashboard_closing, strategy_context_refresh_pending

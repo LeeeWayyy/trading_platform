@@ -1014,52 +1014,6 @@ class TestOrderTicketBuyingPowerImpact:
         assert result["warning"] is True
 
 
-class TestOrderTicketDomSettle:
-    """Tests for DOM click settle-window button behavior."""
-
-    @pytest.fixture()
-    def component(self) -> OrderTicketComponent:
-        client = MagicMock()
-        state_manager = MagicMock()
-        connection_monitor = MagicMock()
-        comp = OrderTicketComponent(
-            trading_client=client,
-            state_manager=state_manager,
-            connection_monitor=connection_monitor,
-            user_id="user1",
-            role="trader",
-            strategies=[],
-        )
-        comp._connection_read_only = False
-        comp._kill_switch_engaged = False
-        comp._circuit_breaker_tripped = False
-        comp._safety_state_loaded = True
-        comp._buy_action_button = MagicMock()
-        comp._sell_action_button = MagicMock()
-        return comp
-
-    def test_finish_dom_settle_keeps_actions_disabled_when_form_incomplete(
-        self, component: OrderTicketComponent
-    ) -> None:
-        component._state.symbol = "AAPL"
-        component._state.quantity = None
-
-        component._finish_dom_settle()
-
-        component._buy_action_button.set_enabled.assert_called_with(False)
-        component._sell_action_button.set_enabled.assert_called_with(False)
-
-    def test_finish_dom_settle_keeps_actions_disabled_when_connection_locked(
-        self, component: OrderTicketComponent
-    ) -> None:
-        component._connection_read_only = True
-
-        component._finish_dom_settle()
-
-        component._buy_action_button.set_enabled.assert_called_with(False)
-        component._sell_action_button.set_enabled.assert_called_with(False)
-
-
 class TestOrderTicketClosePreset:
     """Tests for CLOSE preset behavior."""
 
@@ -1101,20 +1055,6 @@ class TestOrderTicketClosePreset:
         component._quantity_input.set_value.assert_called_once_with(40)
         component._side_toggle.set_value.assert_called_once_with("buy")
 
-    def test_close_prefill_handles_missing_position_state(
-        self, component: OrderTicketComponent
-    ) -> None:
-        component._current_position = None  # type: ignore[assignment]
-
-        with pytest.MonkeyPatch.context() as monkeypatch:
-            notify = MagicMock()
-            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
-            component._on_close_preset_selected()
-
-        assert component._state.quantity is None
-        assert component._state.side == "buy"
-        notify.assert_called_once_with("No open position to close", type="warning")
-
     def test_close_prefill_blocks_on_stale_position(self, component: OrderTicketComponent) -> None:
         component._current_position = 100
         component._position_last_updated = datetime.now(UTC) - timedelta(
@@ -1129,94 +1069,6 @@ class TestOrderTicketClosePreset:
         assert component._state.quantity is None
         assert component._state.side == "buy"
         notify.assert_called_once()
-
-    def test_close_prefill_notification_uses_quantity_unit(
-        self, component: OrderTicketComponent
-    ) -> None:
-        component._current_position = 7
-        component._qty_unit = "contracts"
-
-        with pytest.MonkeyPatch.context() as monkeypatch:
-            notify = MagicMock()
-            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
-            component._on_close_preset_selected()
-
-        notify.assert_called_once_with(
-            "CLOSE prefill ready: SELL 7 contracts (preview required)",
-            type="info",
-        )
-
-    def test_close_prefill_prefers_exact_quantity_with_step_warning(
-        self, component: OrderTicketComponent
-    ) -> None:
-        component._current_position = 125
-        component._qty_step = 100
-        component._min_qty = 100
-
-        with pytest.MonkeyPatch.context() as monkeypatch:
-            notify = MagicMock()
-            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
-            component._on_close_preset_selected()
-
-        assert component._state.side == "sell"
-        assert component._state.quantity == 125
-        notify.assert_any_call(
-            "CLOSE prefill uses exact 125 shares (off-step for 100 shares increments)",
-            type="warning",
-        )
-        notify.assert_any_call(
-            "CLOSE prefill ready: SELL 125 shares (preview required)",
-            type="info",
-        )
-        assert notify.call_count == 2
-
-    def test_close_prefill_allows_exact_quantity_below_symbol_minimum(
-        self, component: OrderTicketComponent
-    ) -> None:
-        component._current_position = 50
-        component._qty_step = 100
-        component._min_qty = 100
-
-        with pytest.MonkeyPatch.context() as monkeypatch:
-            notify = MagicMock()
-            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
-            component._on_close_preset_selected()
-
-        assert component._state.side == "sell"
-        assert component._state.quantity == 50
-        notify.assert_any_call(
-            "CLOSE prefill uses exact 50 shares (below symbol minimum 100 shares; off-step for 100 shares increments)",
-            type="warning",
-        )
-        notify.assert_any_call(
-            "CLOSE prefill ready: SELL 50 shares (preview required)",
-            type="info",
-        )
-        assert notify.call_count == 2
-
-    def test_close_prefill_preserves_full_flatten_for_odd_lot_positions(
-        self, component: OrderTicketComponent
-    ) -> None:
-        """Odd-lot CLOSE prefill keeps exact share flatten via canonical override."""
-        component._current_position = 150
-        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots", qty_unit_size=100)
-
-        with pytest.MonkeyPatch.context() as monkeypatch:
-            notify = MagicMock()
-            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
-            component._on_close_preset_selected()
-
-        assert component._state.side == "sell"
-        assert component._state.quantity == 150
-        assert component._state_quantity_canonical_override == 150
-        notify.assert_any_call(
-            "CLOSE prefill uses exact 150 shares (using share precision to flatten odd-lot residual)",
-            type="warning",
-        )
-        notify.assert_any_call(
-            "CLOSE prefill ready: SELL 150 shares (preview required)",
-            type="info",
-        )
 
 
 class TestOrderTicketIdempotency:

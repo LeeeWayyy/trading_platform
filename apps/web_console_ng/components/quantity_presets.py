@@ -47,11 +47,9 @@ class QuantityPresetsComponent:
         self._presets = presets or self.DEFAULT_PRESETS
         self._on_close_selected = on_close_selected
         self._show_close = show_close
-        self._container: ui.row | None = None
         self._preset_buttons: list[ui.button] = []
         self._max_button: ui.button | None = None
         self._close_button: ui.button | None = None
-        self._enabled: bool = True
 
         # Context for MAX calculation
         self._buying_power: Decimal | None = None
@@ -66,9 +64,27 @@ class QuantityPresetsComponent:
 
     def create(self) -> ui.row:
         """Create preset buttons row."""
+        self._preset_buttons = []
         with ui.row().classes("gap-1 items-center flex-wrap") as row:
-            self._container = row
-        self._render_buttons()
+            for preset in self._presets:
+                btn = ui.button(
+                    str(preset),
+                    on_click=lambda p=preset: self._on_preset_selected(p),
+                ).classes("workspace-v2-preset-btn")
+                self._preset_buttons.append(btn)
+
+            if self._show_close and self._on_close_selected is not None:
+                self._close_button = ui.button(
+                    "CLOSE",
+                    on_click=self._on_close_selected,
+                ).classes("workspace-v2-preset-btn workspace-v2-preset-close")
+
+            # MAX button with dynamic calculation
+            self._max_button = ui.button(
+                "MAX",
+                on_click=self._calculate_and_select_max,
+            ).classes("workspace-v2-preset-btn workspace-v2-preset-max")
+
         return row
 
     def set_enabled(self, enabled: bool) -> None:
@@ -80,23 +96,6 @@ class QuantityPresetsComponent:
             self._max_button.set_enabled(enabled)
         if self._close_button:
             self._close_button.set_enabled(enabled)
-
-    def set_presets(self, presets: list[int]) -> None:
-        """Update quick-size presets and re-render buttons."""
-        normalized: list[int] = []
-        seen: set[int] = set()
-        for raw in presets:
-            try:
-                value = int(raw)
-            except (TypeError, ValueError):
-                continue
-            if value <= 0 or value in seen:
-                continue
-            seen.add(value)
-            normalized.append(value)
-
-        self._presets = normalized or list(self.DEFAULT_PRESETS)
-        self._render_buttons()
 
     def _calculate_and_select_max(self) -> None:
         """Calculate max affordable quantity based on buying power AND position limits.

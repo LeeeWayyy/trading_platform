@@ -247,20 +247,18 @@ class OrderTicketComponent:
 
             with ui.row().classes("w-full gap-2 mt-2 items-end"):
                 with ui.column().classes("w-[132px] gap-1"):
-                    self._quantity_label = ui.label(self._format_quantity_label()).classes(
-                        "workspace-v2-field-label"
-                    )
+                    ui.label("QTY (SHARES)").classes("workspace-v2-field-label")
                     self._quantity_input = ui.number(
                         value=None,
-                        min=self._min_qty,
-                        step=self._qty_step,
+                        min=1,
+                        step=1,
                         on_change=lambda e: self._on_quantity_changed(e.value),
                     ).classes("workspace-v2-input workspace-v2-input-qty")
                 with ui.column().classes("flex-1 gap-1"):
                     ui.label("QUICK SIZE").classes("workspace-v2-field-label")
                     self._quantity_presets = QuantityPresetsComponent(
                         on_preset_selected=self._on_preset_selected,
-                        presets=self._resolve_quantity_presets(),
+                        presets=self.QUANTITY_PRESETS,
                         on_close_selected=self._on_close_preset_selected,
                         show_close=True,
                     )
@@ -453,108 +451,18 @@ class OrderTicketComponent:
             self._quantity_input.set_value(normalized_qty)
         self._update_buying_power_impact()
 
-    def set_quantity_rules(
-        self,
-        *,
-        qty_step: int | None,
-        min_qty: int | None,
-        qty_unit: str | None,
-        qty_unit_size: int | None = None,
-    ) -> None:
-        """Update quantity stepping/minimum rules for selected symbol."""
-        next_qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
-        raw_min = max(1, int(min_qty)) if min_qty is not None else self.DEFAULT_MIN_QTY
-        next_min_qty = self._align_min_qty_to_step(raw_min, next_qty_step)
-        next_qty_unit = self._normalize_qty_unit(qty_unit)
-        next_qty_unit_size = self._resolve_qty_unit_size(
-            qty_unit=next_qty_unit,
-            qty_step=next_qty_step,
-            min_qty=next_min_qty,
-            qty_unit_size=qty_unit_size,
-        )
-
-        if (
-            next_qty_step == self._qty_step
-            and next_min_qty == self._min_qty
-            and next_qty_unit == self._qty_unit
-            and next_qty_unit_size == self._qty_unit_size
-        ):
-            return
-
-        self._qty_step = next_qty_step
-        self._min_qty = next_min_qty
-        self._qty_unit = next_qty_unit
-        self._qty_unit_size = next_qty_unit_size
-        self._state_quantity_canonical_override = None
-        self._apply_quantity_rules_to_ui()
-        self._refresh_quantity_preset_profile()
-
-        if self._state.quantity is not None:
-            normalized_qty = self._normalize_quantity(self._state.quantity)
-            self._state.quantity = normalized_qty
-            if self._quantity_input:
-                self._quantity_input.set_value(normalized_qty)
-
-        self._update_buying_power_impact()
-        self._update_quantity_presets_context()
-
-    def reset_quantity_rules(self) -> None:
-        """Reset quantity rules to safe defaults."""
-        self.set_quantity_rules(qty_step=None, min_qty=None, qty_unit=None, qty_unit_size=None)
-
     def _on_close_preset_selected(self) -> None:
         """Prefill quantity/side to close open position (never auto-submit)."""
         if self._is_position_data_stale():
             ui.notify("Cannot prefill CLOSE: position data stale", type="warning")
             return
 
-        try:
-            current_position = int(self._current_position)
-        except (TypeError, ValueError):
-            current_position = 0
-
-        if current_position == 0:
+        if self._current_position == 0:
             ui.notify("No open position to close", type="warning")
             return
 
-        close_side = "sell" if current_position > 0 else "buy"
-        raw_close_qty = abs(current_position)
-        qty_unit_size = max(1, self._qty_unit_size)
-        qty_step = max(1, self._qty_step)
-        min_qty = max(qty_step, self._min_qty)
-        close_qty = raw_close_qty
-        unit_label = self._qty_unit
-        self._state_quantity_canonical_override = None
-        if qty_unit_size > 1:
-            if raw_close_qty % qty_unit_size == 0:
-                close_qty = raw_close_qty // qty_unit_size
-            else:
-                # Preserve full flatten behavior for odd-lot residuals by using
-                # an explicit canonical-quantity override for this prefill state.
-                close_qty = raw_close_qty
-                unit_label = self.POSITION_DISPLAY_UNIT
-                self._state_quantity_canonical_override = raw_close_qty
-
-        if close_qty <= 0:
-            return
-
-        rule_notes: list[str] = []
-        if close_qty < min_qty:
-            rule_notes.append(f"below symbol minimum {min_qty} {unit_label}")
-        if close_qty % qty_step != 0:
-            rule_notes.append(f"off-step for {qty_step} {unit_label} increments")
-        if self._state_quantity_canonical_override is not None:
-            rule_notes.append("using share precision to flatten odd-lot residual")
-
-        if rule_notes:
-            ui.notify(
-                (
-                    f"CLOSE prefill uses exact {close_qty} {unit_label} "
-                    f"({'; '.join(rule_notes)})"
-                ),
-                type="warning",
-            )
-
+        close_side = "sell" if self._current_position > 0 else "buy"
+        close_qty = abs(self._current_position)
         self._state.quantity = close_qty
         self._state.side = close_side  # type: ignore[assignment]
 
@@ -567,7 +475,7 @@ class OrderTicketComponent:
         self._update_buying_power_impact()
         self._update_quantity_presets_context()
         ui.notify(
-            f"CLOSE prefill ready: {close_side.upper()} {close_qty} {unit_label} (preview required)",
+            f"CLOSE prefill ready: {close_side.upper()} {close_qty} shares (preview required)",
             type="info",
         )
 
@@ -689,16 +597,12 @@ class OrderTicketComponent:
             self._timer_tracker(self._dom_settle_timer)
 
     def _finish_dom_settle(self) -> None:
-        """Re-evaluate action button availability after DOM settle debounce."""
-        disabled, _reason = self._should_disable_submission()
+        """Re-enable action buttons using latest safety gate decision."""
+        disabled, _ = self._should_disable_submission()
         enabled = not disabled
         for button in (self._buy_action_button, self._sell_action_button):
             if button is not None:
                 button.set_enabled(enabled)
-
-    def _is_trade_action_locked(self) -> bool:
-        """Return whether action buttons must stay disabled due global safety state."""
-        return self._connection_read_only or self._kill_switch_engaged or self._circuit_breaker_tripped
 
     # ================= Safety State Callbacks =================
 
@@ -988,21 +892,14 @@ class OrderTicketComponent:
         if self._impact_status_label:
             self._impact_status_label.text = status
             self._impact_status_label.classes(
-                remove=(
-                    "workspace-v2-pill-positive "
-                    "workspace-v2-pill-warning "
-                    "workspace-v2-pill-negative "
-                    "workspace-v2-pill-muted"
-                )
+                remove="workspace-v2-pill-positive workspace-v2-pill-warning workspace-v2-pill-negative"
             )
             if status == "NORMAL":
                 self._impact_status_label.classes(add="workspace-v2-pill-positive")
             elif status == "WARNING":
                 self._impact_status_label.classes(add="workspace-v2-pill-warning")
-            elif status == "DANGER":
-                self._impact_status_label.classes(add="workspace-v2-pill-negative")
             else:
-                self._impact_status_label.classes(add="workspace-v2-pill-muted")
+                self._impact_status_label.classes(add="workspace-v2-pill-negative")
 
         self._update_impact_gauge(impact)
 
@@ -1476,8 +1373,7 @@ class OrderTicketComponent:
 
     def _calculate_buying_power_impact(self) -> dict[str, Any]:
         """Calculate order's impact on buying power."""
-        quantity = self._state_canonical_quantity()
-        if quantity is None:
+        if not self._state.quantity:
             return {
                 "notional": None,
                 "percentage": None,
@@ -1500,7 +1396,7 @@ class OrderTicketComponent:
                 "effective_limit": None,
             }
 
-        notional = effective_price * Decimal(quantity)
+        notional = effective_price * Decimal(self._state.quantity)
         effective_limits: list[Decimal] = []
 
         if self._buying_power is not None and self._buying_power > 0:
@@ -1549,20 +1445,17 @@ class OrderTicketComponent:
         percentage = ratio * 100
         remaining = effective_limit - notional
 
-        warning_ratio = self.IMPACT_WARNING_RATIO
-        danger_ratio = self.IMPACT_DANGER_RATIO
-
         status = "normal"
-        if ratio >= danger_ratio:
+        if ratio >= Decimal("0.8"):
             status = "danger"
-        elif ratio >= warning_ratio:
+        elif ratio >= Decimal("0.5"):
             status = "warning"
 
         return {
             "notional": notional,
             "percentage": percentage,
             "remaining": remaining,
-            "warning": ratio >= warning_ratio,
+            "warning": percentage > 50,
             "ratio": ratio,
             "status": status,
             "effective_limit": effective_limit,

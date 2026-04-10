@@ -30,8 +30,6 @@ class OrderFlowPanel:
         self._sell_label: ui.label | None = None
         self._imbalance_label: ui.label | None = None
         self._rows_container: ui.column | None = None
-        self._render_timer: Any | None = None
-        self._render_pending = False
 
     def create(self) -> ui.card:
         """Create and return panel card."""
@@ -73,13 +71,13 @@ class OrderFlowPanel:
         if self._symbol_label is not None:
             self._symbol_label.text = normalized or "ALL"
         self._refresh_summary()
-        self._request_render(immediate=True)
+        self._render_rows()
 
     def clear(self) -> None:
         """Clear all trades from panel."""
         self._trades.clear()
         self._refresh_summary()
-        self._request_render(immediate=True)
+        self._render_rows()
 
     def add_trade(self, trade: dict[str, Any]) -> None:
         """Add a single trade to panel."""
@@ -88,40 +86,19 @@ class OrderFlowPanel:
             return
         self._trades.appendleft(normalized)
         self._refresh_summary()
-        self._request_render()
+        self._render_rows()
 
     def add_trades(self, trades: list[dict[str, Any]]) -> None:
         """Add multiple trades to panel."""
         if not trades:
             return
-        # Source list is oldest -> newest; appendleft keeps newest rows at the top.
-        for trade in trades:
+        # Oldest -> newest to keep latest items at top after appendleft.
+        for trade in reversed(trades):
             normalized = self._normalize_trade(trade)
             if normalized is not None:
                 self._trades.appendleft(normalized)
         self._refresh_summary()
-        self._request_render()
-
-    def _request_render(self, *, immediate: bool = False) -> None:
-        """Coalesce high-frequency updates to avoid full DOM rebuild on every tick."""
-        if self._rows_container is None:
-            return
-        if immediate:
-            self._render_pending = False
-            self._render_rows()
-            return
-        self._render_pending = True
-        if self._render_timer is not None:
-            return
-
-        def _flush_render() -> None:
-            self._render_timer = None
-            if not self._render_pending:
-                return
-            self._render_pending = False
-            self._render_rows()
-
-        self._render_timer = ui.timer(0.08, _flush_render, once=True)
+        self._render_rows()
 
     def _filtered_trades(self) -> list[dict[str, Any]]:
         if self._symbol is None:
@@ -232,7 +209,7 @@ class OrderFlowPanel:
     def _parse_qty(self, raw_qty: Any) -> int | None:
         try:
             parsed = int(float(raw_qty))
-        except (OverflowError, TypeError, ValueError):
+        except (TypeError, ValueError):
             return None
         if parsed <= 0:
             return None
