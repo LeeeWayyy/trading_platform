@@ -4,11 +4,17 @@ Market Data Type Definitions
 Pydantic models for type-safe market data handling.
 """
 
-from datetime import date, datetime
-from decimal import Decimal
+from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class QuoteData(BaseModel):
@@ -109,10 +115,137 @@ class PriceUpdateEvent(BaseModel):
     timestamp: str = Field(..., description="ISO format timestamp")
 
     @classmethod
-    def from_quote(cls, quote: QuoteData) -> "PriceUpdateEvent":
+    def from_quote(cls, quote: QuoteData) -> PriceUpdateEvent:
         """Create event from QuoteData."""
         return cls(
             symbol=quote.symbol,
             price=quote.mid_price,
             timestamp=quote.timestamp.isoformat(),
         )
+
+
+class ParsedPrice:
+    """Result of parsing a Redis price payload."""
+
+    __slots__ = ("mid", "timestamp")
+
+    def __init__(self, mid: Decimal, timestamp: datetime) -> None:
+        self.mid = mid
+        self.timestamp = timestamp
+
+
+def parse_redis_price_json(
+    raw: str,
+    expected_symbol: str | None = None,
+    max_price_age_seconds: int | None = None,
+) -> ParsedPrice | None:
+    """Parse and validate a Redis price JSON payload.
+
+    Shared validation logic for Redis market data cache entries,
+    used by both orchestrator and execution-gateway to avoid
+    duplication of parsing/staleness/sanity checks.
+
+    Args:
+        raw: Raw JSON string from Redis
+        expected_symbol: If provided, rejects payloads whose ``symbol``
+            field does not match (guards against misaligned cache entries)
+        max_price_age_seconds: If provided, rejects prices older than
+            this many seconds
+
+    Returns:
+        ParsedPrice with validated mid price and timestamp, or None
+        if the payload is invalid, stale, or mismatched.
+
+    Example:
+        >>> result = parse_redis_price_json(
+        ...     '{"symbol":"AAPL","mid":"150.00","timestamp":"2026-04-06T10:00:00+00:00"}',
+        ...     expected_symbol="AAPL",
+        ...     max_price_age_seconds=30,
+        ... )
+        >>> if result:
+        ...     print(result.mid)
+        Decimal('150.00')
+    """
+    try:
+        price_data = json.loads(raw)
+
+        # Symbol mismatch guard
+        if expected_symbol is not None:
+            payload_symbol = price_data.get("symbol")
+            if payload_symbol is not None and payload_symbol != expected_symbol:
+                logger.warning(
+                    "Redis price symbol mismatch: expected %s, got %s",
+                    expected_symbol,
+                    payload_symbol,
+                    extra={
+                        "expected_symbol": expected_symbol,
+                        "payload_symbol": payload_symbol,
+                    },
+                )
+                return None
+
+        # Timestamp validation
+        ts_raw = price_data.get("timestamp")
+        if ts_raw is None:
+            logger.warning(
+                "Redis price missing timestamp for %s",
+                expected_symbol or "unknown",
+                extra={"symbol": expected_symbol or "unknown"},
+            )
+            return None
+
+        price_ts = datetime.fromisoformat(str(ts_raw))
+        if price_ts.tzinfo is None:
+            price_ts = price_ts.replace(tzinfo=UTC)
+
+        # Staleness check
+        if max_price_age_seconds is not None:
+            age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
+            if age_seconds > max_price_age_seconds:
+                logger.warning(
+                    "Redis price stale for %s",
+                    expected_symbol or "unknown",
+                    extra={
+                        "symbol": expected_symbol or "unknown",
+                        "price_age_seconds": max(age_seconds, 0),
+                        "max_price_age_seconds": max_price_age_seconds,
+                    },
+                )
+                return None
+            # Future timestamps are suspicious — treat as invalid
+            if age_seconds < -1:
+                logger.warning(
+                    "Redis price has future timestamp for %s",
+                    expected_symbol or "unknown",
+                    extra={
+                        "symbol": expected_symbol or "unknown",
+                        "price_age_seconds": age_seconds,
+                    },
+                )
+                return None
+
+        # Mid price validation
+        mid = Decimal(str(price_data["mid"]))
+        if mid <= 0 or not mid.is_finite():
+            logger.warning(
+                "Redis price has invalid mid for %s",
+                expected_symbol or "unknown",
+                extra={
+                    "symbol": expected_symbol or "unknown",
+                    "mid": str(mid),
+                },
+            )
+            return None
+
+        return ParsedPrice(mid=mid, timestamp=price_ts)
+
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
+        logger.warning(
+            "Failed to parse Redis price payload",
+            extra={
+                "symbol": expected_symbol or "unknown",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+        return None

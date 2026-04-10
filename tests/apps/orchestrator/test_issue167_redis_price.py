@@ -373,3 +373,39 @@ class TestBatchPrefetch:
 
         # Cache is empty — per-symbol GET will work later
         assert "AAPL" not in orch.price_cache
+
+
+class TestSymbolMismatchAndFutureTimestamp:
+    """Tests for symbol validation and future timestamp rejection."""
+
+    @pytest.mark.asyncio()
+    async def test_symbol_mismatch_treated_as_unavailable(self) -> None:
+        """Redis payload with wrong symbol is rejected."""
+        redis = MagicMock()
+        # Return MSFT data when AAPL is requested
+        redis.get.return_value = _fresh_price_json(symbol="MSFT", mid="300.00")
+        orch = _make_orchestrator(redis_client=redis)
+
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+
+    @pytest.mark.asyncio()
+    async def test_future_timestamp_treated_as_unavailable(self) -> None:
+        """Redis price with future timestamp is rejected as suspicious."""
+        future_ts = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+        redis = MagicMock()
+        redis.get.return_value = _fresh_price_json(timestamp=future_ts)
+        orch = _make_orchestrator(redis_client=redis)
+
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+
+    @pytest.mark.asyncio()
+    async def test_matching_symbol_accepted(self) -> None:
+        """Redis payload with matching symbol is accepted."""
+        redis = MagicMock()
+        redis.get.return_value = _fresh_price_json(symbol="AAPL", mid="150.00")
+        orch = _make_orchestrator(redis_client=redis)
+
+        price = await orch._get_current_price("AAPL")
+        assert price == Decimal("150.00")
