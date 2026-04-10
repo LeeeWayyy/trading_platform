@@ -459,6 +459,9 @@ FEATURE_TCA_DASHBOARD = _get_bool_env("FEATURE_TCA_DASHBOARD")
 # P6T17: Strategy & Model Management
 FEATURE_STRATEGY_MANAGEMENT = _get_bool_env("FEATURE_STRATEGY_MANAGEMENT")
 FEATURE_MODEL_REGISTRY = _get_bool_env("FEATURE_MODEL_REGISTRY")
+FEATURE_STRATEGY_MODEL_EXECUTION_GATING = _get_bool_env(
+    "FEATURE_STRATEGY_MODEL_EXECUTION_GATING"
+)
 
 # =============================================================================
 # Auto-refresh and UI settings (P5T7)
@@ -466,6 +469,11 @@ FEATURE_MODEL_REGISTRY = _get_bool_env("FEATURE_MODEL_REGISTRY")
 
 # Default auto-refresh interval for dashboards (seconds)
 AUTO_REFRESH_INTERVAL = float(os.getenv("AUTO_REFRESH_INTERVAL", "5.0"))
+# Strategy/model execution context refresh interval (seconds)
+DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS = _parse_float(
+    "DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS",
+    5.0,
+)
 
 # Minimum characters required for circuit breaker reset reason
 MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH = int(

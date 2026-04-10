@@ -94,6 +94,74 @@ class TestOrderEntryContextComponentSetters:
         context.set_price_chart(price_chart)
         assert context._price_chart is price_chart
 
+    def test_set_strategy_context_widget(self, context: OrderEntryContext) -> None:
+        """set_strategy_context_widget stores component reference."""
+        strategy_widget = MagicMock()
+        context.set_strategy_context_widget(strategy_widget)
+        assert context._strategy_context_widget is strategy_widget
+
+
+class TestStrategyModelContextDispatch:
+    """Tests strategy/model context dispatching to child components."""
+
+    @pytest.fixture()
+    def context(self) -> OrderEntryContext:
+        """Create context with strategy-relevant components."""
+        ctx = OrderEntryContext(
+            realtime_updater=MagicMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=MagicMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._strategy_context_widget = MagicMock()
+        return ctx
+
+    def test_dispatch_strategy_model_context_forwards_to_ticket_and_widget(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Dispatch forwards normalized state to both consumers."""
+        context.dispatch_strategy_model_context(
+            strategy_status="active",
+            model_status="testing",
+            gate_enabled=True,
+            gate_reason="manual review",
+            strategy_label="Strategy: alpha",
+            model_label="Model: v2.1",
+            banner="Execution context healthy.",
+        )
+
+        context._order_ticket.set_strategy_model_context.assert_called_once_with(
+            strategy_status="active",
+            model_status="testing",
+            gate_enabled=True,
+            gate_reason="manual review",
+        )
+        context._strategy_context_widget.set_status.assert_called_once_with(
+            strategy_status="active",
+            model_status="testing",
+            strategy_label="Strategy: alpha",
+            model_label="Model: v2.1",
+            banner="Execution context healthy.",
+        )
+
+    def test_dispatch_strategy_model_context_handles_missing_components(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Dispatch is a no-op when target components are absent."""
+        context._order_ticket = None
+        context._strategy_context_widget = None
+
+        context.dispatch_strategy_model_context(
+            strategy_status=None,
+            model_status=None,
+            gate_enabled=False,
+        )
+
 
 class TestFetchInitialSafetyState:
     """Tests for _fetch_initial_safety_state method."""

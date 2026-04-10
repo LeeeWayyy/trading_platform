@@ -261,6 +261,92 @@ class TestOrderTicketSafetyChecks:
         assert "Risk limits loading" in reason
 
 
+class TestStrategyModelExecutionGate:
+    """Tests for strategy/model execution gating."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create component with all pre-gate safety checks satisfied."""
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=[],
+        )
+        now = datetime.now(UTC)
+        comp._safety_state_loaded = True
+        comp._connection_read_only = False
+        comp._kill_switch_engaged = False
+        comp._circuit_breaker_tripped = False
+        comp._state.symbol = "AAPL"
+        comp._state.quantity = 10
+        comp._state.side = "buy"
+        comp._position_last_updated = now
+        comp._price_last_updated = now
+        comp._buying_power_last_updated = now
+        comp._limits_loaded = True
+        comp._limits_last_updated = now
+        return comp
+
+    def test_blocks_risk_increasing_orders_when_context_unsafe(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Unsafe strategy/model blocks risk-increasing submissions."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="inactive",
+            model_status="active",
+            gate_enabled=True,
+            gate_reason="strategy paused",
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert "Execution gated" in reason
+
+    def test_allows_risk_reducing_orders_when_context_unsafe(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Unsafe context still allows strict exposure-reducing exits."""
+        component._current_position = 100
+        component._state.side = "sell"
+        component._state.quantity = 40
+        component.set_strategy_model_context(
+            strategy_status="inactive",
+            model_status="failed",
+            gate_enabled=True,
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_gate_disabled_does_not_block_on_unsafe_context(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Unsafe status does not gate execution when feature is disabled."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="inactive",
+            model_status="failed",
+            gate_enabled=False,
+            gate_reason="status mismatch",
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+
 class TestOrderTicketStalenessChecks:
     """Tests for data staleness checks."""
 

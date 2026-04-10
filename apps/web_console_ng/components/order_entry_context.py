@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from apps.web_console_ng.components.one_click_handler import OneClickHandler
     from apps.web_console_ng.components.order_ticket import OrderTicketComponent
     from apps.web_console_ng.components.price_chart import PriceChartComponent
+    from apps.web_console_ng.components.strategy_context import StrategyContextWidget
     from apps.web_console_ng.components.watchlist import WatchlistComponent
     from apps.web_console_ng.core.client import AsyncTradingClient
     from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
@@ -154,6 +155,7 @@ class OrderEntryContext:
         self._watchlist: WatchlistComponent | None = None
         self._price_chart: PriceChartComponent | None = None
         self._dom_ladder: DOMLadderComponent | None = None
+        self._strategy_context_widget: StrategyContextWidget | None = None
 
         # T7 Order Actions components
         self._flatten_controls: FlattenControls | None = None
@@ -203,6 +205,10 @@ class OrderEntryContext:
         """Set the PriceChart component reference."""
         self._price_chart = component
 
+    def set_strategy_context_widget(self, component: StrategyContextWidget) -> None:
+        """Set the StrategyContextWidget component reference."""
+        self._strategy_context_widget = component
+
     def set_flatten_controls(self, component: FlattenControls) -> None:
         """Set the FlattenControls component reference."""
         self._flatten_controls = component
@@ -212,6 +218,35 @@ class OrderEntryContext:
         self._one_click_handler = handler
         # Sync initial cached state
         self._sync_one_click_cached_state()
+
+    def dispatch_strategy_model_context(
+        self,
+        *,
+        strategy_status: str | None,
+        model_status: str | None,
+        gate_enabled: bool,
+        gate_reason: str | None = None,
+        strategy_label: str | None = None,
+        model_label: str | None = None,
+        banner: str | None = None,
+    ) -> None:
+        """Dispatch strategy/model execution context to ticket and context widget."""
+        if self._order_ticket:
+            self._order_ticket.set_strategy_model_context(
+                strategy_status=strategy_status,
+                model_status=model_status,
+                gate_enabled=gate_enabled,
+                gate_reason=gate_reason,
+            )
+
+        if self._strategy_context_widget:
+            self._strategy_context_widget.set_status(
+                strategy_status=strategy_status or "unknown",
+                model_status=model_status or "unknown",
+                strategy_label=strategy_label,
+                model_label=model_label,
+                banner=banner,
+            )
 
     def _sync_one_click_cached_state(self) -> None:
         """Sync cached safety state to OneClickHandler."""

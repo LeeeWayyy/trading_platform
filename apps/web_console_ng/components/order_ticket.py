@@ -167,6 +167,12 @@ class OrderTicketComponent:
         # Order snapshot for idempotency validation (set at preview time)
         self._preview_snapshot: dict[str, Any] | None = None
 
+        # Strategy/model execution context (default monitor-only)
+        self._execution_gate_enabled: bool = False
+        self._strategy_status: str = "unknown"
+        self._model_status: str = "unknown"
+        self._execution_gate_reason: str | None = None
+
     async def initialize(self, timer_tracker: Callable[[ui.timer], None]) -> None:
         """Initialize with timer tracking.
 
@@ -664,6 +670,27 @@ class OrderTicketComponent:
         """
         self._current_total_exposure = current_total_exposure
 
+    def set_strategy_model_context(
+        self,
+        *,
+        strategy_status: str | None,
+        model_status: str | None,
+        gate_enabled: bool,
+        gate_reason: str | None = None,
+    ) -> None:
+        """Update strategy/model execution context used by submit safety gate.
+
+        Args:
+            strategy_status: Strategy runtime status (active/idle/inactive/unknown).
+            model_status: Model runtime status (active/testing/failed/inactive/unknown).
+            gate_enabled: Whether strategy/model gating should be enforced.
+            gate_reason: Optional reason produced by upstream context resolver.
+        """
+        self._strategy_status = str(strategy_status or "unknown").strip().lower()
+        self._model_status = str(model_status or "unknown").strip().lower()
+        self._execution_gate_enabled = bool(gate_enabled)
+        self._execution_gate_reason = str(gate_reason) if gate_reason else None
+
     async def on_symbol_changed(self, symbol: str | None) -> None:
         """Called by OrderEntryContext when selected symbol changes externally."""
         self._state.symbol = symbol
@@ -914,6 +941,10 @@ class OrderTicketComponent:
         if self._is_buying_power_stale():
             return (True, "Buying power data stale")
 
+        gate_block_reason = self._get_execution_gate_block_reason()
+        if gate_block_reason:
+            return (True, gate_block_reason)
+
         price_error = self._validate_order_type_prices()
         if price_error:
             return (True, price_error)
@@ -929,6 +960,40 @@ class OrderTicketComponent:
             return (True, limit_violation)
 
         return (False, "")
+
+    def _get_execution_gate_block_reason(self) -> str | None:
+        """Return strategy/model gate block reason for risk-increasing orders."""
+        if not self._execution_gate_enabled:
+            return None
+
+        strategy_safe = self._strategy_status in {"active", "idle"}
+        model_safe = self._model_status in {"active", "testing"}
+        if strategy_safe and model_safe:
+            return None
+
+        # Safety policy: allow risk-reducing orders even when context is unsafe.
+        if self._is_risk_reducing_order():
+            return None
+
+        if self._execution_gate_reason:
+            return f"Execution gated: {self._execution_gate_reason}"
+        if not strategy_safe:
+            return f"Execution gated: strategy is {self._strategy_status.upper()}"
+        if not model_safe:
+            return f"Execution gated: model is {self._model_status.upper()}"
+        return "Execution gated: strategy/model context unavailable"
+
+    def _is_risk_reducing_order(self) -> bool:
+        """Return True only when order strictly reduces current open exposure."""
+        qty = self._state.quantity
+        if qty is None or qty <= 0:
+            return False
+
+        if self._current_position > 0 and self._state.side == "sell":
+            return qty <= self._current_position
+        if self._current_position < 0 and self._state.side == "buy":
+            return qty <= abs(self._current_position)
+        return False
 
     def _is_position_data_stale(self) -> bool:
         """Check if position data is too old for safe trading."""
