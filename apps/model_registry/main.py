@@ -295,14 +295,23 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
     copies or freezes the sequence at init, this check will catch the
     regression at startup rather than letting CORS silently fail.
 
+    Note:
+        ``_cors_allow_origins`` is process-global by design (single-app-per-
+        process architecture).  See the module-level comment above the list
+        declaration for rationale.
+
     Raises:
         RuntimeError: If the middleware's allow_origins is not the same object
             or if CORSMiddleware is not found in the middleware stack.
     """
     # Walk the middleware stack to find CORSMiddleware.
     # When lifespan is called on a bare FastAPI instance (e.g. in tests),
-    # the middleware stack is not built yet.  Skip verification in that case.
+    # the middleware stack is not built yet.  Log a warning and skip.
     if target_app.middleware_stack is None:
+        logger.warning(
+            "CORS middleware guard skipped: middleware_stack is None "
+            "(expected only in tests with bare FastAPI instances)"
+        )
         return
 
     middleware = target_app.middleware_stack
