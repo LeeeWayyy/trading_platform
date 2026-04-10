@@ -14,6 +14,7 @@ from apps.alert_worker.entrypoint import (
     _close_async_resources,
     _create_async_resources,
     _execute_delivery_job,
+    _get_allowed_queues,
     _get_channels,
     _get_rq_queue,
     _require_env,
@@ -59,6 +60,7 @@ class TestGetRQQueue:
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", frozenset({"alerts"})),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -79,6 +81,7 @@ class TestGetRQQueue:
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", frozenset({"alerts"})),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -103,6 +106,10 @@ class TestGetRQQueue:
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
             patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
             patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                frozenset({"alerts", "alerts_high"}),
+            ),
         ):
             mock_redis = Mock()
             mock_redis_class.from_url.return_value = mock_redis
@@ -114,6 +121,95 @@ class TestGetRQQueue:
 
             mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
             assert result == mock_queue
+
+    def test_get_rq_queue_falls_back_for_unrecognised_origin(self, monkeypatch):
+        """Test that an unrecognised origin falls back to 'alerts' and logs a warning."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                frozenset({"alerts"}),
+            ),
+            patch("apps.alert_worker.entrypoint.logger") as mock_logger,
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            mock_get_current_job.return_value = Mock(origin="rogue_queue")
+
+            result = _get_rq_queue()
+
+            # Should fall back to "alerts" and log warning
+            mock_queue_class.assert_called_once_with("alerts", connection=mock_redis)
+            assert result == mock_queue
+            mock_logger.warning.assert_called_once()
+            warning_extra = mock_logger.warning.call_args[1]["extra"]
+            assert warning_extra["requested_queue"] == "rogue_queue"
+
+    def test_get_rq_queue_caches_per_origin_without_cross_contamination(self, monkeypatch):
+        """Test multiple distinct origins each get their own cached Queue."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                frozenset({"alerts", "alerts_high"}),
+            ),
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+
+            queue_alerts = Mock(name="queue_alerts")
+            queue_high = Mock(name="queue_alerts_high")
+            mock_queue_class.side_effect = [queue_alerts, queue_high]
+
+            result_alerts = _get_rq_queue("alerts")
+            result_high = _get_rq_queue("alerts_high")
+            # Re-fetch to verify caching
+            result_alerts_again = _get_rq_queue("alerts")
+            result_high_again = _get_rq_queue("alerts_high")
+
+            # Each queue created exactly once
+            assert mock_queue_class.call_count == 2
+            # No cross-contamination
+            assert result_alerts is queue_alerts
+            assert result_high is queue_high
+            assert result_alerts_again is queue_alerts
+            assert result_high_again is queue_high
+
+
+class TestGetAllowedQueues:
+    """Test _get_allowed_queues function."""
+
+    def test_defaults_to_alerts_when_env_unset(self, monkeypatch):
+        """Test _get_allowed_queues returns {'alerts'} when RQ_QUEUES is unset."""
+        monkeypatch.delenv("RQ_QUEUES", raising=False)
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
+            result = _get_allowed_queues()
+            assert result == frozenset({"alerts"})
+
+    def test_parses_comma_separated_env(self, monkeypatch):
+        """Test _get_allowed_queues parses RQ_QUEUES env var."""
+        monkeypatch.setenv("RQ_QUEUES", "alerts, alerts_high, alerts_low")
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
+            result = _get_allowed_queues()
+            assert result == frozenset({"alerts", "alerts_high", "alerts_low"})
+
+    def test_returns_cached_result(self, monkeypatch):
+        """Test _get_allowed_queues caches result."""
+        cached = frozenset({"cached_queue"})
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", cached):
+            result = _get_allowed_queues()
+            assert result is cached
 
 
 class TestCreateAsyncResources:

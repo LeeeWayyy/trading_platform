@@ -36,6 +36,26 @@ logger = logging.getLogger(__name__)
 # function in the worker process without reusing asyncio event loops.
 _CHANNELS: dict[ChannelType, BaseChannel] | None = None
 _RQ_QUEUES: dict[str, Queue] = {}
+_ALLOWED_QUEUES: frozenset[str] | None = None
+
+
+def _get_allowed_queues() -> frozenset[str]:
+    """Return the set of queue names this worker is configured to process.
+
+    Parsed from ``RQ_QUEUES`` env var (comma-separated).  Falls back to
+    ``{"alerts"}`` when the variable is unset or empty.  The result is
+    cached in ``_ALLOWED_QUEUES`` for the lifetime of the process.
+    """
+    global _ALLOWED_QUEUES
+    if _ALLOWED_QUEUES is None:
+        queues_env = os.getenv("RQ_QUEUES")
+        parsed = (
+            frozenset(q.strip() for q in queues_env.split(",") if q.strip())
+            if queues_env
+            else frozenset({"alerts"})
+        )
+        _ALLOWED_QUEUES = parsed if parsed else frozenset({"alerts"})
+    return _ALLOWED_QUEUES
 
 
 @dataclass
@@ -57,9 +77,27 @@ def _require_env(name: str) -> str:
 
 
 def _get_rq_queue(queue_name: str | None = None) -> Queue:
+    """Return (and cache) an RQ ``Queue`` for the given *queue_name*.
+
+    When *queue_name* is ``None`` the function infers the name from the
+    current RQ job's ``origin`` attribute, falling back to ``"alerts"``.
+
+    The resolved name is validated against the set of queues this worker
+    is allowed to process (``_get_allowed_queues``).  Unrecognised names
+    are replaced with ``"alerts"`` and a warning is logged so that a
+    rogue ``origin`` value cannot cause unbounded cache growth.
+    """
     if queue_name is None:
         current_job = get_current_job()
         queue_name = getattr(current_job, "origin", None) or "alerts"
+
+    allowed = _get_allowed_queues()
+    if queue_name not in allowed:
+        logger.warning(
+            "queue_name_not_allowed",
+            extra={"requested_queue": queue_name, "allowed_queues": sorted(allowed)},
+        )
+        queue_name = "alerts"
 
     queue = _RQ_QUEUES.get(queue_name)
     if queue is None:
