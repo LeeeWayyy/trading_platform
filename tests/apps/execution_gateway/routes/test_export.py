@@ -257,6 +257,32 @@ class TestBuildFilterClause:
         assert "symbol ILIKE %s" in result_sql
         assert "::text" not in result_sql
 
+    def test_set_filter(self) -> None:
+        """Set filter generates IN-clause with ANY(%s)."""
+        filt = {
+            "status": {
+                "filterType": "set",
+                "values": ["new", "pending_new", "partially_filled"],
+            }
+        }
+        result_sql, params = _build_filter_clause(filt, ["status"])
+        assert "status = ANY(%s)" in result_sql
+        assert params == [["new", "pending_new", "partially_filled"]]
+
+    def test_set_filter_empty_values_ignored(self) -> None:
+        """Set filter with empty values list is silently skipped."""
+        filt = {"status": {"filterType": "set", "values": []}}
+        result_sql, params = _build_filter_clause(filt, ["status"])
+        assert result_sql == ""
+        assert params == []
+
+    def test_set_filter_respects_allowlist(self) -> None:
+        """Set filter on a column not in allowlist is dropped."""
+        filt = {"status": {"filterType": "set", "values": ["new"]}}
+        result_sql, params = _build_filter_clause(filt, ["symbol"])
+        assert result_sql == ""
+        assert params == []
+
 
 class TestBuildOrderClause:
     def test_default_order_when_no_sort_model(self) -> None:

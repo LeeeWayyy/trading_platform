@@ -923,6 +923,7 @@ def _build_filter_clause(
     - ``text`` filters (contains, equals, startsWith, endsWith, notEqual)
     - ``number`` filters (equals, greaterThan, lessThan, inRange, etc.)
     - ``date`` filters (equals, greaterThan, lessThan, inRange)
+    - ``set`` filters (values list for IN-clause matching)
 
     Only columns present in *allowed_columns* are accepted; unknown
     columns are silently dropped.  All values are passed as query
@@ -1043,6 +1044,14 @@ def _build_filter_clause(
             elif ftype == "inRange" and date_from is not None and date_to is not None:
                 clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
                 params.extend([date_from, date_to])
+
+        elif filter_type == "set":
+            values = spec.get("values")
+            if isinstance(values, list) and values:
+                # Use ANY(%s) with a list parameter for set membership
+                text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+                clauses.append(f"{text_col} = ANY(%s)")
+                params.append(values)
 
     sql = " AND ".join(clauses)
     if sql:
