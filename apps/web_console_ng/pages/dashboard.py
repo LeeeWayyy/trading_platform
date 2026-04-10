@@ -98,8 +98,6 @@ logger = logging.getLogger(__name__)
 MAX_FILLS_ITEMS = 100
 # Workspace live-data staleness threshold before interaction lock
 WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
-# Strategy resolution query lookback to keep orders scan bounded
-STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
 
 ScopeKey = tuple[str, frozenset[str]]
 
@@ -633,6 +631,10 @@ async def dashboard(client: Client) -> None:
     strategy_context_widget: StrategyContextWidget | None = None
     tabs_host: ui.column | None = None
     log_tail_host: ui.column | None = None
+    workspace_root: Any | None = None
+    workspace_overlay: Any | None = None
+    workspace_overlay_title: ui.label | None = None
+    workspace_overlay_detail: ui.label | None = None
     authorized_strategy_scope = [
         str(strategy).strip()
         for strategy in get_authorized_strategies(user)
@@ -647,7 +649,7 @@ async def dashboard(client: Client) -> None:
 
     # Metrics strip/cards
     if use_workspace_v2:
-        with ui.element("section").classes("workspace-v2 w-full mb-3"):
+        with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
             with ui.element("div").classes("workspace-v2-command-strip"):
                 pnl_card = _MetricStripValue(
                     "UNR P&L",
@@ -696,6 +698,15 @@ async def dashboard(client: Client) -> None:
 
                     tabs_host = ui.column().classes("workspace-v2-tabs-area")
                     log_tail_host = ui.column().classes("shrink-0")
+
+            with ui.element("div").classes("workspace-v2-overlay hidden") as workspace_overlay:
+                with ui.card().classes("workspace-v2-overlay-card"):
+                    workspace_overlay_title = ui.label("Connection unavailable").classes(
+                        "workspace-v2-overlay-title"
+                    )
+                    workspace_overlay_detail = ui.label(
+                        "Trading actions are locked until the workspace stream recovers."
+                    ).classes("workspace-v2-overlay-detail")
     else:
         with trading_grid().classes("w-full mb-2"):
             pnl_card = MetricCard(
@@ -936,35 +947,6 @@ async def dashboard(client: Client) -> None:
     workspace_connection_state = "CONNECTED"
     workspace_connection_read_only = False
 
-    def _update_workspace_connection_pill() -> None:
-        if not use_workspace_v2 or connection_status_pill is None:
-            return
-        text, tone = resolve_workspace_connection_pill(
-            state=workspace_connection_state,
-            is_read_only=workspace_connection_read_only,
-        )
-        connection_status_pill.set_state(text, tone)
-
-    def _update_workspace_kill_switch_pill() -> None:
-        if not use_workspace_v2 or kill_switch_status_pill is None:
-            return
-        text, tone = resolve_workspace_kill_switch_pill(workspace_kill_switch_state)
-        kill_switch_status_pill.set_state(text, tone)
-
-    def _update_workspace_circuit_breaker_pill() -> None:
-        if not use_workspace_v2 or circuit_breaker_status_pill is None:
-            return
-        text, tone = resolve_workspace_circuit_breaker_pill(workspace_circuit_breaker_state)
-        circuit_breaker_status_pill.set_state(text, tone)
-
-    def _update_workspace_clock_pill() -> None:
-        if not use_workspace_v2 or session_clock_pill is None:
-            return
-        session_clock_pill.set_state(
-            f"UTC {datetime.now(UTC).strftime('%H:%M:%S')}",
-            "muted",
-        )
-
     def _set_workspace_mask(*, locked: bool, title: str = "", detail: str = "") -> None:
         """Show/hide workspace interaction mask for safety-critical stale/disconnect states."""
         if not use_workspace_v2 or workspace_root is None or workspace_overlay is None:
@@ -988,40 +970,50 @@ async def dashboard(client: Client) -> None:
 
     def _is_workspace_data_stale(now: float | None = None) -> tuple[bool, float]:
         """Return (is_stale, age_seconds)."""
+        if workspace_last_live_data_at is None:
+            return (False, 0.0)
         current = now if now is not None else time.monotonic()
-        return compute_workspace_data_staleness(
-            last_live_data_at=workspace_last_live_data_at,
-            now=current,
-            threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
-        )
+        age = current - workspace_last_live_data_at
+        return (age > WORKSPACE_DATA_STALE_THRESHOLD_S, age)
 
     def _evaluate_workspace_mask() -> None:
         """Lock interactive workspace zones when connection is read-only or live data is stale."""
         if not use_workspace_v2:
             return
 
+        if workspace_connection_read_only:
+            _set_workspace_mask(
+                locked=True,
+                title=f"Connection {workspace_connection_state}",
+                detail=(
+                    "Trading actions are locked while the workspace is read-only. "
+                    "Waiting for reconnection."
+                ),
+            )
+            return
+
         stale, age_s = _is_workspace_data_stale()
-        locked, title, detail = determine_workspace_lock_state(
-            connection_read_only=workspace_connection_read_only,
-            connection_state=workspace_connection_state,
-            data_stale=stale,
-            data_age_s=age_s,
-        )
-        _set_workspace_mask(locked=locked, title=title, detail=detail)
+        if stale:
+            _set_workspace_mask(
+                locked=True,
+                title="Live data stale",
+                detail=(
+                    f"No live updates for {age_s:.0f}s. Trading actions are locked "
+                    "until stream freshness is restored."
+                ),
+            )
+            return
+
+        _set_workspace_mask(locked=False)
 
     def _on_workspace_connection_state(state: str, is_read_only: bool) -> None:
         """Bridge OrderEntryContext connection updates into dashboard workspace mask."""
         nonlocal workspace_connection_state, workspace_connection_read_only
         workspace_connection_state = str(state or "UNKNOWN").upper()
         workspace_connection_read_only = bool(is_read_only)
-        _update_workspace_connection_pill()
         _evaluate_workspace_mask()
 
     order_context.set_connection_state_callback(_on_workspace_connection_state)
-    _update_workspace_connection_pill()
-    _update_workspace_kill_switch_pill()
-    _update_workspace_circuit_breaker_pill()
-    _update_workspace_clock_pill()
     _evaluate_workspace_mask()
 
     def _current_symbol_filter() -> str | None:
@@ -1651,8 +1643,7 @@ async def dashboard(client: Client) -> None:
             role=user_role,
             strategies=user_strategies,
         )
-        if has_fresh_market_data:
-            _mark_workspace_live_data()
+        _mark_workspace_live_data()
         _evaluate_workspace_mask()
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
