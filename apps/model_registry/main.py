@@ -85,9 +85,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("=" * 60)
 
     try:
-        # Configure CORS middleware during startup (not at import time)
+        # Validate and populate CORS origins during startup (not at import time)
         # so validation errors go through the normal lifespan error path.
-        cors_origins = _configure_cors(app)
+        # Middleware is already registered at module level with _cors_allow_origins;
+        # we populate the shared list in-place here.
+        cors_origins = _resolve_cors_origins()
+        _cors_allow_origins.extend(cors_origins)
         logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
 
         if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":
@@ -224,13 +227,13 @@ app = FastAPI(
 # =============================================================================
 
 
-def _configure_cors(app: FastAPI) -> list[str]:
-    """Configure CORS middleware based on environment.
+def _resolve_cors_origins() -> list[str]:
+    """Resolve and validate CORS origins from environment variables.
 
     Called during lifespan startup so validation errors go through the normal
     startup/error path instead of crashing at import time.
 
-    Returns the resolved origin list for logging.
+    Returns the resolved origin list.
 
     Raises:
         RuntimeError: If ALLOWED_ORIGINS contains wildcard '*' or is unset in production.
@@ -254,14 +257,23 @@ def _configure_cors(app: FastAPI) -> list[str]:
     else:
         raise RuntimeError("ALLOWED_ORIGINS must be set for production environments")
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     return cors_origins
+
+
+# Mutable list populated during lifespan startup.  Registered with the CORS
+# middleware at module level (required before ASGI startup) and filled in-place
+# by _resolve_cors_origins() during lifespan so that configuration errors go
+# through the normal startup error path instead of crashing at import time
+# (see issue #156).
+_cors_allow_origins: list[str] = []
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # =============================================================================

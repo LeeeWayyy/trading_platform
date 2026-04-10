@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:8501")
 
-from apps.model_registry.main import _configure_cors, app, get_settings, lifespan
+from apps.model_registry.main import _resolve_cors_origins, app, get_settings, lifespan
 from libs.models.models import ManifestIntegrityError, RegistryManifest
 
 
@@ -264,8 +264,7 @@ def test_cors_with_explicit_allowed_origins(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com,https://app.example.com")
 
-    test_app = FastAPI()
-    origins = _configure_cors(test_app)
+    origins = _resolve_cors_origins()
     assert origins == ["https://example.com", "https://app.example.com"]
 
 
@@ -274,9 +273,8 @@ def test_cors_with_wildcard_raises_error(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "*")
 
-    test_app = FastAPI()
     with pytest.raises(RuntimeError, match="wildcard '\\*'.*credentials are enabled"):
-        _configure_cors(test_app)
+        _resolve_cors_origins()
 
 
 def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
@@ -284,8 +282,7 @@ def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "dev")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    test_app = FastAPI()
-    origins = _configure_cors(test_app)
+    origins = _resolve_cors_origins()
     assert "http://localhost:8501" in origins
     assert "http://localhost:3000" in origins
 
@@ -295,8 +292,7 @@ def test_cors_test_environment_defaults(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    test_app = FastAPI()
-    origins = _configure_cors(test_app)
+    origins = _resolve_cors_origins()
     assert "http://localhost:8501" in origins
 
 
@@ -305,9 +301,8 @@ def test_cors_production_without_allowed_origins_raises_error(monkeypatch: pytes
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    test_app = FastAPI()
     with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
-        _configure_cors(test_app)
+        _resolve_cors_origins()
 
 
 def test_module_importable_without_allowed_origins(monkeypatch: pytest.MonkeyPatch):
@@ -609,8 +604,7 @@ def test_cors_with_comma_separated_origins(monkeypatch: pytest.MonkeyPatch):
         "ALLOWED_ORIGINS", "https://example.com, https://app.example.com , https://api.example.com"
     )
 
-    test_app = FastAPI()
-    origins = _configure_cors(test_app)
+    origins = _resolve_cors_origins()
     assert origins == ["https://example.com", "https://app.example.com", "https://api.example.com"]
 
 
@@ -619,8 +613,7 @@ def test_cors_with_empty_origin_in_list(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com,,https://app.example.com, ,")
 
-    test_app = FastAPI()
-    origins = _configure_cors(test_app)
+    origins = _resolve_cors_origins()
     assert origins == ["https://example.com", "https://app.example.com"]
 
 
@@ -642,6 +635,60 @@ async def test_lifespan_uses_settings_registry_dir(mock_registry, mock_manifest_
         async with lifespan(test_app):
             # Verify ModelRegistry was initialized with settings registry_dir
             mock_registry_class.assert_called_once_with(registry_dir=Path("/custom/registry"))
+
+
+@pytest.mark.asyncio()
+async def test_lifespan_populates_cors_origins(mock_registry, mock_manifest_manager, monkeypatch: pytest.MonkeyPatch):
+    """Test lifespan populates the shared _cors_allow_origins list."""
+    from apps.model_registry.main import _cors_allow_origins
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
+    test_app = FastAPI()
+
+    # Clear any origins from prior test runs
+    _cors_allow_origins.clear()
+
+    with (
+        patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+        patch(
+            "apps.model_registry.main.RegistryManifestManager", return_value=mock_manifest_manager
+        ),
+        patch("apps.model_registry.main.set_registry"),
+    ):
+        async with lifespan(test_app):
+            # Origins should be populated during startup
+            assert len(_cors_allow_origins) > 0
+            assert "http://localhost:8501" in _cors_allow_origins
+
+    # Clean up
+    _cors_allow_origins.clear()
+
+
+def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPatch):
+    """Test that the real app starts successfully with TestClient (ASGI startup integration)."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:8501")
+
+    mock_registry = Mock()
+    mock_registry.get_manifest.return_value = _create_test_manifest(
+        artifact_count=5,
+        production_models={"risk_model": "v1.0.0"},
+    )
+    mock_manager = Mock()
+    mock_manager.exists.return_value = True
+    mock_manager.verify_integrity.return_value = True
+
+    with (
+        patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manager),
+        patch("apps.model_registry.main.set_registry"),
+    ):
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json()["status"] == "healthy"
 
 
 def test_main_entry_point_not_executed_on_import():
