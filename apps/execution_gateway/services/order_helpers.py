@@ -41,6 +41,7 @@ from fastapi import HTTPException, status
 from redis.exceptions import RedisError
 
 from libs.core.redis_client import RedisKeys
+from libs.data.market_data.types import parse_redis_price_json
 
 if TYPE_CHECKING:
     from apps.execution_gateway.app_context import RedisClientProtocol
@@ -324,20 +325,20 @@ def batch_fetch_realtime_prices_from_redis(
             symbols, (None, None)
         )
 
-        # Parse results and update dictionary for symbols with valid data
+        # Parse results using shared parser for consistent validation
         for symbol, price_json in zip(symbols, price_values, strict=False):
             if not price_json:
                 continue  # Skip symbols not found in cache (already (None, None))
 
-            try:
-                price_data = json.loads(price_json)
-                price = Decimal(str(price_data["mid"]))
-                timestamp = datetime.fromisoformat(price_data["timestamp"])
-                result[symbol] = (price, timestamp)
-                logger.debug(f"Batch fetched price for {symbol}: ${price}")
-            except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
-                # Log error but no need to set result[symbol] - already (None, None)
-                logger.warning(f"Failed to parse price for {symbol} from batch fetch: {e}")
+            # No staleness check here — caller handles that via max_price_age_seconds
+            parsed = parse_redis_price_json(
+                price_json,
+                expected_symbol=symbol,
+                max_price_age_seconds=None,
+            )
+            if parsed is not None:
+                result[symbol] = (parsed.mid, parsed.timestamp)
+                logger.debug(f"Batch fetched price for {symbol}: ${parsed.mid}")
 
         return result
 

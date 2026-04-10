@@ -141,9 +141,10 @@ def parse_redis_price_json(
 ) -> ParsedPrice | None:
     """Parse and validate a Redis price JSON payload.
 
-    Shared validation logic for Redis market data cache entries,
-    used by both orchestrator and execution-gateway to avoid
-    duplication of parsing/staleness/sanity checks.
+    Shared validation logic for Redis market data cache entries.
+    Used by orchestrator (``_parse_and_cache_price``) and
+    execution-gateway (``batch_fetch_realtime_prices_from_redis``)
+    to keep parsing, symbol-mismatch, and sanity checks consistent.
 
     Args:
         raw: Raw JSON string from Redis
@@ -239,7 +240,7 @@ def parse_redis_price_json(
 
         return ParsedPrice(mid=mid, timestamp=price_ts)
 
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation, AttributeError) as e:
         logger.warning(
             "Failed to parse Redis price payload",
             extra={

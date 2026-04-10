@@ -409,3 +409,43 @@ class TestSymbolMismatchAndFutureTimestamp:
 
         price = await orch._get_current_price("AAPL")
         assert price == Decimal("150.00")
+
+    @pytest.mark.asyncio()
+    async def test_non_dict_json_treated_as_unavailable(self) -> None:
+        """Non-dict JSON payloads (arrays, strings) are treated as unavailable."""
+        redis = MagicMock()
+        # JSON array is valid JSON but not a dict
+        redis.get.return_value = '[1, 2, 3]'
+        orch = _make_orchestrator(redis_client=redis)
+
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+
+    @pytest.mark.asyncio()
+    async def test_json_string_payload_treated_as_unavailable(self) -> None:
+        """JSON string payload (not a dict) is treated as unavailable."""
+        redis = MagicMock()
+        redis.get.return_value = '"just a string"'
+        orch = _make_orchestrator(redis_client=redis)
+
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+
+
+class TestConstructorValidation:
+    """Tests for TradingOrchestrator constructor validation."""
+
+    def test_zero_max_price_age_rejected(self) -> None:
+        """max_price_age_seconds=0 raises ValueError."""
+        with pytest.raises(ValueError, match="must be > 0"):
+            _make_orchestrator(max_price_age_seconds=0)
+
+    def test_negative_max_price_age_rejected(self) -> None:
+        """Negative max_price_age_seconds raises ValueError."""
+        with pytest.raises(ValueError, match="must be > 0"):
+            _make_orchestrator(max_price_age_seconds=-10)
+
+    def test_valid_max_price_age_accepted(self) -> None:
+        """Positive max_price_age_seconds is accepted."""
+        orch = _make_orchestrator(max_price_age_seconds=60)
+        assert orch.max_price_age_seconds == 60

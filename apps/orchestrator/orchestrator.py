@@ -234,6 +234,10 @@ class TradingOrchestrator:
         self.allocation_method = allocation_method
         self.per_strategy_max = per_strategy_max
         self.redis_client = redis_client
+        if max_price_age_seconds <= 0:
+            raise ValueError(
+                f"max_price_age_seconds must be > 0, got {max_price_age_seconds}"
+            )
         self.max_price_age_seconds = max_price_age_seconds
 
         # Active strategy context for structured logging (set by run()).
