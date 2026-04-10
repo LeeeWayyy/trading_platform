@@ -196,6 +196,10 @@ module = "nest_asyncio"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "openpyxl.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false

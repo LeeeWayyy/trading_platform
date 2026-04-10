@@ -878,13 +878,15 @@ def _build_order_clause(
     Items are sorted by their ``sortIndex`` (if present) so that
     multi-column sort precedence matches the user's grid configuration.
 
-    Note: Column names are interpolated via f-string rather than
-    ``psycopg.sql.Identifier`` because ``allowed_columns`` may contain
-    table-qualified references (e.g. ``"p.symbol"``, ``"t.executed_at"``)
-    which ``Identifier`` would incorrectly quote as a single identifier.
-    All values in ``allowed_columns`` originate from the hardcoded
-    ``_GRID_COLUMNS`` allowlist or ``_TCA_COL_MAP``, never from user
-    input, so this is safe.
+    **Safety:** ``allowed_columns`` may contain table-qualified
+    references (e.g. ``"p.symbol"``, ``"t.executed_at"``) which
+    ``psycopg.sql.Identifier`` would incorrectly quote as a single
+    identifier (``"p.symbol"`` instead of ``"p"."symbol"``).  Because
+    every value in ``allowed_columns`` originates from the hardcoded
+    ``_GRID_COLUMNS`` allowlist or ``_TCA_COL_MAP`` -- never from user
+    input -- f-string interpolation is safe here.  The callers then
+    wrap the returned string in ``sql.SQL()`` for composition with
+    parameterized queries.
     """
     if not sort_model:
         return default_order
@@ -1127,12 +1129,21 @@ def _fetch_orders_data(
     """Fetch orders scoped to authorized strategies.
 
     This fetcher returns ALL orders matching strategy scope and the
-    caller-provided filter clause.  Status filtering (e.g. restricting
-    to working/pending orders for the "Working Orders" tab) is the
-    responsibility of the caller via ``filter_params``.  The frontend
-    must include a status filter in the AG Grid filter model when
-    exporting from status-scoped tabs to ensure export parity with the
-    visible grid.
+    caller-provided filter clause.  It intentionally does NOT inject
+    implicit status predicates because the server cannot know which UI
+    tab originated the export request.
+
+    **Frontend contract:** When the user exports from a status-scoped
+    tab (e.g. the "Working Orders" tab, which pre-filters to
+    pending/open/partially_filled statuses before calling
+    ``setRowData``), the UI component MUST inject the corresponding
+    ``status`` filter into the AG Grid ``filterModel`` before sending
+    the export audit request.  ``GridExportToolbar`` is responsible for
+    this; see ``apps/web_console_ng/components/grid_export_toolbar.py``.
+
+    If the frontend omits the status filter, the export will correctly
+    return all strategy-scoped orders -- which is the expected behavior
+    for the "All Orders" / "History" views.
     """
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
     select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
@@ -1440,8 +1451,8 @@ async def _generate_excel_content(
     # Build workbook (CPU-bound; done in worker thread below)
     def _build_workbook() -> bytes:
         wb = Workbook()
-        ws = wb.active
-        assert ws is not None, "Workbook.active should never be None for a new Workbook"
+        # A new Workbook always has an active worksheet.
+        ws = wb.active if wb.active is not None else wb.create_sheet()
         ws.title = grid_name.title()
 
         # Header row -- sanitize headers
