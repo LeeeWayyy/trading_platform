@@ -939,20 +939,23 @@ def _build_filter_clause(
             if value is None:
                 continue
             value = str(value)
+            # Avoid explicit ::text casts -- they are redundant for text/varchar
+            # columns and can prevent the database from using B-tree indexes.
+            # PostgreSQL implicitly handles text comparisons via ILIKE/=.
             if ftype == "contains":
-                clauses.append(f"{qcol}::text ILIKE %s")
+                clauses.append(f"{qcol} ILIKE %s")
                 params.append(f"%{value}%")
             elif ftype == "equals":
-                clauses.append(f"{qcol}::text = %s")
+                clauses.append(f"{qcol} = %s")
                 params.append(value)
             elif ftype == "startsWith":
-                clauses.append(f"{qcol}::text ILIKE %s")
+                clauses.append(f"{qcol} ILIKE %s")
                 params.append(f"{value}%")
             elif ftype == "endsWith":
-                clauses.append(f"{qcol}::text ILIKE %s")
+                clauses.append(f"{qcol} ILIKE %s")
                 params.append(f"%{value}")
             elif ftype == "notEqual":
-                clauses.append(f"{qcol}::text != %s")
+                clauses.append(f"{qcol} != %s")
                 params.append(value)
 
         elif filter_type == "number":
@@ -982,18 +985,30 @@ def _build_filter_clause(
         elif filter_type == "date":
             date_from = spec.get("dateFrom")
             date_to = spec.get("dateTo")
-            _date_ops = {
-                "equals": "=",
-                "greaterThan": ">",
-                "lessThan": "<",
-                "greaterThanOrEqual": ">=",
-                "lessThanOrEqual": "<=",
-            }
-            if ftype in _date_ops and date_from is not None:
-                clauses.append(f"{qcol}::date {_date_ops[ftype]} %s")
+            # Use range comparisons on the raw timestamp column instead of
+            # ::date casts, which prevent B-tree index usage on large tables.
+            # AG Grid sends dates as 'YYYY-MM-DD' strings; we compare them
+            # as timestamps to enable index scans.
+            if ftype == "equals" and date_from is not None:
+                # "equals day" means >= start of day AND < next day
+                clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
+                params.extend([date_from, date_from])
+            elif ftype == "greaterThan" and date_from is not None:
+                # After the end of the given day
+                clauses.append(f"{qcol} >= %s::date + interval '1 day'")
+                params.append(date_from)
+            elif ftype == "lessThan" and date_from is not None:
+                clauses.append(f"{qcol} < %s")
+                params.append(date_from)
+            elif ftype == "greaterThanOrEqual" and date_from is not None:
+                clauses.append(f"{qcol} >= %s")
+                params.append(date_from)
+            elif ftype == "lessThanOrEqual" and date_from is not None:
+                # Include all of the given day
+                clauses.append(f"{qcol} < %s::date + interval '1 day'")
                 params.append(date_from)
             elif ftype == "inRange" and date_from is not None and date_to is not None:
-                clauses.append(f"{qcol}::date >= %s AND {qcol}::date <= %s")
+                clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
                 params.extend([date_from, date_to])
 
     sql = " AND ".join(clauses)
@@ -1078,7 +1093,16 @@ def _fetch_orders_data(
     filter_clause: str = "",
     filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch orders scoped to authorized strategies."""
+    """Fetch orders scoped to authorized strategies.
+
+    This fetcher returns ALL orders matching strategy scope and the
+    caller-provided filter clause.  Status filtering (e.g. restricting
+    to working/pending orders for the "Working Orders" tab) is the
+    responsibility of the caller via ``filter_params``.  The frontend
+    must include a status filter in the AG Grid filter model when
+    exporting from status-scoped tabs to ensure export parity with the
+    visible grid.
+    """
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
     select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     query_params: list[Any] = [strategy_ids]
@@ -1299,11 +1323,21 @@ async def _generate_excel_content(
     column validation against a server-side allowlist, and sanitises every
     cell value to prevent formula-injection attacks.
 
+    **Important:** This function uses ``filter_params`` (the AG Grid filter
+    model) as the single source of truth for row filtering.  If the
+    frontend applies additional filters outside the AG Grid filter model
+    (e.g. a dashboard symbol dropdown that pre-filters ``setRowData``),
+    those filters must be propagated into ``filter_params`` before the
+    export audit is created, or the export will include rows not visible
+    in the current grid view.
+
     Args:
         ctx: Application context with database access
         grid_name: Name of grid to export
         strategy_ids: Authorized strategy IDs for filtering
-        filter_params: AG Grid filter model applied to export query
+        filter_params: AG Grid filter model applied to export query.
+            Must include any status/scope filters from the active tab
+            (e.g. working-order status when exporting from "Working" tab).
         visible_columns: Columns to include (validated against allowlist)
         sort_model: AG Grid sort model
 
@@ -1396,13 +1430,14 @@ async def _generate_excel_content(
                     value_to_set = ""
                 elif isinstance(raw_value, datetime):
                     # openpyxl does not support timezone-aware datetimes.
-                    # If tz-aware, convert to UTC then strip; if naive,
-                    # assume already UTC (per project coding standards)
-                    # and use as-is.
-                    if raw_value.tzinfo is not None:
-                        value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
-                    else:
-                        value_to_set = raw_value
+                    # Normalize all datetimes to UTC before stripping tzinfo:
+                    # - tz-aware: convert to UTC via astimezone()
+                    # - naive: assume UTC per project coding standards and
+                    #   explicitly tag with UTC for documentation clarity
+                    # Then strip tzinfo to satisfy openpyxl.
+                    if raw_value.tzinfo is None:
+                        raw_value = raw_value.replace(tzinfo=UTC)
+                    value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
                 elif isinstance(raw_value, date):
                     # PostgreSQL DATE columns are returned as datetime.date
                     # objects by psycopg.  openpyxl handles date natively,

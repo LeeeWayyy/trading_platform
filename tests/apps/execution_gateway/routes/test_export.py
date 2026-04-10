@@ -159,9 +159,10 @@ class TestBuildFilterClause:
                 "dateTo": "2026-02-01",
             }
         }
-        sql, params = _build_filter_clause(filt, ["created_at"])
-        assert "::date >= %s" in sql
-        assert "::date <= %s" in sql
+        result_sql, params = _build_filter_clause(filt, ["created_at"])
+        # Range uses >= start and < end+1day for index-friendly comparisons
+        assert ">= %s" in result_sql
+        assert "interval '1 day'" in result_sql
         assert "2026-01-01" in params
         assert "2026-02-01" in params
 
@@ -200,8 +201,8 @@ class TestBuildFilterClause:
                 "dateFrom": "2026-03-01",
             }
         }
-        sql, params = _build_filter_clause(filt, ["created_at"])
-        assert "::date >= %s" in sql
+        result_sql, params = _build_filter_clause(filt, ["created_at"])
+        assert ">= %s" in result_sql
         assert "2026-03-01" in params
 
     def test_date_less_than_or_equal_filter(self) -> None:
@@ -212,8 +213,9 @@ class TestBuildFilterClause:
                 "dateFrom": "2026-06-01",
             }
         }
-        sql, params = _build_filter_clause(filt, ["created_at"])
-        assert "::date <= %s" in sql
+        result_sql, params = _build_filter_clause(filt, ["created_at"])
+        # lessThanOrEqual uses < date + 1 day to include the full day
+        assert "interval '1 day'" in result_sql
         assert "2026-06-01" in params
 
     def test_col_prefix_map_overrides_col_prefix(self) -> None:
@@ -524,7 +526,7 @@ class TestGenerateExcelContent:
         # psycopg.sql.Composed objects are passed to execute(); convert
         # to string representation for assertion.
         executed_sql = str(cursor.execute.call_args[0][0])
-        assert "symbol::text = %s" in executed_sql
+        assert "symbol = %s" in executed_sql
         # The bind parameters should include the filter value
         executed_params = cursor.execute.call_args[0][1]
         assert "AAPL" in executed_params
