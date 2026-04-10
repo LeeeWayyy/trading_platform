@@ -29,6 +29,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from psycopg import sql
 from pydantic import BaseModel, Field
 
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
@@ -800,13 +801,27 @@ def _validate_columns(
     ``"executed_at"``).  Only columns that exist in the allowlist are
     kept (in the requested order).  Unknown columns are silently dropped
     to prevent SQL injection or data leakage.
+
+    When the majority of requested columns are not in the allowlist (i.e.
+    fewer than half survive validation), the full allowlist is returned
+    instead of a misleadingly small subset.  This handles grids like TCA
+    whose frontend sends computed display columns (``fill_rate_pct``,
+    ``is_bps``, etc.) alongside a few raw DB columns -- returning only
+    ``symbol`` and ``side`` would be incomplete and confusing.
     """
     allowed = _GRID_COLUMNS[grid_name]
     if not visible_columns:
         return allowed
     aliases = _COLUMN_ALIASES.get(grid_name, {})
     resolved = [aliases.get(c, c) for c in visible_columns]
-    return [c for c in resolved if c in allowed] or allowed
+    valid = [c for c in resolved if c in allowed]
+    if not valid:
+        return allowed
+    # Fall back to full schema when most requested columns were
+    # computed/frontend-only (fewer than half survived validation).
+    if len(valid) < len(resolved) / 2:
+        return allowed
+    return valid
 
 
 def _resolve_sort_aliases(
@@ -857,6 +872,7 @@ def _build_filter_clause(
     allowed_columns: list[str],
     *,
     col_prefix: str = "",
+    col_prefix_map: dict[str, str] | None = None,
 ) -> tuple[str, list[Any]]:
     """Build a parameterized WHERE fragment from AG Grid filter model.
 
@@ -873,7 +889,12 @@ def _build_filter_clause(
         filter_params: AG Grid filter model dict.
         allowed_columns: Server-side column allowlist.
         col_prefix: Optional table alias prefix (e.g. ``"p."``).
-            Applied to every column reference in the generated SQL.
+            Applied to every column reference in the generated SQL
+            unless overridden by *col_prefix_map*.
+        col_prefix_map: Optional per-column qualified name mapping
+            (e.g. ``{"order_qty": "o.qty"}``).  When a column appears
+            in this map, the mapped value is used instead of
+            ``col_prefix + col``.
 
     Returns:
         A tuple of (sql_fragment, param_list).  *sql_fragment* is a
@@ -893,7 +914,12 @@ def _build_filter_clause(
         if not isinstance(spec, dict):
             continue
 
-        qcol = f"{col_prefix}{col}"
+        # Use per-column mapping when available, otherwise fall back
+        # to the blanket prefix.
+        if col_prefix_map and col in col_prefix_map:
+            qcol = col_prefix_map[col]
+        else:
+            qcol = f"{col_prefix}{col}"
         filter_type = spec.get("filterType", "text")
         ftype = spec.get("type", "")
 
@@ -999,23 +1025,36 @@ def _fetch_positions_data(
     order_clause = _build_order_clause(
         qualified_sort, qualified_columns, "p.symbol ASC",
     )
-    col_list = ", ".join(f"p.{c} AS {c}" for c in columns)
+    # Build SELECT list using psycopg.sql.Identifier for column names.
+    select_cols = sql.SQL(", ").join(
+        sql.SQL("{tbl}.{col} AS {alias}").format(
+            tbl=sql.Identifier("p"),
+            col=sql.Identifier(c),
+            alias=sql.Identifier(c),
+        )
+        for c in columns
+    )
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"WITH {SYMBOL_STRATEGY_CTE} "  # noqa: S608
-                f"SELECT {col_list} FROM positions p "
-                f"JOIN symbol_strategy ss ON p.symbol = ss.symbol "
-                f"WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
-                f"{filter_clause}"
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                query_params,
+            query = sql.SQL(
+                "WITH {cte} "
+                "SELECT {cols} FROM positions p "
+                "JOIN symbol_strategy ss ON p.symbol = ss.symbol "
+                "WHERE p.qty != 0 AND ss.strategy = ANY(%s) "
+                "{filter_clause}"
+                "ORDER BY {order_clause} "
+                "LIMIT %s"
+            ).format(
+                cte=sql.SQL(SYMBOL_STRATEGY_CTE),
+                cols=select_cols,
+                filter_clause=sql.SQL(filter_clause),
+                order_clause=sql.SQL(order_clause),
             )
+            cur.execute(query, query_params)
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1030,21 +1069,25 @@ def _fetch_orders_data(
 ) -> list[dict[str, Any]]:
     """Fetch orders scoped to authorized strategies."""
     order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
-    col_list = ", ".join(columns)
+    select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {col_list} FROM orders "  # noqa: S608
-                f"WHERE strategy_id = ANY(%s) "
-                f"{filter_clause}"
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                query_params,
+            query = sql.SQL(
+                "SELECT {cols} FROM orders "
+                "WHERE strategy_id = ANY(%s) "
+                "{filter_clause}"
+                "ORDER BY {order_clause} "
+                "LIMIT %s"
+            ).format(
+                cols=select_cols,
+                filter_clause=sql.SQL(filter_clause),
+                order_clause=sql.SQL(order_clause),
             )
+            cur.execute(query, query_params)
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1059,22 +1102,32 @@ def _fetch_fills_data(
 ) -> list[dict[str, Any]]:
     """Fetch fills (trades) scoped to authorized strategies."""
     order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
-    col_list = ", ".join(f"t.{c}" for c in columns)
+    select_cols = sql.SQL(", ").join(
+        sql.SQL("{tbl}.{col}").format(
+            tbl=sql.Identifier("t"),
+            col=sql.Identifier(c),
+        )
+        for c in columns
+    )
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {col_list} FROM trades t "  # noqa: S608
-                f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
-                f"AND t.strategy_id = ANY(%s) "
-                f"{filter_clause}"
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                query_params,
+            query = sql.SQL(
+                "SELECT {cols} FROM trades t "
+                "WHERE COALESCE(t.superseded, FALSE) = FALSE "
+                "AND t.strategy_id = ANY(%s) "
+                "{filter_clause}"
+                "ORDER BY {order_clause} "
+                "LIMIT %s"
+            ).format(
+                cols=select_cols,
+                filter_clause=sql.SQL(filter_clause),
+                order_clause=sql.SQL(order_clause),
             )
+            cur.execute(query, query_params)
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1098,23 +1151,49 @@ def _fetch_audit_data(
     strategies.
     """
     order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
-    col_list = ", ".join(columns)
+    select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {col_list} FROM audit_log "  # noqa: S608
-                f"WHERE details->>'strategy_id' = ANY(%s) "
-                f"{filter_clause}"
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                query_params,
+            query = sql.SQL(
+                "SELECT {cols} FROM audit_log "
+                "WHERE details->>'strategy_id' = ANY(%s) "
+                "{filter_clause}"
+                "ORDER BY {order_clause} "
+                "LIMIT %s"
+            ).format(
+                cols=select_cols,
+                filter_clause=sql.SQL(filter_clause),
+                order_clause=sql.SQL(order_clause),
             )
+            cur.execute(query, query_params)
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
+
+
+# Map TCA column names to their qualified table references.
+# Every column in _GRID_COLUMNS["tca"] MUST have an entry here so
+# that SELECT / ORDER BY / filter references are unambiguous across
+# the trades (t) and orders (o) tables.  Columns missing from this
+# map are silently skipped to prevent incorrect table attribution.
+# Defined at module level so both _fetch_tca_data and
+# _generate_excel_content can use it for filter qualification.
+_TCA_COL_MAP: dict[str, str] = {
+    "trade_id": "t.trade_id",
+    "client_order_id": "t.client_order_id",
+    "strategy_id": "t.strategy_id",
+    "symbol": "t.symbol",
+    "side": "t.side",
+    "qty": "t.qty",
+    "price": "t.price",
+    "executed_at": "t.executed_at",
+    "order_submitted_at": "o.submitted_at",
+    "order_qty": "o.qty",
+    "filled_avg_price": "o.filled_avg_price",
+}
 
 
 def _fetch_tca_data(
@@ -1126,42 +1205,31 @@ def _fetch_tca_data(
     filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch TCA trade data with order context, scoped to authorized strategies."""
-    # Map column names to their qualified table references.
-    # Every column in _GRID_COLUMNS["tca"] MUST have an entry here so
-    # that SELECT / ORDER BY / filter references are unambiguous across
-    # the trades (t) and orders (o) tables.  Columns missing from this
-    # map are silently skipped to prevent incorrect table attribution.
-    tca_col_map: dict[str, str] = {
-        "trade_id": "t.trade_id",
-        "client_order_id": "t.client_order_id",
-        "strategy_id": "t.strategy_id",
-        "symbol": "t.symbol",
-        "side": "t.side",
-        "qty": "t.qty",
-        "price": "t.price",
-        "executed_at": "t.executed_at",
-        "order_submitted_at": "o.submitted_at",
-        "order_qty": "o.qty",
-        "filled_avg_price": "o.filled_avg_price",
-    }
     # Only include columns that have an explicit mapping to prevent
     # incorrect table attribution for unmapped columns.
-    mapped_columns = [c for c in columns if c in tca_col_map]
-    select_cols = ", ".join(
-        f"{tca_col_map[c]} AS {c}" for c in mapped_columns
+    mapped_columns = [c for c in columns if c in _TCA_COL_MAP]
+    # Build SELECT list using psycopg.sql for the alias identifiers.
+    # The qualified source reference (e.g. "t.trade_id") comes from the
+    # hardcoded _TCA_COL_MAP so it's safe to wrap with sql.SQL().
+    select_cols = sql.SQL(", ").join(
+        sql.SQL("{src} AS {alias}").format(
+            src=sql.SQL(_TCA_COL_MAP[c]),
+            alias=sql.Identifier(c),
+        )
+        for c in mapped_columns
     )
-    # Qualify sort columns with table aliases via tca_col_map to
+    # Qualify sort columns with table aliases via _TCA_COL_MAP to
     # avoid ambiguity when trades and orders share column names
     # (e.g. symbol, qty, client_order_id).  Only mapped columns
     # are accepted; unmapped sort entries are dropped.
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": tca_col_map[item.get("colId", "")]}
+            {**item, "colId": _TCA_COL_MAP[item.get("colId", "")]}
             for item in sort_model
-            if item.get("colId", "") in tca_col_map
+            if item.get("colId", "") in _TCA_COL_MAP
         ]
-    qualified_tca_columns = [tca_col_map[c] for c in mapped_columns]
+    qualified_tca_columns = [_TCA_COL_MAP[c] for c in mapped_columns]
     order_clause = _build_order_clause(
         qualified_sort, qualified_tca_columns, "t.executed_at DESC",
     )
@@ -1171,17 +1239,21 @@ def _fetch_tca_data(
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT {select_cols} "  # noqa: S608
-                f"FROM trades t "
-                f"LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
-                f"WHERE COALESCE(t.superseded, FALSE) = FALSE "
-                f"AND t.strategy_id = ANY(%s) "
-                f"{filter_clause}"
-                f"ORDER BY {order_clause} "
-                f"LIMIT %s",
-                query_params,
+            query = sql.SQL(
+                "SELECT {cols} "
+                "FROM trades t "
+                "LEFT JOIN orders o ON t.client_order_id = o.client_order_id "
+                "WHERE COALESCE(t.superseded, FALSE) = FALSE "
+                "AND t.strategy_id = ANY(%s) "
+                "{filter_clause}"
+                "ORDER BY {order_clause} "
+                "LIMIT %s"
+            ).format(
+                cols=select_cols,
+                filter_clause=sql.SQL(filter_clause),
+                order_clause=sql.SQL(order_clause),
             )
+            cur.execute(query, query_params)
             col_names = [desc[0] for desc in cur.description]
             return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
 
@@ -1214,7 +1286,7 @@ async def _generate_excel_content(
         ctx: Application context with database access
         grid_name: Name of grid to export
         strategy_ids: Authorized strategy IDs for filtering
-        filter_params: AG Grid filter model (reserved for future use)
+        filter_params: AG Grid filter model applied to export query
         visible_columns: Columns to include (validated against allowlist)
         sort_model: AG Grid sort model
 
@@ -1225,7 +1297,7 @@ async def _generate_excel_content(
         NotImplementedError: If grid type not supported or openpyxl missing
     """
     try:
-        from openpyxl import Workbook  # type: ignore[import-untyped]
+        from openpyxl import Workbook
     except ImportError as e:
         raise NotImplementedError(
             "Excel export requires openpyxl: pip install openpyxl"
@@ -1245,9 +1317,14 @@ async def _generate_excel_content(
     _GRID_FILTER_PREFIX: dict[str, str] = {
         "positions": "p.",
         "fills": "t.",
-        "tca": "t.",
     }
     col_prefix = _GRID_FILTER_PREFIX.get(grid_name, "")
+
+    # TCA spans two tables (trades t, orders o), so we use the
+    # per-column mapping instead of a blanket prefix.
+    tca_filter_map: dict[str, str] | None = None
+    if grid_name == "tca":
+        tca_filter_map = _TCA_COL_MAP
 
     # Also resolve aliases in filter_params keys before building the
     # filter clause (e.g. "type" -> "order_type" for orders grid).
@@ -1262,6 +1339,7 @@ async def _generate_excel_content(
     # Build filter WHERE clause from AG Grid filter model
     filter_clause, filter_params_list = _build_filter_clause(
         resolved_filter, columns, col_prefix=col_prefix,
+        col_prefix_map=tca_filter_map,
     )
 
     # Offload synchronous DB fetch to a worker thread to avoid blocking
@@ -1276,6 +1354,7 @@ async def _generate_excel_content(
     def _build_workbook() -> bytes:
         wb = Workbook()
         ws = wb.active
+        assert ws is not None, "Workbook.active should never be None for a new Workbook"
         ws.title = grid_name.title()
 
         # Header row -- sanitize headers
