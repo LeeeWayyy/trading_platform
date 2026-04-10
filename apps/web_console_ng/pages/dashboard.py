@@ -197,6 +197,48 @@ def should_run_pending_strategy_context_refresh(
     return refresh_pending and not dashboard_closing
 
 
+def compute_workspace_data_staleness(
+    *,
+    last_live_data_at: float | None,
+    now: float,
+    threshold_s: float = WORKSPACE_DATA_STALE_THRESHOLD_S,
+) -> tuple[bool, float]:
+    """Return workspace data staleness state as (is_stale, age_seconds)."""
+    if last_live_data_at is None:
+        return (False, 0.0)
+    age = max(0.0, now - last_live_data_at)
+    return (age > threshold_s, age)
+
+
+def determine_workspace_lock_state(
+    *,
+    connection_read_only: bool,
+    connection_state: str,
+    data_stale: bool,
+    data_age_s: float,
+) -> tuple[bool, str, str]:
+    """Return workspace lock tuple: (locked, title, detail)."""
+    if connection_read_only:
+        return (
+            True,
+            f"Connection {connection_state}",
+            (
+                "Trading actions are locked while the workspace is read-only. "
+                "Waiting for reconnection."
+            ),
+        )
+    if data_stale:
+        return (
+            True,
+            "Live data stale",
+            (
+                f"No live updates for {data_age_s:.0f}s. Trading actions are locked "
+                "until stream freshness is restored."
+            ),
+        )
+    return (False, "", "")
+
+
 class MarketPriceCache:
     """Per-scope cache for market prices.
 
@@ -781,41 +823,26 @@ async def dashboard(client: Client) -> None:
 
     def _is_workspace_data_stale(now: float | None = None) -> tuple[bool, float]:
         """Return (is_stale, age_seconds)."""
-        if workspace_last_live_data_at is None:
-            return (False, 0.0)
         current = now if now is not None else time.monotonic()
-        age = current - workspace_last_live_data_at
-        return (age > WORKSPACE_DATA_STALE_THRESHOLD_S, age)
+        return compute_workspace_data_staleness(
+            last_live_data_at=workspace_last_live_data_at,
+            now=current,
+            threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+        )
 
     def _evaluate_workspace_mask() -> None:
         """Lock interactive workspace zones when connection is read-only or live data is stale."""
         if not use_workspace_v2:
             return
 
-        if workspace_connection_read_only:
-            _set_workspace_mask(
-                locked=True,
-                title=f"Connection {workspace_connection_state}",
-                detail=(
-                    "Trading actions are locked while the workspace is read-only. "
-                    "Waiting for reconnection."
-                ),
-            )
-            return
-
         stale, age_s = _is_workspace_data_stale()
-        if stale:
-            _set_workspace_mask(
-                locked=True,
-                title="Live data stale",
-                detail=(
-                    f"No live updates for {age_s:.0f}s. Trading actions are locked "
-                    "until stream freshness is restored."
-                ),
-            )
-            return
-
-        _set_workspace_mask(locked=False)
+        locked, title, detail = determine_workspace_lock_state(
+            connection_read_only=workspace_connection_read_only,
+            connection_state=workspace_connection_state,
+            data_stale=stale,
+            data_age_s=age_s,
+        )
+        _set_workspace_mask(locked=locked, title=title, detail=detail)
 
     def _on_workspace_connection_state(state: str, is_read_only: bool) -> None:
         """Bridge OrderEntryContext connection updates into dashboard workspace mask."""
