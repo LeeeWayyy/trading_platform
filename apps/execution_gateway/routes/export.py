@@ -775,6 +775,23 @@ _GRID_COLUMNS: dict[str, list[str]] = {
 # Maximum rows per export to prevent excessive memory / query time
 _EXPORT_ROW_LIMIT = 10_000
 
+# Working (active) order statuses.  Orders in these statuses are shown
+# on the "Working Orders" tab.  This constant is shared with the web
+# console (``apps.web_console_ng.components.tabbed_panel``) and can be
+# used when the frontend passes a ``tab_context`` indicating the export
+# originated from the Working tab.
+# TODO(#151): Frontend should inject a status filter into filter_params
+# when exporting from the Working Orders tab so that export/view parity
+# is maintained without server-side guessing.
+WORKING_ORDER_STATUSES = frozenset({
+    "new",
+    "pending_new",
+    "partially_filled",
+    "accepted",
+    "pending_cancel",
+    "pending_replace",
+})
+
 
 # ---------------------------------------------------------------------------
 # Frontend → DB column alias mapping.
@@ -860,6 +877,14 @@ def _build_order_clause(
     Only column names that appear in *allowed_columns* are accepted.
     Items are sorted by their ``sortIndex`` (if present) so that
     multi-column sort precedence matches the user's grid configuration.
+
+    Note: Column names are interpolated via f-string rather than
+    ``psycopg.sql.Identifier`` because ``allowed_columns`` may contain
+    table-qualified references (e.g. ``"p.symbol"``, ``"t.executed_at"``)
+    which ``Identifier`` would incorrectly quote as a single identifier.
+    All values in ``allowed_columns`` originate from the hardcoded
+    ``_GRID_COLUMNS`` allowlist or ``_TCA_COL_MAP``, never from user
+    input, so this is safe.
     """
     if not sort_model:
         return default_order
