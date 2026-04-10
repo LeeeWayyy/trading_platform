@@ -676,3 +676,12 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - stale threshold behavior
   - read-only precedence over stale state
   - stale lock messaging and healthy unlocked state
+
+12. Navigation uncovered-route closure (phase-1 IA completeness)
+- Added grouped-nav coverage for two previously uncovered implemented routes:
+  - `/position-management` (Execute group)
+  - `/data/inspector` (Data group)
+- Added visibility guards:
+  - `/position-management` hidden for `viewer` role
+  - `/data/inspector` requires `Permission.VIEW_DATA_QUALITY`
+- Expanded layout tests to verify route presence and permission-hidden behavior for new links.

@@ -158,6 +158,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_items = [
                     ("Dashboard", "/", "dashboard", None),
                     ("Manual Controls", "/manual-order", "edit", None),
+                    ("Position Mgmt", "/position-management", "swap_vert", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
@@ -174,6 +175,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Data Hub", "/data", "storage", None),  # P6T13
                     ("Coverage", "/data/coverage", "dataset", None),  # P6T13
                     ("Sources", "/data/sources", "cloud", None),  # P6T13
+                    ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
                     ("Features", "/data/features", "auto_awesome", None),  # P6T13
                     ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
                     ("Backtest", "/backtest", "science", None),
@@ -191,7 +193,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 ]
 
                 nav_groups: list[tuple[str, list[str]]] = [
-                    ("Execute", ["/", "/manual-order", "/circuit-breaker"]),
+                    ("Execute", ["/", "/manual-order", "/position-management", "/circuit-breaker"]),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
                         "Analysis",
@@ -217,7 +219,14 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ),
                     (
                         "Data",
-                        ["/data", "/data/coverage", "/data/sources", "/data/features", "/data/sql-explorer"],
+                        [
+                            "/data",
+                            "/data/coverage",
+                            "/data/sources",
+                            "/data/inspector",
+                            "/data/features",
+                            "/data/sql-explorer",
+                        ],
                     ),
                     ("Governance", ["/admin"]),
                 ]
@@ -268,6 +277,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ):
                         return False
 
+                    if path == "/data/inspector" and not has_permission(
+                        user, Permission.VIEW_DATA_QUALITY
+                    ):
+                        return False
+
                     if path == "/data/features" and not has_permission(
                         user, Permission.VIEW_FEATURES
                     ):
@@ -297,6 +311,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         not config.FEATURE_ALERTS
                         or not has_permission(user, Permission.VIEW_ALERTS)
                     ):
+                        return False
+
+                    # Position management is unavailable for viewer role.
+                    if path == "/position-management" and user_role == "viewer":
                         return False
 
                     return True
