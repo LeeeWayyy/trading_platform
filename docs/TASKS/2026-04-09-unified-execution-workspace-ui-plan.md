@@ -654,3 +654,11 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - parses optional `qty_step`/`min_qty`/`qty_unit` metadata from price updates
   - caches per-symbol rules and applies them on selected symbol updates
   - preserves current behavior when metadata is absent (default step=1, unit=shares)
+
+10. Strategy/model context refresh race hardening (phase-1.1)
+- Added stale-result guards for async strategy/model refresh by symbol+generation checks.
+- Added queued refresh scheduling semantics:
+  - periodic timer updates queue follow-up refreshes without invalidating in-flight work
+  - symbol-change refreshes can explicitly invalidate stale in-flight work
+- Added cleanup-safe refresh behavior to avoid spawning new tasks after dashboard teardown.
+- Expanded dispatch tests for refresh scheduling state-machine helpers.
