@@ -267,14 +267,26 @@ def create_tabbed_panel(
 
             # Create export toolbars (one per tab, show/hide based on active)
             if enable_export:
+                # Working tab needs extra_filters to restrict export to
+                # working-order statuses, which the UI applies before
+                # setRowData (outside the AG Grid filter model).
+                _working_status_filter: dict[str, Any] = {
+                    "status": {
+                        "filterType": "set",
+                        "values": sorted(WORKING_ORDER_STATUSES),
+                    },
+                }
+
                 for tab_name in (TAB_POSITIONS, TAB_WORKING, TAB_FILLS, TAB_HISTORY):
                     config = TAB_GRID_CONFIG.get(tab_name, {})
+                    extra = _working_status_filter if tab_name == TAB_WORKING else None
                     with ui.element("div").classes("") as toolbar_container:
                         toolbar = GridExportToolbar(
                             grid_id=config.get("grid_id", ""),
                             grid_name=config.get("grid_name", tab_name),
                             filename_prefix=config.get("prefix", tab_name),
                             api_base_url=api_base_url,
+                            extra_filters=extra,
                         )
                         toolbar.create()
                     # Only show toolbar for active tab

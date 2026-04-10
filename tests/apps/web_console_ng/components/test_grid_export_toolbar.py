@@ -140,6 +140,18 @@ class TestGridExportToolbar:
         assert toolbar.on_export_start is None
         assert toolbar.on_export_complete is None
         assert toolbar.api_base_url == "/api/v1"
+        assert toolbar.extra_filters == {}
+
+    def test_init_with_extra_filters(self) -> None:
+        """Extra filters are stored for injection into audit filter model."""
+        extra = {"status": {"filterType": "set", "values": ["new", "pending_new"]}}
+        toolbar = GridExportToolbar(
+            grid_id="_gridApi",
+            grid_name="orders",
+            filename_prefix="orders",
+            extra_filters=extra,
+        )
+        assert toolbar.extra_filters == extra
 
     def test_get_filename_format(self, toolbar: GridExportToolbar) -> None:
         """Filename follows expected format."""

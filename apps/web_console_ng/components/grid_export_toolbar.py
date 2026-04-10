@@ -50,6 +50,7 @@ class GridExportToolbar:
         on_export_start: Callable[[str], None] | None = None,
         on_export_complete: Callable[[str, int], None] | None = None,
         api_base_url: str = "/api/v1",
+        extra_filters: dict[str, Any] | None = None,
     ) -> None:
         """Initialize export toolbar.
 
@@ -62,6 +63,10 @@ class GridExportToolbar:
             on_export_start: Callback when export starts
             on_export_complete: Callback when export completes (type, row_count)
             api_base_url: Base URL for export API endpoints
+            extra_filters: Additional AG Grid filter entries to inject into
+                the filter model before creating the audit record.  Use this
+                for tab-scoped predicates that the UI applies outside the AG
+                Grid filter model (e.g. working-order status filter).
         """
         self.grid_id = grid_id
         self.grid_name = grid_name
@@ -71,6 +76,7 @@ class GridExportToolbar:
         self.on_export_start = on_export_start
         self.on_export_complete = on_export_complete
         self.api_base_url = api_base_url
+        self.extra_filters = extra_filters or {}
 
         self._csv_button: ui.button | None = None
         self._excel_button: ui.button | None = None
@@ -156,10 +162,19 @@ class GridExportToolbar:
     ) -> str | None:
         """Create export audit record via API.
 
+        Merges ``self.extra_filters`` into the AG Grid filter model so
+        that tab-scoped predicates (e.g. working-order status) are
+        included in the server-side export query.
+
         Returns audit_id or None if failed.
         """
         try:
             import httpx
+
+            # Merge extra_filters into the AG Grid filter model so that
+            # tab-scoped predicates are included in the export query.
+            filter_model = dict(grid_state.get("filterModel") or {})
+            filter_model.update(self.extra_filters)
 
             headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:
@@ -169,7 +184,7 @@ class GridExportToolbar:
                     json={
                         "export_type": export_type,
                         "grid_name": self.grid_name,
-                        "filter_params": grid_state.get("filterModel"),
+                        "filter_params": filter_model,
                         "visible_columns": grid_state.get("columns"),
                         "sort_model": grid_state.get("sortModel"),
                         "export_scope": "visible",
