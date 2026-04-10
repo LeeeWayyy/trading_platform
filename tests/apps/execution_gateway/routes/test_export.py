@@ -56,6 +56,23 @@ class TestValidateColumns:
         result = _validate_columns("orders", ["symbol", "type", "status"])
         assert result == ["symbol", "order_type", "status"]
 
+    def test_tca_falls_back_when_mostly_computed_columns(self) -> None:
+        """TCA grid sends computed columns (fill_rate_pct, is_bps etc.) alongside
+        a few raw ones.  When fewer than half survive validation, fall back to
+        the full allowlist so TCA exports are not misleadingly incomplete."""
+        # Simulate what the TCA grid sends: mostly computed + a couple raw
+        result = _validate_columns(
+            "tca",
+            ["execution_date", "fill_rate_pct", "is_bps", "symbol", "side"],
+        )
+        # Only symbol and side are valid (2/5 < half), so full fallback
+        assert result == _GRID_COLUMNS["tca"]
+
+    def test_no_fallback_when_majority_valid(self) -> None:
+        """When the majority of requested columns are valid, keep the subset."""
+        result = _validate_columns("orders", ["symbol", "side", "qty", "bad_col"])
+        assert result == ["symbol", "side", "qty"]
+
 
 class TestResolveSortAliases:
     def test_returns_none_when_no_sort_model(self) -> None:
@@ -189,6 +206,31 @@ class TestBuildFilterClause:
         sql, params = _build_filter_clause(filt, ["created_at"])
         assert "::date <= %s" in sql
         assert "2026-06-01" in params
+
+    def test_col_prefix_map_overrides_col_prefix(self) -> None:
+        """Per-column mapping takes precedence over blanket col_prefix."""
+        filt = {
+            "order_qty": {"filterType": "number", "type": "greaterThan", "filter": 5},
+            "symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"},
+        }
+        prefix_map = {"order_qty": "o.qty", "symbol": "t.symbol"}
+        result_sql, params = _build_filter_clause(
+            filt, ["order_qty", "symbol"], col_prefix="t.", col_prefix_map=prefix_map,
+        )
+        assert "o.qty" in result_sql
+        assert "t.symbol" in result_sql
+        assert 5 in params
+        assert "AAPL" in params
+
+    def test_col_prefix_map_fallback_to_prefix(self) -> None:
+        """Columns not in col_prefix_map fall back to col_prefix."""
+        filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
+        prefix_map = {"order_qty": "o.qty"}  # symbol not mapped
+        result_sql, params = _build_filter_clause(
+            filt, ["symbol"], col_prefix="t.", col_prefix_map=prefix_map,
+        )
+        assert "t.symbol" in result_sql
+        assert "AAPL" in params
 
 
 class TestBuildOrderClause:
