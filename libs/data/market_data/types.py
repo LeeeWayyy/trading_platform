@@ -170,10 +170,17 @@ def parse_redis_price_json(
     try:
         price_data = json.loads(raw)
 
-        # Symbol mismatch guard
+        # Symbol mismatch guard: reject if symbol is missing or mismatched
         if expected_symbol is not None:
             payload_symbol = price_data.get("symbol")
-            if payload_symbol is not None and payload_symbol != expected_symbol:
+            if payload_symbol is None:
+                logger.warning(
+                    "Redis price missing symbol field, expected %s",
+                    expected_symbol,
+                    extra={"expected_symbol": expected_symbol},
+                )
+                return None
+            if payload_symbol != expected_symbol:
                 logger.warning(
                     "Redis price symbol mismatch: expected %s, got %s",
                     expected_symbol,
@@ -199,31 +206,33 @@ def parse_redis_price_json(
         if price_ts.tzinfo is None:
             price_ts = price_ts.replace(tzinfo=UTC)
 
-        # Staleness check
-        if max_price_age_seconds is not None:
-            age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
-            if age_seconds > max_price_age_seconds:
-                logger.warning(
-                    "Redis price stale for %s",
-                    expected_symbol or "unknown",
-                    extra={
-                        "symbol": expected_symbol or "unknown",
-                        "price_age_seconds": max(age_seconds, 0),
-                        "max_price_age_seconds": max_price_age_seconds,
-                    },
-                )
-                return None
-            # Future timestamps are suspicious — treat as invalid
-            if age_seconds < -1:
-                logger.warning(
-                    "Redis price has future timestamp for %s",
-                    expected_symbol or "unknown",
-                    extra={
-                        "symbol": expected_symbol or "unknown",
-                        "price_age_seconds": age_seconds,
-                    },
-                )
-                return None
+        # Timestamp age calculation (used by both staleness and future checks)
+        age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
+
+        # Future timestamps are always suspicious — reject regardless of staleness config
+        if age_seconds < -1:
+            logger.warning(
+                "Redis price has future timestamp for %s",
+                expected_symbol or "unknown",
+                extra={
+                    "symbol": expected_symbol or "unknown",
+                    "price_age_seconds": age_seconds,
+                },
+            )
+            return None
+
+        # Staleness check (only when max_price_age_seconds is configured)
+        if max_price_age_seconds is not None and age_seconds > max_price_age_seconds:
+            logger.warning(
+                "Redis price stale for %s",
+                expected_symbol or "unknown",
+                extra={
+                    "symbol": expected_symbol or "unknown",
+                    "price_age_seconds": max(age_seconds, 0),
+                    "max_price_age_seconds": max_price_age_seconds,
+                },
+            )
+            return None
 
         # Mid price validation
         mid = Decimal(str(price_data["mid"]))

@@ -359,8 +359,8 @@ def test_batch_fetch_successful() -> None:
     """Test successful batch fetch with valid data."""
     redis_mock = MagicMock()
     redis_mock.mget.return_value = [
-        '{"mid": "150.25", "timestamp": "2024-01-15T10:30:00+00:00"}',
-        '{"mid": "200.50", "timestamp": "2024-01-15T10:30:05+00:00"}',
+        '{"symbol": "AAPL", "mid": "150.25", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "TSLA", "mid": "200.50", "timestamp": "2024-01-15T10:30:05+00:00"}',
     ]
 
     result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
@@ -374,7 +374,7 @@ def test_batch_fetch_handles_missing_symbols() -> None:
     """Test that missing symbols return (None, None)."""
     redis_mock = MagicMock()
     redis_mock.mget.return_value = [
-        '{"mid": "150.25", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "AAPL", "mid": "150.25", "timestamp": "2024-01-15T10:30:00+00:00"}',
         None,  # TSLA not in cache
     ]
 
@@ -389,7 +389,7 @@ def test_batch_fetch_handles_invalid_json() -> None:
     redis_mock = MagicMock()
     redis_mock.mget.return_value = [
         "invalid json",
-        '{"mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "TSLA", "mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
     ]
 
     result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
@@ -402,8 +402,8 @@ def test_batch_fetch_handles_missing_fields() -> None:
     """Test graceful handling of missing required fields."""
     redis_mock = MagicMock()
     redis_mock.mget.return_value = [
-        '{"timestamp": "2024-01-15T10:30:00+00:00"}',  # Missing "mid"
-        '{"mid": "200.50"}',  # Missing "timestamp"
+        '{"symbol": "AAPL", "timestamp": "2024-01-15T10:30:00+00:00"}',  # Missing "mid"
+        '{"symbol": "TSLA", "mid": "200.50"}',  # Missing "timestamp"
     ]
 
     result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
@@ -426,8 +426,8 @@ def test_batch_fetch_handles_invalid_decimal() -> None:
     """Test graceful handling of invalid decimal in price field."""
     redis_mock = MagicMock()
     redis_mock.mget.return_value = [
-        '{"mid": "not_a_number", "timestamp": "2024-01-15T10:30:00+00:00"}',
-        '{"mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "AAPL", "mid": "not_a_number", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "TSLA", "mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
     ]
 
     result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
@@ -440,13 +440,44 @@ def test_batch_fetch_handles_invalid_timestamp_format() -> None:
     """Test graceful handling of invalid timestamp format."""
     redis_mock = MagicMock()
     redis_mock.mget.return_value = [
-        '{"mid": "150.25", "timestamp": "invalid-timestamp"}',
-        '{"mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "AAPL", "mid": "150.25", "timestamp": "invalid-timestamp"}',
+        '{"symbol": "TSLA", "mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
     ]
 
     result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
 
     assert result["AAPL"] == (None, None)  # Invalid timestamp
+    assert result["TSLA"][0] == Decimal("200.50")
+
+
+def test_batch_fetch_rejects_symbol_mismatch() -> None:
+    """Test that symbol mismatch in payload is rejected."""
+    redis_mock = MagicMock()
+    redis_mock.mget.return_value = [
+        '{"symbol": "MSFT", "mid": "150.25", "timestamp": "2024-01-15T10:30:00+00:00"}',
+        '{"symbol": "TSLA", "mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
+    ]
+
+    result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
+
+    assert result["AAPL"] == (None, None)  # Symbol mismatch
+    assert result["TSLA"][0] == Decimal("200.50")
+
+
+def test_batch_fetch_rejects_future_timestamp() -> None:
+    """Test that future timestamps are rejected."""
+    from datetime import timedelta
+
+    future_ts = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+    redis_mock = MagicMock()
+    redis_mock.mget.return_value = [
+        f'{{"symbol": "AAPL", "mid": "150.25", "timestamp": "{future_ts}"}}',
+        '{"symbol": "TSLA", "mid": "200.50", "timestamp": "2024-01-15T10:30:00+00:00"}',
+    ]
+
+    result = batch_fetch_realtime_prices_from_redis(["AAPL", "TSLA"], redis_mock)
+
+    assert result["AAPL"] == (None, None)  # Future timestamp
     assert result["TSLA"][0] == Decimal("200.50")
 
 

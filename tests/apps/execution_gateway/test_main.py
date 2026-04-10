@@ -604,8 +604,8 @@ class TestBatchFetchRealtimePrices:
 
         # Mock Redis MGET response (strings, not bytes, due to decode_responses=True)
         mock_redis.mget.return_value = [
-            '{"mid": "152.50", "timestamp": "2024-10-19T12:00:00+00:00"}',
-            '{"mid": "295.00", "timestamp": "2024-10-19T12:00:00+00:00"}',
+            '{"symbol": "AAPL", "mid": "152.50", "timestamp": "2024-10-19T12:00:00+00:00"}',
+            '{"symbol": "MSFT", "mid": "295.00", "timestamp": "2024-10-19T12:00:00+00:00"}',
         ]
 
         result = batch_fetch_realtime_prices_from_redis(["AAPL", "MSFT"], mock_redis)

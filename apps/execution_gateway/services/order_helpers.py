@@ -31,10 +31,9 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException, status
