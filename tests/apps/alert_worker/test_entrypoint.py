@@ -322,17 +322,25 @@ class TestGetCurrentJobContract:
     misrouting that would only surface in integration tests.
     """
 
-    def test_rq_job_has_origin_attribute(self):
-        """Verify rq.Job instances expose the 'origin' attribute we rely on."""
-        import inspect
+    def test_rq_job_exposes_origin_at_runtime(self):
+        """Verify rq.Job instances expose the 'origin' attribute at runtime."""
+        from unittest.mock import MagicMock
 
         from rq.job import Job
 
-        # origin is set as an instance attribute in Job.__init__
-        init_source = inspect.getsource(Job.__init__)
-        assert "self.origin" in init_source, (
-            "rq.Job.__init__ no longer sets 'self.origin'; "
+        # Create a minimal Job instance with a mock connection to verify
+        # 'origin' is a real instance attribute set during init
+        mock_conn = MagicMock()
+        mock_conn.pipeline.return_value.__enter__ = MagicMock()
+        mock_conn.pipeline.return_value.__exit__ = MagicMock()
+        job = Job(connection=mock_conn)
+        assert hasattr(job, "origin"), (
+            "rq.Job no longer exposes 'origin' attribute; "
             "_get_rq_queue queue routing will not work correctly"
+        )
+        # origin should be a string (empty by default for a fresh job)
+        assert isinstance(job.origin, str), (
+            f"rq.Job.origin has unexpected type {type(job.origin).__name__}; " "expected str"
         )
 
     def test_get_current_job_returns_none_outside_worker(self):
@@ -340,6 +348,60 @@ class TestGetCurrentJobContract:
         from rq import get_current_job
 
         assert get_current_job() is None
+
+
+class TestRetryRoutingEndToEnd:
+    """Verify the full retry scheduling path enqueues to the correct queue.
+
+    This simulates the _build_executor -> schedule_retry path to confirm
+    retries are enqueued to the originating queue, not a hard-coded default.
+    """
+
+    @pytest.mark.asyncio()
+    async def test_retry_enqueues_to_origin_queue(self):
+        """Verify schedule_retry callback enqueues to the current job's origin queue."""
+        mock_db_pool = AsyncMock()
+        mock_redis = AsyncMock()
+        mock_poison = Mock()
+        mock_limiter = Mock()
+        mock_queue = Mock()
+
+        resources = AsyncResources(
+            db_pool=mock_db_pool,
+            redis_client=mock_redis,
+            poison_queue=mock_poison,
+            rate_limiter=mock_limiter,
+        )
+
+        with (
+            patch("apps.alert_worker.entrypoint._get_rq_queue") as mock_get_queue,
+            patch("apps.alert_worker.entrypoint._get_channels"),
+            patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class,
+            patch("apps.alert_worker.entrypoint.asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_get_queue.return_value = mock_queue
+            mock_to_thread.return_value = None
+
+            await _build_executor(
+                resources=resources,
+                delivery_id="test-id",
+                channel="email",
+                recipient="test@example.com",
+                subject="Test Subject",
+                body="Test Body",
+            )
+
+            # Verify _get_rq_queue was called (inherits current job's origin)
+            mock_get_queue.assert_called_once()
+
+            # Get the retry_scheduler and invoke it
+            retry_scheduler = mock_executor_class.call_args[1]["retry_scheduler"]
+            await retry_scheduler(delay=30, next_attempt=1)
+
+            # Verify the retry was enqueued to the queue from _get_rq_queue
+            mock_to_thread.assert_called_once()
+            enqueue_fn = mock_to_thread.call_args[0][0]
+            assert enqueue_fn == mock_queue.enqueue_in
 
 
 class TestCreateAsyncResources:
