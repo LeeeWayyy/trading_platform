@@ -106,6 +106,8 @@ class OrderTicketComponent:
         # UI elements (bound after create())
         self._symbol_input: ui.input | None = None
         self._side_toggle: ui.toggle | None = None
+        self._buy_action_button: ui.button | None = None
+        self._sell_action_button: ui.button | None = None
         self._quantity_input: ui.number | None = None
         self._order_type_select: ui.select | None = None
         self._limit_price_input: ui.number | None = None
@@ -117,6 +119,8 @@ class OrderTicketComponent:
         self._position_label: ui.label | None = None
         self._buying_power_label: ui.label | None = None
         self._impact_label: ui.label | None = None
+        self._impact_status_label: ui.label | None = None
+        self._impact_bar_fill: ui.element | None = None
         self._quantity_presets: QuantityPresetsComponent | None = None
 
         # State
@@ -153,6 +157,8 @@ class OrderTicketComponent:
         # Task tracking for periodic refresh
         self._position_refresh_task: asyncio.Task[None] | None = None
         self._buying_power_refresh_task: asyncio.Task[None] | None = None
+        self._price_pulse_timer: ui.timer | None = None
+        self._dom_settle_timer: ui.timer | None = None
         self._disposed: bool = False
 
         # Tab session ID for cross-tab isolation
@@ -177,76 +183,81 @@ class OrderTicketComponent:
 
     def create(self) -> ui.card:
         """Create and return the order ticket UI."""
-        with ui.card().classes("p-4 w-full") as card:
-            # Disabled banner (hidden by default)
+        with ui.card().classes("workspace-v2-panel workspace-v2-ticket") as card:
             self._disabled_banner = ui.label("").classes(
-                "hidden bg-red-900 text-white p-2 rounded text-center font-bold w-full mb-2"
+                "hidden workspace-v2-banner workspace-v2-banner-negative"
             )
 
-            ui.label("Order Ticket").classes("text-lg font-bold mb-2")
+            with ui.row().classes("w-full items-center justify-between gap-2"):
+                ui.label("Order Ticket").classes("workspace-v2-panel-title")
+                ui.label("EXECUTION").classes("workspace-v2-kv workspace-v2-data-mono")
 
-            # Symbol input
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Symbol:").classes("w-16")
-                self._symbol_input = ui.input(
-                    placeholder="e.g., AAPL",
-                    on_change=self._on_symbol_input_changed,
-                ).classes("flex-1")
+            with ui.row().classes("w-full gap-2 items-end"):
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("SYMBOL").classes("workspace-v2-field-label")
+                    self._symbol_input = ui.input(
+                        placeholder="e.g., AAPL",
+                        on_change=self._on_symbol_input_changed,
+                    ).classes("workspace-v2-input")
 
-            # Position display
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Position:").classes("w-16")
-                self._position_label = ui.label("--").classes("flex-1")
-
-            # Buying power display
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Buying Power:").classes("w-16")
-                self._buying_power_label = ui.label("--").classes("flex-1")
-
-            # Side toggle
-            with ui.row().classes("w-full gap-2 items-center mt-2"):
-                ui.label("Side:").classes("w-16")
+                # Keep hidden toggle for compatibility with existing state sync/tests.
                 self._side_toggle = ui.toggle(
                     ["buy", "sell"],
                     value="buy",
                     on_change=lambda e: self._on_side_changed(e.value),
-                ).classes("flex-1")
+                ).classes("hidden")
 
-            # Quantity input with presets
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Qty:").classes("w-16")
-                self._quantity_input = ui.number(
-                    value=None,
-                    min=1,
-                    step=1,
-                    on_change=lambda e: self._on_quantity_changed(e.value),
-                ).classes("w-24")
+            with ui.row().classes("w-full gap-2 mt-2 items-center"):
+                with ui.column().classes("flex-1 gap-0"):
+                    ui.label("POSITION").classes("workspace-v2-field-label")
+                    self._position_label = ui.label("--").classes("workspace-v2-data-mono text-sm")
+                with ui.column().classes("flex-1 gap-0"):
+                    ui.label("BUYING POWER").classes("workspace-v2-field-label")
+                    self._buying_power_label = ui.label("--").classes("workspace-v2-data-mono text-sm")
 
-                # Quantity presets
-                self._quantity_presets = QuantityPresetsComponent(
-                    on_preset_selected=self._on_preset_selected,
-                    presets=self.QUANTITY_PRESETS,
-                )
-                self._quantity_presets.create()
+            with ui.row().classes("w-full gap-2 mt-2 items-end"):
+                with ui.column().classes("w-[132px] gap-1"):
+                    ui.label("QTY (SHARES)").classes("workspace-v2-field-label")
+                    self._quantity_input = ui.number(
+                        value=None,
+                        min=1,
+                        step=1,
+                        on_change=lambda e: self._on_quantity_changed(e.value),
+                    ).classes("workspace-v2-input workspace-v2-input-qty")
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("QUICK SIZE").classes("workspace-v2-field-label")
+                    self._quantity_presets = QuantityPresetsComponent(
+                        on_preset_selected=self._on_preset_selected,
+                        presets=self.QUANTITY_PRESETS,
+                        on_close_selected=self._on_close_preset_selected,
+                        show_close=True,
+                    )
+                    self._quantity_presets.create()
 
-            # Order type
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Type:").classes("w-16")
-                self._order_type_select = ui.select(
-                    ["market", "limit", "stop", "stop_limit"],
-                    value="market",
-                    on_change=lambda e: self._on_order_type_changed(e.value),
-                ).classes("w-32")
+            with ui.row().classes("w-full gap-2 mt-2 items-end"):
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("ORDER TYPE").classes("workspace-v2-field-label")
+                    self._order_type_select = ui.select(
+                        ["market", "limit", "stop", "stop_limit"],
+                        value="market",
+                        on_change=lambda e: self._on_order_type_changed(e.value),
+                    ).classes("workspace-v2-input")
+                with ui.column().classes("w-[120px] gap-1"):
+                    ui.label("TIF").classes("workspace-v2-field-label")
+                    self._time_in_force_select = ui.select(
+                        ["day", "gtc", "ioc", "fok"],
+                        value="day",
+                        on_change=lambda e: setattr(self._state, "time_in_force", e.value),
+                    ).classes("workspace-v2-input")
 
-            # Price inputs (hidden by default for market orders)
-            with ui.row().classes("w-full gap-2 items-center"):
+            with ui.row().classes("w-full gap-2 mt-2 items-end"):
                 self._limit_price_input = ui.number(
                     label="Limit Price",
                     format="%.2f",
                     min=0.01,
                     step=0.01,
                     on_change=lambda e: self._on_limit_price_changed(e.value),
-                ).classes("w-32 hidden")
+                ).classes("workspace-v2-input workspace-v2-price-input hidden")
 
                 self._stop_price_input = ui.number(
                     label="Stop Price",
@@ -254,36 +265,47 @@ class OrderTicketComponent:
                     min=0.01,
                     step=0.01,
                     on_change=lambda e: self._on_stop_price_changed(e.value),
-                ).classes("w-32 hidden")
+                ).classes("workspace-v2-input hidden")
 
-            # Time in force
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("TIF:").classes("w-16")
-                self._time_in_force_select = ui.select(
-                    ["day", "gtc", "ioc", "fok"],
-                    value="day",
-                    on_change=lambda e: setattr(self._state, "time_in_force", e.value),
-                ).classes("w-24")
-
-            # Impact display
-            with ui.row().classes("w-full gap-2 items-center mt-2"):
-                ui.label("Impact:").classes("w-16")
-                self._impact_label = ui.label("--").classes("flex-1")
-
-            # Submit button
-            with ui.row().classes("w-full gap-2 mt-4"):
-                self._submit_button = ActionButton(
-                    label="Preview Order",
-                    on_click=self._handle_submit,
-                    icon="send",
-                    color="primary",
-                    manual_lifecycle=True,
+            with ui.row().classes("w-full items-center justify-between mt-2"):
+                self._impact_label = ui.label("--").classes("workspace-v2-kv workspace-v2-data-mono")
+                self._impact_status_label = ui.label("UNAVAILABLE").classes(
+                    "workspace-v2-pill workspace-v2-pill-warning"
                 )
-                self._submit_button.create()
 
+            with ui.element("div").classes("workspace-v2-impact-track"):
+                self._impact_bar_fill = ui.element("div").classes(
+                    "workspace-v2-impact-fill workspace-v2-impact-fill-unavailable"
+                )
+
+            with ui.row().classes("w-full gap-2 mt-3"):
+                async def _preview_buy() -> None:
+                    await self._handle_side_preview("buy")
+
+                async def _preview_sell() -> None:
+                    await self._handle_side_preview("sell")
+
+                self._buy_action_button = ui.button(
+                    "BUY",
+                    on_click=_preview_buy,
+                ).classes("workspace-v2-action-btn workspace-v2-action-buy")
+                self._sell_action_button = ui.button(
+                    "SELL",
+                    on_click=_preview_sell,
+                ).classes("workspace-v2-action-btn workspace-v2-action-sell")
                 self._clear_button = ui.button("Clear", on_click=self._clear_form).classes(
-                    "bg-gray-600"
+                    "workspace-v2-clear-btn"
                 )
+
+            # Keep ActionButton object for backward compatibility with tests/mocks.
+            self._submit_button = ActionButton(
+                label="Preview Order",
+                on_click=self._handle_submit,
+                icon="send",
+                color="primary",
+                manual_lifecycle=True,
+            )
+            self._update_side_action_styles()
 
         return card
 
@@ -347,6 +369,8 @@ class OrderTicketComponent:
         if self._limit_price_input is not None:
             self._limit_price_input.set_value(float(price_value))
         self._on_limit_price_changed(float(price_value))
+        self._run_dom_price_pulse(side)
+        self._start_dom_settle_window()
 
     async def _on_symbol_input_changed(self, e: Any) -> None:
         """Handle symbol input change."""
@@ -374,6 +398,7 @@ class OrderTicketComponent:
         """Handle side toggle change."""
         if side in ("buy", "sell"):
             self._state.side = side  # type: ignore[assignment]
+            self._update_side_action_styles()
             self._update_buying_power_impact()
             self._update_quantity_presets_context()
 
@@ -391,6 +416,56 @@ class OrderTicketComponent:
         if self._quantity_input:
             self._quantity_input.set_value(preset)
         self._update_buying_power_impact()
+
+    def _on_close_preset_selected(self) -> None:
+        """Prefill quantity/side to close open position (never auto-submit)."""
+        if self._is_position_data_stale():
+            ui.notify("Cannot prefill CLOSE: position data stale", type="warning")
+            return
+
+        if self._current_position == 0:
+            ui.notify("No open position to close", type="warning")
+            return
+
+        close_side = "sell" if self._current_position > 0 else "buy"
+        close_qty = abs(self._current_position)
+        self._state.quantity = close_qty
+        self._state.side = close_side  # type: ignore[assignment]
+
+        if self._quantity_input:
+            self._quantity_input.set_value(close_qty)
+        if self._side_toggle:
+            self._side_toggle.set_value(close_side)
+
+        self._update_side_action_styles()
+        self._update_buying_power_impact()
+        self._update_quantity_presets_context()
+        ui.notify(
+            f"CLOSE prefill ready: {close_side.upper()} {close_qty} shares (preview required)",
+            type="info",
+        )
+
+    async def _handle_side_preview(self, side: str) -> None:
+        """Set side from action button and open preview flow."""
+        if side not in {"buy", "sell"}:
+            return
+        if self._side_toggle:
+            self._side_toggle.set_value(side)
+        self._on_side_changed(side)
+        await self._handle_submit()
+
+    def _update_side_action_styles(self) -> None:
+        """Reflect selected side in action button emphasis."""
+        if self._buy_action_button is not None:
+            if self._state.side == "buy":
+                self._buy_action_button.classes(add="workspace-v2-action-active")
+            else:
+                self._buy_action_button.classes(remove="workspace-v2-action-active")
+        if self._sell_action_button is not None:
+            if self._state.side == "sell":
+                self._sell_action_button.classes(add="workspace-v2-action-active")
+            else:
+                self._sell_action_button.classes(remove="workspace-v2-action-active")
 
     def _on_order_type_changed(self, order_type: str) -> None:
         """Handle order type selection change."""
@@ -449,6 +524,51 @@ class OrderTicketComponent:
         else:
             self._state.stop_price = None
         self._update_buying_power_impact()
+
+    def _run_dom_price_pulse(self, side: str) -> None:
+        """Apply short pulse animation on limit price input after DOM click."""
+        if self._limit_price_input is None:
+            return
+        pulse_class = (
+            "workspace-v2-price-pulse-buy" if side == "buy" else "workspace-v2-price-pulse-sell"
+        )
+        self._limit_price_input.classes(
+            add=f"workspace-v2-price-input {pulse_class}",
+            remove="workspace-v2-price-pulse-buy workspace-v2-price-pulse-sell",
+        )
+
+        if self._price_pulse_timer is not None:
+            self._price_pulse_timer.cancel()
+        self._price_pulse_timer = ui.timer(
+            0.4,
+            lambda: self._limit_price_input
+            and self._limit_price_input.classes(
+                remove="workspace-v2-price-pulse-buy workspace-v2-price-pulse-sell"
+            ),
+            once=True,
+        )
+        if self._timer_tracker and self._price_pulse_timer is not None:
+            self._timer_tracker(self._price_pulse_timer)
+
+    def _start_dom_settle_window(self) -> None:
+        """Temporarily disable trade action buttons after rapid DOM click updates."""
+        for button in (self._buy_action_button, self._sell_action_button):
+            if button is not None:
+                button.set_enabled(False)
+
+        if self._dom_settle_timer is not None:
+            self._dom_settle_timer.cancel()
+        self._dom_settle_timer = ui.timer(0.15, self._finish_dom_settle, once=True)
+        if self._timer_tracker and self._dom_settle_timer is not None:
+            self._timer_tracker(self._dom_settle_timer)
+
+    def _finish_dom_settle(self) -> None:
+        """Re-enable action buttons using latest safety gate decision."""
+        disabled, _ = self._should_disable_submission()
+        enabled = not disabled
+        for button in (self._buy_action_button, self._sell_action_button):
+            if button is not None:
+                button.set_enabled(enabled)
 
     # ================= Safety State Callbacks =================
 
@@ -584,16 +704,54 @@ class OrderTicketComponent:
         impact = self._calculate_buying_power_impact()
         if self._impact_label:
             if impact["notional"] is not None and impact["percentage"] is not None:
-                warning_class = "text-yellow-500" if impact["warning"] else ""
                 self._impact_label.set_text(
-                    f"${impact['notional']:,.2f} ({impact['percentage']:.1f}% of BP)"
+                    f"${impact['notional']:,.2f} ({impact['percentage']:.1f}% of limit)"
                 )
-                if warning_class:
-                    self._impact_label.classes(add=warning_class)
-                else:
-                    self._impact_label.classes(remove="text-yellow-500")
             else:
-                self._impact_label.set_text("--")
+                self._impact_label.set_text("-- (risk limit unavailable)")
+
+        status = str(impact.get("status") or "unavailable").upper()
+        if self._impact_status_label:
+            self._impact_status_label.text = status
+            self._impact_status_label.classes(
+                remove="workspace-v2-pill-positive workspace-v2-pill-warning workspace-v2-pill-negative"
+            )
+            if status == "NORMAL":
+                self._impact_status_label.classes(add="workspace-v2-pill-positive")
+            elif status == "WARNING":
+                self._impact_status_label.classes(add="workspace-v2-pill-warning")
+            else:
+                self._impact_status_label.classes(add="workspace-v2-pill-negative")
+
+        self._update_impact_gauge(impact)
+
+    def _update_impact_gauge(self, impact: dict[str, Any]) -> None:
+        """Update visual gauge width and severity class."""
+        if self._impact_bar_fill is None:
+            return
+
+        ratio = impact.get("ratio")
+        if not isinstance(ratio, Decimal):
+            self._impact_bar_fill.style("width: 0%")
+            self._impact_bar_fill.classes(
+                remove="workspace-v2-impact-fill-normal workspace-v2-impact-fill-warning workspace-v2-impact-fill-danger",
+                add="workspace-v2-impact-fill-unavailable",
+            )
+            return
+
+        clamped = max(Decimal("0"), min(Decimal("1"), ratio))
+        pct = float(clamped * Decimal(100))
+        self._impact_bar_fill.style(f"width: {pct:.1f}%")
+        status = str(impact.get("status") or "unavailable")
+        self._impact_bar_fill.classes(
+            remove="workspace-v2-impact-fill-unavailable workspace-v2-impact-fill-normal workspace-v2-impact-fill-warning workspace-v2-impact-fill-danger"
+        )
+        if status == "normal":
+            self._impact_bar_fill.classes(add="workspace-v2-impact-fill-normal")
+        elif status == "warning":
+            self._impact_bar_fill.classes(add="workspace-v2-impact-fill-warning")
+        else:
+            self._impact_bar_fill.classes(add="workspace-v2-impact-fill-danger")
 
     def _update_quantity_presets_context(self) -> None:
         """Update quantity presets with current context."""
@@ -610,6 +768,7 @@ class OrderTicketComponent:
 
     def _update_ui_from_state(self) -> None:
         """Update all UI elements from internal state."""
+        self._update_side_action_styles()
         self._update_position_display()
         self._update_buying_power_display()
         self._update_buying_power_impact()
@@ -694,6 +853,12 @@ class OrderTicketComponent:
         # Disable submit button via ActionButton's underlying button
         if self._submit_button and self._submit_button._button:
             self._submit_button._button.set_enabled(not disabled)
+
+        # Disable split action buttons
+        if self._buy_action_button:
+            self._buy_action_button.set_enabled(not disabled)
+        if self._sell_action_button:
+            self._sell_action_button.set_enabled(not disabled)
 
         # Disable Clear button
         if self._clear_button:
@@ -944,25 +1109,91 @@ class OrderTicketComponent:
     def _calculate_buying_power_impact(self) -> dict[str, Any]:
         """Calculate order's impact on buying power."""
         if not self._state.quantity:
-            return {"notional": None, "percentage": None, "remaining": None, "warning": False}
+            return {
+                "notional": None,
+                "percentage": None,
+                "remaining": None,
+                "warning": False,
+                "ratio": None,
+                "status": "unavailable",
+                "effective_limit": None,
+            }
 
         effective_price = self._get_effective_order_price()
         if effective_price is None:
-            return {"notional": None, "percentage": None, "remaining": None, "warning": False}
+            return {
+                "notional": None,
+                "percentage": None,
+                "remaining": None,
+                "warning": False,
+                "ratio": None,
+                "status": "unavailable",
+                "effective_limit": None,
+            }
 
         notional = effective_price * Decimal(self._state.quantity)
+        effective_limits: list[Decimal] = []
 
-        if self._buying_power is None or self._buying_power <= 0:
-            return {"notional": notional, "percentage": None, "remaining": None, "warning": True}
+        if self._buying_power is not None and self._buying_power > 0:
+            effective_limits.append(self._buying_power)
+        if self._max_notional_per_order is not None and self._max_notional_per_order > 0:
+            effective_limits.append(self._max_notional_per_order)
 
-        percentage = (notional / self._buying_power) * 100
-        remaining = self._buying_power - notional
+        if self._max_total_exposure is not None and self._max_total_exposure > 0:
+            if self._current_total_exposure is None:
+                return {
+                    "notional": notional,
+                    "percentage": None,
+                    "remaining": None,
+                    "warning": True,
+                    "ratio": None,
+                    "status": "unavailable",
+                    "effective_limit": None,
+                }
+            headroom = self._max_total_exposure - self._current_total_exposure
+            effective_limits.append(max(Decimal("0"), headroom))
+
+        if not effective_limits:
+            return {
+                "notional": notional,
+                "percentage": None,
+                "remaining": None,
+                "warning": True,
+                "ratio": None,
+                "status": "unavailable",
+                "effective_limit": None,
+            }
+
+        effective_limit = min(effective_limits)
+        if effective_limit <= 0:
+            return {
+                "notional": notional,
+                "percentage": None,
+                "remaining": Decimal("0"),
+                "warning": True,
+                "ratio": Decimal("1"),
+                "status": "danger",
+                "effective_limit": effective_limit,
+            }
+
+        ratio = notional / effective_limit
+        percentage = ratio * 100
+        remaining = effective_limit - notional
+
+        status = "normal"
+        if ratio >= Decimal("0.8"):
+            status = "danger"
+        elif ratio >= Decimal("0.5"):
+            status = "warning"
 
         return {
             "notional": notional,
             "percentage": percentage,
             "remaining": remaining,
             "warning": percentage > 50,
+            "ratio": ratio,
+            "status": status,
+            "effective_limit": effective_limit,
         }
 
     # ================= Order Submission =================
@@ -1424,6 +1655,10 @@ class OrderTicketComponent:
             self._position_timer.cancel()
         if self._buying_power_timer:
             self._buying_power_timer.cancel()
+        if self._price_pulse_timer:
+            self._price_pulse_timer.cancel()
+        if self._dom_settle_timer:
+            self._dom_settle_timer.cancel()
 
         for task in [self._position_refresh_task, self._buying_power_refresh_task]:
             if task and not task.done():

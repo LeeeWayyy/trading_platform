@@ -301,11 +301,11 @@ class OrderEntryContext:
         )
         return self._price_chart.create(width=width, height=height)
 
-    def create_dom_ladder(self) -> Any:
+    def create_dom_ladder(self, *, levels: int = 10) -> Any:
         """Create and configure the DOM ladder component."""
         from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
 
-        self._dom_ladder = DOMLadderComponent()
+        self._dom_ladder = DOMLadderComponent(levels=levels)
         return self._dom_ladder.create()
 
     def create_order_ticket(self) -> Any:

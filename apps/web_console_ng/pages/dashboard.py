@@ -27,10 +27,12 @@ from apps.web_console_ng.components.hierarchical_orders import (
     HierarchicalOrdersState,
     on_cancel_parent_order,
 )
+from apps.web_console_ng.components.log_tail_panel import LogTailPanel
 from apps.web_console_ng.components.metric_card import MetricCard
 from apps.web_console_ng.components.one_click_handler import OneClickHandler
 from apps.web_console_ng.components.order_audit_panel import show_order_audit_dialog
 from apps.web_console_ng.components.order_entry_context import OrderEntryContext
+from apps.web_console_ng.components.order_flow_panel import OrderFlowPanel
 from apps.web_console_ng.components.order_modify_dialog import OrderModifyDialog
 from apps.web_console_ng.components.orders_table import (
     create_hierarchical_orders_table,
@@ -44,6 +46,7 @@ from apps.web_console_ng.components.positions_grid import (
 )
 from apps.web_console_ng.components.safety_gate import SafetyGate
 from apps.web_console_ng.components.sparkline_renderer import create_sparkline_svg
+from apps.web_console_ng.components.strategy_context import StrategyContextWidget
 from apps.web_console_ng.components.tabbed_panel import (
     TAB_FILLS,
     TAB_HISTORY,
@@ -84,6 +87,54 @@ logger = logging.getLogger(__name__)
 MAX_FILLS_ITEMS = 100
 
 ScopeKey = tuple[str, frozenset[str]]
+
+
+class _MetricStripValue:
+    """Compact metric value used in workspace command strip."""
+
+    def __init__(
+        self,
+        title: str,
+        *,
+        format_fn: Callable[[Any], str],
+        color_fn: Callable[[Any], str] | None = None,
+        enter_delay_ms: int = 0,
+    ) -> None:
+        self._format_fn = format_fn
+        self._color_fn = color_fn
+        self._last_update: float | None = None
+        self._value_label: ui.label | None = None
+        self._current_color: str | None = None
+
+        metric = ui.element("div").classes("workspace-v2-command-metric workspace-v2-enter-item")
+        if enter_delay_ms > 0:
+            metric.style(f"animation-delay: {enter_delay_ms}ms")
+        with metric:
+            ui.label(title).classes("workspace-v2-command-label")
+            self._value_label = ui.label("--").classes("workspace-v2-command-value")
+
+    def update(self, value: Any) -> None:
+        if self._value_label is None:
+            return
+        self._value_label.text = self._format_fn(value)
+        if self._color_fn is not None:
+            new_color = self._color_fn(value)
+            if self._current_color:
+                self._value_label.classes(remove=self._current_color)
+            if new_color:
+                self._value_label.classes(add=new_color)
+            self._current_color = new_color
+        self._value_label.classes(remove="opacity-55")
+        self._last_update = time.time()
+
+    def is_stale(self, threshold: float = 30.0) -> bool:
+        if self._last_update is None:
+            return False
+        return (time.time() - self._last_update) > threshold
+
+    def mark_stale(self) -> None:
+        if self._value_label is not None:
+            self._value_label.classes(add="opacity-55")
 
 
 def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) -> None:
@@ -340,26 +391,99 @@ async def dashboard(client: Client) -> None:
                 return default
         return default
 
-    # Metric cards
-    with trading_grid().classes("w-full mb-2"):
-        pnl_card = MetricCard(
-            title="Unrealized P&L",
-            format_fn=lambda v: f"${v:,.2f}",
-            color_fn=lambda v: "text-green-600" if v >= 0 else "text-red-600",
-        )
-        positions_card = MetricCard(
-            title="Positions",
-            format_fn=lambda v: str(v),
-        )
-        realized_card = MetricCard(
-            title="Realized (Today)",
-            format_fn=lambda v: f"${v:,.2f}",
-            color_fn=lambda v: "text-green-600" if v >= 0 else "text-red-600",
-        )
-        bp_card = MetricCard(
-            title="Buying Power",
-            format_fn=lambda v: f"${v:,.2f}",
-        )
+    use_workspace_v2 = config.FEATURE_UNIFIED_EXECUTION_WORKSPACE
+
+    order_flow_panel = OrderFlowPanel(max_rows=12)
+    strategy_context_widget: StrategyContextWidget | None = None
+    tabs_host: ui.column | None = None
+    log_tail_host: ui.column | None = None
+
+    # Metrics strip/cards
+    if use_workspace_v2:
+        with ui.element("section").classes("workspace-v2 w-full mb-3"):
+            with ui.element("div").classes("workspace-v2-command-strip"):
+                pnl_card = _MetricStripValue(
+                    "UNR P&L",
+                    format_fn=lambda v: f"${v:,.2f}",
+                    color_fn=lambda v: "positive" if v >= 0 else "negative",
+                    enter_delay_ms=40,
+                )
+                positions_card = _MetricStripValue(
+                    "POSITIONS",
+                    format_fn=lambda v: str(v),
+                    enter_delay_ms=80,
+                )
+                realized_card = _MetricStripValue(
+                    "REALIZED",
+                    format_fn=lambda v: f"${v:,.2f}",
+                    color_fn=lambda v: "positive" if v >= 0 else "negative",
+                    enter_delay_ms=120,
+                )
+                bp_card = _MetricStripValue(
+                    "BUYING POWER",
+                    format_fn=lambda v: f"${v:,.2f}",
+                    enter_delay_ms=160,
+                )
+
+            with ui.element("div").classes("workspace-v2-body"):
+                with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
+                    with ui.element("div").classes("workspace-v2-chart-pane"):
+                        order_context.create_price_chart(width=960, height=420).classes(
+                            "w-full h-full"
+                        )
+                    with ui.element("div").classes("workspace-v2-microstructure"):
+                        order_flow_panel.create().classes("h-full overflow-hidden")
+                        order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
+
+                with ui.element("div").classes("workspace-v2-zone-c workspace-v2-enter-zone workspace-v2-enter-zone-c"):
+                    with ui.element("div").classes("workspace-v2-panel"):
+                        ui.label("Watchlist").classes("workspace-v2-panel-title mb-1")
+                        order_context.create_watchlist().classes("w-full")
+
+                    strategy_context_widget = StrategyContextWidget(strategies=user_strategies)
+                    strategy_context_widget.create()
+
+                    order_context.create_market_context()
+                    order_context.create_order_ticket()
+
+                    tabs_host = ui.column().classes("workspace-v2-tabs-area")
+                    log_tail_host = ui.column().classes("shrink-0")
+    else:
+        with trading_grid().classes("w-full mb-2"):
+            pnl_card = MetricCard(
+                title="Unrealized P&L",
+                format_fn=lambda v: f"${v:,.2f}",
+                color_fn=lambda v: "text-green-600" if v >= 0 else "text-red-600",
+            )
+            positions_card = MetricCard(
+                title="Positions",
+                format_fn=lambda v: str(v),
+            )
+            realized_card = MetricCard(
+                title="Realized (Today)",
+                format_fn=lambda v: f"${v:,.2f}",
+                color_fn=lambda v: "text-green-600" if v >= 0 else "text-red-600",
+            )
+            bp_card = MetricCard(
+                title="Buying Power",
+                format_fn=lambda v: f"${v:,.2f}",
+            )
+
+        with ui.element("div").classes(
+            "grid gap-4 w-full mb-4 " "grid-cols-1 md:grid-cols-2 lg:grid-cols-[250px_1fr_350px]"
+        ):
+            with ui.column().classes("hidden md:flex"):
+                order_context.create_watchlist()
+
+            with ui.column().classes("min-h-[200px] gap-3"):
+                order_context.create_price_chart(width=600, height=300)
+                with ui.element("div").classes("h-[340px] min-h-[280px] grid grid-rows-2 gap-2"):
+                    order_flow_panel.create().classes("h-full")
+                    order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
+
+            with ui.column().classes("gap-4"):
+                order_context.create_market_context()
+                order_context.create_order_ticket()
 
     # Data Health Widget (P6T12.4) - in expandable card
     health_container = ui.expansion("Data Health", icon="monitor_heart").classes(
@@ -450,26 +574,6 @@ async def dashboard(client: Client) -> None:
     health_timer = ui.timer(10.0, _refresh_health)
     await lifecycle.register_cleanup_callback(client_id, lambda: health_timer.cancel())
 
-    # Order Entry Section - Responsive 3-column layout
-    # Desktop: [Watchlist] [Chart] [Market Context + Order Ticket]
-    # Mobile: Single column stacked
-    with ui.element("div").classes(
-        "grid gap-4 w-full mb-4 " "grid-cols-1 md:grid-cols-2 lg:grid-cols-[250px_1fr_350px]"
-    ):
-        # Left column: Watchlist (hidden on mobile)
-        with ui.column().classes("hidden md:flex"):
-            order_context.create_watchlist()
-
-        # Middle column: Price Chart + DOM ladder
-        with ui.column().classes("min-h-[200px] gap-4"):
-            order_context.create_price_chart(width=600, height=300)
-            order_context.create_dom_ladder()
-
-        # Right column: Market Context + Order Ticket
-        with ui.column().classes("gap-4"):
-            order_context.create_market_context()
-            order_context.create_order_ticket()
-
     panel_state = TabbedPanelState(user_id=user_id)
     await panel_state.load()
 
@@ -522,22 +626,44 @@ async def dashboard(client: Client) -> None:
         # Use locked version to prevent interleaving with realtime updates
         asyncio.create_task(_locked_refresh_tab(tab_name))
 
-    # Orders + activity
-    with trading_grid().classes("w-full"):
-        with compact_card().classes("w-full"):
-            tabbed_panel = create_tabbed_panel(
-                _build_positions_grid,
-                _build_orders_grid,
-                _build_fills_grid,
-                _build_history_grid,
-                state=panel_state,
-                on_filter_change=_handle_filter_change,
-                on_tab_change=_handle_tab_change,
-            )
+    last_sync_label: ui.label
+    activity_feed: ActivityFeed | LogTailPanel
 
-        with compact_card("Activity").classes("w-full"):
-            last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
-            activity_feed = ActivityFeed()
+    if use_workspace_v2 and tabs_host is not None and log_tail_host is not None:
+        with tabs_host:
+            with ui.element("div").classes("workspace-v2-panel w-full flex-1 min-h-0"):
+                tabbed_panel = create_tabbed_panel(
+                    _build_positions_grid,
+                    _build_orders_grid,
+                    _build_fills_grid,
+                    _build_history_grid,
+                    state=panel_state,
+                    on_filter_change=_handle_filter_change,
+                    on_tab_change=_handle_tab_change,
+                )
+
+        with log_tail_host:
+            last_sync_label = ui.label("Last sync: --").classes(
+                "workspace-v2-kv workspace-v2-data-mono mb-1"
+            )
+            activity_feed = LogTailPanel(max_items=180)
+            activity_feed.create(title="Tail Logs")
+    else:
+        with trading_grid().classes("w-full"):
+            with compact_card().classes("w-full"):
+                tabbed_panel = create_tabbed_panel(
+                    _build_positions_grid,
+                    _build_orders_grid,
+                    _build_fills_grid,
+                    _build_history_grid,
+                    state=panel_state,
+                    on_filter_change=_handle_filter_change,
+                    on_tab_change=_handle_tab_change,
+                )
+
+            with compact_card("Activity").classes("w-full"):
+                last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
+                activity_feed = ActivityFeed()
 
     notified_missing_ids: set[str] = set()
     notified_malformed: set[int] = set()  # Dedupe malformed position notifications
@@ -783,6 +909,7 @@ async def dashboard(client: Client) -> None:
                         "status": trade.get("status") or "filled",
                     }
                 )
+            order_flow_panel.add_trades(recent_trades)
 
         _update_filter_options()
         if tabbed_panel is not None:
@@ -906,11 +1033,29 @@ async def dashboard(client: Client) -> None:
         # Update cached state for instant UI responses; unknown stays None for fail-open closes
         kill_switch_engaged = _parse_kill_switch_state(state)
         dispatch_trading_state_event(client_id, {"killSwitchState": state})
+        await activity_feed.add_item(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "type": "kill_switch",
+                "status": state.lower() if state else "unknown",
+                "symbol": "--",
+                "message": f"Kill switch state: {state or 'UNKNOWN'}",
+            }
+        )
 
     async def on_circuit_breaker_update(data: dict[str, Any]) -> None:
         logger.info("circuit_breaker_update", extra={"client_id": client_id, "data": data})
         state = str(data.get("state", "")).upper()
         dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
+        await activity_feed.add_item(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "type": "circuit_breaker",
+                "status": state.lower() if state else "unknown",
+                "symbol": "--",
+                "message": f"Circuit breaker state: {state or 'UNKNOWN'}",
+            }
+        )
 
     async def on_orders_update(data: dict[str, Any]) -> None:
         nonlocal order_ids, orders_snapshot
@@ -923,6 +1068,15 @@ async def dashboard(client: Client) -> None:
                 )
             async with grid_update_lock:
                 await _refresh_orders_grid()
+            await activity_feed.add_item(
+                {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "type": "orders",
+                    "status": "updated",
+                    "symbol": "--",
+                    "message": f"Working orders refreshed ({len(orders_snapshot)})",
+                }
+            )
 
     async def on_fill_event(data: dict[str, Any]) -> None:
         nonlocal fills_snapshot
@@ -946,6 +1100,7 @@ async def dashboard(client: Client) -> None:
             tabbed_panel.set_badge_count(TAB_FILLS, len(fills_snapshot))
         async with grid_update_lock:
             await _refresh_fills_grid()
+        order_flow_panel.add_trade(normalized)
         _update_last_sync_label([normalized])
         await activity_feed.add_item(normalized)
 
@@ -1130,6 +1285,15 @@ async def dashboard(client: Client) -> None:
 
     stale_timer = ui.timer(config.DASHBOARD_STALE_CHECK_SECONDS, check_stale_data)
     timers.append(stale_timer)
+
+    def sync_order_flow_symbol() -> None:
+        selected_symbol = order_context.get_selected_symbol()
+        order_flow_panel.set_symbol(selected_symbol)
+        if strategy_context_widget is not None:
+            strategy_context_widget.set_symbol(selected_symbol)
+
+    flow_symbol_timer = ui.timer(0.5, sync_order_flow_symbol)
+    timers.append(flow_symbol_timer)
 
     def cleanup_timers() -> None:
         for timer in timers:

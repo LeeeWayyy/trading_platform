@@ -875,6 +875,77 @@ class TestOrderTicketBuyingPowerImpact:
         assert result["percentage"] is None
         assert result["warning"] is True
 
+    def test_impact_exposure_limit_missing_snapshot_is_unavailable(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Impact is unavailable when exposure limit exists but current exposure is missing."""
+        component._state.quantity = 50
+        component._max_total_exposure = Decimal("100000")
+        component._current_total_exposure = None
+
+        result = component._calculate_buying_power_impact()
+
+        assert result["percentage"] is None
+        assert result["status"] == "unavailable"
+        assert result["warning"] is True
+
+
+class TestOrderTicketClosePreset:
+    """Tests for CLOSE preset behavior."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=[],
+        )
+        comp._position_last_updated = datetime.now(UTC)
+        comp._quantity_input = MagicMock()
+        comp._side_toggle = MagicMock()
+        return comp
+
+    def test_close_prefill_for_long_position(self, component: OrderTicketComponent) -> None:
+        component._current_position = 125
+
+        component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 125
+        component._quantity_input.set_value.assert_called_once_with(125)
+        component._side_toggle.set_value.assert_called_once_with("sell")
+
+    def test_close_prefill_for_short_position(self, component: OrderTicketComponent) -> None:
+        component._current_position = -40
+
+        component._on_close_preset_selected()
+
+        assert component._state.side == "buy"
+        assert component._state.quantity == 40
+        component._quantity_input.set_value.assert_called_once_with(40)
+        component._side_toggle.set_value.assert_called_once_with("buy")
+
+    def test_close_prefill_blocks_on_stale_position(self, component: OrderTicketComponent) -> None:
+        component._current_position = 100
+        component._position_last_updated = datetime.now(UTC) - timedelta(
+            seconds=POSITION_STALE_THRESHOLD_S + 1
+        )
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.quantity is None
+        assert component._state.side == "buy"
+        notify.assert_called_once()
+
 
 class TestOrderTicketIdempotency:
     """Tests for idempotent order submission."""

@@ -33,6 +33,9 @@ class QuantityPresetsComponent:
         self,
         on_preset_selected: Callable[[int], None],
         presets: list[int] | None = None,
+        *,
+        on_close_selected: Callable[[], None] | None = None,
+        show_close: bool = False,
     ) -> None:
         """Initialize quantity presets.
 
@@ -42,8 +45,11 @@ class QuantityPresetsComponent:
         """
         self._on_preset_selected = on_preset_selected
         self._presets = presets or self.DEFAULT_PRESETS
+        self._on_close_selected = on_close_selected
+        self._show_close = show_close
         self._preset_buttons: list[ui.button] = []
         self._max_button: ui.button | None = None
+        self._close_button: ui.button | None = None
 
         # Context for MAX calculation
         self._buying_power: Decimal | None = None
@@ -57,19 +63,25 @@ class QuantityPresetsComponent:
     def create(self) -> ui.row:
         """Create preset buttons row."""
         self._preset_buttons = []
-        with ui.row().classes("gap-2 items-center") as row:
+        with ui.row().classes("gap-1 items-center flex-wrap") as row:
             for preset in self._presets:
                 btn = ui.button(
                     str(preset),
                     on_click=lambda p=preset: self._on_preset_selected(p),
-                ).classes("w-16 h-8 text-sm")
+                ).classes("workspace-v2-preset-btn")
                 self._preset_buttons.append(btn)
+
+            if self._show_close and self._on_close_selected is not None:
+                self._close_button = ui.button(
+                    "CLOSE",
+                    on_click=self._on_close_selected,
+                ).classes("workspace-v2-preset-btn workspace-v2-preset-close")
 
             # MAX button with dynamic calculation
             self._max_button = ui.button(
                 "MAX",
                 on_click=self._calculate_and_select_max,
-            ).classes("w-16 h-8 text-sm bg-blue-600")
+            ).classes("workspace-v2-preset-btn workspace-v2-preset-max")
 
         return row
 
@@ -79,6 +91,8 @@ class QuantityPresetsComponent:
             btn.set_enabled(enabled)
         if self._max_button:
             self._max_button.set_enabled(enabled)
+        if self._close_button:
+            self._close_button.set_enabled(enabled)
 
     def _calculate_and_select_max(self) -> None:
         """Calculate max affordable quantity based on buying power AND position limits.

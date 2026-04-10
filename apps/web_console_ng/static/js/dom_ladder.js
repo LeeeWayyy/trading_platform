@@ -36,6 +36,8 @@
     function buildRow(level, side, symbol) {
         const row = document.createElement('div');
         row.className = `dom-ladder-row dom-ladder-${side}`;
+        const ratio = Math.max(0, Math.min(1, Number(level.ratio || 0)));
+        row.style.setProperty('--liquidity-alpha', String(ratio));
         if (level.is_large) {
             row.classList.add('dom-ladder-large');
         }
@@ -54,7 +56,6 @@
 
         const bar = document.createElement('div');
         bar.className = 'dom-ladder-bar';
-        const ratio = Math.max(0, Math.min(1, Number(level.ratio || 0)));
         bar.style.width = `${ratio * 100}%`;
 
         if (side === 'bid') {
