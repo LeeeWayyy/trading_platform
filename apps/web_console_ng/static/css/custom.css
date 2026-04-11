@@ -1235,8 +1235,13 @@
 .workspace-v2-microstructure {
     display: grid;
     gap: 8px;
-    grid-template-rows: 1fr 1fr;
-    min-height: 260px;
+    grid-template-rows: minmax(128px, 1fr) minmax(72px, 0.5fr) minmax(108px, 0.75fr);
+    min-height: 324px;
+}
+
+.workspace-v2-market-context {
+    border: 1px solid var(--workspace-border);
+    border-radius: 8px;
 }
 
 .workspace-v2-panel {

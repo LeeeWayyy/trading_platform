@@ -711,6 +711,9 @@ async def dashboard(client: Client) -> None:
                     with ui.element("div").classes("workspace-v2-microstructure"):
                         order_flow_panel.create().classes("h-full overflow-hidden")
                         order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
+                        order_context.create_market_context().classes(
+                            "h-full overflow-hidden workspace-v2-market-context"
+                        )
 
                 with ui.element("div").classes("workspace-v2-zone-c workspace-v2-enter-zone workspace-v2-enter-zone-c"):
                     with ui.element("div").classes("workspace-v2-panel"):
@@ -729,7 +732,6 @@ async def dashboard(client: Client) -> None:
                     strategy_context_widget.create()
                     order_context.set_strategy_context_widget(strategy_context_widget)
 
-                    order_context.create_market_context()
                     order_context.create_order_ticket()
 
                     tabs_host = ui.column().classes("workspace-v2-tabs-area")
