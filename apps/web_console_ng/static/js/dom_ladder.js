@@ -40,6 +40,11 @@
         row.className = `dom-ladder-row dom-ladder-${side}`;
         const ratio = Math.max(0, Math.min(1, Number(level.ratio || 0)));
         row.style.setProperty('--liquidity-alpha', String(ratio));
+        if (ratio >= 0.72) {
+            row.classList.add('dom-ladder-deep');
+        } else if (ratio <= 0.2) {
+            row.classList.add('dom-ladder-thin');
+        }
         if (level.is_large) {
             row.classList.add('dom-ladder-large');
         }
