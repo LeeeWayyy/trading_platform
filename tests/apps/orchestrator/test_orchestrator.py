@@ -315,7 +315,7 @@ class TestTradingOrchestratorRun:
     @pytest.mark.asyncio()
     async def test_run_rejects_empty_strategy_list(self, orchestrator):
         """Test that run() raises ValueError when given an empty strategy list."""
-        with pytest.raises(ValueError, match="strategy_id must not be an empty list"):
+        with pytest.raises(ValueError, match="strategy_id must be a non-empty string or list of strings"):
             await orchestrator.run(symbols=["AAPL"], strategy_id=[])
 
 

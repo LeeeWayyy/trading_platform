@@ -340,7 +340,7 @@ class TradingOrchestrator:
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
         if not strategy_ids:
-            raise ValueError("strategy_id must not be an empty list")
+            raise ValueError("strategy_id must be a non-empty string or list of strings")
         is_multi_strategy = len(strategy_ids) > 1
 
         logger.info(
@@ -672,8 +672,8 @@ class TradingOrchestrator:
               signal service model routing by strategy is not yet implemented
         """
         logger.info(
-            f"Fetching signals for {len(symbols)} symbols"
-            + (f" (strategy: {strategy_id})" if strategy_id else "")
+            f"Fetching signals for {len(symbols)} symbols",
+            extra={"strategy_id": strategy_id} if strategy_id else {},
         )
 
         signal_response = await self.signal_client.fetch_signals(
