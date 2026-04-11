@@ -397,3 +397,30 @@ class TestMarketContextDispose:
         await component.dispose()
 
         mock_timer.cancel.assert_called_once()
+
+
+class TestMarketContextBadgeStyling:
+    """Tests for workspace badge-tone styling helpers."""
+
+    @pytest.fixture()
+    def component(self) -> MarketContextComponent:
+        client = MagicMock()
+        return MarketContextComponent(trading_client=client)
+
+    def test_set_badge_tone_applies_muted_class(self, component: MarketContextComponent) -> None:
+        badge = MagicMock()
+
+        component._set_badge_tone(badge, tone="muted")
+
+        badge.classes.assert_any_call(add="workspace-v2-pill-muted")
+
+    def test_update_staleness_badge_without_timestamp_uses_muted_tone(
+        self, component: MarketContextComponent
+    ) -> None:
+        badge = MagicMock()
+        component._staleness_badge = badge
+
+        component._update_staleness_badge(None)
+
+        badge.set_text.assert_called_once_with("No data")
+        badge.classes.assert_any_call(add="workspace-v2-pill-muted")
