@@ -770,3 +770,14 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
 - Added high-specificity compact badge selector to prevent `.workspace-v2-pill` padding/font overrides.
 - Added unit coverage for badge-tone helper behavior (`test_market_context.py`).
 - Kept data behavior and staleness semantics unchanged while improving density/theme consistency.
+
+21. DOM ladder compact readability pass (`dom_ladder.js`, `custom.css`)
+- Tightened DOM row density for reduced-height ladder:
+  - smaller row/price/size typography
+  - lower bar height and tighter spacing
+- Improved liquidity-level readability:
+  - `deep`/`thin` row classes from ratio bands
+  - stronger heatmap opacity scaling and deep-row border accent
+  - gradient bars for bid/ask depth directionality
+- Added click micro-feedback on selected DOM level (`dom-ladder-clicked` pulse).
+- Preserved existing price-click event semantics and risk workflow integration.
