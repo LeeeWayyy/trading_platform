@@ -150,6 +150,39 @@ class _MetricStripValue:
             self._value_label.classes(add="opacity-55")
 
 
+class _CommandStatusPill:
+    """Compact status pill used in workspace command strip."""
+
+    _tone_classes = {
+        "muted": "workspace-v2-command-pill-muted",
+        "normal": "workspace-v2-command-pill-normal",
+        "warning": "workspace-v2-command-pill-warning",
+        "danger": "workspace-v2-command-pill-danger",
+    }
+
+    def __init__(self, text: str = "--", *, enter_delay_ms: int = 0) -> None:
+        self._pill: Any | None = None
+        self._label: ui.label | None = None
+        self._tone_class = self._tone_classes["muted"]
+        self._pill = ui.element("div").classes(
+            f"workspace-v2-command-pill workspace-v2-enter-item {self._tone_class}"
+        )
+        if enter_delay_ms > 0:
+            self._pill.style(f"animation-delay: {enter_delay_ms}ms")
+        with self._pill:
+            self._label = ui.label(text).classes("workspace-v2-command-pill-text")
+
+    def set_state(self, text: str, tone: str) -> None:
+        if self._label is None or self._pill is None:
+            return
+        new_tone = self._tone_classes.get(tone, self._tone_classes["muted"])
+        self._label.text = text
+        if new_tone != self._tone_class:
+            self._pill.classes(remove=self._tone_class)
+            self._pill.classes(add=new_tone)
+            self._tone_class = new_tone
+
+
 def dispatch_trading_state_event(client_id: str | None, update: dict[str, Any]) -> None:
     """Dispatch trading state changes to the browser (fire-and-forget)."""
     try:
@@ -246,6 +279,42 @@ def determine_workspace_lock_state(
             ),
         )
     return (False, "", "")
+
+
+def resolve_workspace_connection_pill(
+    *,
+    state: str | None,
+    is_read_only: bool,
+) -> tuple[str, str]:
+    """Return connection pill text/tone for workspace command strip."""
+    normalized = str(state or "UNKNOWN").upper()
+    if is_read_only or normalized in {"DISCONNECTED", "RECONNECTING", "DEGRADED"}:
+        return (f"CONN {normalized}", "warning")
+    if normalized == "CONNECTED":
+        return ("CONN LIVE", "normal")
+    return (f"CONN {normalized}", "muted")
+
+
+def resolve_workspace_kill_switch_pill(state: str | None) -> tuple[str, str]:
+    """Return kill-switch pill text/tone for workspace command strip."""
+    normalized = str(state or "UNKNOWN").upper()
+    if normalized == "ENGAGED":
+        return ("KILL ENGAGED", "danger")
+    if normalized == "DISENGAGED":
+        return ("KILL DISARMED", "muted")
+    return (f"KILL {normalized}", "warning")
+
+
+def resolve_workspace_circuit_breaker_pill(state: str | None) -> tuple[str, str]:
+    """Return circuit-breaker pill text/tone for workspace command strip."""
+    normalized = str(state or "UNKNOWN").upper()
+    if normalized == "TRIPPED":
+        return ("CB TRIPPED", "danger")
+    if normalized == "OPEN":
+        return ("CB READY", "normal")
+    if normalized == "QUIET_PERIOD":
+        return ("CB QUIET", "warning")
+    return (f"CB {normalized}", "muted")
 
 
 def resolve_workspace_quick_links(
@@ -561,6 +630,9 @@ async def dashboard(client: Client) -> None:
     positions_card: _MetricStripValue | MetricCard
     realized_card: _MetricStripValue | MetricCard
     bp_card: _MetricStripValue | MetricCard
+    connection_status_pill: _CommandStatusPill | None = None
+    kill_switch_status_pill: _CommandStatusPill | None = None
+    circuit_breaker_status_pill: _CommandStatusPill | None = None
     workspace_quick_links = resolve_workspace_quick_links(
         user_role=user_role,
         feature_alerts_enabled=config.FEATURE_ALERTS,
@@ -594,6 +666,9 @@ async def dashboard(client: Client) -> None:
                     format_fn=lambda v: f"${v:,.2f}",
                     enter_delay_ms=160,
                 )
+                connection_status_pill = _CommandStatusPill("CONN --", enter_delay_ms=200)
+                kill_switch_status_pill = _CommandStatusPill("KILL --", enter_delay_ms=240)
+                circuit_breaker_status_pill = _CommandStatusPill("CB --", enter_delay_ms=280)
 
             with ui.element("div").classes("workspace-v2-body"):
                 with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
@@ -876,6 +951,27 @@ async def dashboard(client: Client) -> None:
     workspace_connection_state = "CONNECTED"
     workspace_connection_read_only = False
 
+    def _update_workspace_connection_pill() -> None:
+        if not use_workspace_v2 or connection_status_pill is None:
+            return
+        text, tone = resolve_workspace_connection_pill(
+            state=workspace_connection_state,
+            is_read_only=workspace_connection_read_only,
+        )
+        connection_status_pill.set_state(text, tone)
+
+    def _update_workspace_kill_switch_pill() -> None:
+        if not use_workspace_v2 or kill_switch_status_pill is None:
+            return
+        text, tone = resolve_workspace_kill_switch_pill(workspace_kill_switch_state)
+        kill_switch_status_pill.set_state(text, tone)
+
+    def _update_workspace_circuit_breaker_pill() -> None:
+        if not use_workspace_v2 or circuit_breaker_status_pill is None:
+            return
+        text, tone = resolve_workspace_circuit_breaker_pill(workspace_circuit_breaker_state)
+        circuit_breaker_status_pill.set_state(text, tone)
+
     def _set_workspace_mask(*, locked: bool, title: str = "", detail: str = "") -> None:
         """Show/hide workspace interaction mask for safety-critical stale/disconnect states."""
         if not use_workspace_v2 or workspace_root is None or workspace_overlay is None:
@@ -925,9 +1021,13 @@ async def dashboard(client: Client) -> None:
         nonlocal workspace_connection_state, workspace_connection_read_only
         workspace_connection_state = str(state or "UNKNOWN").upper()
         workspace_connection_read_only = bool(is_read_only)
+        _update_workspace_connection_pill()
         _evaluate_workspace_mask()
 
     order_context.set_connection_state_callback(_on_workspace_connection_state)
+    _update_workspace_connection_pill()
+    _update_workspace_kill_switch_pill()
+    _update_workspace_circuit_breaker_pill()
     _evaluate_workspace_mask()
 
     def _current_symbol_filter() -> str | None:
