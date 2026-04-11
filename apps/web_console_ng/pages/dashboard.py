@@ -318,6 +318,10 @@ def resolve_workspace_quick_links(
     feature_alerts_enabled: bool,
     can_view_alerts: bool,
     can_view_data_quality: bool,
+    feature_strategy_management_enabled: bool,
+    can_manage_strategies: bool,
+    feature_model_registry_enabled: bool,
+    can_view_models: bool,
 ) -> list[tuple[str, str]]:
     """Return workspace quick-link routes visible for the current user context."""
     links = [
@@ -326,6 +330,8 @@ def resolve_workspace_quick_links(
         ("Circuit", "/circuit-breaker"),
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
+        ("Strategies", "/strategies"),
+        ("Models", "/models"),
         ("Compare", "/compare"),
         ("Inspector", "/data/inspector"),
     ]
@@ -334,6 +340,12 @@ def resolve_workspace_quick_links(
         if path == "/position-management" and user_role == "viewer":
             continue
         if path == "/alerts" and (not feature_alerts_enabled or not can_view_alerts):
+            continue
+        if path == "/strategies" and (
+            not feature_strategy_management_enabled or not can_manage_strategies
+        ):
+            continue
+        if path == "/models" and (not feature_model_registry_enabled or not can_view_models):
             continue
         if path == "/data/inspector" and not can_view_data_quality:
             continue
@@ -611,6 +623,10 @@ async def dashboard(client: Client) -> None:
         feature_alerts_enabled=config.FEATURE_ALERTS,
         can_view_alerts=has_permission(user, Permission.VIEW_ALERTS),
         can_view_data_quality=has_permission(user, Permission.VIEW_DATA_QUALITY),
+        feature_strategy_management_enabled=config.FEATURE_STRATEGY_MANAGEMENT,
+        can_manage_strategies=has_permission(user, Permission.MANAGE_STRATEGIES),
+        feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
+        can_view_models=has_permission(user, Permission.VIEW_MODELS),
     )
 
     # Metrics strip/cards
