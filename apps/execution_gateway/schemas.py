@@ -126,7 +126,8 @@ class OrderRequest(BaseModel):
     client_order_id: str | None = Field(
         default=None,
         min_length=1,
-        max_length=48,
+        max_length=24,
+        pattern=r"^[a-zA-Z0-9_-]+$",
         description=(
             "Optional caller-supplied order ID. Must be globally unique across "
             "all strategies. Supply a unique value to place a distinct repeat "

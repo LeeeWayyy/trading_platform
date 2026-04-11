@@ -1435,7 +1435,7 @@ async def submit_order(
 
     # Honour caller-supplied client_order_id so repeat orders with identical
     # parameters can be disambiguated.  Fall back to deterministic generation.
-    client_order_id = order.client_order_id or generate_client_order_id(order, config.strategy_id)
+    client_order_id = order.client_order_id if order.client_order_id is not None else generate_client_order_id(order, config.strategy_id)
 
     logger.info(
         f"Order request received: {order.symbol} {order.side} {order.qty}",
