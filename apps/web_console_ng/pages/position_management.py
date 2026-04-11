@@ -167,7 +167,7 @@ async def position_management_page(client: Client) -> None:
                 ],
                 "rowData": [],
                 "domLayout": "autoHeight",
-                "getRowId": "data => data.symbol",
+                ":getRowId": "(params) => params.data.symbol",
                 "rowSelection": "single",
             }
         ).classes("w-full mb-4")
@@ -191,10 +191,25 @@ async def position_management_page(client: Client) -> None:
             )
 
     def update_summary() -> None:
+        def _as_float(value: Any) -> float:
+            if value is None:
+                return 0.0
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                cleaned = value.replace(",", "").strip()
+                if not cleaned:
+                    return 0.0
+                try:
+                    return float(cleaned)
+                except ValueError:
+                    return 0.0
+            return 0.0
+
         position_count_label.set_text(f"Positions: {len(positions_data)}")
-        total_value = sum(p.get("market_value", 0) or 0 for p in positions_data)
+        total_value = sum(_as_float(p.get("market_value")) for p in positions_data)
         total_value_label.set_text(f"Total Value: ${total_value:,.2f}")
-        unrealized = sum(p.get("unrealized_pl", 0) or 0 for p in positions_data)
+        unrealized = sum(_as_float(p.get("unrealized_pl")) for p in positions_data)
         color = "text-green-600" if unrealized >= 0 else "text-red-600"
         unrealized_pnl_label.classes(remove="text-green-600 text-red-600", add=color)
         unrealized_pnl_label.set_text(f"Unrealized P&L: ${unrealized:,.2f}")

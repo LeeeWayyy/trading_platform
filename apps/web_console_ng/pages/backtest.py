@@ -145,9 +145,33 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
+    legacy_sql = """
+        SELECT job_id, alpha_name, start_date, end_date, status, created_at,
+               error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
+               result_path, NULL::jsonb AS cost_summary, 'crsp' AS provider
+        FROM backtest_jobs
+        WHERE created_by = %s AND status = ANY(%s)
+        ORDER BY created_at DESC
+        LIMIT %s
+    """
     with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
-        jobs = cur.fetchall()
+        try:
+            cur.execute(sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            jobs = cur.fetchall()
+        except Exception as exc:
+            from psycopg import errors as pg_errors
+
+            if not isinstance(exc, pg_errors.UndefinedColumn):
+                raise
+            logger.warning(
+                "backtest_jobs_legacy_schema_missing_columns",
+                extra={"created_by": created_by, "error": str(exc)},
+            )
+            # UndefinedColumn aborts the current transaction; clear it before retry.
+            if hasattr(conn, "rollback"):
+                conn.rollback()
+            cur.execute(legacy_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            jobs = cur.fetchall()
 
     if not jobs:
         return []

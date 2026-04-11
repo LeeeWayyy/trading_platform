@@ -12,9 +12,10 @@ from pathlib import Path
 
 
 def main() -> int:
-    repo_root = Path(__file__).resolve().parents[1]
+    # scripts/ops/ensure_web_console_jwt_keys.py -> repo root is two levels up.
+    repo_root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repo_root))
-    from scripts.generate_certs import generate_jwt_keypair
+    from scripts.dev.generate_certs import generate_jwt_keypair
 
     certs_dir = repo_root / "apps" / "web_console_ng" / "certs"
     jwt_private = certs_dir / "jwt_private.key"

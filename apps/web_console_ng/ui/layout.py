@@ -413,6 +413,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
             ui.space()
 
+            log_drawer = LogDrawer(notification_router)
+
             with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
                 kill_switch_button = (
                     ui.button(
@@ -457,8 +459,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     .props("id=connection-badge")
                 )
 
-                log_drawer = LogDrawer(notification_router)
-                log_drawer.create()
+                log_drawer.create_toggle_button()
 
                 with ui.row().classes("items-center gap-2"):
                     ui.label(user_name).classes("text-sm")
@@ -512,6 +513,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
 
         # Main content area
+        # Top-level layout elements (e.g. drawers) must be outside header/rows.
+        log_drawer.create_drawer()
+
         with ui.column().classes("w-full p-2 bg-surface-0 min-h-screen text-text-primary"):
             await page_func(*args, **kwargs)
 
