@@ -234,6 +234,7 @@ class TestFetchTCABenchmarks:
 
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
+                strategy_id="alpha_baseline",
                 user_id="test_user",
                 role="trader",
                 strategies=["alpha_baseline"],
@@ -299,8 +300,8 @@ class TestFetchTCABenchmarks:
         assert result is None
 
     @pytest.mark.asyncio()
-    async def test_fetch_returns_none_on_request_error(self) -> None:
-        """Network-level error returns None (httpx.RequestError)."""
+    async def test_fetch_raises_on_request_error(self) -> None:
+        """Network-level error is logged and re-raised (never swallowed)."""
         with patch("httpx.AsyncClient") as mock_client:
             mock_instance = AsyncMock()
             mock_instance.get.side_effect = httpx.ConnectError("connection refused")
@@ -308,18 +309,17 @@ class TestFetchTCABenchmarks:
             mock_instance.__aexit__.return_value = None
             mock_client.return_value = mock_instance
 
-            result = await _fetch_tca_benchmarks(
-                client_order_id="order-1",
-                user_id="test_user",
-                role="trader",
-                strategies=[],
-            )
-
-        assert result is None
+            with pytest.raises(httpx.ConnectError):
+                await _fetch_tca_benchmarks(
+                    client_order_id="order-1",
+                    user_id="test_user",
+                    role="trader",
+                    strategies=[],
+                )
 
     @pytest.mark.asyncio()
-    async def test_fetch_returns_none_on_malformed_json(self) -> None:
-        """Malformed JSON body on 200 returns None."""
+    async def test_fetch_raises_on_malformed_json(self) -> None:
+        """Malformed JSON body on 200 is logged and re-raised."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.side_effect = ValueError("invalid json")
@@ -331,14 +331,13 @@ class TestFetchTCABenchmarks:
             mock_instance.__aexit__.return_value = None
             mock_client.return_value = mock_instance
 
-            result = await _fetch_tca_benchmarks(
-                client_order_id="order-1",
-                user_id="test_user",
-                role="trader",
-                strategies=[],
-            )
-
-        assert result is None
+            with pytest.raises(ValueError, match="invalid json"):
+                await _fetch_tca_benchmarks(
+                    client_order_id="order-1",
+                    user_id="test_user",
+                    role="trader",
+                    strategies=[],
+                )
 
     @pytest.mark.asyncio()
     async def test_fetch_filters_non_dict_points(self) -> None:

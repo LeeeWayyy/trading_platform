@@ -224,16 +224,12 @@ async def _fetch_tca_benchmarks(
                     "body": response.text[:200],
                 },
             )
-    except httpx.RequestError as e:
+    except (httpx.RequestError, ValueError, KeyError, TypeError, AttributeError) as e:
         logger.warning(
-            "TCA benchmarks API unavailable",
+            "TCA benchmarks API error",
             extra={**log_ctx, "error": str(e)},
         )
-    except (ValueError, KeyError, TypeError, AttributeError) as e:
-        logger.warning(
-            "TCA benchmarks API returned malformed response",
-            extra={**log_ctx, "error": str(e)},
-        )
+        raise
     return None
 
 
@@ -604,14 +600,23 @@ async def _render_tca_dashboard(
 
                     benchmark_data = None
                     if not state["demo_mode"] and client_order_id:
-                        benchmark_data = await _fetch_tca_benchmarks(
-                            client_order_id=client_order_id,
-                            user_id=user_id,
-                            role=role,
-                            strategies=authorized_strategies,
-                            symbol=str(first_order.get("symbol", "")),
-                            strategy_id=str(first_order.get("strategy_id", "")),
-                        )
+                        try:
+                            benchmark_data = await _fetch_tca_benchmarks(
+                                client_order_id=client_order_id,
+                                user_id=user_id,
+                                role=role,
+                                strategies=authorized_strategies,
+                                symbol=str(first_order.get("symbol", "")),
+                                strategy_id=str(first_order.get("strategy_id", "")),
+                            )
+                        except (
+                            httpx.RequestError,
+                            ValueError,
+                            KeyError,
+                            TypeError,
+                            AttributeError,
+                        ):
+                            benchmark_data = None
 
                     # Discard stale results if a newer load was triggered
                     if state["_load_version"] != current_version:
