@@ -40,6 +40,8 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+_SERVICE_NAME = "model_registry"
+
 
 # =============================================================================
 # Router Setup
@@ -208,7 +210,7 @@ def get_current_model(
             "model_type": model_type.value,
             "version": metadata.version,
             "auth_role": auth.auth_role,
-            "service": "model_registry",
+            "service": _SERVICE_NAME,
         },
     )
 
@@ -284,7 +286,7 @@ def get_model_metadata(
             "version": version,
             "model_id": metadata.model_id,
             "auth_role": auth.auth_role,
-            "service": "model_registry",
+            "service": _SERVICE_NAME,
         },
     )
 
@@ -365,7 +367,7 @@ def validate_model(
             "checksum_ok": result.checksum_verified,
             "load_ok": result.load_successful,
             "auth_role": auth.auth_role,
-            "service": "model_registry",
+            "service": _SERVICE_NAME,
         },
     )
 
@@ -467,7 +469,7 @@ def list_models(
             "status_filter": status_filter.value if status_filter else None,
             "count": len(models),
             "auth_role": auth.auth_role,
-            "service": "model_registry",
+            "service": _SERVICE_NAME,
         },
     )
 

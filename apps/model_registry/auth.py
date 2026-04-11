@@ -28,7 +28,6 @@ class _AuthConfig(BaseModel, frozen=True):
     """Auth section of model registry configuration."""
 
     type: str = "bearer"
-    token_env: str = "MODEL_REGISTRY_READ_TOKEN"
 
 
 class _TimeoutConfig(BaseModel, frozen=True):
@@ -73,7 +72,7 @@ _READ_SCOPES: tuple[str, ...] = ("model:read",)
 class ServiceToken(BaseModel, frozen=True):
     """Verified service token with scopes."""
 
-    scopes: list[str]
+    scopes: tuple[str, ...]
     auth_role: str
 
 
@@ -114,7 +113,7 @@ def _get_expected_tokens() -> dict[str, str]:
 def _authenticate_token(
     token: str,
     expected_tokens: dict[str, str] | None = None,
-) -> tuple[list[str], str] | None:
+) -> tuple[tuple[str, ...], str] | None:
     """Authenticate a bearer token and return its scopes and role label.
 
     Performs a single pass over configured tokens using constant-time
@@ -150,13 +149,13 @@ def _authenticate_token(
     # Admin token is explicitly configured and grants full scopes
     admin_token = expected_tokens.get("admin")
     if admin_token and secrets.compare_digest(token, admin_token):
-        return list(_ADMIN_SCOPES), "admin"
+        return _ADMIN_SCOPES, "admin"
 
     # Shared/legacy tokens are read-only for safety
     for role in ("read", "legacy_read"):
         candidate = expected_tokens.get(role)
         if candidate and secrets.compare_digest(token, candidate):
-            return list(_READ_SCOPES), role
+            return _READ_SCOPES, role
 
     # Unknown token -> no match.  IMPORTANT: Do **not** accept arbitrary
     # "service:scope" bearer tokens here because the token value has not been

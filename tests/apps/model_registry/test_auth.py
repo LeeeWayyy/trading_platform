@@ -43,13 +43,13 @@ def test_authenticate_token_returns_correct_scopes_and_roles(monkeypatch: pytest
     result = auth._authenticate_token("admin-secret")
     assert result is not None
     scopes, role = result
-    assert scopes == ["model:read", "model:write", "model:admin"]
+    assert scopes == ("model:read", "model:write", "model:admin")
     assert role == "admin"
 
     result = auth._authenticate_token("read-secret")
     assert result is not None
     scopes, role = result
-    assert scopes == ["model:read"]
+    assert scopes == ("model:read",)
     assert role == "read"
 
     assert auth._authenticate_token("unknown") is None
@@ -67,7 +67,7 @@ def test_authenticate_token_admin_takes_precedence_over_read(
     assert result is not None
     scopes, role = result
     # Admin is checked first, so admin scopes should be returned
-    assert scopes == ["model:read", "model:write", "model:admin"]
+    assert scopes == ("model:read", "model:write", "model:admin")
     assert role == "admin"
 
 
@@ -150,7 +150,7 @@ async def test_verify_token_valid_token_returns_service_token(
     result = await auth.verify_token(creds)
 
     assert isinstance(result, ServiceToken)
-    assert result.scopes == ["model:read"]
+    assert result.scopes == ("model:read",)
     # auth_role is derived from the role key, not token content (fixes #174)
     assert result.auth_role == "read"
 
@@ -166,7 +166,7 @@ async def test_verify_token_admin_token_returns_admin_role(
     result = await auth.verify_token(creds)
 
     assert isinstance(result, ServiceToken)
-    assert result.scopes == ["model:read", "model:write", "model:admin"]
+    assert result.scopes == ("model:read", "model:write", "model:admin")
     assert result.auth_role == "admin"
 
 
@@ -181,7 +181,7 @@ async def test_verify_token_legacy_token_returns_legacy_read_role(
     result = await auth.verify_token(creds)
 
     assert isinstance(result, ServiceToken)
-    assert result.scopes == ["model:read"]
+    assert result.scopes == ("model:read",)
     assert result.auth_role == "legacy_read"
 
 
@@ -207,14 +207,14 @@ def test_authenticate_token_returns_role_not_token_content(
 
 @pytest.mark.asyncio()
 async def test_verify_read_scope_accepts_admin_scope() -> None:
-    token = ServiceToken(scopes=["model:admin"], auth_role="svc")
+    token = ServiceToken(scopes=("model:admin",), auth_role="svc")
 
     assert await auth.verify_read_scope(token) is token
 
 
 @pytest.mark.asyncio()
 async def test_verify_read_scope_rejects_missing_scope() -> None:
-    token = ServiceToken(scopes=[], auth_role="svc")
+    token = ServiceToken(scopes=(), auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_read_scope(token)
@@ -224,7 +224,7 @@ async def test_verify_read_scope_rejects_missing_scope() -> None:
 
 @pytest.mark.asyncio()
 async def test_verify_write_scope_rejects_read_only_scope() -> None:
-    token = ServiceToken(scopes=["model:read"], auth_role="svc")
+    token = ServiceToken(scopes=("model:read",), auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_write_scope(token)
@@ -234,7 +234,7 @@ async def test_verify_write_scope_rejects_read_only_scope() -> None:
 
 @pytest.mark.asyncio()
 async def test_verify_admin_scope_rejects_missing_scope() -> None:
-    token = ServiceToken(scopes=["model:read"], auth_role="svc")
+    token = ServiceToken(scopes=("model:read",), auth_role="svc")
 
     with pytest.raises(HTTPException) as excinfo:
         await auth.verify_admin_scope(token)

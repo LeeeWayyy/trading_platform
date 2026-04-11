@@ -62,10 +62,10 @@ def _client_with_registry(registry: MagicMock) -> TestClient:
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes.verify_read_scope] = lambda: ServiceToken(
-        scopes=["model:read"], auth_role="svc"
+        scopes=("model:read",), auth_role="svc"
     )
     app.dependency_overrides[routes.verify_write_scope] = lambda: ServiceToken(
-        scopes=["model:write"], auth_role="svc"
+        scopes=("model:write",), auth_role="svc"
     )
     app.dependency_overrides[routes.get_registry] = lambda: registry
     return TestClient(app)
