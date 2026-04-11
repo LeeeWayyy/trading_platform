@@ -5,6 +5,35 @@ from __future__ import annotations
 from nicegui import ui
 
 
+def resolve_execution_gate_state(
+    *,
+    strategy_status: str | None,
+    model_status: str | None,
+    gate_enabled: bool,
+    gate_reason: str | None = None,
+) -> tuple[str, str, str]:
+    """Return gate badge text/tone and default banner message."""
+    strategy = str(strategy_status or "unknown").strip().lower()
+    model = str(model_status or "unknown").strip().lower()
+    strategy_safe = strategy in {"active", "idle", "ready"}
+    model_safe = model in {"active", "testing", "ready"}
+
+    if not gate_enabled:
+        return ("GATE OFF", "warning", "Execution gate is disabled by feature flag.")
+
+    if strategy_safe and model_safe:
+        return ("GATE CLEAR", "positive", "Execution context healthy.")
+
+    if gate_reason:
+        return ("GATE BLOCKED", "negative", f"Execution gated: {gate_reason}")
+
+    if not strategy_safe:
+        return ("GATE BLOCKED", "negative", f"Execution gated: strategy is {strategy.upper()}")
+    if not model_safe:
+        return ("GATE BLOCKED", "negative", f"Execution gated: model is {model.upper()}")
+    return ("GATE BLOCKED", "negative", "Execution gated: strategy/model context unavailable")
+
+
 class StrategyContextWidget:
     """Render current strategy/model safety context near the order ticket."""
 
@@ -17,6 +46,7 @@ class StrategyContextWidget:
         self._strategy_status: ui.label | None = None
         self._model_label: ui.label | None = None
         self._model_status: ui.label | None = None
+        self._gate_status: ui.label | None = None
         self._banner_label: ui.label | None = None
 
     def create(self) -> ui.card:
@@ -24,6 +54,11 @@ class StrategyContextWidget:
         with ui.card().classes("workspace-v2-panel workspace-v2-strategy-context") as card:
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label("Strategy Context").classes("workspace-v2-panel-title")
+                self._gate_status = ui.label("GATE UNKNOWN").classes(
+                    "workspace-v2-pill workspace-v2-pill-warning"
+                )
+
+            with ui.row().classes("w-full items-center justify-between mt-1"):
                 self._symbol_label = ui.label("SYMBOL: --").classes(
                     "workspace-v2-kv workspace-v2-data-mono"
                 )
@@ -41,13 +76,13 @@ class StrategyContextWidget:
                 )
 
             with ui.row().classes("w-full items-center justify-between mt-1 gap-2"):
-                self._model_label = ui.label("Model: pending data contract").classes("workspace-v2-kv")
+                self._model_label = ui.label("Model: --").classes("workspace-v2-kv")
                 self._model_status = ui.label("UNKNOWN").classes(
                     "workspace-v2-pill workspace-v2-pill-warning"
                 )
 
             self._banner_label = ui.label(
-                "Execution gating by strategy/model is pending backend status feed."
+                "Select a symbol to resolve strategy/model execution context."
             ).classes("workspace-v2-banner workspace-v2-banner-warning mt-2")
 
         return card
@@ -63,33 +98,71 @@ class StrategyContextWidget:
         *,
         strategy_status: str,
         model_status: str,
+        gate_enabled: bool = True,
+        gate_reason: str | None = None,
         strategy_label: str | None = None,
         model_label: str | None = None,
         banner: str | None = None,
     ) -> None:
-        """Update status fields when backend context feed becomes available."""
+        """Update status fields from strategy/model context resolver."""
         self._set_status_badge(self._strategy_status, strategy_status)
         self._set_status_badge(self._model_status, model_status)
+
+        gate_text, gate_tone, default_banner = resolve_execution_gate_state(
+            strategy_status=strategy_status,
+            model_status=model_status,
+            gate_enabled=gate_enabled,
+            gate_reason=gate_reason,
+        )
+        self._set_tone_badge(self._gate_status, tone=gate_tone, text=gate_text)
+        self._set_banner_tone(gate_tone)
 
         if strategy_label is not None and self._strategy_label is not None:
             self._strategy_label.text = strategy_label
         if model_label is not None and self._model_label is not None:
             self._model_label.text = model_label
-        if banner is not None and self._banner_label is not None:
-            self._banner_label.text = banner
+        if self._banner_label is not None:
+            self._banner_label.text = banner if banner is not None else default_banner
+
+    def _set_tone_badge(self, badge: ui.label | None, *, tone: str, text: str) -> None:
+        if badge is None:
+            return
+        badge.text = text
+        badge.classes(
+            remove="workspace-v2-pill-positive workspace-v2-pill-negative workspace-v2-pill-warning"
+        )
+        if tone == "positive":
+            badge.classes(add="workspace-v2-pill-positive")
+        elif tone == "negative":
+            badge.classes(add="workspace-v2-pill-negative")
+        else:
+            badge.classes(add="workspace-v2-pill-warning")
 
     def _set_status_badge(self, badge: ui.label | None, status: str) -> None:
         if badge is None:
             return
         normalized = status.strip().upper() if status else "UNKNOWN"
-        badge.text = normalized
-        badge.classes(remove="workspace-v2-pill-positive workspace-v2-pill-negative workspace-v2-pill-warning")
-        if normalized in {"ACTIVE", "READY"}:
-            badge.classes(add="workspace-v2-pill-positive")
+        tone: str
+        if normalized in {"ACTIVE", "READY", "IDLE", "TESTING"}:
+            tone = "positive"
         elif normalized in {"FAILED", "INACTIVE", "TRIPPED"}:
-            badge.classes(add="workspace-v2-pill-negative")
+            tone = "negative"
         else:
-            badge.classes(add="workspace-v2-pill-warning")
+            tone = "warning"
+        self._set_tone_badge(badge, tone=tone, text=normalized)
+
+    def _set_banner_tone(self, tone: str) -> None:
+        if self._banner_label is None:
+            return
+        self._banner_label.classes(
+            remove="workspace-v2-banner-positive workspace-v2-banner-warning workspace-v2-banner-negative"
+        )
+        if tone == "positive":
+            self._banner_label.classes(add="workspace-v2-banner-positive")
+        elif tone == "negative":
+            self._banner_label.classes(add="workspace-v2-banner-negative")
+        else:
+            self._banner_label.classes(add="workspace-v2-banner-warning")
 
 
-__all__ = ["StrategyContextWidget"]
+__all__ = ["StrategyContextWidget", "resolve_execution_gate_state"]

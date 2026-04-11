@@ -150,6 +150,8 @@ class TestStrategyModelContextDispatch:
         context._strategy_context_widget.set_status.assert_called_once_with(
             strategy_status="active",
             model_status="testing",
+            gate_enabled=True,
+            gate_reason="manual review",
             strategy_label="Strategy: alpha",
             model_label="Model: v2.1",
             banner="Execution context healthy.",

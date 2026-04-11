@@ -1455,6 +1455,12 @@
     color: #fcd34d;
 }
 
+.workspace-v2-banner-positive {
+    background: rgba(6, 78, 59, 0.28);
+    border: 1px solid rgba(52, 211, 153, 0.32);
+    color: #6ee7b7;
+}
+
 .workspace-v2-banner-negative {
     background: rgba(69, 10, 10, 0.85);
     border: 1px solid rgba(190, 24, 93, 0.34);
