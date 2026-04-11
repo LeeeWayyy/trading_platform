@@ -886,6 +886,148 @@ class TestOrchestrationErrorHandling:
         assert response.status_code == 500
         assert "Internal server error" in response.json()["detail"]
 
+    def test_run_orchestration_failed_result_records_error_metric(
+        self, test_client, mock_db, mock_orchestrator, mock_kill_switch
+    ):
+        """Test that a failed OrchestrationResult sets run_status to 'error' for metrics.
+
+        Regression test for #162: orchestrator.run() can return status='failed'
+        without raising, which previously left run_status as 'success'.
+        """
+        run_result = OrchestrationResult(
+            run_id=uuid4(),
+            status="failed",
+            strategy_id="alpha_baseline",
+            as_of_date="2024-10-19",
+            symbols=["AAPL"],
+            capital=Decimal("100000"),
+            num_signals=0,
+            num_orders_submitted=0,
+            num_orders_accepted=0,
+            num_orders_rejected=0,
+            mappings=[],
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            duration_seconds=Decimal("0.5"),
+        )
+        mock_orchestrator.run.return_value = run_result
+
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
+            patch("apps.orchestrator.main.orchestration_runs_total") as mock_counter,
+        ):
+            response = test_client.post(
+                "/api/v1/orchestration/run",
+                json={"symbols": ["AAPL"], "as_of_date": "2024-10-19"},
+            )
+
+        # The HTTP response still returns the result (200) — the body shows status=failed
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "failed"
+
+        # The metric must record "error", not "success"
+        mock_counter.labels.assert_called_with(status="error")
+        mock_counter.labels.return_value.inc.assert_called_once()
+
+        # Database persistence still happens
+        mock_db.create_run.assert_called_once_with(run_result)
+
+    def test_run_orchestration_partial_result_records_error_metric(
+        self, test_client, mock_db, mock_orchestrator, mock_kill_switch
+    ):
+        """Test that a partial OrchestrationResult sets run_status to 'error' for metrics.
+
+        Regression test: orchestrator.run() can return status='partial' when some
+        orders are accepted and others rejected. This must be recorded as 'error',
+        not 'success', in the orchestration_runs_total metric.
+        """
+        run_result = OrchestrationResult(
+            run_id=uuid4(),
+            status="partial",
+            strategy_id="alpha_baseline",
+            as_of_date="2024-10-19",
+            symbols=["AAPL", "MSFT"],
+            capital=Decimal("100000"),
+            num_signals=2,
+            num_orders_submitted=2,
+            num_orders_accepted=1,
+            num_orders_rejected=1,
+            mappings=[],
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 1, tzinfo=UTC),
+            duration_seconds=Decimal("1.0"),
+        )
+        mock_orchestrator.run.return_value = run_result
+
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
+            patch("apps.orchestrator.main.orchestration_runs_total") as mock_counter,
+        ):
+            response = test_client.post(
+                "/api/v1/orchestration/run",
+                json={"symbols": ["AAPL", "MSFT"], "as_of_date": "2024-10-19"},
+            )
+
+        # The HTTP response still returns the result (200) — the body shows status=partial
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "partial"
+
+        # The metric must record "error", not "success"
+        mock_counter.labels.assert_called_with(status="error")
+        mock_counter.labels.return_value.inc.assert_called_once()
+
+        # Database persistence still happens
+        mock_db.create_run.assert_called_once_with(run_result)
+
+    def test_run_orchestration_completed_result_records_success_metric(
+        self, test_client, mock_db, mock_orchestrator, mock_kill_switch
+    ):
+        """Test that a completed OrchestrationResult keeps run_status as 'success'."""
+        run_result = OrchestrationResult(
+            run_id=uuid4(),
+            status="completed",
+            strategy_id="alpha_baseline",
+            as_of_date="2024-10-19",
+            symbols=["AAPL"],
+            capital=Decimal("100000"),
+            num_signals=1,
+            num_orders_submitted=1,
+            num_orders_accepted=1,
+            num_orders_rejected=0,
+            mappings=[],
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            duration_seconds=Decimal("1.0"),
+        )
+        mock_orchestrator.run.return_value = run_result
+
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
+            patch("apps.orchestrator.main.orchestration_runs_total") as mock_counter,
+        ):
+            response = test_client.post(
+                "/api/v1/orchestration/run",
+                json={"symbols": ["AAPL"], "as_of_date": "2024-10-19"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+
+        # The metric must record "success"
+        mock_counter.labels.assert_called_with(status="success")
+        mock_counter.labels.return_value.inc.assert_called_once()
+
 
 class TestStartupShutdownEvents:
     """Tests for application startup and shutdown events."""
