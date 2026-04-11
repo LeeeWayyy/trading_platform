@@ -419,7 +419,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "KILL SWITCH: UNKNOWN",
                     )
                     .classes(
-                        "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black shrink-0"
+                        "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 shrink-0"
                     )
                     .props("id=kill-switch-badge unelevated")
                 )
@@ -429,7 +429,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         icon="power_settings_new",
                         on_click=lambda: open_kill_switch_dialog("ENGAGE"),
                     )
-                    .classes("h-8 px-2 py-1 rounded text-xs bg-red-600 text-white shrink-0")
+                    .classes("h-8 px-2 py-1 rounded text-xs bg-slate-700 text-slate-100 shrink-0")
                     .props("id=kill-switch-engage")
                 )
                 disengage_button = (
@@ -438,13 +438,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         icon="power_off",
                         on_click=lambda: open_kill_switch_dialog("DISENGAGE"),
                     )
-                    .classes("h-8 px-2 py-1 rounded text-xs bg-green-600 text-white shrink-0")
+                    .classes("h-8 px-2 py-1 rounded text-xs bg-slate-700 text-slate-100 shrink-0")
                     .props("id=kill-switch-disengage")
                 )
                 circuit_breaker_badge = (
                     ui.label("Circuit: Unknown")
                     .classes(
-                        "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black flex items-center shrink-0"
+                        "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 flex items-center shrink-0"
                     )
                     .props("id=circuit-breaker-badge")
                 )
@@ -713,50 +713,50 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if state == "ENGAGED":
                         kill_switch_button.set_text("KILL SWITCH: ENGAGED")
                         kill_switch_button.classes(
-                            "bg-red-500 text-white",
-                            remove="bg-green-500 bg-yellow-500 text-black",
+                            "bg-red-700 text-rose-100",
+                            remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                         )
                         if last_kill_switch_state != "ENGAGED":
                             ui.notify("Kill switch engaged", type="negative")
                     elif state == "DISENGAGED":
-                        # Only show "TRADING ACTIVE" for explicit DISENGAGED state
+                        # Keep muted visual weight when disarmed (do not compete with chart/ticket).
                         kill_switch_button.set_text("KILL SWITCH: DISENGAGED")
                         kill_switch_button.classes(
-                            "bg-green-500 text-white",
-                            remove="bg-red-500 bg-yellow-500 text-black",
+                            "bg-slate-700 text-slate-100",
+                            remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                         )
                     else:
                         # Unknown/invalid state - show warning
                         kill_switch_button.set_text(f"KILL SWITCH: {state}")
                         kill_switch_button.classes(
-                            "bg-yellow-500 text-black",
-                            remove="bg-red-500 bg-green-500 text-white",
+                            "bg-amber-500 text-black",
+                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
                     status_bar.update_state(state)
 
                     if cb_state == "TRIPPED":
                         circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
                         circuit_breaker_badge.classes(
-                            "bg-red-500 text-white",
-                            remove="bg-green-500 bg-yellow-500 text-black",
+                            "bg-red-700 text-rose-100",
+                            remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                         )
                     elif cb_state == "OPEN":
                         circuit_breaker_badge.set_text("CIRCUIT OK")
                         circuit_breaker_badge.classes(
-                            "bg-green-500 text-white",
-                            remove="bg-red-500 bg-yellow-500 text-black",
+                            "bg-slate-700 text-slate-100",
+                            remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                         )
                     elif cb_state == "QUIET_PERIOD":
                         circuit_breaker_badge.set_text("CIRCUIT QUIET PERIOD")
                         circuit_breaker_badge.classes(
-                            "bg-yellow-500 text-black",
-                            remove="bg-red-500 bg-green-500 text-white",
+                            "bg-amber-500 text-black",
+                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
                     else:
                         circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
                         circuit_breaker_badge.classes(
-                            "bg-yellow-500 text-black",
-                            remove="bg-red-500 bg-green-500 text-white",
+                            "bg-amber-500 text-black",
+                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
 
                     last_kill_switch_state = state
@@ -775,15 +775,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     kill_switch_state = "UNKNOWN"
                     kill_switch_button.set_text("STATUS UNKNOWN")
                     kill_switch_button.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500",
+                        "bg-amber-500 text-black",
+                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                     )
                     status_bar.update_state("UNKNOWN")
                     set_kill_switch_controls("UNKNOWN")
                     circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
                     circuit_breaker_badge.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500 text-white",
+                        "bg-amber-500 text-black",
+                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                     )
 
                 if status_success:
