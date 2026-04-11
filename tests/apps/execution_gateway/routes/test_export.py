@@ -175,7 +175,7 @@ class TestBuildFilterClause:
     def test_col_prefix_applied(self) -> None:
         filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
         sql, params = _build_filter_clause(filt, ["symbol"], col_prefix="p.")
-        assert "p.symbol" in sql
+        assert '"p"."symbol"' in sql
         assert "AAPL" in params
 
     def test_multiple_filters(self) -> None:
@@ -228,8 +228,8 @@ class TestBuildFilterClause:
         result_sql, params = _build_filter_clause(
             filt, ["order_qty", "symbol"], col_prefix="t.", col_prefix_map=prefix_map,
         )
-        assert "o.qty" in result_sql
-        assert "t.symbol" in result_sql
+        assert '"o"."qty"' in result_sql
+        assert '"t"."symbol"' in result_sql
         assert 5 in params
         assert "AAPL" in params
 
@@ -240,21 +240,21 @@ class TestBuildFilterClause:
         result_sql, params = _build_filter_clause(
             filt, ["symbol"], col_prefix="t.", col_prefix_map=prefix_map,
         )
-        assert "t.symbol" in result_sql
+        assert '"t"."symbol"' in result_sql
         assert "AAPL" in params
 
     def test_jsonb_column_gets_text_cast(self) -> None:
         """JSONB columns like 'details' need ::text for text operators."""
         filt = {"details": {"filterType": "text", "type": "contains", "filter": "login"}}
         result_sql, params = _build_filter_clause(filt, ["details"])
-        assert "details::text ILIKE %s" in result_sql
+        assert '"details"::text ILIKE %s' in result_sql
         assert "%login%" in params
 
     def test_non_jsonb_column_no_text_cast(self) -> None:
         """Regular text columns should not get ::text cast."""
         filt = {"symbol": {"filterType": "text", "type": "contains", "filter": "AAPL"}}
         result_sql, params = _build_filter_clause(filt, ["symbol"])
-        assert "symbol ILIKE %s" in result_sql
+        assert '"symbol" ILIKE %s' in result_sql
         assert "::text" not in result_sql
 
     def test_set_filter(self) -> None:
@@ -266,7 +266,7 @@ class TestBuildFilterClause:
             }
         }
         result_sql, params = _build_filter_clause(filt, ["status"])
-        assert "status = ANY(%s)" in result_sql
+        assert '"status" = ANY(%s)' in result_sql
         assert params == [["new", "pending_new", "partially_filled"]]
 
     def test_set_filter_empty_values_ignored(self) -> None:
@@ -339,7 +339,7 @@ class TestBuildOrderClause:
     def test_valid_sort_model(self) -> None:
         model = [{"colId": "symbol", "sort": "desc"}]
         result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
-        assert result == "symbol DESC"
+        assert result == '"symbol" DESC'
 
     def test_ignores_unknown_columns(self) -> None:
         model = [{"colId": "DROP TABLE", "sort": "asc"}]
@@ -353,7 +353,7 @@ class TestBuildOrderClause:
             {"colId": "symbol", "sort": "desc", "sortIndex": 0},
         ]
         result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
-        assert result == "symbol DESC, qty ASC"
+        assert result == '"symbol" DESC, "qty" ASC'
 
     def test_sort_index_missing_appended_at_end(self) -> None:
         """Items without sortIndex are appended after indexed items."""
@@ -362,7 +362,7 @@ class TestBuildOrderClause:
             {"colId": "symbol", "sort": "desc", "sortIndex": 0},
         ]
         result = _build_order_clause(model, ["symbol", "qty"], "symbol ASC")
-        assert result == "symbol DESC, qty ASC"
+        assert result == '"symbol" DESC, "qty" ASC'
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +614,7 @@ class TestGenerateExcelContent:
         # psycopg.sql.Composed objects are passed to execute(); convert
         # to string representation for assertion.
         executed_sql = str(cursor.execute.call_args[0][0])
-        assert "symbol = %s" in executed_sql
+        assert '"symbol" = %s' in executed_sql
         # The bind parameters should include the filter value
         executed_params = cursor.execute.call_args[0][1]
         assert "AAPL" in executed_params
@@ -641,7 +641,7 @@ class TestGenerateExcelContent:
 
         # "type" should be resolved to "order_type" in the ORDER BY
         executed_sql = str(cursor.execute.call_args[0][0])
-        assert "order_type DESC" in executed_sql
+        assert '"order_type" DESC' in executed_sql
 
     async def test_audit_row_count_matches_data(self) -> None:
         """Verify row_count reflects actual exported rows, not a placeholder."""
