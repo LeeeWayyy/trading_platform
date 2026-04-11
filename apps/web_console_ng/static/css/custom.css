@@ -1244,6 +1244,39 @@
     border-radius: 8px;
 }
 
+.workspace-v2-market-context-card {
+    background: rgba(15, 23, 42, 0.78) !important;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.workspace-v2-market-symbol {
+    color: #f8fafc;
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1.1;
+}
+
+.workspace-v2-market-price {
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.05;
+}
+
+.workspace-v2-market-price-bid {
+    color: #86efac;
+}
+
+.workspace-v2-market-price-ask {
+    color: #fda4af;
+}
+
+.workspace-v2-market-price-last {
+    color: #bfdbfe;
+}
+
 .workspace-v2-panel {
     background: rgba(15, 23, 42, 0.74) !important;
     border: 1px solid var(--workspace-border);
@@ -1432,6 +1465,11 @@
     text-transform: uppercase;
 }
 
+.workspace-v2-pill-muted {
+    border-color: rgba(71, 85, 105, 0.72);
+    color: #cbd5e1;
+}
+
 .workspace-v2-pill-positive {
     border-color: rgba(52, 211, 153, 0.45);
     color: #6ee7b7;
@@ -1445,6 +1483,12 @@
 .workspace-v2-pill-negative {
     border-color: rgba(251, 113, 133, 0.5);
     color: #fda4af;
+}
+
+.workspace-v2-pill.workspace-v2-market-badge {
+    font-size: 0.6rem;
+    min-height: 20px;
+    padding: 1px 7px;
 }
 
 .workspace-v2-banner {

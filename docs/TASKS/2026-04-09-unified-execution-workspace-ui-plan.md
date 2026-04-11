@@ -758,3 +758,15 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - `DOM ladder` (reduced row)
   - `Market Context` (supporting row)
 - Removed duplicate `Market Context` placement from Zone C to keep execution column focused on action + analytics.
+
+20. Zone B Market Context visual alignment (`market_context.py`, `custom.css`)
+- Refactored `MarketContextComponent` card structure/classes to workspace-v2 style tokens.
+- Replaced legacy green/red/gray utility badge classes with workspace pill-tone classes.
+- Added compact market-context typography/badge CSS primitives:
+  - symbol/price variants
+  - compact badge sizing
+  - muted workspace pill tone
+- Initialized `No data` / `N/A` badges with muted tone by default.
+- Added high-specificity compact badge selector to prevent `.workspace-v2-pill` padding/font overrides.
+- Added unit coverage for badge-tone helper behavior (`test_market_context.py`).
+- Kept data behavior and staleness semantics unchanged while improving density/theme consistency.
