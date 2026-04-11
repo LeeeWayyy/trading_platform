@@ -24,6 +24,11 @@ from typing import TYPE_CHECKING, Any, Literal
 from nicegui import ui
 
 from apps.web_console_ng.components.action_button import ActionButton
+from apps.web_console_ng.components.execution_gate import (
+    is_model_execution_safe,
+    is_strategy_execution_safe,
+    normalize_execution_status,
+)
 from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
 from apps.web_console_ng.utils.time import parse_iso_timestamp, validate_and_normalize_symbol
 
@@ -721,13 +726,13 @@ class OrderTicketComponent:
         """Update strategy/model execution context used by submit safety gate.
 
         Args:
-            strategy_status: Strategy runtime status (active/idle/inactive/unknown).
-            model_status: Model runtime status (active/testing/failed/inactive/unknown).
+            strategy_status: Strategy runtime status (active/idle/ready/inactive/unknown).
+            model_status: Model runtime status (active/testing/ready/failed/inactive/unknown).
             gate_enabled: Whether strategy/model gating should be enforced.
             gate_reason: Optional reason produced by upstream context resolver.
         """
-        self._strategy_status = str(strategy_status or "unknown").strip().lower()
-        self._model_status = str(model_status or "unknown").strip().lower()
+        self._strategy_status = normalize_execution_status(strategy_status)
+        self._model_status = normalize_execution_status(model_status)
         self._execution_gate_enabled = bool(gate_enabled)
         self._execution_gate_reason = str(gate_reason) if gate_reason else None
 
@@ -1042,8 +1047,8 @@ class OrderTicketComponent:
         if not self._execution_gate_enabled:
             return None
 
-        strategy_safe = self._strategy_status in {"active", "idle"}
-        model_safe = self._model_status in {"active", "testing"}
+        strategy_safe = is_strategy_execution_safe(self._strategy_status)
+        model_safe = is_model_execution_safe(self._model_status)
         if strategy_safe and model_safe:
             return None
 

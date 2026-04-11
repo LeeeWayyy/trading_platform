@@ -18,6 +18,11 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.data_health_widget import render_data_health
+from apps.web_console_ng.components.execution_gate import (
+    is_model_execution_safe,
+    is_strategy_execution_safe,
+    normalize_execution_status,
+)
 from apps.web_console_ng.components.fat_finger_validator import (
     FatFingerThresholds,
     FatFingerValidator,
@@ -351,6 +356,22 @@ def resolve_workspace_quick_links(
             continue
         visible_links.append((label, path))
     return visible_links
+
+
+def resolve_strategy_context_banner(
+    *,
+    strategy_status: str | None,
+    model_status: str | None,
+    gate_reason: str | None,
+) -> str:
+    """Return strategy/model context banner text using shared gate semantics."""
+    strategy_safe = is_strategy_execution_safe(strategy_status)
+    model_safe = is_model_execution_safe(model_status)
+    if strategy_safe and model_safe:
+        return "Execution context healthy."
+    if gate_reason:
+        return f"Execution context degraded: {gate_reason}"
+    return "Execution context degraded: strategy/model state unresolved."
 
 
 class MarketPriceCache:
@@ -1777,7 +1798,7 @@ async def dashboard(client: Client) -> None:
             status_raw = row[0]
             version_raw = row[1]
 
-        status = str(status_raw or "unknown").strip().lower()
+        status = normalize_execution_status(status_raw)
         version = str(version_raw).strip() if version_raw else None
         return (status, version)
 
@@ -1787,13 +1808,11 @@ async def dashboard(client: Client) -> None:
         model_status: str,
         gate_reason: str | None,
     ) -> str:
-        strategy_safe = strategy_status in {"active", "idle"}
-        model_safe = model_status in {"active", "testing"}
-        if strategy_safe and model_safe:
-            return "Execution context healthy."
-        if gate_reason:
-            return f"Execution context degraded: {gate_reason}"
-        return "Execution context degraded: strategy/model state unresolved."
+        return resolve_strategy_context_banner(
+            strategy_status=strategy_status,
+            model_status=model_status,
+            gate_reason=gate_reason,
+        )
 
     def _is_strategy_context_refresh_stale(
         refresh_generation: int,
@@ -1856,10 +1875,10 @@ async def dashboard(client: Client) -> None:
                 role=user_role,
                 strategies=user_strategies,
             )
-            strategy_status = str(strategy_payload.get("status") or "unknown").strip().lower()
+            strategy_status = normalize_execution_status(strategy_payload.get("status"))
             payload_model_status = strategy_payload.get("model_status")
             if payload_model_status:
-                model_status = str(payload_model_status).strip().lower()
+                model_status = normalize_execution_status(payload_model_status)
             payload_model_version = strategy_payload.get("model_version")
             if payload_model_version:
                 model_version = str(payload_model_version).strip()
@@ -1876,8 +1895,8 @@ async def dashboard(client: Client) -> None:
         if model_version is None:
             model_version = db_model_version
 
-        strategy_safe = strategy_status in {"active", "idle"}
-        model_safe = model_status in {"active", "testing"}
+        strategy_safe = is_strategy_execution_safe(strategy_status)
+        model_safe = is_model_execution_safe(model_status)
 
         gate_reason: str | None = None
         if not strategy_safe:
