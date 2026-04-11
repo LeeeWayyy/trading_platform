@@ -776,23 +776,6 @@ _GRID_COLUMNS: dict[str, list[str]] = {
 # Maximum rows per export to prevent excessive memory / query time
 _EXPORT_ROW_LIMIT = 10_000
 
-# Working (active) order statuses.  Orders in these statuses are shown
-# on the "Working Orders" tab.  This constant is shared with the web
-# console (``apps.web_console_ng.components.tabbed_panel``) and can be
-# used when the frontend passes a ``tab_context`` indicating the export
-# originated from the Working tab.
-# TODO(#151): Frontend should inject a status filter into filter_params
-# when exporting from the Working Orders tab so that export/view parity
-# is maintained without server-side guessing.
-WORKING_ORDER_STATUSES = frozenset({
-    "new",
-    "pending_new",
-    "partially_filled",
-    "accepted",
-    "pending_cancel",
-    "pending_replace",
-})
-
 
 # ---------------------------------------------------------------------------
 # Frontend → DB column alias mapping.
@@ -911,6 +894,109 @@ def _build_order_clause(
 _JSONB_COLUMNS: frozenset[str] = frozenset({"details"})
 
 
+def _build_single_condition(
+    col: str,
+    qcol: str,
+    spec: dict[str, Any],
+    clauses: list[str],
+    params: list[Any],
+) -> None:
+    """Append SQL for a single AG Grid filter condition.
+
+    This handles one atomic condition (``type`` + ``filter``).  Compound
+    filters (``operator`` + ``conditions``) are decomposed by
+    ``_build_filter_clause`` before calling this helper.
+    """
+    filter_type = spec.get("filterType", "text")
+    ftype = spec.get("type", "")
+
+    if filter_type == "text":
+        value = spec.get("filter")
+        if value is None:
+            return
+        value = str(value)
+        # JSONB columns need an explicit ::text cast for text
+        # operators; for text/varchar columns the cast is omitted
+        # to allow B-tree index usage.
+        text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+        if ftype == "contains":
+            clauses.append(f"{text_col} ILIKE %s")
+            params.append(f"%{value}%")
+        elif ftype == "equals":
+            clauses.append(f"{text_col} = %s")
+            params.append(value)
+        elif ftype == "startsWith":
+            clauses.append(f"{text_col} ILIKE %s")
+            params.append(f"{value}%")
+        elif ftype == "endsWith":
+            clauses.append(f"{text_col} ILIKE %s")
+            params.append(f"%{value}")
+        elif ftype == "notEqual":
+            clauses.append(f"{text_col} != %s")
+            params.append(value)
+
+    elif filter_type == "number":
+        value = spec.get("filter")
+        if ftype == "equals" and value is not None:
+            clauses.append(f"{qcol} = %s")
+            params.append(value)
+        elif ftype == "greaterThan" and value is not None:
+            clauses.append(f"{qcol} > %s")
+            params.append(value)
+        elif ftype == "lessThan" and value is not None:
+            clauses.append(f"{qcol} < %s")
+            params.append(value)
+        elif ftype == "greaterThanOrEqual" and value is not None:
+            clauses.append(f"{qcol} >= %s")
+            params.append(value)
+        elif ftype == "lessThanOrEqual" and value is not None:
+            clauses.append(f"{qcol} <= %s")
+            params.append(value)
+        elif ftype == "inRange":
+            lo = spec.get("filter")
+            hi = spec.get("filterTo")
+            if lo is not None and hi is not None:
+                clauses.append(f"{qcol} >= %s AND {qcol} <= %s")
+                params.extend([lo, hi])
+
+    elif filter_type == "date":
+        date_from = spec.get("dateFrom")
+        date_to = spec.get("dateTo")
+        # Use range comparisons on the raw timestamp column instead of
+        # ::date casts, which prevent B-tree index usage on large tables.
+        # AG Grid sends dates as 'YYYY-MM-DD' strings; we compare them
+        # as timestamps to enable index scans.
+        if ftype == "equals" and date_from is not None:
+            # "equals day" means >= start of day AND < next day
+            clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
+            params.extend([date_from, date_from])
+        elif ftype == "greaterThan" and date_from is not None:
+            # After the end of the given day
+            clauses.append(f"{qcol} >= %s::date + interval '1 day'")
+            params.append(date_from)
+        elif ftype == "lessThan" and date_from is not None:
+            clauses.append(f"{qcol} < %s")
+            params.append(date_from)
+        elif ftype == "greaterThanOrEqual" and date_from is not None:
+            clauses.append(f"{qcol} >= %s")
+            params.append(date_from)
+        elif ftype == "lessThanOrEqual" and date_from is not None:
+            # Include all of the given day
+            clauses.append(f"{qcol} < %s::date + interval '1 day'")
+            params.append(date_from)
+        elif ftype == "inRange" and date_from is not None and date_to is not None:
+            clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
+            params.extend([date_from, date_to])
+
+    elif filter_type == "set":
+        values = spec.get("values")
+        if isinstance(values, list) and values:
+            # Use ANY(%s) with a list parameter for set membership
+            text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+            clauses.append(f"{text_col} = ANY(%s)")
+            params.append(values)
+
+
 def _build_filter_clause(
     filter_params: dict[str, Any] | None,
     allowed_columns: list[str],
@@ -925,6 +1011,10 @@ def _build_filter_clause(
     - ``number`` filters (equals, greaterThan, lessThan, inRange, etc.)
     - ``date`` filters (equals, greaterThan, lessThan, inRange)
     - ``set`` filters (values list for IN-clause matching)
+
+    Also handles **compound** filters where AG Grid sends an
+    ``operator`` (``"AND"`` / ``"OR"``) with a ``conditions`` list
+    instead of a single ``type``/``filter`` pair.
 
     Only columns present in *allowed_columns* are accepted; unknown
     columns are silently dropped.  All values are passed as query
@@ -965,99 +1055,30 @@ def _build_filter_clause(
             qcol = col_prefix_map[col]
         else:
             qcol = f"{col_prefix}{col}"
-        filter_type = spec.get("filterType", "text")
-        ftype = spec.get("type", "")
 
-        if filter_type == "text":
-            value = spec.get("filter")
-            if value is None:
-                continue
-            value = str(value)
-            # JSONB columns need an explicit ::text cast for text
-            # operators; for text/varchar columns the cast is omitted
-            # to allow B-tree index usage.
-            text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
-            if ftype == "contains":
-                clauses.append(f"{text_col} ILIKE %s")
-                params.append(f"%{value}%")
-            elif ftype == "equals":
-                clauses.append(f"{text_col} = %s")
-                params.append(value)
-            elif ftype == "startsWith":
-                clauses.append(f"{text_col} ILIKE %s")
-                params.append(f"{value}%")
-            elif ftype == "endsWith":
-                clauses.append(f"{text_col} ILIKE %s")
-                params.append(f"%{value}")
-            elif ftype == "notEqual":
-                clauses.append(f"{text_col} != %s")
-                params.append(value)
+        # AG Grid compound filter: ``operator`` + ``conditions`` list.
+        # Example: {"operator": "AND", "conditions": [{...}, {...}]}
+        conditions = spec.get("conditions")
+        if isinstance(conditions, list) and conditions:
+            operator = spec.get("operator", "AND").upper()
+            sql_op = " OR " if operator == "OR" else " AND "
+            sub_clauses: list[str] = []
+            sub_params: list[Any] = []
+            for cond in conditions:
+                if isinstance(cond, dict):
+                    _build_single_condition(col, qcol, cond, sub_clauses, sub_params)
+            if sub_clauses:
+                # Wrap in parentheses to preserve operator precedence
+                clauses.append(f"({sql_op.join(sub_clauses)})")
+                params.extend(sub_params)
+        else:
+            # Simple (non-compound) filter
+            _build_single_condition(col, qcol, spec, clauses, params)
 
-        elif filter_type == "number":
-            value = spec.get("filter")
-            if ftype == "equals" and value is not None:
-                clauses.append(f"{qcol} = %s")
-                params.append(value)
-            elif ftype == "greaterThan" and value is not None:
-                clauses.append(f"{qcol} > %s")
-                params.append(value)
-            elif ftype == "lessThan" and value is not None:
-                clauses.append(f"{qcol} < %s")
-                params.append(value)
-            elif ftype == "greaterThanOrEqual" and value is not None:
-                clauses.append(f"{qcol} >= %s")
-                params.append(value)
-            elif ftype == "lessThanOrEqual" and value is not None:
-                clauses.append(f"{qcol} <= %s")
-                params.append(value)
-            elif ftype == "inRange":
-                lo = spec.get("filter")
-                hi = spec.get("filterTo")
-                if lo is not None and hi is not None:
-                    clauses.append(f"{qcol} >= %s AND {qcol} <= %s")
-                    params.extend([lo, hi])
-
-        elif filter_type == "date":
-            date_from = spec.get("dateFrom")
-            date_to = spec.get("dateTo")
-            # Use range comparisons on the raw timestamp column instead of
-            # ::date casts, which prevent B-tree index usage on large tables.
-            # AG Grid sends dates as 'YYYY-MM-DD' strings; we compare them
-            # as timestamps to enable index scans.
-            if ftype == "equals" and date_from is not None:
-                # "equals day" means >= start of day AND < next day
-                clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
-                params.extend([date_from, date_from])
-            elif ftype == "greaterThan" and date_from is not None:
-                # After the end of the given day
-                clauses.append(f"{qcol} >= %s::date + interval '1 day'")
-                params.append(date_from)
-            elif ftype == "lessThan" and date_from is not None:
-                clauses.append(f"{qcol} < %s")
-                params.append(date_from)
-            elif ftype == "greaterThanOrEqual" and date_from is not None:
-                clauses.append(f"{qcol} >= %s")
-                params.append(date_from)
-            elif ftype == "lessThanOrEqual" and date_from is not None:
-                # Include all of the given day
-                clauses.append(f"{qcol} < %s::date + interval '1 day'")
-                params.append(date_from)
-            elif ftype == "inRange" and date_from is not None and date_to is not None:
-                clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
-                params.extend([date_from, date_to])
-
-        elif filter_type == "set":
-            values = spec.get("values")
-            if isinstance(values, list) and values:
-                # Use ANY(%s) with a list parameter for set membership
-                text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
-                clauses.append(f"{text_col} = ANY(%s)")
-                params.append(values)
-
-    sql = " AND ".join(clauses)
-    if sql:
-        sql = f"AND {sql} "
-    return sql, params
+    result_sql = " AND ".join(clauses)
+    if result_sql:
+        result_sql = f"AND {result_sql} "
+    return result_sql, params
 
 
 # ---------------------------------------------------------------------------
@@ -1361,15 +1382,48 @@ _GRID_FETCHERS = {
 }
 
 
+def _sanitize_cell_value(raw_value: Any) -> Any:
+    """Sanitise a single cell value for Excel export.
+
+    Strings are sanitised against formula injection.  Temporal types
+    are normalised to UTC and stripped of timezone info (openpyxl
+    does not support tz-aware datetimes).  JSONB dicts/lists are
+    serialised to JSON strings.
+
+    Returns the sanitised value ready for ``ws.append()``.
+    """
+    if isinstance(raw_value, dict | list):
+        raw_value = json.dumps(raw_value, default=str)
+    if isinstance(raw_value, str):
+        return sanitize_for_export(raw_value)
+    if raw_value is None:
+        return ""
+    if isinstance(raw_value, datetime):
+        # openpyxl does not support timezone-aware datetimes.
+        # Normalize all datetimes to UTC before stripping tzinfo.
+        if raw_value.tzinfo is None:
+            raw_value = raw_value.replace(tzinfo=UTC)
+        return raw_value.astimezone(UTC).replace(tzinfo=None)
+    if isinstance(raw_value, date):
+        # PostgreSQL DATE columns are returned as datetime.date
+        # objects by psycopg.  openpyxl handles date natively.
+        return raw_value
+    return raw_value
+
+
 def _build_workbook(
     grid_name: str,
     columns: list[str],
     rows: list[dict[str, Any]],
 ) -> bytes:
-    """Build an Excel workbook from grid data.
+    """Build an Excel workbook from grid data using streaming mode.
 
-    Sanitises every cell value to prevent formula-injection attacks.
-    Numeric and temporal types are preserved as native Excel types.
+    Uses ``write_only=True`` to stream rows to disk without building
+    the full XML tree in memory, keeping peak usage low even for the
+    maximum ``_EXPORT_ROW_LIMIT`` (10 000 rows).
+
+    Every cell value is sanitised via ``_sanitize_cell_value`` to
+    prevent formula-injection attacks.
 
     Args:
         grid_name: Name of the grid (used as worksheet title).
@@ -1379,54 +1433,19 @@ def _build_workbook(
     Returns:
         Raw bytes of the ``.xlsx`` file.
     """
-    wb = Workbook()
-    ws = wb.active
-    assert ws is not None  # A new Workbook always has an active sheet
-    ws.title = grid_name.title()
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(grid_name.title())
 
     # Header row -- sanitize headers
-    for col_idx, header in enumerate(columns, 1):
-        ws.cell(row=1, column=col_idx, value=sanitize_for_export(header))
+    ws.append([sanitize_for_export(h) for h in columns])
 
-    # Data rows -- sanitize only string values to prevent formula
-    # injection while preserving native Excel types (numbers, dates)
-    # for proper formatting and calculations.
-    for row_idx, row_data in enumerate(rows, 2):
-        for col_idx, col_name in enumerate(columns, 1):
-            raw_value = row_data.get(col_name)
-            if isinstance(raw_value, dict | list):
-                raw_value = json.dumps(raw_value, default=str)
-
-            # Only sanitize strings to prevent formula injection
-            # while preserving numeric/date types that openpyxl
-            # handles natively.
-            if isinstance(raw_value, str):
-                value_to_set: Any = sanitize_for_export(raw_value)
-            elif raw_value is None:
-                value_to_set = ""
-            elif isinstance(raw_value, datetime):
-                # openpyxl does not support timezone-aware datetimes.
-                # Normalize all datetimes to UTC before stripping tzinfo:
-                # - tz-aware: convert to UTC via astimezone()
-                # - naive: assume UTC per project coding standards and
-                #   explicitly tag with UTC for documentation clarity
-                # Then strip tzinfo to satisfy openpyxl.
-                if raw_value.tzinfo is None:
-                    raw_value = raw_value.replace(tzinfo=UTC)
-                value_to_set = raw_value.astimezone(UTC).replace(tzinfo=None)
-            elif isinstance(raw_value, date):
-                # PostgreSQL DATE columns are returned as datetime.date
-                # objects by psycopg.  openpyxl handles date natively,
-                # so pass through as-is (date has no timezone concept).
-                value_to_set = raw_value
-            else:
-                value_to_set = raw_value
-
-            ws.cell(
-                row=row_idx,
-                column=col_idx,
-                value=value_to_set,
-            )
+    # Data rows -- sanitize values to prevent formula injection
+    # while preserving native Excel types (numbers, dates).
+    for row_data in rows:
+        ws.append([
+            _sanitize_cell_value(row_data.get(col_name))
+            for col_name in columns
+        ])
 
     buf = io.BytesIO()
     wb.save(buf)
