@@ -285,3 +285,31 @@ class TestQuantityPresetsSetEnabled:
         mock_btn1.set_enabled.assert_called_once_with(True)
         mock_btn2.set_enabled.assert_called_once_with(True)
         mock_max.set_enabled.assert_called_once_with(True)
+
+
+class TestQuantityPresetsProfiles:
+    """Tests for dynamic preset profile updates."""
+
+    def test_set_presets_updates_profile(self) -> None:
+        """set_presets replaces quick-size values."""
+        from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
+
+        callback = MagicMock()
+        comp = QuantityPresetsComponent(on_preset_selected=callback)
+
+        comp.set_presets([1, 5, 10])
+
+        assert comp._presets == [1, 5, 10]
+
+    def test_set_presets_normalizes_and_falls_back(self) -> None:
+        """Invalid/empty values are normalized with default fallback."""
+        from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
+
+        callback = MagicMock()
+        comp = QuantityPresetsComponent(on_preset_selected=callback)
+
+        comp.set_presets([0, -3, 1, 1])  # dedupe + drop non-positive
+        assert comp._presets == [1]
+
+        comp.set_presets([])
+        assert comp._presets == [100, 500, 1000]

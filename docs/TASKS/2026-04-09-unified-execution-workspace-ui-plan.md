@@ -781,3 +781,16 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - gradient bars for bid/ask depth directionality
 - Added click micro-feedback on selected DOM level (`dom-ladder-clicked` pulse).
 - Preserved existing price-click event semantics and risk workflow integration.
+
+22. Contextual quick-size preset profiles (`order_ticket.py`, `quantity_presets.py`)
+- Added dynamic preset profile switching by quantity unit:
+  - `shares` -> `100 / 500 / 1000`
+  - `lots` / `contracts` -> `1 / 5 / 10`
+- Preset values now quantize against symbol `qty_step` / `min_qty` constraints and de-duplicate.
+- Added runtime `set_presets(...)` rendering path in `QuantityPresetsComponent` to reflow preset buttons without recreating the ticket.
+- Updated `CLOSE` prefill flow to enforce step/min constraints without over-closing:
+  - quantizes down to the nearest valid risk-reducing quantity
+  - warns when residual quantity remains due to step constraints
+  - blocks prefill when position is below symbol minimum tradable size
+- Updated `CLOSE` prefill confirmation text and position label to use the active quantity unit.
+- Added unit coverage for dynamic preset profile updates and unit-aware close notification behavior.

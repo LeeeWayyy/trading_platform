@@ -72,6 +72,11 @@ class OrderTicketComponent:
 
     # Configuration
     QUANTITY_PRESETS = [100, 500, 1000]
+    UNIT_PRESET_PROFILES: dict[str, list[int]] = {
+        "shares": [100, 500, 1000],
+        "lots": [1, 5, 10],
+        "contracts": [1, 5, 10],
+    }
     DEFAULT_QTY_STEP = 1
     DEFAULT_MIN_QTY = 1
     DEFAULT_QTY_UNIT = "shares"
@@ -248,7 +253,7 @@ class OrderTicketComponent:
                     ui.label("QUICK SIZE").classes("workspace-v2-field-label")
                     self._quantity_presets = QuantityPresetsComponent(
                         on_preset_selected=self._on_preset_selected,
-                        presets=self.QUANTITY_PRESETS,
+                        presets=self._resolve_quantity_presets(),
                         on_close_selected=self._on_close_preset_selected,
                         show_close=True,
                     )
@@ -454,6 +459,7 @@ class OrderTicketComponent:
         self._min_qty = max(self._qty_step, raw_min)
         self._qty_unit = self._normalize_qty_unit(qty_unit)
         self._apply_quantity_rules_to_ui()
+        self._refresh_quantity_preset_profile()
 
         if self._state.quantity is not None:
             normalized_qty = self._normalize_quantity(self._state.quantity)
@@ -479,7 +485,32 @@ class OrderTicketComponent:
             return
 
         close_side = "sell" if self._current_position > 0 else "buy"
-        close_qty = abs(self._current_position)
+        raw_close_qty = abs(self._current_position)
+        qty_step = max(1, self._qty_step)
+        min_qty = max(qty_step, self._min_qty)
+        close_qty = (raw_close_qty // qty_step) * qty_step
+        unit_label = self._qty_unit
+
+        if close_qty <= 0 or close_qty < min_qty:
+            ui.notify(
+                (
+                    "Cannot prefill CLOSE: position size is below symbol minimum "
+                    f"({min_qty} {unit_label})"
+                ),
+                type="warning",
+            )
+            return
+
+        if close_qty < raw_close_qty:
+            residual = raw_close_qty - close_qty
+            ui.notify(
+                (
+                    f"CLOSE prefill adjusted to {close_qty} {unit_label} "
+                    f"(residual {residual} {unit_label})"
+                ),
+                type="warning",
+            )
+
         self._state.quantity = close_qty
         self._state.side = close_side  # type: ignore[assignment]
 
@@ -492,7 +523,7 @@ class OrderTicketComponent:
         self._update_buying_power_impact()
         self._update_quantity_presets_context()
         ui.notify(
-            f"CLOSE prefill ready: {close_side.upper()} {close_qty} shares (preview required)",
+            f"CLOSE prefill ready: {close_side.upper()} {close_qty} {unit_label} (preview required)",
             type="info",
         )
 
@@ -783,11 +814,32 @@ class OrderTicketComponent:
         if self._quantity_input:
             self._quantity_input.props(f"min={self._min_qty} step={self._qty_step}")
 
+    def _resolve_quantity_presets(self) -> list[int]:
+        """Resolve contextual quick-size presets for current unit/rules."""
+        base_presets = self.UNIT_PRESET_PROFILES.get(self._qty_unit, self.QUANTITY_PRESETS)
+        resolved: list[int] = []
+        seen: set[int] = set()
+        for preset in base_presets:
+            normalized = self._normalize_quantity(int(preset))
+            if normalized <= 0 or normalized in seen:
+                continue
+            seen.add(normalized)
+            resolved.append(normalized)
+
+        if not resolved:
+            return [self._min_qty]
+        return resolved
+
+    def _refresh_quantity_preset_profile(self) -> None:
+        """Recompute and apply contextual quick-size presets."""
+        if self._quantity_presets:
+            self._quantity_presets.set_presets(self._resolve_quantity_presets())
+
     def _update_position_display(self) -> None:
         """Update position label."""
         if self._position_label:
             if self._state.symbol:
-                self._position_label.set_text(f"{self._current_position:+d} shares")
+                self._position_label.set_text(f"{self._current_position:+d} {self._qty_unit}")
             else:
                 self._position_label.set_text("--")
 
@@ -814,14 +866,21 @@ class OrderTicketComponent:
         if self._impact_status_label:
             self._impact_status_label.text = status
             self._impact_status_label.classes(
-                remove="workspace-v2-pill-positive workspace-v2-pill-warning workspace-v2-pill-negative"
+                remove=(
+                    "workspace-v2-pill-positive "
+                    "workspace-v2-pill-warning "
+                    "workspace-v2-pill-negative "
+                    "workspace-v2-pill-muted"
+                )
             )
             if status == "NORMAL":
                 self._impact_status_label.classes(add="workspace-v2-pill-positive")
             elif status == "WARNING":
                 self._impact_status_label.classes(add="workspace-v2-pill-warning")
-            else:
+            elif status == "DANGER":
                 self._impact_status_label.classes(add="workspace-v2-pill-negative")
+            else:
+                self._impact_status_label.classes(add="workspace-v2-pill-muted")
 
         self._update_impact_gauge(impact)
 
@@ -1184,7 +1243,7 @@ class OrderTicketComponent:
 
         if self._max_position_per_symbol is not None:
             if abs(proposed_position) > self._max_position_per_symbol:
-                return f"Order exceeds position limit ({self._max_position_per_symbol} shares)"
+                return f"Order exceeds position limit ({self._max_position_per_symbol} {self._qty_unit})"
 
         effective_price = self._get_effective_order_price()
         order_notional: Decimal | None = None
@@ -1499,7 +1558,7 @@ class OrderTicketComponent:
                 return False
         except Exception as exc:
             logger.error(f"Order submission failed: {exc}")
-            ui.notify(f"Order failed: {exc}", type="negative")
+            ui.notify("Order failed: submission error (see logs)", type="negative")
             return False
 
     # ================= Idempotency =================
