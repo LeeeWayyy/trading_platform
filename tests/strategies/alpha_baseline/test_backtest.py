@@ -115,7 +115,7 @@ class TestPortfolioBacktest:
 
     def test_portfolio_returns_keep_actual_trading_dates_when_days_are_skipped(self) -> None:
         """Skipped days should not shift returns onto later dates."""
-        dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+        dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"], utc=True)
         symbols = ["AAPL", "MSFT"]
         index = pd.MultiIndex.from_product([dates, symbols], names=["date", "symbol"])
 
@@ -137,7 +137,7 @@ class TestPortfolioBacktest:
 
         portfolio_returns = backtest._compute_portfolio_returns()
 
-        expected_dates = pd.DatetimeIndex([dates[0], dates[2]])
+        expected_dates = pd.DatetimeIndex([dates[0], dates[2]], name="date")
         expected_returns = pd.Series([0.06, 0.05], index=expected_dates)
 
         pd.testing.assert_index_equal(portfolio_returns.index, expected_dates)

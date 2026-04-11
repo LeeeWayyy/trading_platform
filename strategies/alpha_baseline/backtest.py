@@ -201,7 +201,9 @@ class PortfolioBacktest:
             daily_returns.append(portfolio_return)
             realized_dates.append(date)
 
-        return pd.Series(daily_returns, index=realized_dates, dtype=float)
+        return pd.Series(
+            daily_returns, index=pd.Index(realized_dates, name=dates.name), dtype=float
+        )
 
     def _compute_metrics(self) -> dict[str, float]:
         """
@@ -243,7 +245,9 @@ class PortfolioBacktest:
         calendar_span = (returns.index[-1] - returns.index[0]).days
         # Fall back to n_days when the span is zero (single day)
         annualize_factor = max(calendar_span / 365.25, n_days / 252)
-        annualized_return = (1 + total_return) ** (1 / annualize_factor) - 1 if annualize_factor > 0 else 0.0
+        annualized_return = (
+            (1 + total_return) ** (1 / annualize_factor) - 1 if annualize_factor > 0 else 0.0
+        )
 
         # Volatility (annualized)
         volatility = returns.std() * np.sqrt(252)
