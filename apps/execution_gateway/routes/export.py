@@ -851,6 +851,18 @@ def _resolve_sort_aliases(
     ]
 
 
+def _quote_identifier(name: str) -> str:
+    """Quote a possibly table-qualified identifier via psycopg.sql.
+
+    ``psycopg.sql.Identifier`` accepts multiple string parts for qualified
+    names (e.g. ``Identifier("p", "symbol")`` produces ``"p"."symbol"``).
+    This helper splits on ``.`` and delegates to ``Identifier`` so that
+    both simple and qualified names are safely quoted.
+    """
+    parts = name.split(".")
+    return sql.Identifier(*parts).as_string(None)
+
+
 def _build_order_clause(
     sort_model: list[dict[str, Any]] | None,
     allowed_columns: list[str],
@@ -862,15 +874,9 @@ def _build_order_clause(
     Items are sorted by their ``sortIndex`` (if present) so that
     multi-column sort precedence matches the user's grid configuration.
 
-    **Safety:** ``allowed_columns`` may contain table-qualified
-    references (e.g. ``"p.symbol"``, ``"t.executed_at"``) which
-    ``psycopg.sql.Identifier`` would incorrectly quote as a single
-    identifier (``"p.symbol"`` instead of ``"p"."symbol"``).  Because
-    every value in ``allowed_columns`` originates from the hardcoded
-    ``_GRID_COLUMNS`` allowlist or ``_TCA_COL_MAP`` -- never from user
-    input -- f-string interpolation is safe here.  The callers then
-    wrap the returned string in ``sql.SQL()`` for composition with
-    parameterized queries.
+    All identifiers are quoted via ``psycopg.sql.Identifier`` to prevent
+    any possibility of SQL injection, even though ``allowed_columns``
+    originates from hardcoded allowlists.
     """
     if not sort_model:
         return default_order
@@ -885,7 +891,7 @@ def _build_order_clause(
         col = item.get("colId", "")
         direction = "DESC" if item.get("sort") == "desc" else "ASC"
         if col in allowed_columns:
-            parts.append(f"{col} {direction}")
+            parts.append(f"{_quote_identifier(col)} {direction}")
     return ", ".join(parts) if parts else default_order
 
 
@@ -975,10 +981,10 @@ def _build_single_condition(
             clauses.append(f"{qcol} >= %s::date + interval '1 day'")
             params.append(date_from)
         elif ftype == "lessThan" and date_from is not None:
-            clauses.append(f"{qcol} < %s")
+            clauses.append(f"{qcol} < %s::date")
             params.append(date_from)
         elif ftype == "greaterThanOrEqual" and date_from is not None:
-            clauses.append(f"{qcol} >= %s")
+            clauses.append(f"{qcol} >= %s::date")
             params.append(date_from)
         elif ftype == "lessThanOrEqual" and date_from is not None:
             # Include all of the given day
@@ -1050,11 +1056,12 @@ def _build_filter_clause(
             continue
 
         # Use per-column mapping when available, otherwise fall back
-        # to the blanket prefix.
+        # to the blanket prefix.  All identifiers are quoted via
+        # _quote_identifier to prevent any injection possibility.
         if col_prefix_map and col in col_prefix_map:
-            qcol = col_prefix_map[col]
+            qcol = _quote_identifier(col_prefix_map[col])
         else:
-            qcol = f"{col_prefix}{col}"
+            qcol = _quote_identifier(f"{col_prefix}{col}")
 
         # AG Grid compound filter: ``operator`` + ``conditions`` list.
         # Example: {"operator": "AND", "conditions": [{...}, {...}]}
