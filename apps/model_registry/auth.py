@@ -6,14 +6,15 @@ Provides bearer token verification with scope-based authorization.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import secrets
-from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -23,21 +24,45 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-MODEL_REGISTRY_CONFIG: dict[str, dict[str, str | float | int | list[str]]] = {
-    "auth": {
-        "type": "bearer",
-        "token_env": "MODEL_REGISTRY_READ_TOKEN",
-    },
-    "timeout": {"connect": 5.0, "read": 30.0, "write": 60.0},
-    "retry": {"max_attempts": 3, "backoff_base": 1.0, "backoff_factor": 2.0},
-}
+class _AuthConfig(BaseModel, frozen=True):
+    """Auth section of model registry configuration."""
+
+    type: str = "bearer"
+    token_env: str = "MODEL_REGISTRY_READ_TOKEN"
+
+
+class _TimeoutConfig(BaseModel, frozen=True):
+    """Timeout section of model registry configuration."""
+
+    connect: float = 5.0
+    read: float = 30.0
+    write: float = 60.0
+
+
+class _RetryConfig(BaseModel, frozen=True):
+    """Retry section of model registry configuration."""
+
+    max_attempts: int = 3
+    backoff_base: float = 1.0
+    backoff_factor: float = 2.0
+
+
+class ModelRegistryConfig(BaseModel, frozen=True):
+    """Model registry configuration."""
+
+    auth: _AuthConfig = _AuthConfig()
+    timeout: _TimeoutConfig = _TimeoutConfig()
+    retry: _RetryConfig = _RetryConfig()
+
+
+MODEL_REGISTRY_CONFIG: ModelRegistryConfig = ModelRegistryConfig()
 
 _AUTH_TOKEN_ENV_VAR = "MODEL_REGISTRY_TOKEN"  # Legacy shared token (read-only fallback)
 _READ_TOKEN_ENV_VAR = "MODEL_REGISTRY_READ_TOKEN"
 _ADMIN_TOKEN_ENV_VAR = "MODEL_REGISTRY_ADMIN_TOKEN"
 
-_ADMIN_SCOPES: list[str] = ["model:read", "model:write", "model:admin"]
-_READ_SCOPES: list[str] = ["model:read"]
+_ADMIN_SCOPES: tuple[str, ...] = ("model:read", "model:write", "model:admin")
+_READ_SCOPES: tuple[str, ...] = ("model:read",)
 
 
 # =============================================================================
@@ -45,8 +70,7 @@ _READ_SCOPES: list[str] = ["model:read"]
 # =============================================================================
 
 
-@dataclass
-class ServiceToken:
+class ServiceToken(BaseModel, frozen=True):
     """Verified service token with scopes."""
 
     scopes: list[str]
@@ -61,8 +85,14 @@ class ServiceToken:
 security = HTTPBearer(auto_error=False)
 
 
+@functools.lru_cache(maxsize=1)
 def _get_expected_tokens() -> dict[str, str]:
-    """Get configured tokens keyed by access level."""
+    """Get configured tokens keyed by access level.
+
+    Results are cached for the process lifetime.  Call
+    ``_get_expected_tokens.cache_clear()`` when environment variables
+    change (e.g. in tests).
+    """
 
     tokens: dict[str, str] = {}
 

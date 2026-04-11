@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Generator
 
 import pytest
 from fastapi import HTTPException
@@ -9,13 +10,16 @@ from apps.model_registry.auth import ServiceToken
 
 
 @pytest.fixture(autouse=True)
-def clear_auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def clear_auth_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     for var in [
         auth._ADMIN_TOKEN_ENV_VAR,
         auth._READ_TOKEN_ENV_VAR,
         auth._AUTH_TOKEN_ENV_VAR,
     ]:
         monkeypatch.delenv(var, raising=False)
+    auth._get_expected_tokens.cache_clear()
+    yield
+    auth._get_expected_tokens.cache_clear()
 
 
 def test_get_expected_tokens_handles_admin_read_and_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
