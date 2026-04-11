@@ -749,3 +749,12 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
 - Updated dashboard banner/gating resolver to use the same safe-status sets.
 - Added order-ticket unit test ensuring `READY/READY` context does not block risk-increasing submissions when other safety checks pass.
 - Added dashboard dispatch tests for `READY` status banner behavior and degraded banner reason handling.
+
+19. Zone B microstructure rebalance (`dashboard.py`, `custom.css`)
+- Reduced DOM ladder vertical footprint in Zone B microstructure stack.
+- Added a third contextual block under microstructure: compact `Market Context` panel.
+- Rebalanced microstructure row sizing to:
+  - `Order Flow / Time & Sales` (largest row)
+  - `DOM ladder` (reduced row)
+  - `Market Context` (supporting row)
+- Removed duplicate `Market Context` placement from Zone C to keep execution column focused on action + analytics.
