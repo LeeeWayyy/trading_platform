@@ -239,6 +239,10 @@ def test_resolve_workspace_quick_links_for_trader() -> None:
         feature_alerts_enabled=True,
         can_view_alerts=True,
         can_view_data_quality=True,
+        feature_strategy_management_enabled=True,
+        can_manage_strategies=True,
+        feature_model_registry_enabled=True,
+        can_view_models=True,
     )
     paths = {path for _, path in links}
     assert "/manual-order" in paths
@@ -246,6 +250,8 @@ def test_resolve_workspace_quick_links_for_trader() -> None:
     assert "/circuit-breaker" in paths
     assert "/alerts" in paths
     assert "/journal" in paths
+    assert "/strategies" in paths
+    assert "/models" in paths
     assert "/compare" in paths
     assert "/data/inspector" in paths
 
@@ -256,10 +262,16 @@ def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
         feature_alerts_enabled=False,
         can_view_alerts=False,
         can_view_data_quality=False,
+        feature_strategy_management_enabled=False,
+        can_manage_strategies=False,
+        feature_model_registry_enabled=False,
+        can_view_models=False,
     )
     paths = {path for _, path in links}
     assert "/position-management" not in paths
     assert "/alerts" not in paths
+    assert "/strategies" not in paths
+    assert "/models" not in paths
     assert "/data/inspector" not in paths
 
 

@@ -728,3 +728,13 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - negative when execution is gated
   - warning when gate is disabled
 - Added helper unit tests for gate-state resolution and updated context dispatch test expectations.
+
+17. Workspace quick-panel strategy/model placement (`pages/dashboard.py`)
+- Extended `resolve_workspace_quick_links(...)` to include:
+  - `/strategies`
+  - `/models`
+- Added visibility guard parity with sidebar navigation:
+  - `/strategies` requires `FEATURE_STRATEGY_MANAGEMENT` + `Permission.MANAGE_STRATEGIES`
+  - `/models` requires `FEATURE_MODEL_REGISTRY` + `Permission.VIEW_MODELS`
+- Wired new permission/feature inputs from dashboard user context.
+- Updated dashboard dispatch tests for expanded helper signature/expectations.
