@@ -710,3 +710,11 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - initial kill-switch/circuit-breaker fetch
   - realtime kill-switch/circuit-breaker channels
 - Added matching helper tests and command-strip pill CSS variants (`muted/normal/warning/danger`).
+
+15. Global header safety-strip visual de-noising (`ui/layout.py`)
+- Updated header kill-switch/circuit-breaker default styling to muted slate surfaces.
+- Preserved strong red only for critical states:
+  - kill switch `ENGAGED`
+  - circuit breaker `TRIPPED`
+- Non-critical states (`DISENGAGED`/`OPEN`) now stay visually muted; unknown/quiet remain warning amber.
+- Kept all existing controls and status polling behavior unchanged.
