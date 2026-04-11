@@ -260,3 +260,41 @@ def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
     assert "/position-management" not in paths
     assert "/alerts" not in paths
     assert "/data/inspector" not in paths
+
+
+def test_resolve_workspace_connection_pill_live() -> None:
+    text, tone = dashboard_module.resolve_workspace_connection_pill(
+        state="connected",
+        is_read_only=False,
+    )
+    assert text == "CONN LIVE"
+    assert tone == "normal"
+
+
+def test_resolve_workspace_connection_pill_read_only_warning() -> None:
+    text, tone = dashboard_module.resolve_workspace_connection_pill(
+        state="connected",
+        is_read_only=True,
+    )
+    assert text == "CONN CONNECTED"
+    assert tone == "warning"
+
+
+def test_resolve_workspace_kill_switch_pill_states() -> None:
+    engaged = dashboard_module.resolve_workspace_kill_switch_pill("ENGAGED")
+    disarmed = dashboard_module.resolve_workspace_kill_switch_pill("DISENGAGED")
+    unknown = dashboard_module.resolve_workspace_kill_switch_pill(None)
+    assert engaged == ("KILL ENGAGED", "danger")
+    assert disarmed == ("KILL DISARMED", "muted")
+    assert unknown == ("KILL UNKNOWN", "warning")
+
+
+def test_resolve_workspace_circuit_breaker_pill_states() -> None:
+    tripped = dashboard_module.resolve_workspace_circuit_breaker_pill("TRIPPED")
+    open_state = dashboard_module.resolve_workspace_circuit_breaker_pill("OPEN")
+    quiet = dashboard_module.resolve_workspace_circuit_breaker_pill("QUIET_PERIOD")
+    unknown = dashboard_module.resolve_workspace_circuit_breaker_pill(None)
+    assert tripped == ("CB TRIPPED", "danger")
+    assert open_state == ("CB READY", "normal")
+    assert quiet == ("CB QUIET", "warning")
+    assert unknown == ("CB UNKNOWN", "muted")

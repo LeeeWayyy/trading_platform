@@ -287,9 +287,9 @@
     background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--workspace-border);
     border-radius: 8px;
-    display: grid;
+    display: flex;
     gap: 8px;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex-wrap: wrap;
     min-height: 44px;
     padding: 6px 10px;
 }
@@ -297,6 +297,7 @@
 .workspace-v2-command-metric {
     align-items: center;
     display: flex;
+    flex: 1 1 135px;
     gap: 8px;
     min-width: 0;
 }
@@ -325,6 +326,45 @@
 
 .workspace-v2-command-value.negative {
     color: var(--workspace-negative);
+}
+
+.workspace-v2-command-pill {
+    align-items: center;
+    border: 1px solid rgba(71, 85, 105, 0.74);
+    border-radius: 999px;
+    display: inline-flex;
+    min-height: 24px;
+    padding: 2px 9px;
+}
+
+.workspace-v2-command-pill-text {
+    color: var(--workspace-text-muted);
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.workspace-v2-command-pill-muted {
+    background: rgba(30, 41, 59, 0.84);
+    border-color: rgba(71, 85, 105, 0.68);
+}
+
+.workspace-v2-command-pill-normal {
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.38);
+}
+
+.workspace-v2-command-pill-warning {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.workspace-v2-command-pill-danger {
+    background: rgba(244, 63, 94, 0.14);
+    border-color: rgba(244, 63, 94, 0.44);
 }
 
 .workspace-v2-body {
@@ -723,7 +763,7 @@
     }
 
     .workspace-v2-command-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
     }
 
     .workspace-v2-body {

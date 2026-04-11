@@ -695,3 +695,18 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - hides `/alerts` when alerts feature/permission unavailable
   - hides `/data/inspector` without data-quality permission
 - Added helper unit tests in dashboard dispatch suite.
+
+14. Command-strip safety status pills (Zone A density alignment)
+- Added compact workspace command-strip status pills for:
+  - connection state
+  - kill switch state
+  - circuit breaker state
+- Added pure resolver helpers:
+  - `resolve_workspace_connection_pill(...)`
+  - `resolve_workspace_kill_switch_pill(...)`
+  - `resolve_workspace_circuit_breaker_pill(...)`
+- Wired updates from:
+  - connection callback (`OrderEntryContext` -> dashboard)
+  - initial kill-switch/circuit-breaker fetch
+  - realtime kill-switch/circuit-breaker channels
+- Added matching helper tests and command-strip pill CSS variants (`muted/normal/warning/danger`).
