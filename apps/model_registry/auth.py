@@ -36,6 +36,9 @@ _AUTH_TOKEN_ENV_VAR = "MODEL_REGISTRY_TOKEN"  # Legacy shared token (read-only f
 _READ_TOKEN_ENV_VAR = "MODEL_REGISTRY_READ_TOKEN"
 _ADMIN_TOKEN_ENV_VAR = "MODEL_REGISTRY_ADMIN_TOKEN"
 
+_ADMIN_SCOPES: list[str] = ["model:read", "model:write", "model:admin"]
+_READ_SCOPES: list[str] = ["model:read"]
+
 
 # =============================================================================
 # Auth Types
@@ -117,13 +120,13 @@ def _authenticate_token(
     # Admin token is explicitly configured and grants full scopes
     admin_token = expected_tokens.get("admin")
     if admin_token and secrets.compare_digest(token, admin_token):
-        return ["model:read", "model:write", "model:admin"], "admin"
+        return list(_ADMIN_SCOPES), "admin"
 
     # Shared/legacy tokens are read-only for safety
     for role in ("read", "legacy_read"):
         candidate = expected_tokens.get(role)
         if candidate and secrets.compare_digest(token, candidate):
-            return ["model:read"], role
+            return list(_READ_SCOPES), role
 
     # Unknown token -> no match.  IMPORTANT: Do **not** accept arbitrary
     # "service:scope" bearer tokens here because the token value has not been
