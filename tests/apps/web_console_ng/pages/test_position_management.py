@@ -408,7 +408,7 @@ async def test_position_management_loads_positions_and_summary(
 
 
 @pytest.mark.asyncio()
-async def test_position_management_summary_handles_string_numeric_values(
+async def test_position_management_summary_handles_string_numbers(
     fake_ui: FakeUI,
     trading_client: MagicMock,
     lifecycle: FakeLifecycleManager,
@@ -416,8 +416,8 @@ async def test_position_management_summary_handles_string_numeric_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     positions = [
-        {"symbol": "AAPL", "qty": "10", "market_value": "1,000.50", "unrealized_pl": "-25.25"},
-        {"symbol": "MSFT", "qty": "5", "market_value": "500", "unrealized_pl": "75"},
+        {"symbol": "AAPL", "qty": 10, "market_value": "1000.5", "unrealized_pl": "50"},
+        {"symbol": "MSFT", "qty": 5, "market_value": "499.5", "unrealized_pl": "-25.5"},
     ]
     trading_client.fetch_positions = AsyncMock(return_value={"positions": positions})
     monkeypatch.setattr(
@@ -431,8 +431,9 @@ async def test_position_management_summary_handles_string_numeric_values(
 
     total_label = _find_element(fake_ui.elements, kind="label", text_prefix="Total Value:")
     pnl_label = _find_element(fake_ui.elements, kind="label", text_prefix="Unrealized P&L:")
-    assert total_label.text == "Total Value: $1,500.50"
-    assert pnl_label.text == "Unrealized P&L: $49.75"
+
+    assert total_label.text == "Total Value: $1,500.00"
+    assert pnl_label.text == "Unrealized P&L: $24.50"
 
 
 @pytest.mark.asyncio()

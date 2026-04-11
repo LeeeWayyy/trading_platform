@@ -24,7 +24,7 @@ from typing import Any
 
 import polars as pl
 import pytest
-from psycopg.errors import UndefinedColumn
+from psycopg import errors as pg_errors
 
 from apps.web_console_ng.pages import backtest as backtest_module
 
@@ -417,8 +417,14 @@ def test_get_user_jobs_sync_parses_progress() -> None:
             ]
 
     class FakeConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
         def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
             return FakeCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
 
         def __enter__(self) -> FakeConn:
             return self
@@ -427,8 +433,11 @@ def test_get_user_jobs_sync_parses_progress() -> None:
             return False
 
     class FakePool:
+        def __init__(self) -> None:
+            self.conn = FakeConn()
+
         def connection(self) -> FakeConn:
-            return FakeConn()
+            return self.conn
 
     class FakeRedis:
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
@@ -493,8 +502,14 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
             return []
 
     class FakeConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
         def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
             return FakeCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
 
         def __enter__(self) -> FakeConn:
             return self
@@ -503,8 +518,11 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
             return False
 
     class FakePool:
+        def __init__(self) -> None:
+            self.conn = FakeConn()
+
         def connection(self) -> FakeConn:
-            return FakeConn()
+            return self.conn
 
     class FakeRedis:
         pass
@@ -519,17 +537,17 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
     assert jobs == []
 
 
-def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
-    """Older schemas without cost_summary should still render backtest jobs."""
+def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
+    """Test legacy schema fallback when backtest_jobs lacks cost_summary column."""
 
     class FakeCursor:
         def __init__(self) -> None:
-            self.execute_calls = 0
+            self.calls = 0
 
         def execute(self, *_: Any, **__: Any) -> None:
-            self.execute_calls += 1
-            if self.execute_calls == 1:
-                raise UndefinedColumn('column "cost_summary" does not exist')
+            self.calls += 1
+            if self.calls == 1:
+                raise pg_errors.UndefinedColumn("column \"cost_summary\" does not exist")
 
         def __enter__(self) -> FakeCursor:
             return self
@@ -540,18 +558,18 @@ def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
         def fetchall(self) -> list[dict[str, Any]]:
             return [
                 {
-                    "job_id": "j1",
-                    "alpha_name": "alpha1",
+                    "job_id": "legacy-1",
+                    "alpha_name": "alpha_legacy",
                     "start_date": date(2025, 1, 1),
                     "end_date": date(2025, 2, 1),
                     "status": "completed",
                     "created_at": datetime(2025, 1, 1, 12, 0, 0),
                     "error_message": None,
-                    "mean_ic": 0.1,
-                    "icir": 1.2,
-                    "hit_rate": 0.6,
-                    "coverage": 0.9,
-                    "average_turnover": 0.2,
+                    "mean_ic": None,
+                    "icir": None,
+                    "hit_rate": None,
+                    "coverage": None,
+                    "average_turnover": None,
                     "result_path": "/tmp/result.parquet",
                     "cost_summary": None,
                     "provider": "crsp",
@@ -559,15 +577,14 @@ def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
             ]
 
     class FakeConn:
-        def __init__(self, cursor: FakeCursor) -> None:
-            self._cursor = cursor
-            self.rollback_calls = 0
+        def __init__(self) -> None:
+            self.rollback_called = False
 
         def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
-            return self._cursor
+            return FakeCursor()
 
         def rollback(self) -> None:
-            self.rollback_calls += 1
+            self.rollback_called = True
 
         def __enter__(self) -> FakeConn:
             return self
@@ -577,8 +594,7 @@ def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
 
     class FakePool:
         def __init__(self) -> None:
-            self.cursor = FakeCursor()
-            self.conn = FakeConn(self.cursor)
+            self.conn = FakeConn()
 
         def connection(self) -> FakeConn:
             return self.conn
@@ -596,9 +612,11 @@ def test_get_user_jobs_sync_missing_cost_summary_column_falls_back() -> None:
     )
 
     assert len(jobs) == 1
+    assert jobs[0]["job_id"] == "legacy-1"
     assert jobs[0]["cost_summary"] is None
-    assert pool.cursor.execute_calls == 2
-    assert pool.conn.rollback_calls == 1
+    assert jobs[0]["provider"] == "crsp"
+    assert jobs[0]["progress_pct"] == 0.0
+    assert pool.conn.rollback_called is True
 
 
 def test_verify_job_ownership_returns_true_for_owner() -> None:

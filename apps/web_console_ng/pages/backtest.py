@@ -151,11 +151,10 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
-    sql_without_cost_summary = """
+    legacy_sql = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
-               result_path, NULL AS cost_summary,
-               COALESCE(config_json->>'provider', 'crsp') AS provider
+               result_path, NULL::jsonb AS cost_summary, 'crsp' AS provider
         FROM backtest_jobs
         WHERE created_by = %s AND status = ANY(%s)
         ORDER BY created_at DESC
@@ -163,22 +162,22 @@ def _get_user_jobs_sync(
     """
     with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         try:
-            cur.execute(sql_with_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            cur.execute(sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            jobs = cur.fetchall()
         except Exception as exc:
-            if isinstance(exc, UndefinedTable):
-                logger.warning(
-                    "backtest_jobs_table_missing",
-                    extra={"created_by": created_by, "error": str(exc)},
-                )
-                return []
-            if not _is_missing_column_error(exc, "cost_summary"):
+            from psycopg import errors as pg_errors
+
+            if not isinstance(exc, pg_errors.UndefinedColumn):
                 raise
             logger.warning(
-                "backtest_jobs_cost_summary_column_missing: falling back without cost_summary"
+                "backtest_jobs_legacy_schema_missing_columns",
+                extra={"created_by": created_by, "error": str(exc)},
             )
-            conn.rollback()
-            cur.execute(sql_without_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
-        jobs = cur.fetchall()
+            # UndefinedColumn aborts the current transaction; clear it before retry.
+            if hasattr(conn, "rollback"):
+                conn.rollback()
+            cur.execute(legacy_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            jobs = cur.fetchall()
 
     if not jobs:
         return []
