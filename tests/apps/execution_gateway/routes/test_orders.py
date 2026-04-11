@@ -27,7 +27,7 @@ from apps.execution_gateway.fat_finger_validator import (
 )
 from apps.execution_gateway.routes import orders
 from apps.execution_gateway.schemas import OrderDetail
-from libs.core.common.api_auth_dependency import AuthContext
+from libs.core.common.api_auth_dependency import AuthContext, InternalTokenClaims
 from libs.trading.risk_management import RiskConfig
 
 
@@ -56,6 +56,25 @@ def _mock_auth_context_with_strategies(strategies: list[str]) -> AuthContext:
         user={"role": "operator", "strategies": strategies, "user_id": "test-user"},
         internal_claims=None,
         auth_type="test",
+        is_authenticated=True,
+    )
+
+
+def _mock_s2s_auth_context(
+    service_id: str = "orchestrator",
+    strategy_id: str | None = None,
+) -> AuthContext:
+    """Create an internal-token (S2S) AuthContext for testing."""
+    return AuthContext(
+        user=None,
+        internal_claims=InternalTokenClaims(
+            service_id=service_id,
+            user_id=None,
+            strategy_id=strategy_id,
+            nonce="test-nonce",
+            timestamp=0,
+        ),
+        auth_type="internal_token",
         is_authenticated=True,
     )
 
@@ -414,6 +433,34 @@ class TestCancelAndGetOrder:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
+
+    def test_get_order_s2s_internal_token_bypasses_strategy_check(self) -> None:
+        """Internal S2S callers bypass user-level strategy scoping."""
+        order_detail = _make_order_detail("client-s2s", status="new")
+        order_detail.strategy_id = "mean_reversion"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=_mock_s2s_auth_context,
+        )
+
+        response = client.get("/api/v1/orders/client-s2s")
+
+        assert response.status_code == 200
 
 
 class TestSafetyGates:
@@ -1103,6 +1150,36 @@ class TestCancelOrder:
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
         db.update_order_status_cas.assert_not_called()
+
+    def test_cancel_order_s2s_internal_token_bypasses_strategy_check(self) -> None:
+        """Internal S2S callers bypass user-level strategy scoping for cancel."""
+        order_detail = _make_order_detail("client-s2s-cancel", status="pending_new")
+        order_detail.strategy_id = "mean_reversion"
+        db = MagicMock()
+        db.get_order_by_client_id.return_value = order_detail
+        updated_order = _make_order_detail("client-s2s-cancel", status="canceled")
+        db.update_order_status_cas.return_value = updated_order
+
+        recovery_manager = MagicMock()
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.position_reservation = MagicMock()
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+        )
+        config = create_test_config(dry_run=True)
+        client = _build_test_app(
+            ctx,
+            config,
+            auth_context_factory=_mock_s2s_auth_context,
+        )
+
+        response = client.post("/api/v1/orders/client-s2s-cancel/cancel")
+
+        assert response.status_code == 200
 
     def test_cancel_order_live_mode_success(self) -> None:
         """Test canceling order in live mode calls Alpaca."""

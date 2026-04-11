@@ -212,11 +212,15 @@ def _ensure_order_strategy_access(
     """Enforce fail-closed strategy-scope authorization for an order.
 
     Checks that the authenticated user's strategy list includes the order's
-    ``strategy_id``.  Denies access when the strategy list is empty (e.g.
-    ``user=None`` for S2S internal-token callers).  Used consistently by
-    all order-level endpoints: get, cancel, modify, modification history,
-    and audit trail.
+    ``strategy_id``.  Internal S2S callers (``auth_type == "internal_token"``)
+    are authorized via their service-level permissions and bypass user-level
+    strategy scoping.  Used consistently by all order-level endpoints: get,
+    cancel, modify, modification history, and audit trail.
     """
+    # Internal services bypass strategy-level scoping (authorized via service permissions)
+    if auth_context.auth_type == "internal_token":
+        return
+
     authorized_strategies = get_authorized_strategies(auth_context.user)
     if not authorized_strategies or order.strategy_id not in authorized_strategies:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
