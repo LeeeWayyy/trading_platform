@@ -718,3 +718,13 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - circuit breaker `TRIPPED`
 - Non-critical states (`DISENGAGED`/`OPEN`) now stay visually muted; unknown/quiet remain warning amber.
 - Kept all existing controls and status polling behavior unchanged.
+
+16. Strategy/model gate surfacing polish (`strategy_context.py`, `order_entry_context.py`)
+- Removed obsolete "pending data contract" copy from strategy context panel.
+- Added explicit execution gate badge (`GATE CLEAR` / `GATE BLOCKED` / `GATE OFF`) near panel header.
+- Wired gate metadata (`gate_enabled`, `gate_reason`) from dashboard context dispatch into widget updates.
+- Added context-sensitive banner tone:
+  - positive when strategy/model context is safe
+  - negative when execution is gated
+  - warning when gate is disabled
+- Added helper unit tests for gate-state resolution and updated context dispatch test expectations.

@@ -253,6 +253,8 @@ class OrderEntryContext:
             self._strategy_context_widget.set_status(
                 strategy_status=strategy_status or "unknown",
                 model_status=model_status or "unknown",
+                gate_enabled=gate_enabled,
+                gate_reason=gate_reason,
                 strategy_label=strategy_label,
                 model_label=model_label,
                 banner=banner,
