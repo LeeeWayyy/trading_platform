@@ -25,6 +25,7 @@ from apps.web_console_ng.ui.trading_layout import (
     apply_compact_grid_classes,
     apply_compact_grid_options,
 )
+from libs.trading.order_constants import WORKING_ORDER_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +49,6 @@ TAB_GRID_CONFIG = {
     TAB_WORKING: {"grid_id": "_ordersGridApi", "grid_name": "orders", "prefix": "orders"},
     TAB_FILLS: {"grid_id": "_fillsGridApi", "grid_name": "fills", "prefix": "fills"},
     TAB_HISTORY: {"grid_id": "_historyGridApi", "grid_name": "history", "prefix": "history"},
-}
-
-WORKING_ORDER_STATUSES = {
-    "new",
-    "pending_new",
-    "partially_filled",
-    "accepted",
-    "pending_cancel",
-    "pending_replace",
 }
 
 

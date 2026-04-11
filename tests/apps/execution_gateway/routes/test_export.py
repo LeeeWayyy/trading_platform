@@ -283,6 +283,54 @@ class TestBuildFilterClause:
         assert result_sql == ""
         assert params == []
 
+    def test_compound_filter_and_operator(self) -> None:
+        """AG Grid compound filter with AND operator."""
+        filt = {
+            "qty": {
+                "operator": "AND",
+                "conditions": [
+                    {"filterType": "number", "type": "greaterThan", "filter": 5},
+                    {"filterType": "number", "type": "lessThan", "filter": 100},
+                ],
+            }
+        }
+        result_sql, params = _build_filter_clause(filt, ["qty"])
+        assert ">" in result_sql
+        assert "<" in result_sql
+        assert "AND" in result_sql
+        assert 5 in params
+        assert 100 in params
+
+    def test_compound_filter_or_operator(self) -> None:
+        """AG Grid compound filter with OR operator."""
+        filt = {
+            "symbol": {
+                "operator": "OR",
+                "conditions": [
+                    {"filterType": "text", "type": "equals", "filter": "AAPL"},
+                    {"filterType": "text", "type": "equals", "filter": "MSFT"},
+                ],
+            }
+        }
+        result_sql, params = _build_filter_clause(filt, ["symbol"])
+        assert "OR" in result_sql
+        assert "AAPL" in params
+        assert "MSFT" in params
+
+    def test_compound_filter_unknown_column_dropped(self) -> None:
+        """Compound filter on unknown column is dropped."""
+        filt = {
+            "evil": {
+                "operator": "AND",
+                "conditions": [
+                    {"filterType": "text", "type": "equals", "filter": "x"},
+                ],
+            }
+        }
+        result_sql, params = _build_filter_clause(filt, ["symbol"])
+        assert result_sql == ""
+        assert params == []
+
 
 class TestBuildOrderClause:
     def test_default_order_when_no_sort_model(self) -> None:
