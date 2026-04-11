@@ -1,7 +1,7 @@
 # Docker Compose configuration for STAGING environment
 # CRITICAL: This configuration is for PAPER TRADING ONLY
 #
-# Safety features:
+# Safety:
 # - DRY_RUN=true enforced for all trading services
 # - ALPACA_PAPER=true for paper trading mode
 # - No live API keys should ever be used
