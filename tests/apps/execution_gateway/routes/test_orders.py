@@ -378,9 +378,39 @@ class TestCancelAndGetOrder:
         assert response.status_code == 404
         assert "Order not found" in response.json()["detail"]
 
-    def test_get_order_forbidden_when_strategy_not_authorized(self) -> None:
-        order_detail = _make_order_detail("client-unauthorized", status="new")
-        order_detail.strategy_id = "mean_reversion"
+    @pytest.mark.parametrize(
+        ("test_id", "auth_factory", "order_strategy", "expected_status"),
+        [
+            (
+                "wrong_strategy",
+                lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+                "mean_reversion",
+                403,
+            ),
+            (
+                "empty_strategies",
+                lambda: _mock_auth_context_with_strategies([]),
+                "alpha_baseline",
+                403,
+            ),
+            (
+                "s2s_bypass",
+                _mock_s2s_auth_context,
+                "mean_reversion",
+                200,
+            ),
+        ],
+    )
+    def test_get_order_authorization(
+        self,
+        test_id: str,
+        auth_factory: Callable[[], AuthContext],
+        order_strategy: str,
+        expected_status: int,
+    ) -> None:
+        """Parametrized strategy-scope authorization for get_order."""
+        order_detail = _make_order_detail(f"client-{test_id}", status="new")
+        order_detail.strategy_id = order_strategy
         db = MagicMock()
         db.get_order_by_client_id.return_value = order_detail
 
@@ -395,72 +425,11 @@ class TestCancelAndGetOrder:
             risk_config=RiskConfig(),
         )
         config = create_test_config(dry_run=True)
-        client = _build_test_app(
-            ctx,
-            config,
-            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
-        )
+        client = _build_test_app(ctx, config, auth_context_factory=auth_factory)
 
-        response = client.get("/api/v1/orders/client-unauthorized")
+        response = client.get(f"/api/v1/orders/client-{test_id}")
 
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized"
-
-    def test_get_order_forbidden_when_empty_strategies(self) -> None:
-        """Fail-closed: empty strategy list denies access."""
-        order_detail = _make_order_detail("client-empty-strat", status="new")
-        db = MagicMock()
-        db.get_order_by_client_id.return_value = order_detail
-
-        recovery_manager = MagicMock()
-        recovery_manager.kill_switch = MagicMock()
-        recovery_manager.circuit_breaker = MagicMock()
-        recovery_manager.position_reservation = MagicMock()
-
-        ctx = create_mock_context(
-            db=db,
-            recovery_manager=recovery_manager,
-            risk_config=RiskConfig(),
-        )
-        config = create_test_config(dry_run=True)
-        client = _build_test_app(
-            ctx,
-            config,
-            auth_context_factory=lambda: _mock_auth_context_with_strategies([]),
-        )
-
-        response = client.get("/api/v1/orders/client-empty-strat")
-
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized"
-
-    def test_get_order_s2s_internal_token_bypasses_strategy_check(self) -> None:
-        """Internal S2S callers bypass user-level strategy scoping."""
-        order_detail = _make_order_detail("client-s2s", status="new")
-        order_detail.strategy_id = "mean_reversion"
-        db = MagicMock()
-        db.get_order_by_client_id.return_value = order_detail
-
-        recovery_manager = MagicMock()
-        recovery_manager.kill_switch = MagicMock()
-        recovery_manager.circuit_breaker = MagicMock()
-        recovery_manager.position_reservation = MagicMock()
-
-        ctx = create_mock_context(
-            db=db,
-            recovery_manager=recovery_manager,
-            risk_config=RiskConfig(),
-        )
-        config = create_test_config(dry_run=True)
-        client = _build_test_app(
-            ctx,
-            config,
-            auth_context_factory=_mock_s2s_auth_context,
-        )
-
-        response = client.get("/api/v1/orders/client-s2s")
-
-        assert response.status_code == 200
+        assert response.status_code == expected_status
 
 
 class TestSafetyGates:
@@ -1027,12 +996,44 @@ class TestCancelOrder:
         data = response.json()
         assert data["message"] == "Order canceled"
 
-    def test_cancel_order_forbidden_when_strategy_not_authorized(self) -> None:
-        """Test canceling an order is denied when strategy scope does not match."""
-        order_detail = _make_order_detail("client-cancel-denied", status="pending_new")
-        order_detail.strategy_id = "mean_reversion"
+    @pytest.mark.parametrize(
+        ("test_id", "auth_factory", "order_strategy", "expected_status"),
+        [
+            (
+                "wrong_strategy",
+                lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+                "mean_reversion",
+                403,
+            ),
+            (
+                "empty_strategies",
+                lambda: _mock_auth_context_with_strategies([]),
+                "alpha_baseline",
+                403,
+            ),
+            (
+                "s2s_bypass",
+                _mock_s2s_auth_context,
+                "mean_reversion",
+                200,
+            ),
+        ],
+    )
+    def test_cancel_order_authorization(
+        self,
+        test_id: str,
+        auth_factory: Callable[[], AuthContext],
+        order_strategy: str,
+        expected_status: int,
+    ) -> None:
+        """Parametrized strategy-scope authorization for cancel_order."""
+        order_detail = _make_order_detail(f"client-cancel-{test_id}", status="pending_new")
+        order_detail.strategy_id = order_strategy
         db = MagicMock()
         db.get_order_by_client_id.return_value = order_detail
+        if expected_status == 200:
+            updated = _make_order_detail(f"client-cancel-{test_id}", status="canceled")
+            db.update_order_status_cas.return_value = updated
 
         recovery_manager = MagicMock()
         recovery_manager.kill_switch = MagicMock()
@@ -1045,17 +1046,13 @@ class TestCancelOrder:
             risk_config=RiskConfig(),
         )
         config = create_test_config(dry_run=True)
-        client = _build_test_app(
-            ctx,
-            config,
-            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
-        )
+        client = _build_test_app(ctx, config, auth_context_factory=auth_factory)
 
-        response = client.post("/api/v1/orders/client-cancel-denied/cancel")
+        response = client.post(f"/api/v1/orders/client-cancel-{test_id}/cancel")
 
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized"
-        db.update_order_status_cas.assert_not_called()
+        assert response.status_code == expected_status
+        if expected_status == 403:
+            db.update_order_status_cas.assert_not_called()
 
     def test_cancel_order_live_forbidden_broker_not_called(self) -> None:
         """Test canceling an order in live mode is denied before reaching broker."""
@@ -1121,65 +1118,6 @@ class TestCancelOrder:
         assert response.status_code == 403
         assert response.json()["detail"] == "Not authorized"
         db.update_order_status_cas.assert_not_called()
-
-    def test_cancel_order_forbidden_when_empty_strategies(self) -> None:
-        """Fail-closed: empty strategy list denies cancel access."""
-        order_detail = _make_order_detail("client-cancel-empty", status="pending_new")
-        db = MagicMock()
-        db.get_order_by_client_id.return_value = order_detail
-
-        recovery_manager = MagicMock()
-        recovery_manager.kill_switch = MagicMock()
-        recovery_manager.circuit_breaker = MagicMock()
-        recovery_manager.position_reservation = MagicMock()
-
-        ctx = create_mock_context(
-            db=db,
-            recovery_manager=recovery_manager,
-            risk_config=RiskConfig(),
-        )
-        config = create_test_config(dry_run=True)
-        client = _build_test_app(
-            ctx,
-            config,
-            auth_context_factory=lambda: _mock_auth_context_with_strategies([]),
-        )
-
-        response = client.post("/api/v1/orders/client-cancel-empty/cancel")
-
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized"
-        db.update_order_status_cas.assert_not_called()
-
-    def test_cancel_order_s2s_internal_token_bypasses_strategy_check(self) -> None:
-        """Internal S2S callers bypass user-level strategy scoping for cancel."""
-        order_detail = _make_order_detail("client-s2s-cancel", status="pending_new")
-        order_detail.strategy_id = "mean_reversion"
-        db = MagicMock()
-        db.get_order_by_client_id.return_value = order_detail
-        updated_order = _make_order_detail("client-s2s-cancel", status="canceled")
-        db.update_order_status_cas.return_value = updated_order
-
-        recovery_manager = MagicMock()
-        recovery_manager.kill_switch = MagicMock()
-        recovery_manager.circuit_breaker = MagicMock()
-        recovery_manager.position_reservation = MagicMock()
-
-        ctx = create_mock_context(
-            db=db,
-            recovery_manager=recovery_manager,
-            risk_config=RiskConfig(),
-        )
-        config = create_test_config(dry_run=True)
-        client = _build_test_app(
-            ctx,
-            config,
-            auth_context_factory=_mock_s2s_auth_context,
-        )
-
-        response = client.post("/api/v1/orders/client-s2s-cancel/cancel")
-
-        assert response.status_code == 200
 
     def test_cancel_order_live_mode_success(self) -> None:
         """Test canceling order in live mode calls Alpaca."""
@@ -3525,34 +3463,58 @@ class TestOrderAuditTrailAuth:
         response = client.get("/api/v1/orders/missing-order/audit")
         assert response.status_code == 404
 
-    def test_audit_trail_forbidden_wrong_strategy(self) -> None:
-        order = _make_order_detail("client-audit-deny", status="new")
-        order.strategy_id = "mean_reversion"
+    @pytest.mark.parametrize(
+        ("test_id", "auth_factory", "order_strategy", "expected_status"),
+        [
+            (
+                "wrong_strategy",
+                lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
+                "mean_reversion",
+                403,
+            ),
+            (
+                "empty_strategies",
+                lambda: _mock_auth_context_with_strategies([]),
+                "alpha_baseline",
+                403,
+            ),
+            (
+                "s2s_bypass",
+                _mock_s2s_auth_context,
+                "mean_reversion",
+                200,
+            ),
+        ],
+    )
+    def test_audit_trail_authorization(
+        self,
+        test_id: str,
+        auth_factory: Callable[[], AuthContext],
+        order_strategy: str,
+        expected_status: int,
+    ) -> None:
+        """Parametrized strategy-scope authorization for audit trail."""
+        order = _make_order_detail(f"client-audit-{test_id}", status="new")
+        order.strategy_id = order_strategy
         ctx = create_mock_context()
         ctx.db.get_order_by_client_id.return_value = order
-        client = _build_test_app(
-            ctx,
-            create_test_config(),
-            auth_context_factory=lambda: _mock_auth_context_with_strategies(["alpha_baseline"]),
-        )
 
-        response = client.get("/api/v1/orders/client-audit-deny/audit")
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized to view this order's audit trail"
+        # For S2S success case, mock the DB transaction for audit query
+        if expected_status == 200:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_conn = MagicMock()
+            mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+            ctx.db.transaction.return_value.__enter__ = MagicMock(return_value=mock_conn)
+            ctx.db.transaction.return_value.__exit__ = MagicMock(return_value=False)
 
-    def test_audit_trail_forbidden_empty_strategies(self) -> None:
-        order = _make_order_detail("client-audit-empty", status="new")
-        ctx = create_mock_context()
-        ctx.db.get_order_by_client_id.return_value = order
-        client = _build_test_app(
-            ctx,
-            create_test_config(),
-            auth_context_factory=lambda: _mock_auth_context_with_strategies([]),
-        )
+        client = _build_test_app(ctx, create_test_config(), auth_context_factory=auth_factory)
 
-        response = client.get("/api/v1/orders/client-audit-empty/audit")
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Not authorized to view this order's audit trail"
+        response = client.get(f"/api/v1/orders/client-audit-{test_id}/audit")
+        assert response.status_code == expected_status
+        if expected_status == 403:
+            assert "Not authorized" in response.json()["detail"]
 
 
 class TestOrderUtilityHelpers:
