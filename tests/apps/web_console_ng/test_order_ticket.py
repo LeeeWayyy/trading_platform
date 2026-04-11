@@ -1070,6 +1070,65 @@ class TestOrderTicketClosePreset:
         assert component._state.side == "buy"
         notify.assert_called_once()
 
+    def test_close_prefill_notification_uses_quantity_unit(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = 7
+        component._qty_unit = "contracts"
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        notify.assert_called_once_with(
+            "CLOSE prefill ready: SELL 7 contracts (preview required)",
+            type="info",
+        )
+
+    def test_close_prefill_adjusts_to_qty_step_with_residual_warning(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = 125
+        component._qty_step = 100
+        component._min_qty = 100
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 100
+        notify.assert_any_call(
+            "CLOSE prefill adjusted to 100 shares (residual 25 shares)",
+            type="warning",
+        )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 100 shares (preview required)",
+            type="info",
+        )
+        assert notify.call_count == 2
+
+    def test_close_prefill_blocks_when_position_below_symbol_minimum(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = 50
+        component._qty_step = 100
+        component._min_qty = 100
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.quantity is None
+        assert component._state.side == "buy"
+        notify.assert_called_once_with(
+            "Cannot prefill CLOSE: position size is below symbol minimum (100 shares)",
+            type="warning",
+        )
+
 
 class TestOrderTicketIdempotency:
     """Tests for idempotent order submission."""
@@ -1863,6 +1922,7 @@ class TestOrderTicketQuantityRules:
         """Quantity rules update internal state and input metadata."""
         component._quantity_label = MagicMock()
         component._quantity_input = MagicMock()
+        component._quantity_presets = MagicMock()
 
         component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
 
@@ -1871,6 +1931,17 @@ class TestOrderTicketQuantityRules:
         assert component._qty_unit == "lots"
         component._quantity_label.set_text.assert_called_once_with("QTY (LOTS)")
         component._quantity_input.props.assert_called_with("min=100 step=100")
+        component._quantity_presets.set_presets.assert_called_with([100])
+
+    def test_set_quantity_rules_uses_contract_preset_profile(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Contract unit uses compact 1/5/10-style presets."""
+        component._quantity_presets = MagicMock()
+
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="contracts")
+
+        component._quantity_presets.set_presets.assert_called_with([1, 5, 10])
 
     def test_quantity_input_snaps_down_to_step(self, component: OrderTicketComponent) -> None:
         """Manual quantity entry snaps to nearest valid step."""
