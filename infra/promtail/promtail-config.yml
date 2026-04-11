@@ -19,9 +19,10 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: 'container'
-      # Extract service name from container name (e.g., trading_platform_signal_service -> signal_service)
+      # Extract service name from container name
+      # Handles both dev (trading_platform_*) and staging (staging_*) prefixes
       - source_labels: ['container']
-        regex: 'trading_platform_(.*)'
+        regex: '(?:trading_platform|staging)_(.*)'
         target_label: 'service'
       # Add compose project label
       - source_labels: ['__meta_docker_container_label_com_docker_compose_project']

@@ -84,15 +84,19 @@ services:
       - staging_grafanadata:/var/lib/grafana
       - ./infra/grafana:/etc/grafana/provisioning
     depends_on:
-      - prometheus
-      - loki_server
+      prometheus:
+        condition: service_started
+      loki_server:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - staging_network
 
   loki_server:
-    image: grafana/loki:2.9.0
-    container_name: staging_loki
+    image: grafana/loki:3.0.0
+    container_name: trading_platform_loki_server
+    # Run as root to allow volume directory creation (staging only)
+    user: "0"
     ports:
       - "3100:3100"
     volumes:
@@ -109,15 +113,16 @@ services:
       - staging_network
 
   promtail:
-    image: grafana/promtail:2.9.0
-    container_name: staging_promtail
+    image: grafana/promtail:3.0.0
+    container_name: trading_platform_promtail
     volumes:
       - ./infra/promtail:/etc/promtail
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - staging_promtaildata:/tmp
     command: -config.file=/etc/promtail/promtail-config.yml
     depends_on:
-      - loki_server
+      loki_server:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - staging_network

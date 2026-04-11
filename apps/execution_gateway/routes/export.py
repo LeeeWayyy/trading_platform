@@ -732,7 +732,7 @@ async def _generate_excel_content(
     """
     # Import openpyxl only when needed
     try:
-        from openpyxl import Workbook  # type: ignore[import-untyped]
+        from openpyxl import Workbook
     except ImportError as e:
         raise NotImplementedError(
             "Excel export requires openpyxl: pip install openpyxl"
@@ -759,6 +759,7 @@ async def _generate_excel_content(
     # 3. Validate visible_columns against allowed columns per grid
     wb = Workbook()
     ws = wb.active
+    assert ws is not None, "Workbook must have an active worksheet"
     ws.title = grid_name.title()
 
     # Add header row (sanitize headers too)
