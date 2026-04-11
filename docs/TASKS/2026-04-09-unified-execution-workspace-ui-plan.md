@@ -738,3 +738,14 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - `/models` requires `FEATURE_MODEL_REGISTRY` + `Permission.VIEW_MODELS`
 - Wired new permission/feature inputs from dashboard user context.
 - Updated dashboard dispatch tests for expanded helper signature/expectations.
+
+18. Strategy/model gate semantic alignment (`order_ticket.py`, `dashboard.py`)
+- Unified safe-status semantics across workspace surfaces:
+  - strategy safe: `ACTIVE`, `IDLE`, `READY`
+  - model safe: `ACTIVE`, `TESTING`, `READY`
+- Added shared gate status helpers in `components/execution_gate.py` and rewired
+  `order_ticket.py`, `dashboard.py`, and `strategy_context.py` to avoid semantic drift.
+- Updated execution gate checks in order-ticket submission path to honor `READY`.
+- Updated dashboard banner/gating resolver to use the same safe-status sets.
+- Added order-ticket unit test ensuring `READY/READY` context does not block risk-increasing submissions when other safety checks pass.
+- Added dashboard dispatch tests for `READY` status banner behavior and degraded banner reason handling.

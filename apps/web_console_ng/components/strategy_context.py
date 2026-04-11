@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from apps.web_console_ng.components.execution_gate import (
+    is_model_execution_safe,
+    is_strategy_execution_safe,
+    normalize_execution_status,
+)
+
 
 def resolve_execution_gate_state(
     *,
@@ -13,10 +19,10 @@ def resolve_execution_gate_state(
     gate_reason: str | None = None,
 ) -> tuple[str, str, str]:
     """Return gate badge text/tone and default banner message."""
-    strategy = str(strategy_status or "unknown").strip().lower()
-    model = str(model_status or "unknown").strip().lower()
-    strategy_safe = strategy in {"active", "idle", "ready"}
-    model_safe = model in {"active", "testing", "ready"}
+    strategy = normalize_execution_status(strategy_status)
+    model = normalize_execution_status(model_status)
+    strategy_safe = is_strategy_execution_safe(strategy)
+    model_safe = is_model_execution_safe(model)
 
     if not gate_enabled:
         return ("GATE OFF", "warning", "Execution gate is disabled by feature flag.")

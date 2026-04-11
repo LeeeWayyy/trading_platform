@@ -275,6 +275,24 @@ def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
     assert "/data/inspector" not in paths
 
 
+def test_resolve_strategy_context_banner_healthy_for_ready_states() -> None:
+    banner = dashboard_module.resolve_strategy_context_banner(
+        strategy_status="READY",
+        model_status="ready",
+        gate_reason=None,
+    )
+    assert banner == "Execution context healthy."
+
+
+def test_resolve_strategy_context_banner_degraded_uses_reason() -> None:
+    banner = dashboard_module.resolve_strategy_context_banner(
+        strategy_status="inactive",
+        model_status="active",
+        gate_reason="strategy is INACTIVE",
+    )
+    assert banner == "Execution context degraded: strategy is INACTIVE"
+
+
 def test_resolve_workspace_connection_pill_live() -> None:
     text, tone = dashboard_module.resolve_workspace_connection_pill(
         state="connected",
