@@ -955,7 +955,7 @@ class TestOrderTicketBuyingPowerImpact:
         assert result["notional"] == Decimal("5000")
         assert result["percentage"] == Decimal("50")  # 5000/10000 * 100
         assert result["remaining"] == Decimal("5000")  # 10000 - 5000
-        assert result["warning"] is False  # 50% is not > 50%
+        assert result["warning"] is True  # 50% is warning threshold
 
     def test_impact_warning_over_50_percent(self, component: OrderTicketComponent) -> None:
         """Impact warns when over 50% of buying power."""

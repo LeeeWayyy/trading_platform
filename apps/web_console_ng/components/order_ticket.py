@@ -1401,7 +1401,7 @@ class OrderTicketComponent:
             "notional": notional,
             "percentage": percentage,
             "remaining": remaining,
-            "warning": ratio > warning_ratio,
+            "warning": ratio >= warning_ratio,
             "ratio": ratio,
             "status": status,
             "effective_limit": effective_limit,

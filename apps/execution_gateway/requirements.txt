@@ -41,6 +41,7 @@ pyjwt[crypto]>=2.8.0  # Needed by shared web_console_auth modules in CI images
 # Database (T3, T4, T5)
 psycopg2-binary>=2.9.9
 psycopg[binary]>=3.1.0
+psycopg-pool>=3.1.0
 
 # Alpaca API (T4)
 alpaca-py>=0.15.0
