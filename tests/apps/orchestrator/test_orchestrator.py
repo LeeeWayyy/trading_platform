@@ -289,9 +289,8 @@ class TestTradingOrchestratorRun:
             ),
         )
 
-        # Mock fetch_signals to return different responses on sequential calls
-        # Note: strategy_id is not yet passed to signal_client.fetch_signals (TODO in orchestrator),
-        # so we use side_effect list to return different responses in order
+        # Mock fetch_signals to return different responses on sequential calls.
+        # We still use a side_effect list because asyncio.gather preserves task order.
         orchestrator.signal_client.fetch_signals = AsyncMock(side_effect=[response1, response2])
 
         # Run with multiple strategies - should fail due to date mismatch
@@ -305,6 +304,19 @@ class TestTradingOrchestratorRun:
         assert result.num_signals == 0
         assert result.num_orders_submitted == 0
         assert "as_of_date mismatch across strategies" in result.error_message
+
+        # Verify each fetch_signals call received the correct strategy_id
+        # Use a set comparison since asyncio.gather may invoke tasks in any order
+        calls = orchestrator.signal_client.fetch_signals.call_args_list
+        assert len(calls) == 2
+        called_strategy_ids = {c.kwargs["strategy_id"] for c in calls}
+        assert called_strategy_ids == {"alpha_baseline", "momentum"}
+
+    @pytest.mark.asyncio()
+    async def test_run_rejects_empty_strategy_list(self, orchestrator):
+        """Test that run() raises ValueError when given an empty strategy list."""
+        with pytest.raises(ValueError, match="strategy_id must be a non-empty string or list of strings"):
+            await orchestrator.run(symbols=["AAPL"], strategy_id=[])
 
 
 class TestFetchSignals:
@@ -340,13 +352,22 @@ class TestFetchSignals:
         orchestrator.signal_client.fetch_signals = AsyncMock(return_value=signal_response)
 
         result = await orchestrator._fetch_signals(
-            symbols=["AAPL", "MSFT"], as_of_date=date(2024, 10, 19)
+            symbols=["AAPL", "MSFT"],
+            as_of_date=date(2024, 10, 19),
+            strategy_id="alpha_baseline",
         )
 
         assert len(result.signals) == 2
         assert result.metadata.num_signals == 2
         assert result.metadata.top_n == 1
         assert result.metadata.bottom_n == 1
+        orchestrator.signal_client.fetch_signals.assert_awaited_once_with(
+            symbols=["AAPL", "MSFT"],
+            as_of_date=date(2024, 10, 19),
+            top_n=None,
+            bottom_n=None,
+            strategy_id="alpha_baseline",
+        )
 
 
 class TestMapSignalsToOrders:
