@@ -98,7 +98,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # fail).  Logs ERROR if middleware is missing from stack (less severe).
         _verify_cors_middleware_uses_shared_origins(app)
 
-        logger.info(f"CORS configured with {len(cors_origins)} origin(s)")
+        logger.info(
+            "CORS configured",
+            extra={"origin_count": len(cors_origins)},
+        )
 
         if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":
             # Fail closed: auth bypass is not permitted; require proper tokens even in dev
@@ -312,19 +315,22 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
         RuntimeError: If CORSMiddleware exists but its allow_origins is not
             the same object as _cors_allow_origins (reference mismatch).
     """
-    # When lifespan is called on a bare FastAPI instance (e.g. in tests),
-    # the middleware stack is not built yet.  Skip silently.
+    # ``middleware_stack`` is a plain instance attribute (not a property) in
+    # Starlette <=0.36 and is ``None`` until the ASGI app is started.  When
+    # lifespan is called on a bare FastAPI instance (e.g. in unit tests that
+    # do ``async with lifespan(FastAPI())``), the stack has not been built
+    # yet, so skip the guard silently.
     if target_app.middleware_stack is None:
         logger.debug(
-            "CORS middleware guard skipped: middleware_stack is None "
-            "(expected only in tests with bare FastAPI instances)"
+            "CORS middleware guard skipped",
+            extra={"reason": "middleware_stack is None (bare FastAPI instance)"},
         )
         return
 
-    middleware = target_app.middleware_stack
-    while middleware is not None:
-        if isinstance(middleware, CORSMiddleware):
-            if middleware.allow_origins is not _cors_allow_origins:
+    current: Any = target_app.middleware_stack
+    while current is not None:
+        if isinstance(current, CORSMiddleware):
+            if current.allow_origins is not _cors_allow_origins:
                 raise RuntimeError(
                     "CORSMiddleware does not hold a live reference to "
                     "_cors_allow_origins. Starlette may have changed its "
@@ -332,12 +338,12 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
                     "CORS configuration."
                 )
             return
-        middleware = getattr(middleware, "app", None)
+        current = getattr(current, "app", None)
 
     # CORSMiddleware not found — log error but allow startup.
     logger.error(
-        "CORSMiddleware not found in middleware stack. "
-        "CORS may not be enforced. Check middleware registration."
+        "CORSMiddleware not found in middleware stack",
+        extra={"middleware_type": type(target_app.middleware_stack).__name__},
     )
 
 
