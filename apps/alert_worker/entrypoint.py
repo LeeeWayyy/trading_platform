@@ -116,26 +116,46 @@ async def _close_async_resources(resources: AsyncResources) -> None:
 def _get_channels() -> dict[ChannelType, BaseChannel]:
     """Build channel handlers, lazily skipping unconfigured channels.
 
-    SMS channel requires Twilio credentials. If not configured, SMS is
-    skipped and a warning is logged. Email, Slack, and PagerDuty are always enabled.
+    Email requires aiosmtplib (optional). SMS requires Twilio credentials.
+    If either dependency is missing or unconfigured, the channel is skipped
+    and a warning is logged. Slack and PagerDuty are always enabled.
     """
     global _CHANNELS
     if _CHANNELS is None:
         _CHANNELS = {
-            ChannelType.EMAIL: EmailChannel(),
             ChannelType.SLACK: SlackChannel(),
         }
-        # SMS requires Twilio credentials - skip if not configured
-        try:
-            _CHANNELS[ChannelType.SMS] = SMSChannel()
-        except ConfigurationError as exc:
+        # Email requires aiosmtplib - skip if dependency is missing
+        if EmailChannel is None:
+            logger.warning(
+                "email_channel_disabled",
+                extra={
+                    "reason": "email dependencies unavailable",
+                    "hint": "Install aiosmtplib to enable SMTP email notifications",
+                },
+            )
+        else:
+            _CHANNELS[ChannelType.EMAIL] = EmailChannel()
+        # SMS requires Twilio credentials - skip if dependency missing or not configured
+        if SMSChannel is None:
             logger.warning(
                 "sms_channel_disabled",
                 extra={
-                    "reason": str(exc),
-                    "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                    "reason": "SMS dependencies unavailable",
+                    "hint": "Install twilio to enable SMS notifications",
                 },
             )
+        else:
+            try:
+                _CHANNELS[ChannelType.SMS] = SMSChannel()
+            except ConfigurationError as exc:
+                logger.warning(
+                    "sms_channel_disabled",
+                    extra={
+                        "reason": str(exc),
+                        "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                    },
+                )
         # PagerDuty uses routing key per-recipient, no global credentials needed
         _CHANNELS[ChannelType.PAGERDUTY] = PagerDutyChannel()
     return _CHANNELS

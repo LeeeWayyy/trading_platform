@@ -128,7 +128,10 @@ app.include_router(workspace_router)
 # Import pages to trigger @ui.page decorator registration (including /login, /dashboard, etc.)
 from apps.web_console_ng import pages  # noqa: E402,F401
 
-# Middleware added in LIFO order: TrustedHost -> Admission -> Session -> Auth.
+# Middleware added in LIFO order (outermost first):
+# SuppressNoResponse -> TrustedHost -> Admission -> Session -> Auth.
+# SuppressNoResponseReturnedMiddleware wraps the entire stack to catch
+# Starlette disconnect sentinels at the ASGI level.
 # AdmissionControlMiddleware MUST run before Session/Auth to enforce capacity limits
 # at the ASGI level before WebSocket upgrade completes.
 app.add_middleware(AuthMiddleware)

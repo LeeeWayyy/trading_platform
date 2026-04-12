@@ -13,6 +13,8 @@ This module provides:
 - DataProvider: Protocol for data provider implementations
 """
 
+import logging as _logging
+
 from libs.data.data_providers.compustat_local_provider import (
     AmbiguousGVKEYError,
     CompustatLocalProvider,
@@ -68,17 +70,37 @@ from libs.data.data_providers.yfinance_provider import (
     YFinanceProvider,
 )
 
+_dp_logger = _logging.getLogger(__name__)
+
 try:
     from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
-except ModuleNotFoundError:
-    SyncManager = None  # type: ignore[assignment,misc]
-    SyncProgress = None  # type: ignore[assignment,misc]
+except ModuleNotFoundError as _exc:
+    if _exc.name is not None and (
+        _exc.name == "libs.data.data_providers.sync_manager"
+        or not _exc.name.startswith("libs.")
+    ):
+        _dp_logger.info(
+            "sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name
+        )
+        SyncManager = None  # type: ignore[assignment,misc]
+        SyncProgress = None  # type: ignore[assignment,misc]
+    else:
+        raise
 
 try:
     from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
-except ModuleNotFoundError:
-    WRDSClient = None  # type: ignore[assignment,misc]
-    WRDSConfig = None  # type: ignore[assignment,misc]
+except ModuleNotFoundError as _exc:
+    if _exc.name is not None and (
+        _exc.name == "libs.data.data_providers.wrds_client"
+        or not _exc.name.startswith("libs.")
+    ):
+        _dp_logger.info(
+            "wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name
+        )
+        WRDSClient = None  # type: ignore[assignment,misc]
+        WRDSConfig = None  # type: ignore[assignment,misc]
+    else:
+        raise
 
 __all__ = [
     # CRSP Local Provider

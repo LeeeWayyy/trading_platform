@@ -51,12 +51,32 @@ _PAGE_MODULES = (
     "apps.web_console_ng.pages.universes",
 )
 
+# Known optional third-party packages that individual page modules may depend on.
+# If these are absent we skip the page gracefully; any other missing module is a
+# genuine regression and must fail fast.
+_OPTIONAL_PACKAGES = frozenset({
+    "rq",           # backtest job queue
+    "plotly",       # charting in some pages
+    "pandas",       # data frames
+    "polars",       # data frames
+    "strategies",   # strategy helpers (not present in web-console image)
+})
+
 for module_name in _PAGE_MODULES:
     try:
         importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
-        logger.warning(
-            "page_module_skipped_missing_dependency: module=%s error=%s",
-            module_name,
-            exc,
-        )
+        # Only tolerate missing *optional* third-party packages.  If the page
+        # module itself or one of its project-level transitive deps is missing,
+        # that is a real regression and should fail fast.
+        if exc.name is not None and any(
+            exc.name == pkg or exc.name.startswith(f"{pkg}.")
+            for pkg in _OPTIONAL_PACKAGES
+        ):
+            logger.warning(
+                "page_module_skipped_missing_optional_dependency: module=%s missing_package=%s",
+                module_name,
+                exc.name,
+            )
+        else:
+            raise

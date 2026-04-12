@@ -51,10 +51,17 @@ class WorkspaceSchemaUnavailableError(DatabaseUnavailableError):
 
 
 def _is_workspace_schema_missing_error(exc: Exception) -> bool:
-    """Return True for workspace_state schema drift/missing-table errors."""
-    if not isinstance(exc, UndefinedTable | UndefinedColumn | UndefinedObject):
-        return False
-    return "workspace_state" in str(exc).lower()
+    """Return True for workspace_state schema drift/missing-table errors.
+
+    All ``UndefinedTable``, ``UndefinedColumn``, and ``UndefinedObject``
+    exceptions that arise within workspace operations are treated as schema
+    unavailability.  Postgres ``UndefinedColumn`` messages do not always
+    include the table name (e.g. ``column "schema_version" does not exist``),
+    so a string-only check is insufficient.  Because the ``_workspace_schema_guard``
+    context manager is scoped to workspace operations, any such error is
+    inherently workspace-related.
+    """
+    return isinstance(exc, UndefinedTable | UndefinedColumn | UndefinedObject)
 
 
 def _raise_workspace_schema_unavailable(

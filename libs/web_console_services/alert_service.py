@@ -96,8 +96,9 @@ class AlertConfigService:
     def _get_channel_handlers(self) -> dict[ChannelType, BaseChannel]:
         """Build channel handlers, lazily skipping unconfigured channels.
 
-        SMS channel requires Twilio credentials. If not configured, SMS is
-        skipped and a warning is logged. Email, Slack, and PagerDuty are always enabled.
+        Email requires aiosmtplib; SMS requires Twilio credentials.
+        If the dependency is missing or credentials are absent, the channel
+        is skipped and a warning is logged. Slack and PagerDuty are always enabled.
         """
         if self._channel_handlers is None:
             self._channel_handlers = {

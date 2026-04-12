@@ -304,6 +304,44 @@ class TestGetChannels:
             assert ChannelType.SMS in channels
             assert channels[ChannelType.SMS] == mock_sms_instance
 
+    def test_get_channels_skips_email_when_dependency_missing(self):
+        """Test _get_channels skips EMAIL when EmailChannel is None (dep missing)."""
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("apps.alert_worker.entrypoint.EmailChannel", None),
+            patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
+            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
+            patch("apps.alert_worker.entrypoint.PagerDutyChannel") as mock_pd,
+        ):
+            mock_sms.side_effect = ConfigurationError("Twilio not configured")
+            mock_slack.return_value = Mock()
+            mock_pd.return_value = Mock()
+
+            channels = _get_channels()
+
+            assert ChannelType.EMAIL not in channels
+            assert ChannelType.SLACK in channels
+            assert ChannelType.PAGERDUTY in channels
+
+    def test_get_channels_skips_sms_when_dependency_missing(self):
+        """Test _get_channels skips SMS when SMSChannel is None (dep missing)."""
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
+            patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
+            patch("apps.alert_worker.entrypoint.SMSChannel", None),
+            patch("apps.alert_worker.entrypoint.PagerDutyChannel") as mock_pd,
+        ):
+            mock_email.return_value = Mock()
+            mock_slack.return_value = Mock()
+            mock_pd.return_value = Mock()
+
+            channels = _get_channels()
+
+            assert ChannelType.SMS not in channels
+            assert ChannelType.EMAIL in channels
+            assert ChannelType.SLACK in channels
+
     def test_get_channels_returns_cached_instance(self):
         """Test _get_channels returns cached instance on subsequent calls."""
         with (
