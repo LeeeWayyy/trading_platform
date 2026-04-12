@@ -168,6 +168,27 @@ def test_should_run_pending_strategy_context_refresh() -> None:
     )
 
 
+def test_should_enable_strategy_context_refresh_for_execution_gating() -> None:
+    assert dashboard_module.should_enable_strategy_context_refresh(
+        gate_enabled=True,
+        has_strategy_widget=False,
+    )
+
+
+def test_should_enable_strategy_context_refresh_for_workspace_widget() -> None:
+    assert dashboard_module.should_enable_strategy_context_refresh(
+        gate_enabled=False,
+        has_strategy_widget=True,
+    )
+
+
+def test_should_enable_strategy_context_refresh_disabled_without_consumers() -> None:
+    assert not dashboard_module.should_enable_strategy_context_refresh(
+        gate_enabled=False,
+        has_strategy_widget=False,
+    )
+
+
 def test_compute_workspace_data_staleness_no_live_data() -> None:
     stale, age = dashboard_module.compute_workspace_data_staleness(
         last_live_data_at=None,

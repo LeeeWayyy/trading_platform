@@ -239,6 +239,15 @@ def should_run_pending_strategy_context_refresh(
     return refresh_pending and not dashboard_closing
 
 
+def should_enable_strategy_context_refresh(
+    *,
+    gate_enabled: bool,
+    has_strategy_widget: bool,
+) -> bool:
+    """Enable strategy-context polling only when UI or execution gating consumes it."""
+    return gate_enabled or has_strategy_widget
+
+
 def compute_workspace_data_staleness(
     *,
     last_live_data_at: float | None,
@@ -1736,6 +1745,10 @@ async def dashboard(client: Client) -> None:
     strategy_context_refresh_pending = False
     strategy_context_dashboard_closing = False
     last_strategy_context_symbol: str | None = order_context.get_selected_symbol()
+    strategy_context_refresh_enabled = should_enable_strategy_context_refresh(
+        gate_enabled=config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING,
+        has_strategy_widget=strategy_context_widget is not None,
+    )
 
     def sync_order_flow_symbol() -> None:
         nonlocal last_strategy_context_symbol
@@ -1743,7 +1756,7 @@ async def dashboard(client: Client) -> None:
         order_flow_panel.set_symbol(selected_symbol)
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
-        if selected_symbol != last_strategy_context_symbol:
+        if strategy_context_refresh_enabled and selected_symbol != last_strategy_context_symbol:
             last_strategy_context_symbol = selected_symbol
             _schedule_strategy_model_context_refresh(invalidate_running=True)
 
@@ -1803,7 +1816,7 @@ async def dashboard(client: Client) -> None:
 
     async def _fetch_model_registry_context(strategy_id: str) -> tuple[str, str | None]:
         """Fetch model status/version for a strategy from model_registry."""
-        if async_pool is None:
+        if async_pool is None or not config.FEATURE_MODEL_REGISTRY:
             return ("unknown", None)
 
         try:
@@ -1950,13 +1963,14 @@ async def dashboard(client: Client) -> None:
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
             return
 
-        db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
-        if model_status == "unknown":
-            model_status = db_model_status
-        if model_version is None:
-            model_version = db_model_version
+        if model_status == "unknown" or model_version is None:
+            db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
+            if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+                return
+            if model_status == "unknown":
+                model_status = db_model_status
+            if model_version is None:
+                model_version = db_model_version
 
         strategy_safe = is_strategy_execution_safe(strategy_status)
         model_safe = is_model_execution_safe(model_status)
@@ -2031,12 +2045,13 @@ async def dashboard(client: Client) -> None:
         if start_generation is not None:
             _start_strategy_model_context_refresh(start_generation)
 
-    _schedule_strategy_model_context_refresh()
-    strategy_context_timer = ui.timer(
-        config.DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS,
-        lambda: _schedule_strategy_model_context_refresh(invalidate_running=False),
-    )
-    timers.append(strategy_context_timer)
+    if strategy_context_refresh_enabled:
+        _schedule_strategy_model_context_refresh()
+        strategy_context_timer = ui.timer(
+            config.DASHBOARD_STRATEGY_CONTEXT_REFRESH_SECONDS,
+            lambda: _schedule_strategy_model_context_refresh(invalidate_running=False),
+        )
+        timers.append(strategy_context_timer)
 
     def cleanup_timers() -> None:
         nonlocal strategy_context_dashboard_closing, strategy_context_refresh_pending

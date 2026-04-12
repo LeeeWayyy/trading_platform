@@ -358,6 +358,9 @@ def test_get_user_jobs_sync_parses_progress() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
 
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
         def __enter__(self) -> FakeCursor:
             return self
 
@@ -492,6 +495,9 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
 
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
         def __enter__(self) -> FakeCursor:
             return self
 
@@ -617,6 +623,51 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
     assert jobs[0]["provider"] == "crsp"
     assert jobs[0]["progress_pct"] == 0.0
     assert pool.conn.rollback_called is True
+
+
+def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:
+    """Non-schema probe failures should bubble up as connectivity/runtime errors."""
+
+    class FakeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise RuntimeError("db unavailable")
+
+        def __enter__(self) -> FakeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
+            return FakeCursor()
+
+        def __enter__(self) -> FakeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def connection(self) -> FakeConn:
+            return FakeConn()
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            raise AssertionError("Redis should not be touched when probe fails")
+
+    previous_cache = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
+    try:
+        with pytest.raises(RuntimeError, match="db unavailable"):
+            backtest_module._get_user_jobs_sync(
+                created_by="u1",
+                status=["completed"],
+                db_pool=FakePool(),  # type: ignore[arg-type]
+                redis_client=FakeRedis(),  # type: ignore[arg-type]
+            )
+    finally:
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
 
 
 def test_verify_job_ownership_returns_true_for_owner() -> None:
@@ -1479,6 +1530,9 @@ def test_get_user_jobs_sync_progress_parse_error() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
 
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
         def __enter__(self) -> FakeCursor:
             return self
 
@@ -1541,6 +1595,9 @@ def test_get_user_jobs_sync_progress_none() -> None:
     class FakeCursor:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
 
         def __enter__(self) -> FakeCursor:
             return self
