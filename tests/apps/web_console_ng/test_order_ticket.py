@@ -1982,6 +1982,58 @@ class TestOrderTicketQuantityRules:
         assert disabled is True
         assert reason == "Quantity must increment by 100 shares (lots)"
 
+    def test_submission_allows_risk_reducing_exit_below_minimum(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Risk-reducing exits bypass min qty gate so residuals can be flattened."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._state.side = "sell"
+        component._state.quantity = 50
+        component._current_position = 50
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._state.quantity = 50
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_submission_allows_risk_reducing_exit_off_step(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Risk-reducing exits bypass step gate when the full position is irregular."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._state.side = "sell"
+        component._state.quantity = 150
+        component._current_position = 150
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._state.quantity = 150
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
     def test_submission_step_check_uses_minimum_baseline(self, component: OrderTicketComponent) -> None:
         """Step validation remains correct even when legacy state has unaligned minimum."""
         now = datetime.now(UTC)

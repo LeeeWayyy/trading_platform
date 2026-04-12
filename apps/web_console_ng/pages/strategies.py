@@ -193,6 +193,7 @@ async def strategies_page() -> None:
 
                         if can_toggle:
                             async def on_toggle(
+                                _event: Any,
                                 sid: str = strategy_id,
                                 currently_active: bool = is_active,
                                 sname: str = strategy_name,

@@ -226,7 +226,7 @@ class QuantityPresetsComponent:
             for preset in self._presets:
                 btn = ui.button(
                     str(preset),
-                    on_click=lambda p=preset: self._on_preset_selected(p),
+                    on_click=lambda _, p=preset: self._on_preset_selected(p),
                 ).classes("workspace-v2-preset-btn")
                 btn.set_enabled(self._enabled)
                 self._preset_buttons.append(btn)

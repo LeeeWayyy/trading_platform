@@ -1741,9 +1741,8 @@ async def dashboard(client: Client) -> None:
         has_strategy_widget=strategy_context_widget is not None,
     )
 
-    def sync_order_flow_symbol() -> None:
+    def _on_order_context_symbol_changed(selected_symbol: str | None) -> None:
         nonlocal last_strategy_context_symbol
-        selected_symbol = order_context.get_selected_symbol()
         order_flow_panel.set_symbol(selected_symbol)
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
@@ -1751,8 +1750,7 @@ async def dashboard(client: Client) -> None:
             last_strategy_context_symbol = selected_symbol
             _schedule_strategy_model_context_refresh(invalidate_running=True)
 
-    flow_symbol_timer = ui.timer(0.5, sync_order_flow_symbol)
-    timers.append(flow_symbol_timer)
+    _on_order_context_symbol_changed(last_strategy_context_symbol)
 
     async def _resolve_strategy_for_symbol(symbol: str) -> tuple[str | None, str]:
         """Resolve symbol -> strategy mapping using fail-closed uniqueness rules."""
@@ -2038,6 +2036,8 @@ async def dashboard(client: Client) -> None:
             return
         if start_generation is not None:
             _start_strategy_model_context_refresh(start_generation)
+
+    order_context.register_symbol_change_callback(_on_order_context_symbol_changed)
 
     if strategy_context_refresh_enabled:
         _schedule_strategy_model_context_refresh()

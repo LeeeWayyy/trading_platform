@@ -175,6 +175,8 @@ class OrderEntryContext:
 
         # Current selected symbol (shared state)
         self._selected_symbol: str | None = None
+        # Synchronous listeners used by dashboard widgets to react to symbol changes.
+        self._symbol_change_callbacks: list[Callable[[str | None], None]] = []
 
         # SYMBOL SELECTION VERSION (race prevention)
         self._selection_version: int = 0
@@ -1287,6 +1289,7 @@ class OrderEntryContext:
             return  # Stale - newer selection in progress
 
         self._selected_symbol = symbol
+        self._notify_symbol_change_callbacks(symbol)
 
         # Subscribe to new symbol's price channel (only if symbol provided)
         if symbol:
@@ -1295,6 +1298,7 @@ class OrderEntryContext:
             except Exception as exc:
                 logger.error(f"Failed to subscribe to price channel for {symbol}: {exc}")
                 self._selected_symbol = None
+                self._notify_symbol_change_callbacks(None)
                 ui.notify(f"Unable to load data for {symbol}", type="warning")
                 if self._order_ticket:
                     await self._order_ticket.on_symbol_changed(None)
@@ -1627,6 +1631,19 @@ class OrderEntryContext:
         """Get the currently selected symbol."""
         return self._selected_symbol
 
+    def register_symbol_change_callback(self, callback: Callable[[str | None], None]) -> None:
+        """Register a synchronous callback invoked whenever selected symbol changes."""
+        if callback not in self._symbol_change_callbacks:
+            self._symbol_change_callbacks.append(callback)
+
+    def _notify_symbol_change_callbacks(self, symbol: str | None) -> None:
+        """Notify best-effort symbol listeners without breaking selection flow."""
+        for callback in tuple(self._symbol_change_callbacks):
+            try:
+                callback(symbol)
+            except Exception as exc:
+                logger.warning(f"Symbol change callback failed: {exc}")
+
     # =========================================================================
     # Cleanup
     # =========================================================================
@@ -1646,6 +1663,7 @@ class OrderEntryContext:
         if self._risk_refresh_task and not self._risk_refresh_task.done():
             self._risk_refresh_task.cancel()
         self._risk_refresh_task = None
+        self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels
         async with self._subscription_lock:
