@@ -20,7 +20,12 @@ import pytest
 
 from apps.web_console_ng.pages.execution_quality import (
     DEFAULT_RANGE_DAYS,
+    _fetch_tca_benchmarks,
     _fetch_tca_data,
+    _format_benchmark_timestamp,
+    _is_valid_price,
+    _is_valid_timestamp,
+    _parse_utc,
 )
 
 
@@ -199,6 +204,362 @@ class TestFetchTCAData:
             assert headers["X-User-Strategies"] == "strat1,strat2"
 
 
+class TestFetchTCABenchmarks:
+    """Tests for _fetch_tca_benchmarks function."""
+
+    @pytest.mark.asyncio()
+    async def test_fetch_success(self) -> None:
+        """Successful fetch returns benchmark data."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "symbol": "AAPL",
+            "benchmark_type": "vwap",
+            "points": [
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": 150.1,
+                    "benchmark_price": 150.0,
+                }
+            ],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                strategy_id="alpha_baseline",
+                user_id="test_user",
+                role="trader",
+                strategies=["alpha_baseline"],
+            )
+
+            call_args = mock_instance.get.call_args
+            params = call_args.kwargs.get("params", {})
+            headers = call_args.kwargs.get("headers", {})
+            assert params == {"client_order_id": "order-1", "benchmark": "vwap"}
+            assert headers["X-User-ID"] == "test_user"
+            assert headers["X-User-Role"] == "trader"
+            assert headers["X-User-Strategies"] == "alpha_baseline"
+
+        assert result is not None
+        assert result["client_order_id"] == "order-1"
+
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_when_no_points(self) -> None:
+        """Empty benchmark series returns None so UI hides chart."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "points": [],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_on_error(self) -> None:
+        """API error returns None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_fetch_raises_on_request_error(self) -> None:
+        """Network-level error is logged and re-raised (never swallowed)."""
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = httpx.ConnectError("connection refused")
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            with pytest.raises(httpx.ConnectError):
+                await _fetch_tca_benchmarks(
+                    client_order_id="order-1",
+                    user_id="test_user",
+                    role="trader",
+                    strategies=[],
+                )
+
+    @pytest.mark.asyncio()
+    async def test_fetch_raises_on_malformed_json(self) -> None:
+        """Malformed JSON body on 200 is logged and re-raised."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("invalid json")
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            with pytest.raises(ValueError, match="invalid json"):
+                await _fetch_tca_benchmarks(
+                    client_order_id="order-1",
+                    user_id="test_user",
+                    role="trader",
+                    strategies=[],
+                )
+
+    @pytest.mark.asyncio()
+    async def test_fetch_filters_non_dict_points(self) -> None:
+        """Non-dict entries in points are filtered out (schema drift guard)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "points": [
+                "not-a-dict",
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": 150.1,
+                    "benchmark_price": 150.0,
+                },
+                42,
+            ],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is not None
+        # Only the valid dict entry should remain
+        assert len(result["points"]) == 1
+        assert result["points"][0]["execution_price"] == 150.1
+
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_when_all_points_non_dict(self) -> None:
+        """Returns None when all points entries are non-dict."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "points": ["bad", 123, None],
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_when_json_is_not_dict(self) -> None:
+        """Non-dict top-level JSON (e.g. list) returns None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = ["unexpected", "list"]
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_fetch_returns_none_when_points_not_list(self) -> None:
+        """Non-list 'points' field returns None and logs warning."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "client_order_id": "order-1",
+            "points": "not-a-list",
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            result = await _fetch_tca_benchmarks(
+                client_order_id="order-1",
+                user_id="test_user",
+                role="trader",
+                strategies=[],
+            )
+
+        assert result is None
+
+
+class TestBenchmarkHelpers:
+    """Tests for module-level benchmark transformation helpers."""
+
+    def test_parse_utc_zulu(self) -> None:
+        """Zulu suffix is parsed as UTC."""
+        dt = _parse_utc("2024-01-15T10:30:00Z")
+        assert dt.strftime("%H:%M") == "10:30"
+        assert dt.tzinfo is not None
+
+    def test_parse_utc_offset(self) -> None:
+        """Explicit offset is normalized to UTC."""
+        dt = _parse_utc("2024-01-15T15:30:00-05:00")
+        assert dt.strftime("%H:%M") == "20:30"
+
+    def test_parse_utc_naive(self) -> None:
+        """Naive datetime is assumed UTC (no local-timezone shift)."""
+        dt = _parse_utc("2024-01-15T10:30:00")
+        assert dt.strftime("%H:%M") == "10:30"
+
+    def test_parse_utc_invalid(self) -> None:
+        """Invalid string returns datetime.min (UTC)."""
+        dt = _parse_utc("not-a-date")
+        assert dt.year == 1
+        assert dt.month == 1
+        assert dt.day == 1
+        assert dt.tzinfo is not None
+
+    def test_format_benchmark_timestamp_zulu(self) -> None:
+        """Zulu timestamp formatted as HH:MM:SS UTC."""
+        assert _format_benchmark_timestamp("2024-01-15T10:30:00Z") == "10:30:00 UTC"
+
+    def test_format_benchmark_timestamp_invalid(self) -> None:
+        """Invalid timestamp returned as-is."""
+        assert _format_benchmark_timestamp("bad") == "bad"
+
+    def test_format_benchmark_timestamp_with_offset(self) -> None:
+        """Offset timestamp converted to UTC before formatting."""
+        assert _format_benchmark_timestamp("2024-01-15T15:30:00-05:00") == "20:30:00 UTC"
+
+    def test_format_benchmark_timestamp_include_date(self) -> None:
+        """Include date when requested for multi-day fills."""
+        result = _format_benchmark_timestamp(
+            "2024-01-15T10:30:00Z", include_date=True
+        )
+        assert result == "2024-01-15 10:30:00 UTC"
+
+    def test_is_valid_price_positive(self) -> None:
+        """Positive float is valid."""
+        assert _is_valid_price(150.5) is True
+
+    def test_is_valid_price_zero(self) -> None:
+        """Zero is not valid (used to detect missing data)."""
+        assert _is_valid_price(0.0) is False
+        assert _is_valid_price(0) is False
+
+    def test_is_valid_price_none(self) -> None:
+        """None is not valid."""
+        assert _is_valid_price(None) is False
+
+    def test_is_valid_price_string(self) -> None:
+        """Non-numeric string is not valid."""
+        assert _is_valid_price("abc") is False
+
+    def test_is_valid_price_numeric_string(self) -> None:
+        """Numeric string is valid."""
+        assert _is_valid_price("150.5") is True
+
+    def test_is_valid_price_negative(self) -> None:
+        """Negative price is not valid."""
+        assert _is_valid_price(-10.0) is False
+
+    def test_is_valid_price_boolean(self) -> None:
+        """Booleans are not valid prices (float(True) == 1.0)."""
+        assert _is_valid_price(True) is False
+        assert _is_valid_price(False) is False
+
+    def test_is_valid_price_nan(self) -> None:
+        """NaN is not valid."""
+        assert _is_valid_price(float("nan")) is False
+
+    def test_is_valid_price_inf(self) -> None:
+        """Infinity is not valid."""
+        assert _is_valid_price(float("inf")) is False
+        assert _is_valid_price(float("-inf")) is False
+
+    def test_is_valid_timestamp_valid(self) -> None:
+        """Valid ISO timestamp returns True."""
+        assert _is_valid_timestamp("2024-01-15T10:00:00Z") is True
+
+    def test_is_valid_timestamp_invalid(self) -> None:
+        """Non-parseable string returns False."""
+        assert _is_valid_timestamp("not-a-date") is False
+
+    def test_is_valid_timestamp_none(self) -> None:
+        """None returns False."""
+        assert _is_valid_timestamp(None) is False
+
+    def test_sort_with_mixed_offsets(self) -> None:
+        """Points with different timezone offsets sort chronologically."""
+        points = [
+            {"timestamp": "2024-01-15T15:30:00-05:00", "val": "later"},  # 20:30 UTC
+            {"timestamp": "2024-01-15T10:00:00Z", "val": "earlier"},  # 10:00 UTC
+        ]
+        points.sort(key=lambda p: _parse_utc(p["timestamp"]))
+        assert points[0]["val"] == "earlier"
+        assert points[1]["val"] == "later"
+
+
 class TestDefaultDateRange:
     """Tests for default date range constant."""
 
@@ -209,7 +570,15 @@ class TestDefaultDateRange:
 
 
 class TestExecutionQualityPageIntegration:
-    """Integration tests for the execution quality page."""
+    """Integration tests for the execution quality page.
+
+    NOTE: Full render-path tests (benchmark chart shown/hidden/demo,
+    stale-load discard via ``_load_version``) require a running NiceGUI
+    server and are not feasible in unit-test scope.  The helpers that
+    drive those render branches (``_parse_utc``, ``_is_valid_price``,
+    ``_is_valid_timestamp``, ``_format_benchmark_timestamp``,
+    ``_fetch_tca_benchmarks``) are thoroughly covered above.
+    """
 
     @pytest.mark.asyncio()
     async def test_page_handles_no_data(self) -> None:

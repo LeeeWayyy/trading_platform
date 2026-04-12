@@ -50,6 +50,79 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
+# Backend default fill limit for TCA queries (database.py:get_trades_for_tca).
+# Used to detect potential data truncation in the benchmark chart.
+# Note: a "may be truncated" warning is shown when point count reaches this
+# limit. This can false-positive when there are exactly _BACKEND_FILL_LIMIT
+# fills, but under-warning is worse than over-warning for TCA accuracy.
+_BACKEND_FILL_LIMIT = 500
+
+
+_DATETIME_MIN_UTC = datetime.min.replace(tzinfo=UTC)
+
+
+def _parse_utc(value: Any) -> datetime:
+    """Parse a timestamp to a UTC-aware datetime.
+
+    Naive values are assumed UTC.  Unparseable values map to
+    ``_DATETIME_MIN_UTC`` so they sort first.
+    """
+    text = str(value)
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except ValueError:
+        return _DATETIME_MIN_UTC
+
+
+def _is_valid_timestamp(value: Any) -> bool:
+    """Return True if *value* can be parsed to a real UTC datetime."""
+    return _parse_utc(value) != _DATETIME_MIN_UTC
+
+
+def _format_benchmark_timestamp(value: Any, *, include_date: bool = False) -> str:
+    """Format a benchmark point timestamp as ``HH:MM:SS UTC``.
+
+    When *include_date* is True the output includes the date prefix
+    (``YYYY-MM-DD HH:MM:SS UTC``) for multi-day fill windows.
+    """
+    dt = _parse_utc(value)
+    if dt == _DATETIME_MIN_UTC:
+        return str(value)
+    fmt = "%Y-%m-%d %H:%M:%S UTC" if include_date else "%H:%M:%S UTC"
+    return dt.strftime(fmt)
+
+
+def _is_valid_price(value: Any) -> bool:
+    """Return True if *value* is a finite positive price.
+
+    Rejects zero, negative, NaN, infinity, booleans, and non-numeric values.
+    """
+    import math
+
+    # Reject booleans explicitly since float(True) == 1.0
+    if isinstance(value, bool):
+        return False
+    try:
+        f = float(value)
+        return f > 0.0 and math.isfinite(f)
+    except (TypeError, ValueError):
+        return False
+
+
+def _build_tca_auth_headers(
+    user_id: str,
+    role: str,
+    strategies: list[str],
+) -> dict[str, str]:
+    """Build auth headers for TCA API calls."""
+    return {
+        "X-User-ID": user_id,
+        "X-User-Role": role,
+        "X-User-Strategies": ",".join(strategies),
+    }
 
 
 async def _fetch_tca_data(
@@ -76,17 +149,10 @@ async def _fetch_tca_data(
             if strategy_id:
                 params["strategy_id"] = strategy_id
 
-            # Add auth headers
-            headers = {
-                "X-User-ID": user_id,
-                "X-User-Role": role,
-                "X-User-Strategies": ",".join(strategies),
-            }
-
             response = await client.get(
                 f"{EXECUTION_GATEWAY_URL}/api/v1/tca/analysis",
                 params=params,
-                headers=headers,
+                headers=_build_tca_auth_headers(user_id, role, strategies),
             )
             if response.status_code == 200:
                 result: dict[str, Any] = response.json()
@@ -97,6 +163,73 @@ async def _fetch_tca_data(
             )
     except httpx.RequestError as e:
         logger.warning("TCA API unavailable", extra={"error": str(e)})
+    return None
+
+
+async def _fetch_tca_benchmarks(
+    client_order_id: str,
+    user_id: str,
+    role: str,
+    strategies: list[str],
+    benchmark: str = "vwap",
+    *,
+    symbol: str = "",
+    strategy_id: str = "",
+) -> dict[str, Any] | None:
+    """Fetch benchmark time series for an order.
+
+    Returns None on error so callers can hide the benchmark chart instead of
+    rendering synthetic data.
+    """
+    log_ctx: dict[str, Any] = {
+        "client_order_id": client_order_id,
+        "benchmark": benchmark,
+        "symbol": symbol,
+        "strategy_id": strategy_id,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
+                params={"client_order_id": client_order_id, "benchmark": benchmark},
+                headers=_build_tca_auth_headers(user_id, role, strategies),
+            )
+            if response.status_code == 200:
+                raw = response.json()
+                if not isinstance(raw, dict):
+                    logger.warning(
+                        "TCA benchmarks API returned non-dict JSON",
+                        extra=log_ctx,
+                    )
+                    return None
+                result: dict[str, Any] = raw
+                points = result.get("points")
+                if not isinstance(points, list):
+                    logger.warning(
+                        "TCA benchmarks API returned non-list points",
+                        extra={**log_ctx, "points_type": type(points).__name__},
+                    )
+                    return None
+                if not points:
+                    return None
+                # Discard entries that are not dicts to guard against
+                # schema drift from the upstream API.
+                result["points"] = [p for p in points if isinstance(p, dict)]
+                return result if result["points"] else None
+            logger.warning(
+                "TCA benchmarks API returned non-200",
+                extra={
+                    **log_ctx,
+                    "status": response.status_code,
+                    "body": response.text[:200],
+                },
+            )
+    except (httpx.RequestError, ValueError, KeyError, TypeError, AttributeError) as e:
+        logger.warning(
+            "TCA benchmarks API error",
+            extra={**log_ctx, "error": str(e)},
+        )
+        raise
     return None
 
 
@@ -251,6 +384,7 @@ async def _render_tca_dashboard(
         "strategy_id": None,
         "data": None,
         "demo_mode": False,
+        "_load_version": 0,
     }
 
     # Filters section
@@ -310,7 +444,14 @@ async def _render_tca_dashboard(
     orders_container = ui.column().classes("w-full")
 
     async def load_data() -> None:
-        """Load TCA data and update UI."""
+        """Load TCA data and update UI.
+
+        Uses a version counter to discard results from stale requests
+        when rapid filter changes overlap async fetches.
+        """
+        state["_load_version"] += 1
+        current_version = state["_load_version"]
+
         summary_container.clear()
         charts_container.clear()
         orders_container.clear()
@@ -354,6 +495,10 @@ async def _render_tca_dashboard(
         data = await _fetch_tca_data(
             start_dt, end_dt, symbol, strategy, user_id, role, authorized_strategies
         )
+
+        # Discard stale results if a newer load was triggered
+        if state["_load_version"] != current_version:
+            return
 
         # Check for demo mode: API failure OR API returned demo data
         summary = data.get("summary", {}) if data else {}
@@ -442,37 +587,137 @@ async def _render_tca_dashboard(
                 else:
                     ui.label("No order data available").classes("text-gray-500 p-4")
 
-            # Benchmark comparison (show for first order as example)
+            # Benchmark comparison (real TCA benchmark data for first order)
             if orders:
                 with ui.card().classes("w-full p-4"):
-                    ui.label("Sample Execution vs VWAP").classes("text-lg font-bold mb-2")
-
-                    # Generate sample benchmark data for first order
                     first_order = orders[0]
-                    import random
+                    client_order_id = str(first_order.get("client_order_id", "")).strip()
+                    order_symbol = str(first_order.get("symbol", ""))
+                    order_label = order_symbol or client_order_id or "first order"
+                    ui.label(
+                        f"Execution vs Benchmark ({order_label})"
+                    ).classes("text-lg font-bold mb-2")
 
-                    # Use stable hash for deterministic demo data across restarts
-                    random.seed(_stable_hash(first_order.get("client_order_id", "")))
+                    benchmark_data = None
+                    if not state["demo_mode"] and client_order_id:
+                        try:
+                            benchmark_data = await _fetch_tca_benchmarks(
+                                client_order_id=client_order_id,
+                                user_id=user_id,
+                                role=role,
+                                strategies=authorized_strategies,
+                                symbol=str(first_order.get("symbol", "")),
+                                strategy_id=str(first_order.get("strategy_id", "")),
+                            )
+                        except (
+                            httpx.RequestError,
+                            ValueError,
+                            KeyError,
+                            TypeError,
+                            AttributeError,
+                        ):
+                            benchmark_data = None
 
-                    num_points = 10
-                    base_price = 150.0
-                    timestamps = [f"10:{i * 5:02d}" for i in range(num_points)]
-                    exec_prices = [
-                        round(base_price * (1 + random.uniform(-0.002, 0.003)), 2)
-                        for _ in range(num_points)
-                    ]
-                    bench_prices = [
-                        round(base_price * (1 + random.uniform(-0.001, 0.001)), 2)
-                        for _ in range(num_points)
-                    ]
+                    # Discard stale results if a newer load was triggered
+                    if state["_load_version"] != current_version:
+                        return
 
-                    create_benchmark_comparison_chart(
-                        timestamps=timestamps,
-                        execution_prices=exec_prices,
-                        benchmark_prices=bench_prices,
-                        benchmark_type="VWAP",
-                        symbol=first_order.get("symbol", ""),
-                    )
+                    # Verify the response matches the requested order to
+                    # guard against upstream cache/routing bugs.
+                    if benchmark_data:
+                        resp_order_id = str(
+                            benchmark_data.get("client_order_id", "")
+                        ).strip()
+                        if resp_order_id and resp_order_id != client_order_id:
+                            logger.warning(
+                                "TCA benchmarks response order mismatch",
+                                extra={
+                                    "requested": client_order_id,
+                                    "received": resp_order_id,
+                                },
+                            )
+                            benchmark_data = None
+
+                    if benchmark_data:
+                        raw_points = benchmark_data.get("points", [])
+                        raw_summary = benchmark_data.get("summary")
+                        summary = raw_summary if isinstance(raw_summary, dict) else {}
+                        benchmark_type = str(
+                            benchmark_data.get("benchmark_type") or "vwap"
+                        ).upper()
+
+                        # Drop points with invalid timestamps or price fields
+                        # to avoid rendering misleading data.
+                        valid_points = [
+                            p for p in raw_points
+                            if _is_valid_timestamp(p.get("timestamp"))
+                            and _is_valid_price(p.get("execution_price"))
+                            and _is_valid_price(p.get("benchmark_price"))
+                        ]
+
+                        # Sort by normalized UTC datetime for correct
+                        # chronological plotting regardless of offset format.
+                        valid_points.sort(
+                            key=lambda p: _parse_utc(p.get("timestamp", ""))
+                        )
+
+                        if valid_points:
+                            # Detect multi-day fills to include date in labels
+                            first_dt = _parse_utc(valid_points[0].get("timestamp", ""))
+                            last_dt = _parse_utc(valid_points[-1].get("timestamp", ""))
+                            multi_day = first_dt.date() != last_dt.date()
+
+                            # Warn if data may be truncated.  Prefer the
+                            # ``truncated`` flag from the API response when
+                            # available; fall back to heuristic comparison
+                            # against _BACKEND_FILL_LIMIT.
+                            # TODO: Add ``truncated`` field to
+                            # TCABenchmarkResponse so UI does not depend on
+                            # hardcoded backend limit.
+                            is_truncated = benchmark_data.get("truncated")
+                            if is_truncated is None:
+                                is_truncated = len(raw_points) >= _BACKEND_FILL_LIMIT
+                            if is_truncated:
+                                ui.label(
+                                    "Note: benchmark data may be truncated "
+                                    f"(showing first {len(raw_points)} fills)."
+                                ).classes("text-amber-500 text-xs mb-1")
+
+                            create_benchmark_comparison_chart(
+                                timestamps=[
+                                    _format_benchmark_timestamp(
+                                        p.get("timestamp", ""),
+                                        include_date=multi_day,
+                                    )
+                                    for p in valid_points
+                                ],
+                                execution_prices=[
+                                    float(p["execution_price"]) for p in valid_points
+                                ],
+                                benchmark_prices=[
+                                    float(p["benchmark_price"]) for p in valid_points
+                                ],
+                                benchmark_type=benchmark_type,
+                                symbol=str(
+                                    benchmark_data.get("symbol")
+                                    or summary.get("symbol")
+                                    or first_order.get("symbol", "")
+                                ),
+                            )
+                        else:
+                            ui.label(
+                                "Benchmark chart unavailable: no valid data points."
+                            ).classes("text-gray-500 p-4")
+                    elif state["demo_mode"]:
+                        ui.label(
+                            "Benchmark chart hidden in demo mode to avoid showing synthetic data."
+                        ).classes("text-gray-500 p-4")
+                    else:
+                        ui.label(
+                            "Benchmark chart unavailable — the TCA benchmarks "
+                            "API did not return data for this order. Check logs "
+                            "for details."
+                        ).classes("text-gray-500 p-4")
 
         # Render orders table
         with orders_container:
