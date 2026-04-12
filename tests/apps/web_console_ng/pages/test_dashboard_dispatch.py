@@ -189,6 +189,28 @@ def test_should_enable_strategy_context_refresh_disabled_without_consumers() -> 
     )
 
 
+def test_resolve_model_gate_inputs_enforces_when_feature_enabled() -> None:
+    status, version, enforce = dashboard_module.resolve_model_gate_inputs(
+        model_status="unknown",
+        model_version=None,
+        feature_model_registry_enabled=True,
+    )
+    assert status == "unknown"
+    assert version is None
+    assert enforce is True
+
+
+def test_resolve_model_gate_inputs_disables_model_gate_without_feature() -> None:
+    status, version, enforce = dashboard_module.resolve_model_gate_inputs(
+        model_status="unknown",
+        model_version=None,
+        feature_model_registry_enabled=False,
+    )
+    assert status == "ready"
+    assert version == "disabled"
+    assert enforce is False
+
+
 def test_compute_workspace_data_staleness_no_live_data() -> None:
     stale, age = dashboard_module.compute_workspace_data_staleness(
         last_live_data_at=None,
