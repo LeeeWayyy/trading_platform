@@ -1988,6 +1988,19 @@ class TestOrderTicketQuantityRules:
 
         component._quantity_presets.set_presets.assert_called_with([1, 5, 10])
 
+    def test_position_display_keeps_canonical_share_units(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Position label remains in canonical units even when order entry uses lots."""
+        component._position_label = MagicMock()
+        component._state.symbol = "AAPL"
+        component._current_position = 200
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        component._update_position_display()
+
+        component._position_label.set_text.assert_called_with("+200 shares")
+
     def test_quantity_input_snaps_down_to_step(self, component: OrderTicketComponent) -> None:
         """Manual quantity entry snaps to nearest valid step."""
         component._quantity_input = MagicMock()

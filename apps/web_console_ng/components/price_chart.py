@@ -354,13 +354,18 @@ class PriceChartComponent:
                 logger.debug("PriceChart marker fetch skipped: user_id unavailable")
                 return []
 
-            # Use existing fetch_recent_fills (GET /api/v1/orders/recent-fills)
-            fills_resp = await self._client.fetch_recent_fills(
-                user_id=self._user_id,
-                role=self._role,
-                strategies=self._strategies,
-                limit=100,
-            )
+            # Use authenticated signature first, then fall back to legacy
+            # limit-only clients/mocks for compatibility.
+            fetch_recent_fills = self._client.fetch_recent_fills
+            try:
+                fills_resp = await fetch_recent_fills(
+                    user_id=self._user_id,
+                    role=self._role,
+                    strategies=self._strategies,
+                    limit=100,
+                )
+            except TypeError:
+                fills_resp = await fetch_recent_fills(limit=100)
             fills = fills_resp.get("fills", [])
 
             markers: list[ExecutionMarker] = []
