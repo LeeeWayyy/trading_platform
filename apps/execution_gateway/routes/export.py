@@ -1115,7 +1115,7 @@ def _fetch_positions_data(
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": f"p.{item.get('colId')}"} if item.get("colId") in columns else item
+            {**item, "colId": f"p.{item.get('colId', '')}"} if item.get("colId") in columns else item
             for item in sort_model
         ]
     qualified_columns = [f"p.{c}" for c in columns]
@@ -1404,7 +1404,7 @@ def _sanitize_cell_value(raw_value: Any) -> Any:
     if isinstance(raw_value, str):
         return sanitize_for_export(raw_value)
     if raw_value is None:
-        return ""
+        return None
     if isinstance(raw_value, datetime):
         # openpyxl does not support timezone-aware datetimes.
         # Normalize all datetimes to UTC before stripping tzinfo.
