@@ -184,7 +184,7 @@ async def strategies_page() -> None:
                             "w-40 text-xs text-slate-400 workspace-v2-data-mono"
                         )
                         ui.label(activity_label).classes(f"w-28 {activity_style}")
-                        ui.label("CHECK ON TOGGLE").classes(
+                        ui.label("Evaluated on toggle").classes(
                             "w-28 text-[11px] text-slate-500 workspace-v2-data-mono"
                         )
                         ui.label(_format_updated_label(strat.get("updated_at"), strat.get("updated_by"))).classes(
