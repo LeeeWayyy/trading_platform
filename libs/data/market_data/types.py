@@ -138,6 +138,7 @@ def parse_redis_price_json(
     raw: str,
     expected_symbol: str | None = None,
     max_price_age_seconds: int | None = None,
+    log_extra: dict[str, Any] | None = None,
 ) -> ParsedPrice | None:
     """Parse and validate a Redis price JSON payload.
 
@@ -152,6 +153,9 @@ def parse_redis_price_json(
             field does not match (guards against misaligned cache entries)
         max_price_age_seconds: If provided, rejects prices older than
             this many seconds
+        log_extra: Optional dict of additional context fields (e.g.
+            ``strategy_id``, ``client_order_id``) merged into warning
+            log entries for traceability
 
     Returns:
         ParsedPrice with validated mid price and timestamp, or None
@@ -167,6 +171,7 @@ def parse_redis_price_json(
         ...     print(result.mid)
         Decimal('150.00')
     """
+    _extra = log_extra or {}
     try:
         price_data = json.loads(raw)
 
@@ -177,7 +182,7 @@ def parse_redis_price_json(
                 logger.warning(
                     "Redis price missing symbol field, expected %s",
                     expected_symbol,
-                    extra={"expected_symbol": expected_symbol},
+                    extra={**_extra, "expected_symbol": expected_symbol},
                 )
                 return None
             if payload_symbol != expected_symbol:
@@ -186,6 +191,7 @@ def parse_redis_price_json(
                     expected_symbol,
                     payload_symbol,
                     extra={
+                        **_extra,
                         "expected_symbol": expected_symbol,
                         "payload_symbol": payload_symbol,
                     },
@@ -198,7 +204,7 @@ def parse_redis_price_json(
             logger.warning(
                 "Redis price missing timestamp for %s",
                 expected_symbol or "unknown",
-                extra={"symbol": expected_symbol or "unknown"},
+                extra={**_extra, "symbol": expected_symbol or "unknown"},
             )
             return None
 
@@ -209,12 +215,14 @@ def parse_redis_price_json(
         # Timestamp age calculation (used by both staleness and future checks)
         age_seconds = (datetime.now(UTC) - price_ts).total_seconds()
 
-        # Future timestamps are always suspicious — reject regardless of staleness config
-        if age_seconds < -1:
+        # Future timestamps are always suspicious — reject regardless of staleness config.
+        # Allow 5s tolerance for multi-host clock skew (NTP can drift 1-2s).
+        if age_seconds < -5:
             logger.warning(
                 "Redis price has future timestamp for %s",
                 expected_symbol or "unknown",
                 extra={
+                    **_extra,
                     "symbol": expected_symbol or "unknown",
                     "price_age_seconds": age_seconds,
                 },
@@ -227,6 +235,7 @@ def parse_redis_price_json(
                 "Redis price stale for %s",
                 expected_symbol or "unknown",
                 extra={
+                    **_extra,
                     "symbol": expected_symbol or "unknown",
                     "price_age_seconds": max(age_seconds, 0),
                     "max_price_age_seconds": max_price_age_seconds,
@@ -241,6 +250,7 @@ def parse_redis_price_json(
                 "Redis price has invalid mid for %s",
                 expected_symbol or "unknown",
                 extra={
+                    **_extra,
                     "symbol": expected_symbol or "unknown",
                     "mid": str(mid),
                 },
@@ -253,6 +263,7 @@ def parse_redis_price_json(
         logger.warning(
             "Failed to parse Redis price payload",
             extra={
+                **_extra,
                 "symbol": expected_symbol or "unknown",
                 "error": str(e),
                 "error_type": type(e).__name__,

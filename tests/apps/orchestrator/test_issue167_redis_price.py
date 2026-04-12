@@ -362,7 +362,7 @@ class TestBatchPrefetch:
 
     @pytest.mark.asyncio()
     async def test_prefetch_error_is_non_fatal(self) -> None:
-        """_prefetch_prices catches errors so per-symbol fallback still works."""
+        """_prefetch_prices catches errors and marks Redis unavailable."""
         redis = MagicMock()
         redis.mget.side_effect = ConnectionError("Redis down")
         redis.get.return_value = _fresh_price_json()
@@ -371,8 +371,23 @@ class TestBatchPrefetch:
         # Should not raise
         await orch._prefetch_prices(["AAPL"])
 
-        # Cache is empty — per-symbol GET will work later
+        # Cache is empty and Redis is marked unavailable
         assert "AAPL" not in orch.price_cache
+        assert orch._redis_unavailable is True
+
+    @pytest.mark.asyncio()
+    async def test_prefetch_failure_prevents_per_symbol_retry(self) -> None:
+        """When batch MGET fails, per-symbol GET is skipped to avoid retry amplification."""
+        redis = MagicMock()
+        redis.mget.side_effect = ConnectionError("Redis down")
+        orch = _make_orchestrator(redis_client=redis)
+
+        await orch._prefetch_prices(["AAPL"])
+
+        # Per-symbol GET should be skipped
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+        redis.get.assert_not_called()
 
 
 class TestSymbolMismatchAndFutureTimestamp:

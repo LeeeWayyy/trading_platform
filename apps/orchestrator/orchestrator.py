@@ -246,6 +246,10 @@ class TradingOrchestrator:
         # across concurrent runs.
         self._active_strategy_ids: list[str] = []
 
+        # Set to True when batch MGET fails, to prevent per-symbol GET
+        # retry amplification when Redis is degraded.
+        self._redis_unavailable: bool = False
+
         # M1 Fix: Validate and normalize price_cache to ensure all values are Decimal
         self.price_cache: dict[str, Decimal] = {}
         # Tracks when each cached price was fetched for freshness revalidation
@@ -1162,8 +1166,12 @@ class TradingOrchestrator:
                     continue
                 self._parse_and_cache_price(sym, raw)
         except Exception as e:
+            # Mark Redis as unavailable for this run to prevent per-symbol
+            # GET retry amplification (each GET has its own retry/backoff).
+            self._redis_unavailable = True
             logger.warning(
-                "Batch price pre-fetch from Redis failed, will fall back to per-symbol",
+                "Batch price pre-fetch from Redis failed; "
+                "skipping per-symbol Redis lookups for this run",
                 extra=self._log_extra(
                     symbol=",".join(needed),
                     error=str(e),
@@ -1187,6 +1195,7 @@ class TradingOrchestrator:
             raw,
             expected_symbol=symbol,
             max_price_age_seconds=self.max_price_age_seconds,
+            log_extra=self._log_extra(symbol=symbol),
         )
         if result is None:
             return None
@@ -1246,8 +1255,10 @@ class TradingOrchestrator:
                 # No timestamp (shouldn't happen, but be safe) — evict
                 del self.price_cache[symbol]
 
-        # Fetch from Redis market data cache (populated by market_data_service)
-        if self.redis_client is not None:
+        # Fetch from Redis market data cache (populated by market_data_service).
+        # Skip if Redis was already found unavailable during batch prefetch
+        # to avoid retry amplification (each GET has its own retry/backoff).
+        if self.redis_client is not None and not self._redis_unavailable:
             try:
                 # Use asyncio.to_thread to avoid blocking the event loop
                 # (RedisClient.get has retry/backoff that can sleep)
