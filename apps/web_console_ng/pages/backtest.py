@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import plotly.graph_objects as go
 import polars as pl
 from nicegui import run, ui
+from psycopg import errors as pg_errors
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -178,8 +179,6 @@ def _get_user_jobs_sync(
                 row = probe_cur.fetchone()
                 _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
             except Exception as exc:  # pragma: no cover - defensive fallback path
-                from psycopg import errors as pg_errors
-
                 if isinstance(exc, pg_errors.UndefinedColumn):
                     # Keep transaction usable for the caller in legacy schemas.
                     if hasattr(probe_conn, "rollback"):
@@ -198,8 +197,6 @@ def _get_user_jobs_sync(
             cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
             jobs = cur.fetchall()
         except Exception as exc:
-            from psycopg import errors as pg_errors
-
             if not isinstance(exc, pg_errors.UndefinedColumn):
                 raise
             # Defensive fallback for schema drift/race where probe cache is stale.

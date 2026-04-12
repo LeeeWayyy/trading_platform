@@ -452,7 +452,7 @@ class AsyncTradingClient:
         requested_by: str,
         requested_at: str,
     ) -> dict[str, Any]:
-        """Cancel an order by client_order_id (POST with CancelOrderRequest body).
+        """Cancel an order by client_order_id (manual cancel endpoint with request body).
 
         Args:
             order_id: The client_order_id to cancel
@@ -472,7 +472,7 @@ class AsyncTradingClient:
         # URL-encode order_id to prevent path traversal attacks
         safe_order_id = url_quote(order_id, safe="")
         resp = await self._client.post(
-            f"/api/v1/orders/{safe_order_id}/cancel", headers=headers, json=payload
+            f"/api/v1/manual/orders/{safe_order_id}/cancel", headers=headers, json=payload
         )
         resp.raise_for_status()
         return self._json_dict(resp)

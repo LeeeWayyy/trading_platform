@@ -305,7 +305,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.update({json.dumps(updated_candle)});
                 }}
@@ -420,7 +420,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.setData({json.dumps(candle_data)});
                     chartRef.candlestickSeries.setMarkers({json.dumps(marker_data)});
@@ -441,7 +441,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.setData([]);
                     chartRef.candlestickSeries.setMarkers([]);
@@ -467,7 +467,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     // Remove existing VWAP if present
                     if (chartRef.vwapSeries) {{
@@ -501,7 +501,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     // Remove existing TWAP if present
                     if (chartRef.twapSeries) {{

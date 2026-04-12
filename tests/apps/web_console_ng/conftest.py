@@ -238,6 +238,12 @@ def mock_p6t3_components(monkeypatch: pytest.MonkeyPatch) -> None:
         def create(self) -> None:
             return None
 
+        def create_toggle_button(self) -> None:
+            return None
+
+        def create_drawer(self) -> None:
+            return None
+
     # Patch at module import level for apps.web_console_ng.ui.layout
     try:
         from apps.web_console_ng.ui import layout as layout_module

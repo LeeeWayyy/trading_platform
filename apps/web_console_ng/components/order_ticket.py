@@ -1564,7 +1564,7 @@ class OrderTicketComponent:
                 return False
         except Exception as exc:
             logger.error(f"Order submission failed: {exc}")
-            ui.notify("Order failed: submission error (see logs)", type="negative")
+            ui.notify(f"Order failed: {exc}", type="negative")
             return False
 
     # ================= Idempotency =================

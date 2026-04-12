@@ -1075,7 +1075,7 @@ class OrderEntryContext:
     def _parse_positive_int(self, value: Any) -> int | None:
         """Parse positive integer metadata value."""
         try:
-            parsed = int(value)
+            parsed = int(float(value))
         except (ValueError, TypeError):
             return None
         return parsed if parsed > 0 else None
