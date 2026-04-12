@@ -940,6 +940,29 @@ class TestSymbolSelection:
         context._price_chart.on_symbol_changed.assert_called_with("AAPL")
 
     @pytest.mark.asyncio()
+    async def test_symbol_selection_notifies_registered_symbol_callbacks(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Symbol selection emits callbacks used by dashboard panels."""
+        callback = MagicMock()
+        context.register_symbol_change_callback(callback)
+
+        await context.on_symbol_selected("AAPL")
+
+        callback.assert_called_once_with("AAPL")
+
+    def test_register_symbol_change_callback_deduplicates(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Duplicate registrations keep one callback instance."""
+        callback = MagicMock()
+
+        context.register_symbol_change_callback(callback)
+        context.register_symbol_change_callback(callback)
+
+        assert context._symbol_change_callbacks == [callback]
+
+    @pytest.mark.asyncio()
     async def test_symbol_selection_applies_cached_quantity_rules(
         self, context: OrderEntryContext
     ) -> None:

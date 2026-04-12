@@ -225,7 +225,7 @@ class WatchlistComponent:
             # Remove button
             ui.button(
                 icon="close",
-                on_click=lambda s=item.symbol: self._remove_symbol(s),
+                on_click=lambda _, s=item.symbol: self._remove_symbol(s),
             ).classes("w-6 h-6 opacity-50 hover:opacity-100").props("flat dense")
 
     def _render_sparkline(self, data: Sequence[float], change_pct: Decimal | None) -> None:

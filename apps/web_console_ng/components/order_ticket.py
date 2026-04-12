@@ -1142,12 +1142,18 @@ class OrderTicketComponent:
         if quantity is None:
             return (True, "Enter quantity")
 
-        if quantity < self._min_qty:
-            return (True, f"Minimum quantity is {self._format_quantity_limit(self._min_qty)}")
+        # Safety policy: permit strict risk-reducing exits even below lot min/step
+        # so operators can flatten residual risk during stressed conditions.
+        if not self._is_risk_reducing_order():
+            if quantity < self._min_qty:
+                return (True, f"Minimum quantity is {self._format_quantity_limit(self._min_qty)}")
 
-        normalized_quantity = self._normalize_quantity(quantity)
-        if normalized_quantity != quantity:
-            return (True, f"Quantity must increment by {self._format_quantity_limit(self._qty_step)}")
+            normalized_quantity = self._normalize_quantity(quantity)
+            if normalized_quantity != quantity:
+                return (
+                    True,
+                    f"Quantity must increment by {self._format_quantity_limit(self._qty_step)}",
+                )
 
         if self._is_position_data_stale():
             return (True, "Position data stale")
