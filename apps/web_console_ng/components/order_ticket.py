@@ -1093,10 +1093,8 @@ class OrderTicketComponent:
         if self._state.quantity < self._min_qty:
             return (True, f"Minimum quantity is {self._min_qty} {self.POSITION_DISPLAY_UNIT}")
 
-        if (
-            self._qty_step > 1
-            and (self._state.quantity - self._min_qty) % self._qty_step != 0
-        ):
+        normalized_quantity = self._normalize_quantity(self._state.quantity)
+        if normalized_quantity != self._state.quantity:
             return (True, f"Quantity must increment by {self._qty_step} {self.POSITION_DISPLAY_UNIT}")
 
         if self._is_position_data_stale():

@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 _LEGACY_SCHEMA_WARNING_EMITTED = False
 _BACKTEST_COST_SUMMARY_COLUMN_PRESENT: bool | None = None
+_MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -208,6 +209,22 @@ def _get_user_jobs_sync(
             cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
             jobs = cur.fetchall()
         except Exception as exc:
+            if isinstance(exc, pg_errors.UndefinedTable):
+                if hasattr(conn, "rollback"):
+                    conn.rollback()
+                global _MISSING_BACKTEST_TABLE_WARNING_EMITTED
+                if not _MISSING_BACKTEST_TABLE_WARNING_EMITTED:
+                    logger.warning(
+                        "backtest_jobs_table_missing",
+                        extra={"created_by": created_by, "error": str(exc)},
+                    )
+                    _MISSING_BACKTEST_TABLE_WARNING_EMITTED = True
+                else:
+                    logger.debug(
+                        "backtest_jobs_table_missing",
+                        extra={"created_by": created_by},
+                    )
+                return []
             if not isinstance(exc, pg_errors.UndefinedColumn):
                 raise
             # Defensive fallback for schema drift/race where probe cache is stale.
