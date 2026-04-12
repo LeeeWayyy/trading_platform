@@ -434,10 +434,8 @@ class OrderTicketComponent:
     def _on_quantity_changed(self, value: float | None) -> None:
         """Handle quantity input change."""
         if value is not None and value > 0:
-            normalized_qty = self._normalize_quantity(int(value))
-            self._state.quantity = normalized_qty
-            if self._quantity_input and normalized_qty != int(value):
-                self._quantity_input.set_value(normalized_qty)
+            # Keep raw typed value during editing; enforce rule compatibility on submit.
+            self._state.quantity = int(value)
         else:
             self._state.quantity = None
         self._update_buying_power_impact()
@@ -1093,13 +1091,13 @@ class OrderTicketComponent:
             return (True, "Enter quantity")
 
         if self._state.quantity < self._min_qty:
-            return (True, f"Minimum quantity is {self._min_qty} {self._qty_unit}")
+            return (True, f"Minimum quantity is {self._min_qty} {self.POSITION_DISPLAY_UNIT}")
 
         if (
             self._qty_step > 1
             and (self._state.quantity - self._min_qty) % self._qty_step != 0
         ):
-            return (True, f"Quantity must increment by {self._qty_step} {self._qty_unit}")
+            return (True, f"Quantity must increment by {self._qty_step} {self.POSITION_DISPLAY_UNIT}")
 
         if self._is_position_data_stale():
             return (True, "Position data stale")
@@ -1272,7 +1270,10 @@ class OrderTicketComponent:
 
         if self._max_position_per_symbol is not None:
             if abs(proposed_position) > self._max_position_per_symbol:
-                return f"Order exceeds position limit ({self._max_position_per_symbol} {self._qty_unit})"
+                return (
+                    "Order exceeds position limit "
+                    f"({self._max_position_per_symbol} {self.POSITION_DISPLAY_UNIT})"
+                )
 
         effective_price = self._get_effective_order_price()
         order_notional: Decimal | None = None
