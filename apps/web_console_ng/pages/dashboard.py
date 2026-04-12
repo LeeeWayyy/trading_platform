@@ -639,15 +639,20 @@ async def dashboard(client: Client) -> None:
     connection_status_pill: _CommandStatusPill | None = None
     kill_switch_status_pill: _CommandStatusPill | None = None
     circuit_breaker_status_pill: _CommandStatusPill | None = None
+    session_clock_pill: _CommandStatusPill | None = None
+    can_view_alerts = has_permission(user, Permission.VIEW_ALERTS)
+    can_view_data_quality = has_permission(user, Permission.VIEW_DATA_QUALITY)
+    can_manage_strategies = has_permission(user, Permission.MANAGE_STRATEGIES)
+    can_view_models = has_permission(user, Permission.VIEW_MODELS)
     workspace_quick_links = resolve_workspace_quick_links(
         user_role=user_role,
         feature_alerts_enabled=config.FEATURE_ALERTS,
-        can_view_alerts=has_permission(user, Permission.VIEW_ALERTS),
-        can_view_data_quality=has_permission(user, Permission.VIEW_DATA_QUALITY),
+        can_view_alerts=can_view_alerts,
+        can_view_data_quality=can_view_data_quality,
         feature_strategy_management_enabled=config.FEATURE_STRATEGY_MANAGEMENT,
-        can_manage_strategies=has_permission(user, Permission.MANAGE_STRATEGIES),
+        can_manage_strategies=can_manage_strategies,
         feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
-        can_view_models=has_permission(user, Permission.VIEW_MODELS),
+        can_view_models=can_view_models,
     )
 
     # Metrics strip/cards
@@ -679,6 +684,7 @@ async def dashboard(client: Client) -> None:
                 connection_status_pill = _CommandStatusPill("CONN --", enter_delay_ms=200)
                 kill_switch_status_pill = _CommandStatusPill("KILL --", enter_delay_ms=240)
                 circuit_breaker_status_pill = _CommandStatusPill("CB --", enter_delay_ms=280)
+                session_clock_pill = _CommandStatusPill("UTC --:--:--", enter_delay_ms=320)
 
             with ui.element("div").classes("workspace-v2-body"):
                 with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
@@ -706,7 +712,13 @@ async def dashboard(client: Client) -> None:
                                     with ui.link(target=quick_path).classes("workspace-v2-quick-link"):
                                         ui.label(quick_label).classes("workspace-v2-kv")
 
-                    strategy_context_widget = StrategyContextWidget(strategies=user_strategies)
+                    strategy_context_widget = StrategyContextWidget(
+                        strategies=user_strategies,
+                        show_strategy_link=(
+                            config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
+                        ),
+                        show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
+                    )
                     strategy_context_widget.create()
                     order_context.set_strategy_context_widget(strategy_context_widget)
 
@@ -984,6 +996,14 @@ async def dashboard(client: Client) -> None:
         text, tone = resolve_workspace_circuit_breaker_pill(workspace_circuit_breaker_state)
         circuit_breaker_status_pill.set_state(text, tone)
 
+    def _update_workspace_clock_pill() -> None:
+        if not use_workspace_v2 or session_clock_pill is None:
+            return
+        session_clock_pill.set_state(
+            f"UTC {datetime.now(UTC).strftime('%H:%M:%S')}",
+            "muted",
+        )
+
     def _set_workspace_mask(*, locked: bool, title: str = "", detail: str = "") -> None:
         """Show/hide workspace interaction mask for safety-critical stale/disconnect states."""
         if not use_workspace_v2 or workspace_root is None or workspace_overlay is None:
@@ -1040,6 +1060,7 @@ async def dashboard(client: Client) -> None:
     _update_workspace_connection_pill()
     _update_workspace_kill_switch_pill()
     _update_workspace_circuit_breaker_pill()
+    _update_workspace_clock_pill()
     _evaluate_workspace_mask()
 
     def _current_symbol_filter() -> str | None:
@@ -1674,6 +1695,10 @@ async def dashboard(client: Client) -> None:
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
     timers.append(market_timer)
+
+    if use_workspace_v2:
+        clock_timer = ui.timer(1.0, _update_workspace_clock_pill)
+        timers.append(clock_timer)
 
     async def check_stale_data() -> None:
         for card in [pnl_card, positions_card, realized_card, bp_card]:

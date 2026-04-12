@@ -53,6 +53,7 @@ twilio==8.13.0
 pandas==2.2.3
 numpy==2.2.1
 polars==1.30.0
+exchange-calendars==4.6
 
 # Legacy shared libs dependencies (libs/risk, libs/web_console_services)
 scipy==1.14.1

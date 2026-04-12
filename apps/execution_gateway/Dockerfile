@@ -27,9 +27,9 @@ WORKDIR /build
 
 # Copy requirements - use service-specific for local, root for CI
 # For local ARM64 builds: excludes pyqlib (not needed for this service)
-# For CI x86_64 builds: uses full requirements.txt
+# For CI x86_64 builds: uses service requirements with test extras.
 COPY apps/execution_gateway/requirements-docker.txt requirements-local.txt
-COPY requirements.txt requirements-ci.txt
+COPY apps/execution_gateway/requirements.txt requirements-ci.txt
 
 # Install Python dependencies into a virtual environment
 # This allows us to copy only the venv to the runtime stage

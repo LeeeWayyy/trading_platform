@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 LIGHTWEIGHT_CHARTS_CDN = (
     "https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
 )
-LIGHTWEIGHT_CHARTS_SRI = "sha384-2PoRwGg4nLjjsqHMzWaFrNj9FH5kGXsMTxDQXnRrKvJpEfBKqGqSqGfxQR8hG2tM"
+LIGHTWEIGHT_CHARTS_SRI = "sha384-rcCMiCptH4kTlEbg0euOTUKWe72TESbrjElatnG+9BfbmUIV268UK/Pro5biJdGm"
 
 # Local fallback path (for airgapped/high-security deployments)
 # CRITICAL: Download and verify hash before deployment:

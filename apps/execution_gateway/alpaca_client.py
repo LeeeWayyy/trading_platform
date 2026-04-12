@@ -10,6 +10,8 @@ Provides a high-level interface to the Alpaca Trading API with:
 See ADR-0014 for design rationale.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import UTC, datetime, timedelta

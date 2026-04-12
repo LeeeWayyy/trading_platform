@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 # Paths — overridable via env vars for non-default deployments
 _UNIVERSES_DIR = Path(os.environ.get("UNIVERSES_DIR", "data/universes"))
+_UNIVERSES_DIR_FALLBACK = Path(os.environ.get("UNIVERSES_DIR_FALLBACK", "/tmp/universes"))
 _CRSP_DAILY_PATH = Path(os.environ.get("CRSP_DAILY_PATH", "data/wrds/crsp/daily"))
 _DATA_ROOT = Path(os.environ.get("DATA_ROOT", "data"))
 
@@ -53,6 +54,38 @@ _SERVICE: UniverseService | None = None
 _SERVICE_LOCK = threading.Lock()
 _PROVIDER_RETRY_AFTER: float = 0.0  # monotonic timestamp; skip re-init until then
 _PROVIDER_RETRY_INTERVAL: float = 60.0  # seconds between provider re-init attempts
+
+
+def _ensure_writable_directory(path: Path) -> bool:
+    """Return True when path exists and is writable by current process."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".universe_write_probe"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_universe_dir() -> Path:
+    """Resolve writable universes directory with fallback for containerized envs."""
+    if _ensure_writable_directory(_UNIVERSES_DIR):
+        return _UNIVERSES_DIR
+
+    if _ensure_writable_directory(_UNIVERSES_DIR_FALLBACK):
+        logger.warning(
+            "universe_dir_fallback_in_use",
+            extra={
+                "preferred_dir": str(_UNIVERSES_DIR),
+                "fallback_dir": str(_UNIVERSES_DIR_FALLBACK),
+            },
+        )
+        return _UNIVERSES_DIR_FALLBACK
+
+    raise PermissionError(
+        f"No writable universes directory available: {_UNIVERSES_DIR} or {_UNIVERSES_DIR_FALLBACK}"
+    )
 
 
 def _init_providers() -> tuple[Any | None, Any | None]:
@@ -132,7 +165,7 @@ def _get_service() -> UniverseService:
 
         universe_provider, crsp_provider = _init_providers()
         manager = UniverseManager(
-            universes_dir=_UNIVERSES_DIR,
+            universes_dir=_resolve_universe_dir(),
             universe_provider=universe_provider,
             crsp_provider=crsp_provider,
         )

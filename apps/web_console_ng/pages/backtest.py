@@ -53,6 +53,8 @@ if TYPE_CHECKING:
     from libs.trading.backtest.job_queue import BacktestJobQueue
 
 logger = logging.getLogger(__name__)
+_LEGACY_SCHEMA_WARNING_EMITTED = False
+_BACKTEST_COST_SUMMARY_COLUMN_PRESENT: bool | None = None
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -154,19 +156,67 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
+
+    def _has_cost_summary_column() -> bool:
+        """Return whether backtest_jobs has cost_summary column (cached per process)."""
+        global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+        if _BACKTEST_COST_SUMMARY_COLUMN_PRESENT is not None:
+            return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+
+        probe_sql = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'backtest_jobs'
+                  AND column_name = 'cost_summary'
+            ) AS has_column
+        """
+        with db_pool.connection() as probe_conn, probe_conn.cursor() as probe_cur:
+            try:
+                probe_cur.execute(probe_sql)
+                row = probe_cur.fetchone()
+                _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
+            except Exception as exc:  # pragma: no cover - defensive fallback path
+                from psycopg import errors as pg_errors
+
+                if isinstance(exc, pg_errors.UndefinedColumn):
+                    # Keep transaction usable for the caller in legacy schemas.
+                    if hasattr(probe_conn, "rollback"):
+                        probe_conn.rollback()
+                    _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
+                else:
+                    # Fail open to existing SQL path if probe itself is unavailable.
+                    _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = True
+        return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+
+    use_cost_summary_sql = _has_cost_summary_column()
+
     with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         try:
-            cur.execute(sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            selected_sql = sql if use_cost_summary_sql else legacy_sql
+            cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
             jobs = cur.fetchall()
         except Exception as exc:
             from psycopg import errors as pg_errors
 
             if not isinstance(exc, pg_errors.UndefinedColumn):
                 raise
-            logger.warning(
-                "backtest_jobs_legacy_schema_missing_columns",
-                extra={"created_by": created_by, "error": str(exc)},
-            )
+            # Defensive fallback for schema drift/race where probe cache is stale.
+            global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+            _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
+            global _LEGACY_SCHEMA_WARNING_EMITTED
+            if not _LEGACY_SCHEMA_WARNING_EMITTED:
+                logger.warning(
+                    "backtest_jobs_legacy_schema_missing_columns",
+                    extra={"created_by": created_by, "error": str(exc)},
+                )
+                _LEGACY_SCHEMA_WARNING_EMITTED = True
+            else:
+                logger.debug(
+                    "backtest_jobs_legacy_schema_missing_columns",
+                    extra={"created_by": created_by},
+                )
             # UndefinedColumn aborts the current transaction; clear it before retry.
             if hasattr(conn, "rollback"):
                 conn.rollback()

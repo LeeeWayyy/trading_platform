@@ -607,6 +607,30 @@
     text-transform: uppercase;
 }
 
+.workspace-v2-context-link {
+    align-items: center;
+    border-bottom: 1px dashed rgba(71, 85, 105, 0.72);
+    color: #93c5fd;
+    display: inline-flex;
+    min-height: 24px;
+    padding: 0 2px;
+    text-decoration: none;
+    transition: color 160ms ease, border-color 160ms ease;
+}
+
+.workspace-v2-context-link:hover {
+    border-bottom-color: rgba(125, 211, 252, 0.65);
+    color: #dbeafe;
+}
+
+.workspace-v2-context-link .workspace-v2-kv {
+    color: inherit;
+    font-size: 0.64rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
 .workspace-v2-field-label {
     color: var(--workspace-text-muted);
     font-size: 0.64rem;
@@ -689,7 +713,7 @@
     flex: 1;
     font-size: 0.83rem;
     font-weight: 700;
-    height: 38px;
+    height: 40px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     transition: box-shadow 120ms ease, transform 120ms ease;
@@ -724,7 +748,7 @@
     border: 1px solid rgba(71, 85, 105, 0.72);
     color: #cbd5e1;
     font-size: 0.75rem;
-    height: 38px;
+    height: 40px;
     letter-spacing: 0.04em;
     min-width: 72px;
     text-transform: uppercase;
@@ -863,8 +887,50 @@
         grid-template-rows: auto auto;
     }
 
+    .workspace-v2-zone-b,
+    .workspace-v2-zone-c {
+        gap: 6px;
+        padding: 6px;
+    }
+
+    .workspace-v2-microstructure {
+        grid-template-rows: minmax(112px, 1fr) minmax(72px, 0.55fr) minmax(96px, 0.75fr);
+        min-height: 292px;
+    }
+
     .workspace-v2-overlay {
         top: 98px;
+    }
+}
+
+@media (max-width: 768px) {
+    .workspace-v2 {
+        gap: 6px;
+        padding: 6px;
+    }
+
+    .workspace-v2-command-metric {
+        flex: 1 1 118px;
+    }
+
+    .workspace-v2-action-btn,
+    .workspace-v2-clear-btn {
+        height: 44px;
+        min-height: 44px;
+    }
+
+    .workspace-v2-preset-btn {
+        height: 34px !important;
+    }
+
+    .workspace-v2-quick-link {
+        min-height: 32px;
+        padding: 6px 10px;
+    }
+
+    .workspace-v2-log-output {
+        font-size: 0.68rem;
+        height: 112px;
     }
 }
 

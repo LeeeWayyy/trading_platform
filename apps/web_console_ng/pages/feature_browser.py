@@ -233,6 +233,17 @@ async def feature_browser_page() -> None:
         except FileNotFoundError:
             ui.notify("Feature data not available — run ETL pipeline first", type="warning")
             return None
+        except RuntimeError as exc:
+            if "alpha158 feature dependencies are unavailable" in str(exc):
+                logger.warning(
+                    "feature_dependencies_unavailable",
+                    extra={"dependency": "qlib"},
+                )
+                ui.notify("Feature data unavailable: optional qlib dependency missing", type="warning")
+                return None
+            logger.exception("feature_data_load_failed")
+            ui.notify("Feature data unavailable", type="warning")
+            return None
         except Exception:
             logger.exception("feature_data_load_failed")
             ui.notify("Feature data unavailable", type="warning")
