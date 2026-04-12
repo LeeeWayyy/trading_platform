@@ -345,6 +345,9 @@ class OrderEntryContext:
 
         self._price_chart = PriceChartComponent(
             trading_client=self._client,
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
         )
         return self._price_chart.create(width=width, height=height)
 

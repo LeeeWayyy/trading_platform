@@ -1147,13 +1147,13 @@ async def dashboard(client: Client) -> None:
         if fills_grid is None:
             return
         filtered = filter_items_by_symbol(fills_snapshot, _current_symbol_filter())
-        fills_grid.run_grid_method("setRowData", filtered, timeout=5)
+        fills_grid.run_grid_method("setGridOption", "rowData", filtered, timeout=5)
 
     async def _refresh_history_grid() -> None:
         if history_grid is None:
             return
         filtered = filter_items_by_symbol(history_snapshot, _current_symbol_filter())
-        history_grid.run_grid_method("setRowData", filtered, timeout=5)
+        history_grid.run_grid_method("setGridOption", "rowData", filtered, timeout=5)
 
     async def _refresh_tab_content(tab_name: str) -> None:
         if tab_name == TAB_POSITIONS:

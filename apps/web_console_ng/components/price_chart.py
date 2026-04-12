@@ -72,6 +72,10 @@ class PriceChartComponent:
     def __init__(
         self,
         trading_client: AsyncTradingClient,
+        *,
+        user_id: str | None = None,
+        role: str | None = None,
+        strategies: list[str] | None = None,
     ) -> None:
         """Initialize PriceChart.
 
@@ -79,6 +83,9 @@ class PriceChartComponent:
             trading_client: HTTP client for API calls.
         """
         self._client = trading_client
+        self._user_id = user_id
+        self._role = role
+        self._strategies = strategies
         self._current_symbol: str | None = None
         self._chart_id: str = f"chart_{id(self)}"
         self._container_id: str = f"container_{id(self)}"
@@ -343,9 +350,17 @@ class PriceChartComponent:
             if not hasattr(self._client, "fetch_recent_fills"):
                 logger.debug("fetch_recent_fills not available, skipping markers")
                 return []
+            if not self._user_id:
+                logger.debug("PriceChart marker fetch skipped: user_id unavailable")
+                return []
 
             # Use existing fetch_recent_fills (GET /api/v1/orders/recent-fills)
-            fills_resp = await self._client.fetch_recent_fills(limit=100)
+            fills_resp = await self._client.fetch_recent_fills(
+                user_id=self._user_id,
+                role=self._role,
+                strategies=self._strategies,
+                limit=100,
+            )
             fills = fills_resp.get("fills", [])
 
             markers: list[ExecutionMarker] = []
