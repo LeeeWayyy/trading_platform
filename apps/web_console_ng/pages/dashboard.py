@@ -1750,17 +1750,17 @@ async def dashboard(client: Client) -> None:
     flow_symbol_timer = ui.timer(0.5, sync_order_flow_symbol)
     timers.append(flow_symbol_timer)
 
-    async def _resolve_strategy_for_symbol(symbol: str) -> str | None:
+    async def _resolve_strategy_for_symbol(symbol: str) -> tuple[str | None, str]:
         """Resolve symbol -> strategy mapping using fail-closed uniqueness rules."""
         if len(authorized_strategy_scope) == 1:
-            return authorized_strategy_scope[0]
+            return (authorized_strategy_scope[0], "single_scope")
         if async_pool is None:
-            return None
+            return (None, "pool_unavailable")
 
         try:
             normalized_symbol = validate_and_normalize_symbol(symbol)
         except ValueError:
-            return None
+            return (None, "invalid_symbol")
 
         sql = (
             "SELECT strategy_id "
@@ -1788,16 +1788,18 @@ async def dashboard(client: Client) -> None:
                     "error": type(exc).__name__,
                 },
             )
-            return None
+            return (None, "query_failed")
 
+        if not rows:
+            return (None, "no_history")
         if len(rows) != 1:
-            return None
+            return (None, "ambiguous")
 
         first = rows[0]
         strategy_id = first.get("strategy_id") if isinstance(first, dict) else first[0]
         if not strategy_id:
-            return None
-        return str(strategy_id)
+            return (None, "missing_strategy")
+        return (str(strategy_id), "resolved")
 
     async def _fetch_model_registry_context(strategy_id: str) -> tuple[str, str | None]:
         """Fetch model status/version for a strategy from model_registry."""
@@ -1896,19 +1898,31 @@ async def dashboard(client: Client) -> None:
             )
             return
 
-        strategy_id = await _resolve_strategy_for_symbol(selected_symbol)
+        strategy_id, resolution_reason = await _resolve_strategy_for_symbol(selected_symbol)
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
             return
         if not strategy_id:
             unresolved_reason = "No unique strategy mapping for selected symbol"
+            unresolved_gate_enabled = gate_enabled
+            unresolved_gate_reason: str | None = unresolved_reason
+            unresolved_banner = (
+                f"{unresolved_reason}. Risk-increasing orders may be gated."
+            )
+            if resolution_reason == "no_history" and authorized_strategy_scope:
+                unresolved_reason = "No strategy history for selected symbol yet"
+                unresolved_gate_enabled = False
+                unresolved_gate_reason = None
+                unresolved_banner = (
+                    f"{unresolved_reason}. Monitoring mode enabled while history is established."
+                )
             order_context.dispatch_strategy_model_context(
                 strategy_status="unknown",
                 model_status="unknown",
-                gate_enabled=gate_enabled,
-                gate_reason=unresolved_reason,
+                gate_enabled=unresolved_gate_enabled,
+                gate_reason=unresolved_gate_reason,
                 strategy_label="Strategy: unresolved",
                 model_label="Model: unresolved",
-                banner=f"{unresolved_reason}. Risk-increasing orders may be gated.",
+                banner=unresolved_banner,
             )
             return
 
