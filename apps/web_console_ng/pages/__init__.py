@@ -62,6 +62,10 @@ _OPTIONAL_PACKAGES = frozenset({
     "strategies",   # strategy helpers (not present in web-console image)
 })
 
+# Tracks which modules were skipped due to missing optional deps.
+# Exposed for health/readiness diagnostics (see ``get_skipped_page_modules``).
+_SKIPPED_MODULES: list[tuple[str, str]] = []
+
 for module_name in _PAGE_MODULES:
     try:
         importlib.import_module(module_name)
@@ -73,6 +77,7 @@ for module_name in _PAGE_MODULES:
             exc.name == pkg or exc.name.startswith(f"{pkg}.")
             for pkg in _OPTIONAL_PACKAGES
         ):
+            _SKIPPED_MODULES.append((module_name, exc.name))
             logger.warning(
                 "page_module_skipped_missing_optional_dependency: module=%s missing_package=%s",
                 module_name,
@@ -80,3 +85,12 @@ for module_name in _PAGE_MODULES:
             )
         else:
             raise
+
+
+def get_skipped_page_modules() -> list[tuple[str, str]]:
+    """Return list of (module_name, missing_package) for skipped page modules.
+
+    Useful for health/readiness diagnostics to surface which pages
+    are unavailable due to missing optional dependencies.
+    """
+    return list(_SKIPPED_MODULES)

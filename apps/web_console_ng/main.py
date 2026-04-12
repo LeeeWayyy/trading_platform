@@ -38,18 +38,36 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_nicegui_request_tracking_middleware() -> None:
-    """Patch NiceGUI request tracking middleware to ignore disconnect sentinel."""
+    """Patch NiceGUI request tracking middleware to ignore disconnect sentinel.
+
+    This patches a NiceGUI internal (``RequestTrackingMiddleware.dispatch``).
+    If the internal changes across NiceGUI versions, we fall through
+    gracefully: the ASGI-level ``SuppressNoResponseReturnedMiddleware``
+    provides a second line of defence for the same class of error.
+    """
     try:
         from nicegui import storage as nicegui_storage
     except (ImportError, AttributeError):
         return
 
-    dispatch = cast(
-        Callable[[Any, Request, Callable[[Request], Awaitable[Response]]], Awaitable[Response]],
-        nicegui_storage.RequestTrackingMiddleware.dispatch,
-    )
+    # Guard: ensure the internal class and attribute still exist.
+    middleware_cls = getattr(nicegui_storage, "RequestTrackingMiddleware", None)
+    if middleware_cls is None:
+        logger.debug("nicegui_patch_skipped: RequestTrackingMiddleware not found")
+        return
+
+    dispatch = getattr(middleware_cls, "dispatch", None)
+    if dispatch is None or not callable(dispatch):
+        logger.debug("nicegui_patch_skipped: dispatch attribute missing or not callable")
+        return
+
     if getattr(dispatch, "_no_response_patch_applied", False):
         return
+
+    dispatch = cast(
+        Callable[[Any, Request, Callable[[Request], Awaitable[Response]]], Awaitable[Response]],
+        dispatch,
+    )
 
     async def _dispatch_with_no_response_guard(
         self: Any, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -64,7 +82,7 @@ def _patch_nicegui_request_tracking_middleware() -> None:
             raise
 
     _dispatch_with_no_response_guard._no_response_patch_applied = True  # type: ignore[attr-defined]
-    nicegui_storage.RequestTrackingMiddleware.dispatch = _dispatch_with_no_response_guard  # type: ignore[method-assign]
+    middleware_cls.dispatch = _dispatch_with_no_response_guard  # type: ignore[method-assign]
 
 
 class SuppressNoResponseReturnedMiddleware:

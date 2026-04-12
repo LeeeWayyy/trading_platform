@@ -24,12 +24,19 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 
 logger = logging.getLogger(__name__)
 
+# Only suppress the specific optional third-party packages (aiosmtplib / twilio).
+# Any other missing module is a genuine regression and must fail fast.
 _EMAIL_CHANNEL_IMPORT_ERROR: str | None
 try:
     from libs.platform.alerts.channels.email import EmailChannel as _ImportedEmailChannel
 except ModuleNotFoundError as exc:
-    _EmailChannel: type[BaseChannel] | None = None
-    _EMAIL_CHANNEL_IMPORT_ERROR = str(exc)
+    if exc.name is not None and (
+        exc.name == "aiosmtplib" or exc.name.startswith("aiosmtplib.")
+    ):
+        _EmailChannel: type[BaseChannel] | None = None
+        _EMAIL_CHANNEL_IMPORT_ERROR = str(exc)
+    else:
+        raise
 else:
     _EmailChannel = _ImportedEmailChannel
     _EMAIL_CHANNEL_IMPORT_ERROR = None
@@ -38,8 +45,13 @@ _SMS_CHANNEL_IMPORT_ERROR: str | None
 try:
     from libs.platform.alerts.channels.sms import SMSChannel as _ImportedSMSChannel
 except ModuleNotFoundError as exc:
-    _SMSChannel: type[BaseChannel] | None = None
-    _SMS_CHANNEL_IMPORT_ERROR = str(exc)
+    if exc.name is not None and (
+        exc.name == "twilio" or exc.name.startswith("twilio.")
+    ):
+        _SMSChannel: type[BaseChannel] | None = None
+        _SMS_CHANNEL_IMPORT_ERROR = str(exc)
+    else:
+        raise
 else:
     _SMSChannel = _ImportedSMSChannel
     _SMS_CHANNEL_IMPORT_ERROR = None
