@@ -212,6 +212,24 @@ class TabbedPanel:
             self._on_tab_change(new_tab)
         asyncio.create_task(self._safe_save_state())
 
+    def update_symbol_filter(self, symbol: str | None) -> None:
+        """Propagate the page-level symbol filter to all export toolbars.
+
+        The dashboard symbol dropdown is applied before ``setRowData``
+        (outside the AG Grid filter model), so the export toolbar must
+        inject the corresponding ``symbol`` filter into ``extra_filters``
+        to maintain export/view parity.
+        """
+        for toolbar in self._export_toolbars.values():
+            if symbol:
+                toolbar.extra_filters["symbol"] = {
+                    "filterType": "text",
+                    "type": "equals",
+                    "filter": symbol,
+                }
+            else:
+                toolbar.extra_filters.pop("symbol", None)
+
     def _update_toolbar_visibility(self, old_tab: str, new_tab: str) -> None:
         """Show/hide export toolbars based on active tab."""
         # Hide old toolbar
@@ -261,8 +279,14 @@ def create_tabbed_panel(
     """
     state.active_tab = state.normalize_tab(state.active_tab)
 
+    # Store panel ref so filter callback can propagate symbol to toolbars.
+    # Assigned after panel creation below.
+    panel_ref: list[TabbedPanel | None] = [None]
+
     def _on_filter_change(value: str | None) -> None:
         state.symbol_filter = value
+        if panel_ref[0] is not None:
+            panel_ref[0].update_symbol_filter(value)
         if on_filter_change is not None:
             on_filter_change(value)
 
@@ -344,7 +368,13 @@ def create_tabbed_panel(
         toolbar_containers=toolbar_containers,
     )
 
+    panel_ref[0] = panel
+
     tabs.on_value_change(lambda event: panel._handle_tab_change(getattr(event, "value", None)))
+
+    # Propagate any initial symbol filter to export toolbars
+    if state.symbol_filter:
+        panel.update_symbol_filter(state.symbol_filter)
 
     # Lazily create the initial tab content
     panel.ensure_tab(state.active_tab)
