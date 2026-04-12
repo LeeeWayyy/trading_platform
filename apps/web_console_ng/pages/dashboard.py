@@ -1757,6 +1757,8 @@ async def dashboard(client: Client) -> None:
         """Resolve symbol -> strategy mapping using fail-closed uniqueness rules."""
         if len(authorized_strategy_scope) == 1:
             return (authorized_strategy_scope[0], "single_scope")
+        if not authorized_strategy_scope:
+            return (None, "scope_empty")
         if async_pool is None:
             return (None, "pool_unavailable")
 
@@ -1769,13 +1771,9 @@ async def dashboard(client: Client) -> None:
             "SELECT strategy_id "
             "FROM orders "
             "WHERE symbol = %s AND strategy_id IS NOT NULL "
+            "AND strategy_id = ANY(%s) "
         )
-        params: tuple[Any, ...]
-        if authorized_strategy_scope:
-            sql += "AND strategy_id = ANY(%s) "
-            params = (normalized_symbol, authorized_strategy_scope)
-        else:
-            params = (normalized_symbol,)
+        params: tuple[Any, ...] = (normalized_symbol, authorized_strategy_scope)
         sql += "GROUP BY strategy_id ORDER BY strategy_id LIMIT 2"
 
         try:

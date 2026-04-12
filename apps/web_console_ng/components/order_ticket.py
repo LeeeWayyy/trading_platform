@@ -458,10 +458,21 @@ class OrderTicketComponent:
         qty_unit: str | None,
     ) -> None:
         """Update quantity stepping/minimum rules for selected symbol."""
-        self._qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
+        next_qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
         raw_min = max(1, int(min_qty)) if min_qty is not None else self.DEFAULT_MIN_QTY
-        self._min_qty = max(self._qty_step, raw_min)
-        self._qty_unit = self._normalize_qty_unit(qty_unit)
+        next_min_qty = max(next_qty_step, raw_min)
+        next_qty_unit = self._normalize_qty_unit(qty_unit)
+
+        if (
+            next_qty_step == self._qty_step
+            and next_min_qty == self._min_qty
+            and next_qty_unit == self._qty_unit
+        ):
+            return
+
+        self._qty_step = next_qty_step
+        self._min_qty = next_min_qty
+        self._qty_unit = next_qty_unit
         self._apply_quantity_rules_to_ui()
         self._refresh_quantity_preset_profile()
 
