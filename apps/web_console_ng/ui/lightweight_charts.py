@@ -41,6 +41,10 @@ CHART_INIT_JS = """
 (function() {{
     const container = document.getElementById('{container_id}');
     if (!container) return;
+    if (typeof LightweightCharts === 'undefined') {{
+        console.warn('LightweightCharts unavailable; skipping chart init for {chart_id}');
+        return;
+    }}
 
     // Create chart
     const chart = LightweightCharts.createChart(container, {{
@@ -153,7 +157,8 @@ class LightweightChartsLoader:
                 }}
                 window.__lwc_ready = true;
             }})();
-        """
+        """,
+            timeout=10.0,
         )
 
         # Wait for library to be ready

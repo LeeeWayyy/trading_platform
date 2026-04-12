@@ -119,7 +119,8 @@ class PriceChartComponent:
                         chart_id=self._chart_id,
                         width=self._width,
                         height=self._height,
-                    )
+                    ),
+                    timeout=10.0,
                 )
             except Exception as exc:
                 logger.warning(f"Failed to initialize chart: {exc}")
