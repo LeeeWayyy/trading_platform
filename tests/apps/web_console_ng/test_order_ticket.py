@@ -2010,15 +2010,15 @@ class TestOrderTicketQuantityRules:
 
         component._position_label.set_text.assert_called_with("+200 shares")
 
-    def test_quantity_input_snaps_down_to_step(self, component: OrderTicketComponent) -> None:
-        """Manual quantity entry snaps to nearest valid step."""
+    def test_quantity_input_keeps_typed_value_during_edit(self, component: OrderTicketComponent) -> None:
+        """Manual quantity entry should not snap while user is still typing."""
         component._quantity_input = MagicMock()
         component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
 
         component._on_quantity_changed(250.0)
 
-        assert component._state.quantity == 200
-        component._quantity_input.set_value.assert_called_with(200)
+        assert component._state.quantity == 250
+        component._quantity_input.set_value.assert_not_called()
 
     def test_set_quantity_rules_noop_when_rules_unchanged(
         self, component: OrderTicketComponent
@@ -2062,7 +2062,7 @@ class TestOrderTicketQuantityRules:
         disabled, reason = component._should_disable_submission()
 
         assert disabled is True
-        assert reason == "Quantity must increment by 100 lots"
+        assert reason == "Quantity must increment by 100 shares"
 
     def test_submission_step_check_uses_minimum_baseline(self, component: OrderTicketComponent) -> None:
         """Step validation remains correct even when legacy state has unaligned minimum."""

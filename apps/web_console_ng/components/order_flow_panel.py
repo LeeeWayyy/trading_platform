@@ -92,8 +92,8 @@ class OrderFlowPanel:
         """Add multiple trades to panel."""
         if not trades:
             return
-        # Oldest -> newest to keep latest items at top after appendleft.
-        for trade in reversed(trades):
+        # Source list is oldest -> newest; appendleft keeps newest rows at the top.
+        for trade in trades:
             normalized = self._normalize_trade(trade)
             if normalized is not None:
                 self._trades.appendleft(normalized)
