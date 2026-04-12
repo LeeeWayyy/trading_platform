@@ -35,6 +35,7 @@ from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from apps.execution_gateway import ALPACA_FEE_CURRENCY
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.dependencies import get_context
@@ -158,9 +159,10 @@ def _get_taq_provider() -> Any | None:
 
 
 # Breaking change (issue #158): fee_cost_bps, avg_fee_cost_bps, and total_fees
-# changed from float to float|None.  Version bump not needed because the only
-# consumer is the NiceGUI web console (same repo, already updated).
-# No external typed clients exist for this internal-only API.
+# changed from float to float|None.  No version bump because:
+#   1. The ONLY consumer is the NiceGUI web console (same repo, already updated)
+#   2. No external typed clients exist (verified via `rg api/v1/tca` repo-wide)
+#   3. This is an internal-only API not exposed outside the deployment
 # RATIONALE: Silent incorrect fee aggregation (mixed/non-USD currencies) was
 # worse than a nullable field.  Fail-closed returns None for untrusted data.
 # COMPATIBILITY: If external consumers are added, introduce /api/v2/tca with a
@@ -424,16 +426,12 @@ def _build_fill_batch(
             continue
 
         # Extract fee from order metadata if available.
-        # ALPACA ASSUMPTION (fail-open): Default fee_currency="USD" because
-        # Alpaca is a US-only broker and all fees are denominated in USD.
+        # Uses ALPACA_FEE_CURRENCY (centralised in __init__.py) as default.
         # When fee_amount is 0.0, currency is irrelevant.  When metadata
         # provides a non-zero fee without specifying fee_currency, we log a
-        # warning but keep USD since that is the only currency Alpaca uses.
-        # IMPORTANT: If a non-USD broker is added, change the default to
-        # "UNKNOWN" to trigger fail-closed via has_non_usd_fees, ensuring
-        # fee metrics are excluded rather than silently misrepresented.
+        # warning but keep the default since Alpaca is the only broker.
         fee_amount = 0.0
-        fee_currency = "USD"
+        fee_currency = ALPACA_FEE_CURRENCY
         order_metadata = trade.get("order_metadata")
         if order_metadata and isinstance(order_metadata, dict):
             fills_meta = order_metadata.get("fills", [])

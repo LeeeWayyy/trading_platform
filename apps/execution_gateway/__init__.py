@@ -22,3 +22,9 @@ See ADR-0014 for architectural decisions.
 """
 
 __version__ = "0.1.0"
+
+# Alpaca is a US-only broker; all fees are denominated in USD.
+# Centralised here so all ingestion paths (webhooks, reconciliation, TCA)
+# share the same default.  If a non-USD broker is added, change this to
+# "UNKNOWN" to trigger fail-closed via FillBatch.has_non_usd_fees.
+ALPACA_FEE_CURRENCY: str = "USD"
