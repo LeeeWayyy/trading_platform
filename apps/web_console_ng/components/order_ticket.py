@@ -81,6 +81,7 @@ class OrderTicketComponent:
     DEFAULT_QTY_STEP = 1
     DEFAULT_MIN_QTY = 1
     DEFAULT_QTY_UNIT = "shares"
+    POSITION_DISPLAY_UNIT = "shares"
     IMPACT_WARNING_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_WARNING_RATIO))
     IMPACT_DANGER_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_DANGER_RATIO))
 
@@ -845,7 +846,9 @@ class OrderTicketComponent:
         """Update position label."""
         if self._position_label:
             if self._state.symbol:
-                self._position_label.set_text(f"{self._current_position:+d} {self._qty_unit}")
+                self._position_label.set_text(
+                    f"{self._current_position:+d} {self.POSITION_DISPLAY_UNIT}"
+                )
             else:
                 self._position_label.set_text("--")
 

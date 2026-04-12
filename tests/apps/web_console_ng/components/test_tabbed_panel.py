@@ -195,6 +195,11 @@ def test_tabbed_panel_badge_count_props_fallback() -> None:
     assert tab.updated is True
 
 
+def test_quote_tab_label_escapes_special_characters() -> None:
+    quoted = panel_module._quote_tab_label('A "quoted"\\label')
+    assert quoted == 'label="A \\"quoted\\"\\\\label"'
+
+
 def test_tabbed_panel_missing_factory() -> None:
     state = panel_module.TabbedPanelState(user_id=None)
     panel = panel_module.TabbedPanel(

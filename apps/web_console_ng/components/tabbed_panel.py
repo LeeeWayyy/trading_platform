@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -67,6 +66,12 @@ def format_tab_label(title: str, count: int | None) -> str:
         return title
     display = "99+" if count > 99 else str(count)
     return f"{title} ({display})"
+
+
+def _quote_tab_label(label: str) -> str:
+    """Quote label for NiceGUI props assignment."""
+    escaped = label.replace("\\", "\\\\").replace('"', '\\"')
+    return f'label="{escaped}"'
 
 
 def filter_items_by_symbol(items: list[dict[str, Any]], symbol: str | None) -> list[dict[str, Any]]:
@@ -178,7 +183,7 @@ class TabbedPanel:
             return
         set_props = getattr(tab, "props", None)
         if callable(set_props):
-            set_props(f"label={json.dumps(label)}")
+            set_props(_quote_tab_label(label))
             tab.update()
             return
         logger.warning("tabbed_panel_badge_update_unsupported", extra={"tab": tab_name})
