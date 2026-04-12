@@ -79,6 +79,16 @@ def _mock_s2s_auth_context(
     )
 
 
+def _mock_log_only_auth_context() -> AuthContext:
+    """Create an unauthenticated AuthContext for log_only mode testing."""
+    return AuthContext(
+        user=None,
+        internal_claims=None,
+        auth_type="none",
+        is_authenticated=False,
+    )
+
+
 def _make_order_detail(client_order_id: str, status: str = "dry_run") -> OrderDetail:
     now = datetime.now(UTC)
     return OrderDetail(
@@ -396,6 +406,12 @@ class TestCancelAndGetOrder:
             (
                 "s2s_bypass",
                 _mock_s2s_auth_context,
+                "mean_reversion",
+                200,
+            ),
+            (
+                "log_only_bypass",
+                _mock_log_only_auth_context,
                 "mean_reversion",
                 200,
             ),
@@ -1014,6 +1030,12 @@ class TestCancelOrder:
             (
                 "s2s_bypass",
                 _mock_s2s_auth_context,
+                "mean_reversion",
+                200,
+            ),
+            (
+                "log_only_bypass",
+                _mock_log_only_auth_context,
                 "mean_reversion",
                 200,
             ),
@@ -3484,6 +3506,12 @@ class TestOrderAuditTrailAuth:
                 "mean_reversion",
                 200,
             ),
+            (
+                "log_only_bypass",
+                _mock_log_only_auth_context,
+                "mean_reversion",
+                200,
+            ),
         ],
     )
     def test_audit_trail_authorization(
@@ -3499,7 +3527,7 @@ class TestOrderAuditTrailAuth:
         ctx = create_mock_context()
         ctx.db.get_order_by_client_id.return_value = order
 
-        # For S2S success case, mock the DB transaction for audit query
+        # For success cases (S2S, log_only), mock the DB transaction for audit query
         if expected_status == 200:
             mock_cursor = MagicMock()
             mock_cursor.fetchall.return_value = []

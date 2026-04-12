@@ -203,26 +203,34 @@ order_modify_rl = rate_limit(
 )
 
 
-def _ensure_order_strategy_access(
-    order: OrderDetail,
+def _ensure_strategy_access(
+    strategy_id: str,
     auth_context: AuthContext,
     *,
     detail: str = "Not authorized",
 ) -> None:
-    """Enforce fail-closed strategy-scope authorization for an order.
+    """Enforce fail-closed strategy-scope authorization.
 
-    Checks that the authenticated user's strategy list includes the order's
-    ``strategy_id``.  Internal S2S callers (``auth_type == "internal_token"``)
-    are authorized via their service-level permissions and bypass user-level
-    strategy scoping.  Used consistently by all order-level endpoints: get,
+    Checks that the authenticated user's strategy list includes the given
+    ``strategy_id`` (case-insensitive).  Internal S2S callers
+    (``auth_type == "internal_token"``) are authorized via their service-level
+    permissions and bypass user-level strategy scoping.  Unauthenticated
+    callers (``log_only`` mode) are allowed through so that staged rollouts
+    are not broken.  Used consistently by all order-level endpoints: get,
     cancel, modify, modification history, and audit trail.
     """
     # Internal services bypass strategy-level scoping (authorized via service permissions)
     if auth_context.auth_type == "internal_token":
         return
 
-    authorized_strategies = get_authorized_strategies(auth_context.user)
-    if not authorized_strategies or order.strategy_id not in authorized_strategies:
+    # Respect log_only mode: allow unauthenticated requests to proceed
+    # when auth enforcement is disabled (staged rollouts)
+    if not auth_context.is_authenticated:
+        return
+
+    authorized_strategies = {s.lower() for s in get_authorized_strategies(auth_context.user)}
+    target_strategy = (strategy_id or "").lower()
+    if not authorized_strategies or target_strategy not in authorized_strategies:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
@@ -2026,7 +2034,7 @@ async def modify_order(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    _ensure_order_strategy_access(order, _auth_context)
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     # Idempotency check BEFORE status check to allow retries of completed modifications
     existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
@@ -2159,7 +2167,7 @@ async def get_modification_history(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    _ensure_order_strategy_access(order, _auth_context)
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     records = ctx.db.get_modifications_for_order(client_order_id)
     return [
@@ -2213,7 +2221,7 @@ async def cancel_order(
             detail=f"Order not found: {client_order_id}",
         )
 
-    _ensure_order_strategy_access(order, _auth_context)
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     if order.status in TERMINAL_STATUSES:
         return {
@@ -2288,7 +2296,7 @@ async def get_order(
             detail=f"Order not found: {client_order_id}",
         )
 
-    _ensure_order_strategy_access(order, _auth_context)
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     return order
 
@@ -2358,8 +2366,8 @@ async def get_order_audit_trail(
             detail=f"Order not found: {client_order_id}",
         )
 
-    _ensure_order_strategy_access(
-        order, _auth_context, detail="Not authorized to view this order's audit trail"
+    _ensure_strategy_access(
+        order.strategy_id, _auth_context, detail="Not authorized to view this order's audit trail"
     )
 
     # Check if user is admin (for PII visibility)
