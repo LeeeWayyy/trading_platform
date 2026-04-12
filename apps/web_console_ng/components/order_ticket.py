@@ -839,6 +839,21 @@ class OrderTicketComponent:
             return clamped
         return self._min_qty + ((clamped - self._min_qty) // self._qty_step) * self._qty_step
 
+    def _canonical_quantity(self, qty: int | None) -> int | None:
+        """Return quantity in canonical position units (shares/contracts)."""
+        if qty is None:
+            return None
+        canonical = int(qty)
+        if canonical <= 0:
+            return None
+        return canonical
+
+    def _format_quantity_limit(self, qty: int) -> str:
+        """Format quantity limits with canonical units and optional ticket-unit hint."""
+        if self._qty_unit == self.POSITION_DISPLAY_UNIT:
+            return f"{qty} {self.POSITION_DISPLAY_UNIT}"
+        return f"{qty} {self.POSITION_DISPLAY_UNIT} ({self._qty_unit})"
+
     def _align_min_qty_to_step(self, min_qty: int, qty_step: int) -> int:
         """Align minimum quantity upward to the nearest step-compatible value."""
         if qty_step <= 1:
@@ -1123,17 +1138,16 @@ class OrderTicketComponent:
         if not self._state.symbol:
             return (True, "Select a symbol")
 
-        raw_quantity = self._raw_quantity(self._state.quantity)
-        quantity = self._state_canonical_quantity()
-        if raw_quantity is None or quantity is None:
+        quantity = self._canonical_quantity(self._state.quantity)
+        if quantity is None:
             return (True, "Enter quantity")
 
-        if self._state.quantity < self._min_qty:
-            return (True, f"Minimum quantity is {self._min_qty} {self.POSITION_DISPLAY_UNIT}")
+        if quantity < self._min_qty:
+            return (True, f"Minimum quantity is {self._format_quantity_limit(self._min_qty)}")
 
-        normalized_quantity = self._normalize_quantity(self._state.quantity)
-        if normalized_quantity != self._state.quantity:
-            return (True, f"Quantity must increment by {self._qty_step} {self.POSITION_DISPLAY_UNIT}")
+        normalized_quantity = self._normalize_quantity(quantity)
+        if normalized_quantity != quantity:
+            return (True, f"Quantity must increment by {self._format_quantity_limit(self._qty_step)}")
 
         if self._is_position_data_stale():
             return (True, "Position data stale")
@@ -1188,8 +1202,8 @@ class OrderTicketComponent:
 
     def _is_risk_reducing_order(self) -> bool:
         """Return True only when order strictly reduces current open exposure."""
-        qty = self._state.quantity
-        if qty is None or qty <= 0:
+        qty = self._canonical_quantity(self._state.quantity)
+        if qty is None:
             return False
 
         if self._current_position > 0 and self._state.side == "sell":
@@ -1303,7 +1317,7 @@ class OrderTicketComponent:
         """Check if proposed order violates position limits."""
         if not self._state.symbol:
             return None
-        proposed_qty = self._state_canonical_quantity()
+        proposed_qty = self._canonical_quantity(self._state.quantity)
         if proposed_qty is None:
             return None
         if self._state.side == "sell":
@@ -1315,7 +1329,7 @@ class OrderTicketComponent:
             if abs(proposed_position) > self._max_position_per_symbol:
                 return (
                     "Order exceeds position limit "
-                    f"({self._max_position_per_symbol} {self.POSITION_DISPLAY_UNIT})"
+                    f"({self._format_quantity_limit(self._max_position_per_symbol)})"
                 )
 
         effective_price = self._get_effective_order_price()
@@ -1386,7 +1400,8 @@ class OrderTicketComponent:
 
     def _calculate_buying_power_impact(self) -> dict[str, Any]:
         """Calculate order's impact on buying power."""
-        if not self._state.quantity:
+        quantity = self._canonical_quantity(self._state.quantity)
+        if quantity is None:
             return {
                 "notional": None,
                 "percentage": None,
@@ -1409,7 +1424,7 @@ class OrderTicketComponent:
                 "effective_limit": None,
             }
 
-        notional = effective_price * Decimal(self._state.quantity)
+        notional = effective_price * Decimal(quantity)
         effective_limits: list[Decimal] = []
 
         if self._buying_power is not None and self._buying_power > 0:

@@ -2062,7 +2062,7 @@ class TestOrderTicketQuantityRules:
         disabled, reason = component._should_disable_submission()
 
         assert disabled is True
-        assert reason == "Quantity must increment by 100 shares"
+        assert reason == "Quantity must increment by 100 shares (lots)"
 
     def test_submission_step_check_uses_minimum_baseline(self, component: OrderTicketComponent) -> None:
         """Step validation remains correct even when legacy state has unaligned minimum."""
