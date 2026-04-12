@@ -173,9 +173,9 @@ class TabbedPanel:
         if callable(set_label):
             set_label(label)
             return
-        set_props = getattr(tab, "props", None)
-        if callable(set_props):
-            set_props(_quote_tab_label(label))
+        props = getattr(tab, "_props", None)
+        if isinstance(props, dict):
+            props["label"] = label
             tab.update()
             return
         logger.warning("tabbed_panel_badge_update_unsupported", extra={"tab": tab_name})
