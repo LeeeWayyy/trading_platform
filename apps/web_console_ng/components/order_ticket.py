@@ -81,6 +81,8 @@ class OrderTicketComponent:
     DEFAULT_QTY_STEP = 1
     DEFAULT_MIN_QTY = 1
     DEFAULT_QTY_UNIT = "shares"
+    IMPACT_WARNING_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_WARNING_RATIO))
+    IMPACT_DANGER_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_DANGER_RATIO))
 
     def __init__(
         self,
@@ -1431,17 +1433,20 @@ class OrderTicketComponent:
         percentage = ratio * 100
         remaining = effective_limit - notional
 
+        warning_ratio = self.IMPACT_WARNING_RATIO
+        danger_ratio = self.IMPACT_DANGER_RATIO
+
         status = "normal"
-        if ratio >= Decimal("0.8"):
+        if ratio >= danger_ratio:
             status = "danger"
-        elif ratio >= Decimal("0.5"):
+        elif ratio >= warning_ratio:
             status = "warning"
 
         return {
             "notional": notional,
             "percentage": percentage,
             "remaining": remaining,
-            "warning": percentage > 50,
+            "warning": ratio > warning_ratio,
             "ratio": ratio,
             "status": status,
             "effective_limit": effective_limit,
