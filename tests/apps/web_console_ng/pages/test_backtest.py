@@ -670,6 +670,66 @@ def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:
         backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
 
 
+def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
+    """Missing backtest_jobs table should fail closed with empty result set."""
+
+    class FakeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise pg_errors.UndefinedTable("relation \"backtest_jobs\" does not exist")
+
+        def __enter__(self) -> FakeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakeConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
+        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
+            return FakeCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
+
+        def __enter__(self) -> FakeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.conn = FakeConn()
+
+        def connection(self) -> FakeConn:
+            return self.conn
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            raise AssertionError("Redis should not be queried when table is missing")
+
+    previous_cache = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    previous_missing_warning = backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = True
+    backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
+    pool = FakePool()
+    try:
+        jobs = backtest_module._get_user_jobs_sync(
+            created_by="u1",
+            status=["completed"],
+            db_pool=pool,  # type: ignore[arg-type]
+            redis_client=FakeRedis(),  # type: ignore[arg-type]
+        )
+    finally:
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
+        backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED = previous_missing_warning
+
+    assert jobs == []
+    assert pool.conn.rollback_called is True
+
+
 def test_verify_job_ownership_returns_true_for_owner() -> None:
     """Test _verify_job_ownership returns True when job belongs to user."""
 
