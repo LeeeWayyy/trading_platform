@@ -277,6 +277,495 @@ class TestSubmitOrder:
         reservation.release.assert_called_once_with("AAPL", "token-2")
         db.create_order.assert_not_called()
 
+    def test_submit_order_honours_caller_supplied_client_order_id(self) -> None:
+        """Caller-supplied client_order_id is used instead of generated one (issue #160)."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-3", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        order_detail = _make_order_detail("my-custom-id-001")
+        db.get_order_by_client_id.side_effect = [None, order_detail]
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "my-custom-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_order_id"] == "my-custom-id-001"
+        assert data["status"] == "dry_run"
+
+    def test_submit_order_rejects_caller_id_collision(self) -> None:
+        """Caller-supplied client_order_id that collides with a different order is rejected."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-4", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Existing order is for MSFT sell, but request is AAPL buy
+        existing = _make_order_detail("reused-id-001", status="pending_new")
+        existing.symbol = "MSFT"
+        existing.side = "sell"
+        existing.qty = 50
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.return_value = existing
+
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "reused-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "already exists for a different order" in body["detail"]
+        # Reservation must be released on collision
+        reservation.release.assert_called_once_with("AAPL", "token-4")
+        db.create_order.assert_not_called()
+
+    def test_submit_order_rejects_invalid_charset_in_client_order_id(self) -> None:
+        """client_order_id with control chars or special chars is rejected at validation."""
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = MagicMock()
+
+        db = MagicMock()
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        invalid_ids = [
+            "has spaces here",
+            "has\nnewline",
+            "has\ttab",
+            "special!@#$",
+            "dot.separated",
+        ]
+        for bad_id in invalid_ids:
+            order_payload = {
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 10,
+                "order_type": "market",
+                "time_in_force": "day",
+                "client_order_id": bad_id,
+            }
+            response = client.post("/api/v1/orders", json=order_payload)
+            assert response.status_code == 422, f"Expected 422 for client_order_id={bad_id!r}"
+
+    def test_submit_order_race_path_rejects_caller_id_collision(self) -> None:
+        """UniqueViolation race path also rejects caller-supplied ID that differs from stored order."""
+        from psycopg.errors import UniqueViolation
+
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-5", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Existing order inserted by a concurrent request is for MSFT sell
+        existing = _make_order_detail("race-id-001", status="pending_new")
+        existing.symbol = "MSFT"
+        existing.side = "sell"
+        existing.qty = 50
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        # Pre-insert idempotency check returns None (concurrent insert not yet visible)
+        # After UniqueViolation, re-fetch returns the conflicting order
+        db.get_order_by_client_id.side_effect = [None, existing]
+        db.create_order.side_effect = UniqueViolation()
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "race-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "already exists for a different order" in body["detail"]
+        reservation.release.assert_called_once_with("AAPL", "token-5")
+
+    def test_submit_order_cross_strategy_caller_id_collision(self) -> None:
+        """Caller-supplied ID used by different strategy is rejected (globally unique)."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-6", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Existing order belongs to a different strategy
+        existing = _make_order_detail("shared-id-001")
+        existing.strategy_id = "momentum_v2"
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.return_value = existing
+
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        # Current request is for alpha_baseline strategy
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "shared-id-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "already exists for a different order" in body["detail"]
+        reservation.release.assert_called_once_with("AAPL", "token-6")
+
+    def test_submit_order_race_path_matching_payload_returns_200(self) -> None:
+        """UniqueViolation race path with matching payload returns idempotent 200."""
+        from psycopg.errors import UniqueViolation
+
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-7", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Matching order (same payload as the request)
+        existing = _make_order_detail("race-ok-001", status="dry_run")
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.side_effect = [None, existing]
+        db.create_order.side_effect = UniqueViolation()
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "race-ok-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_order_id"] == "race-ok-001"
+        assert data["message"] == "Order already exists (concurrent retry)"
+
+    def test_submit_order_generated_id_collision_rejects_mismatch(self) -> None:
+        """Generated (deterministic) ID that collides with different order is rejected."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-8", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        # Existing order differs from the incoming request (different strategy)
+        existing = _make_order_detail("gen-hash-001")
+        existing.strategy_id = "momentum_v2"
+
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.return_value = existing
+
+        fat_finger_validator = FatFingerValidator(FatFingerThresholds())
+        ctx = create_mock_context(
+            db=db,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        config = create_test_config(dry_run=True, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        # Request omits client_order_id — deterministic generation yields "gen-hash-001"
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+        }
+
+        with (
+            patch(
+                "apps.execution_gateway.routes.orders.generate_client_order_id"
+            ) as gen_id,
+            patch(
+                "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+                new_callable=AsyncMock,
+            ) as resolve_context,
+        ):
+            gen_id.return_value = "gen-hash-001"
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "already exists for a different order" in body["detail"]
+        reservation.release.assert_called_once_with("AAPL", "token-8")
+
+    def test_submit_order_live_mode_uses_caller_supplied_id(self) -> None:
+        """In live mode (dry_run=False), caller-supplied ID is passed to broker."""
+        reservation = MagicMock()
+        reservation.reserve.return_value = _ReservationResult(
+            success=True, token="token-9", new_position=Decimal("10")
+        )
+
+        recovery_manager = MagicMock()
+        recovery_manager.is_kill_switch_unavailable.return_value = False
+        recovery_manager.is_circuit_breaker_unavailable.return_value = False
+        recovery_manager.is_position_reservation_unavailable.return_value = False
+        recovery_manager.kill_switch = MagicMock()
+        recovery_manager.kill_switch.is_engaged.return_value = False
+        recovery_manager.circuit_breaker = MagicMock()
+        recovery_manager.circuit_breaker.is_tripped.return_value = False
+        recovery_manager.position_reservation = reservation
+
+        order_detail = _make_order_detail("live-custom-001", status="new")
+        db = MagicMock()
+        db.get_position_by_symbol.return_value = Decimal("0")
+        db.get_order_by_client_id.side_effect = [None, order_detail]
+
+        mock_redis = MagicMock()
+        mock_redis.mget.return_value = [None, None]
+
+        alpaca = MagicMock()
+        alpaca.submit_order.return_value = {
+            "id": "broker-abc-123",
+            "status": "new",
+        }
+
+        fat_finger_validator = FatFingerValidator(
+            FatFingerThresholds(
+                max_notional=Decimal("1000000"),
+                max_qty=100000,
+                max_adv_pct=Decimal("1"),
+            )
+        )
+        ctx = create_mock_context(
+            db=db,
+            redis=mock_redis,
+            recovery_manager=recovery_manager,
+            risk_config=RiskConfig(),
+            fat_finger_validator=fat_finger_validator,
+        )
+        ctx.alpaca = alpaca
+        config = create_test_config(dry_run=False, strategy_id="alpha_baseline")
+        client = _build_test_app(ctx, config)
+
+        order_payload = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "order_type": "market",
+            "time_in_force": "day",
+            "client_order_id": "live-custom-001",
+        }
+
+        with patch(
+            "apps.execution_gateway.routes.orders.resolve_fat_finger_context",
+            new_callable=AsyncMock,
+        ) as resolve_context:
+            resolve_context.return_value = (Decimal("100"), 1000000)
+            response = client.post("/api/v1/orders", json=order_payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_order_id"] == "live-custom-001"
+        assert data["broker_order_id"] == "broker-abc-123"
+
+        # Verify the caller-supplied ID was passed to the broker
+        alpaca.submit_order.assert_called_once()
+        call_args = alpaca.submit_order.call_args
+        assert call_args[0][1] == "live-custom-001"
+
 
 class TestCancelAndGetOrder:
     def test_cancel_order_not_found(self) -> None:

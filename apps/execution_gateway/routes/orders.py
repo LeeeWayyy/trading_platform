@@ -1348,6 +1348,30 @@ async def twap_preview(
     )
 
 
+def _idempotency_payload_matches(
+    order: OrderRequest, existing: OrderDetail, strategy_id: str
+) -> bool:
+    """Return True when the incoming request matches the stored order.
+
+    Comparison covers the core order-defining fields (symbol, side, qty,
+    order_type, prices, time_in_force, execution_style, strategy_id).
+    TWAP-specific timing fields are omitted because the ``/api/v1/orders``
+    endpoint rejects TWAP orders; if TWAP support is added later, extend
+    this comparison accordingly.
+    """
+    return (
+        order.symbol == existing.symbol
+        and order.side == existing.side
+        and order.qty == existing.qty
+        and order.order_type == existing.order_type
+        and order.limit_price == existing.limit_price
+        and order.stop_price == existing.stop_price
+        and order.time_in_force == existing.time_in_force
+        and order.execution_style == (existing.execution_style or "instant")
+        and strategy_id == existing.strategy_id
+    )
+
+
 # =============================================================================
 # POST /api/v1/orders - Submit Order
 # =============================================================================
@@ -1365,9 +1389,13 @@ async def submit_order(
     """
     Submit order with idempotent retry semantics.
 
-    The order is assigned a deterministic client_order_id based on the order
-    parameters and current date. This ensures that the same order submitted
-    multiple times will have the same ID and won't create duplicates.
+    By default the order is assigned a deterministic client_order_id
+    derived from the order parameters and current date, ensuring that the
+    same order submitted multiple times gets the same ID.  Callers may
+    supply an explicit ``client_order_id`` to disambiguate repeat orders
+    that share identical parameters on the same day.  When a
+    caller-supplied ID collides with an existing order whose payload
+    differs, the request is rejected with HTTP 409.
 
     In DRY_RUN mode (default), orders are logged to database but NOT submitted
     to Alpaca. Set DRY_RUN=false to enable actual paper trading.
@@ -1398,14 +1426,16 @@ async def submit_order(
 
     Raises:
         HTTPException 400: Invalid order parameters
+        HTTPException 409: Caller-supplied client_order_id collides with different order
         HTTPException 422: Order rejected by broker
         HTTPException 503: Broker connection error
     """
     # Safety gating uses RecoveryManager (thread-safe, fail-closed)
     start_time = time.time()
 
-    # Generate deterministic client_order_id
-    client_order_id = generate_client_order_id(order, config.strategy_id)
+    # Honour caller-supplied client_order_id so repeat orders with identical
+    # parameters can be disambiguated.  Fall back to deterministic generation.
+    client_order_id = order.client_order_id if order.client_order_id is not None else generate_client_order_id(order, config.strategy_id)
 
     logger.info(
         f"Order request received: {order.symbol} {order.side} {order.qty}",
@@ -1630,6 +1660,36 @@ async def submit_order(
     if existing_order:
         # Release reservation for duplicate order
         position_reservation.release(order.symbol, reservation_token)
+
+        # Verify that the request payload matches the existing order.
+        # A mismatch means the ID was reused for a different order
+        # (caller-supplied collision or hash collision), which would
+        # silently suppress the intended order.
+        if not _idempotency_payload_matches(
+            order, existing_order, config.strategy_id
+        ):
+            logger.warning(
+                f"Caller-supplied client_order_id collides with a different order: "
+                f"{client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "strategy_id": config.strategy_id,
+                    "existing_symbol": existing_order.symbol,
+                    "existing_side": existing_order.side,
+                    "existing_qty": existing_order.qty,
+                    "request_symbol": order.symbol,
+                    "request_side": order.side,
+                    "request_qty": order.qty,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"client_order_id '{client_order_id}' already exists for a "
+                    "different order. Supply a unique ID."
+                ),
+            )
+
         logger.info(
             f"Order already exists (idempotent): {client_order_id}",
             extra={
@@ -1710,6 +1770,30 @@ async def submit_order(
         )
         order_detail = ctx.db.get_order_by_client_id(client_order_id)
         if order_detail:
+            # Guard against ID collision in the race path (caller-supplied
+            # or hash collision)
+            if not _idempotency_payload_matches(
+                order, order_detail, config.strategy_id
+            ):
+                logger.warning(
+                    f"client_order_id race collision with a different "
+                    f"order: {client_order_id}",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "strategy_id": config.strategy_id,
+                        "existing_symbol": order_detail.symbol,
+                        "existing_side": order_detail.side,
+                        "request_symbol": order.symbol,
+                        "request_side": order.side,
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"client_order_id '{client_order_id}' already exists for a "
+                        "different order. Supply a unique ID."
+                    ),
+                ) from None
             return OrderResponse(
                 client_order_id=client_order_id,
                 status=order_detail.status,
@@ -2245,7 +2329,7 @@ async def get_order(
     Get order details by client_order_id.
 
     Args:
-        client_order_id: Deterministic client order ID
+        client_order_id: Client order ID (deterministic or caller-supplied)
         _auth_context: Authentication context (injected)
         ctx: Application context with all dependencies (injected)
 
@@ -2313,7 +2397,7 @@ async def get_order_audit_trail(
     Each entry includes IP address and session ID for compliance tracking.
 
     Args:
-        client_order_id: Deterministic client order ID
+        client_order_id: Client order ID (deterministic or caller-supplied)
         limit: Maximum entries to return (default 100)
 
     Returns:

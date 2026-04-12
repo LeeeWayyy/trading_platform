@@ -39,6 +39,9 @@ async def test_position_reservation_happens_before_idempotency() -> None:
             order_type="market",
             limit_price=None,
             stop_price=None,
+            time_in_force="day",
+            execution_style="instant",
+            strategy_id="alpha_baseline",
             created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
 
