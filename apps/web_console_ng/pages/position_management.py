@@ -194,7 +194,7 @@ async def position_management_page(client: Client) -> None:
         def _as_float(value: Any) -> float:
             if value is None:
                 return 0.0
-            if isinstance(value, (int, float)):
+            if isinstance(value, int | float):
                 return float(value)
             if isinstance(value, str):
                 cleaned = value.replace(",", "").strip()
