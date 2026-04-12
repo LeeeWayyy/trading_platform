@@ -460,7 +460,7 @@ class OrderTicketComponent:
         """Update quantity stepping/minimum rules for selected symbol."""
         next_qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
         raw_min = max(1, int(min_qty)) if min_qty is not None else self.DEFAULT_MIN_QTY
-        next_min_qty = max(next_qty_step, raw_min)
+        next_min_qty = self._align_min_qty_to_step(raw_min, next_qty_step)
         next_qty_unit = self._normalize_qty_unit(qty_unit)
 
         if (
@@ -823,7 +823,13 @@ class OrderTicketComponent:
         clamped = max(self._min_qty, qty)
         if self._qty_step <= 1:
             return clamped
-        return max(self._min_qty, (clamped // self._qty_step) * self._qty_step)
+        return self._min_qty + ((clamped - self._min_qty) // self._qty_step) * self._qty_step
+
+    def _align_min_qty_to_step(self, min_qty: int, qty_step: int) -> int:
+        """Align minimum quantity upward to the nearest step-compatible value."""
+        if qty_step <= 1:
+            return max(1, min_qty)
+        return max(qty_step, ((min_qty + qty_step - 1) // qty_step) * qty_step)
 
     def _apply_quantity_rules_to_ui(self) -> None:
         """Apply quantity rules to UI controls."""
@@ -1089,7 +1095,10 @@ class OrderTicketComponent:
         if self._state.quantity < self._min_qty:
             return (True, f"Minimum quantity is {self._min_qty} {self._qty_unit}")
 
-        if self._state.quantity % self._qty_step != 0:
+        if (
+            self._qty_step > 1
+            and (self._state.quantity - self._min_qty) % self._qty_step != 0
+        ):
             return (True, f"Quantity must increment by {self._qty_step} {self._qty_unit}")
 
         if self._is_position_data_stale():

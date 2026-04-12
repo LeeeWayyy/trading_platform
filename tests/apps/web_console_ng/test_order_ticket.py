@@ -1895,6 +1895,15 @@ class TestOrderTicketQuantityRules:
         component._quantity_input.props.assert_called_with("min=100 step=100")
         component._quantity_presets.set_presets.assert_called_with([100])
 
+    def test_set_quantity_rules_aligns_min_qty_to_step(self, component: OrderTicketComponent) -> None:
+        """Unaligned metadata minimum is rounded up to the nearest step."""
+        component._quantity_input = MagicMock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=150, qty_unit="lots")
+
+        assert component._min_qty == 200
+        component._quantity_input.props.assert_called_with("min=200 step=100")
+
     def test_set_quantity_rules_uses_contract_preset_profile(
         self, component: OrderTicketComponent
     ) -> None:
@@ -1971,3 +1980,26 @@ class TestOrderTicketQuantityRules:
 
         assert disabled is True
         assert reason == "Quantity must increment by 100 lots"
+
+    def test_submission_step_check_uses_minimum_baseline(self, component: OrderTicketComponent) -> None:
+        """Step validation remains correct even when legacy state has unaligned minimum."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component._qty_step = 100
+        component._min_qty = 150
+        component._qty_unit = "lots"
+        component._state.quantity = 250
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
