@@ -71,13 +71,14 @@ class TestFetchTCAData:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_data(
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 31),
@@ -100,13 +101,14 @@ class TestFetchTCAData:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_data(
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 31),
@@ -118,7 +120,7 @@ class TestFetchTCAData:
             )
 
             # Check that filters were passed in query params
-            call_args = mock_instance.get.call_args
+            call_args = mock_client.get.call_args
             params = call_args.kwargs.get("params", {})
             assert params.get("symbol") == "AAPL"
 
@@ -130,13 +132,14 @@ class TestFetchTCAData:
         mock_response = MagicMock()
         mock_response.status_code = 500
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_data(
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 31),
@@ -151,25 +154,25 @@ class TestFetchTCAData:
 
     @pytest.mark.asyncio()
     async def test_fetch_connection_error(self) -> None:
-        """Connection error returns None."""
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.side_effect = httpx.RequestError("Connection refused")
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        """Connection error raises httpx.RequestError."""
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.RequestError("Connection refused")
+        mock_client.is_closed = False
 
-            result = await _fetch_tca_data(
-                start_date=date(2024, 1, 1),
-                end_date=date(2024, 1, 31),
-                symbol=None,
-                strategy_id=None,
-                user_id="test_user",
-                role="trader",
-                strategies=[],
-            )
-
-        assert result is None
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
+            with pytest.raises(httpx.RequestError, match="Connection refused"):
+                await _fetch_tca_data(
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 31),
+                    symbol=None,
+                    strategy_id=None,
+                    user_id="test_user",
+                    role="trader",
+                    strategies=[],
+                )
 
     @pytest.mark.asyncio()
     async def test_fetch_sends_auth_headers(
@@ -180,13 +183,14 @@ class TestFetchTCAData:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             await _fetch_tca_data(
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 31),
@@ -197,7 +201,7 @@ class TestFetchTCAData:
                 strategies=["strat1", "strat2"],
             )
 
-            call_args = mock_instance.get.call_args
+            call_args = mock_client.get.call_args
             headers = call_args.kwargs.get("headers", {})
             assert headers["X-User-ID"] == "test_user"
             assert headers["X-User-Role"] == "admin"
@@ -225,21 +229,23 @@ class TestFetchTCABenchmarks:
             ],
         }
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
                 user_id="test_user",
                 role="trader",
                 strategies=["alpha_baseline"],
+                strategy_id="alpha_baseline",
             )
 
-            call_args = mock_instance.get.call_args
+            call_args = mock_client.get.call_args
             params = call_args.kwargs.get("params", {})
             headers = call_args.kwargs.get("headers", {})
             assert params == {"client_order_id": "order-1", "benchmark": "vwap"}
@@ -256,63 +262,67 @@ class TestFetchTCABenchmarks:
         mock_response = MagicMock()
         mock_response.status_code = 404
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="missing-order",
                 user_id="test_user",
                 role="trader",
                 strategies=[],
+                strategy_id=None,
             )
 
         assert result is None
 
     @pytest.mark.asyncio()
     async def test_fetch_benchmarks_connection_error(self) -> None:
-        """Connection error returns None for benchmark fetches."""
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.side_effect = httpx.RequestError("Connection refused")
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        """Connection error raises httpx.RequestError."""
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.RequestError("Connection refused")
+        mock_client.is_closed = False
 
-            result = await _fetch_tca_benchmarks(
-                client_order_id="order-1",
-                user_id="test_user",
-                role="trader",
-                strategies=["alpha_baseline"],
-            )
-
-        assert result is None
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
+            with pytest.raises(httpx.RequestError, match="Connection refused"):
+                await _fetch_tca_benchmarks(
+                    client_order_id="order-1",
+                    user_id="test_user",
+                    role="trader",
+                    strategies=["alpha_baseline"],
+                    strategy_id="alpha_baseline",
+                )
 
     @pytest.mark.asyncio()
     async def test_fetch_benchmarks_malformed_json(self) -> None:
-        """Malformed JSON response returns None for benchmark fetches."""
+        """Malformed JSON response raises ValueError."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.side_effect = ValueError("Invalid JSON")
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
-            result = await _fetch_tca_benchmarks(
-                client_order_id="order-1",
-                user_id="test_user",
-                role="trader",
-                strategies=["alpha_baseline"],
-            )
-
-        assert result is None
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
+            with pytest.raises(ValueError, match="Invalid JSON"):
+                await _fetch_tca_benchmarks(
+                    client_order_id="order-1",
+                    user_id="test_user",
+                    role="trader",
+                    strategies=["alpha_baseline"],
+                    strategy_id="alpha_baseline",
+                )
 
     @pytest.mark.asyncio()
     async def test_fetch_benchmarks_non_dict_json(self) -> None:
@@ -321,18 +331,20 @@ class TestFetchTCABenchmarks:
         mock_response.status_code = 200
         mock_response.json.return_value = ["unexpected", "list"]
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
                 user_id="test_user",
                 role="trader",
                 strategies=["alpha_baseline"],
+                strategy_id="alpha_baseline",
             )
 
         assert result is None
@@ -442,18 +454,20 @@ class TestShouldFetchBenchmark:
             ],
         }
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = benchmark_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = benchmark_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
                 user_id="test_user",
                 role="trader",
                 strategies=["alpha_baseline"],
+                strategy_id="alpha_baseline",
             )
 
         assert result is not None
@@ -472,18 +486,20 @@ class TestShouldFetchBenchmark:
             "points": "bad-data",
         }
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
                 user_id="test_user",
                 role="trader",
                 strategies=["alpha_baseline"],
+                strategy_id="alpha_baseline",
             )
 
         # The fetch succeeds but the render guard (isinstance checks)
@@ -514,18 +530,20 @@ class TestBenchmarkFetchCacheContract:
             "points": [{"timestamp": "T", "execution_price": 100, "benchmark_price": 99}],
         }
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
                 user_id="test_user",
                 role="trader",
                 strategies=["s1"],
+                strategy_id="s1",
             )
 
         # Result is not None so the dashboard can safely cache it
@@ -537,18 +555,20 @@ class TestBenchmarkFetchCacheContract:
         mock_response = MagicMock()
         mock_response.status_code = 500
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_benchmarks(
                 client_order_id="order-1",
                 user_id="test_user",
                 role="trader",
                 strategies=[],
+                strategy_id=None,
             )
 
         # None tells the dashboard NOT to cache, enabling retry on next load
@@ -625,13 +645,14 @@ class TestExecutionQualityPageIntegration:
             "orders": [],
         }
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             result = await _fetch_tca_data(
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 31),
@@ -653,13 +674,14 @@ class TestExecutionQualityPageIntegration:
         mock_response.status_code = 200
         mock_response.json.return_value = {"summary": {}, "orders": []}
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get.return_value = mock_response
-            mock_instance.__aenter__.return_value = mock_instance
-            mock_instance.__aexit__.return_value = None
-            mock_client.return_value = mock_instance
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.is_closed = False
 
+        with patch(
+            "apps.web_console_ng.pages.execution_quality._get_shared_client",
+            return_value=mock_client,
+        ):
             await _fetch_tca_data(
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 31),
@@ -670,6 +692,6 @@ class TestExecutionQualityPageIntegration:
                 strategies=["alpha_baseline"],
             )
 
-            call_args = mock_instance.get.call_args
+            call_args = mock_client.get.call_args
             params = call_args.kwargs.get("params", {})
             assert params.get("strategy_id") == "alpha_baseline"

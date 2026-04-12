@@ -95,6 +95,21 @@ def _build_tca_auth_headers(user_id: str, role: str, strategies: list[str]) -> d
     }
 
 
+# Module-level shared httpx client for connection pooling.
+# Lazy-initialised on first use so that module import does not
+# perform I/O.  A single client is reused across all TCA requests
+# within the same process, improving connection reuse.
+_shared_client: httpx.AsyncClient | None = None
+
+
+def _get_shared_client() -> httpx.AsyncClient:
+    """Return the module-level shared httpx.AsyncClient, creating it on first call."""
+    global _shared_client  # noqa: PLW0603
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(timeout=30.0)
+    return _shared_client
+
+
 async def _fetch_tca_data(
     start_date: date,
     end_date: date,
@@ -106,33 +121,36 @@ async def _fetch_tca_data(
 ) -> dict[str, Any] | None:
     """Fetch TCA data from API.
 
-    Returns None on error, falls back to demo mode.
+    Returns None when the API returns a non-200 status.
+    Raises httpx.RequestError on connectivity issues so the caller
+    can decide whether to fall back to demo mode.
     """
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            params: dict[str, Any] = {
-                "start_date": str(start_date),
-                "end_date": str(end_date),
-            }
-            if symbol:
-                params["symbol"] = symbol
-            if strategy_id:
-                params["strategy_id"] = strategy_id
+    client = _get_shared_client()
+    params: dict[str, Any] = {
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+    }
+    if symbol:
+        params["symbol"] = symbol
+    if strategy_id:
+        params["strategy_id"] = strategy_id
 
-            response = await client.get(
-                f"{EXECUTION_GATEWAY_URL}/api/v1/tca/analysis",
-                params=params,
-                headers=_build_tca_auth_headers(user_id, role, strategies),
-            )
-            if response.status_code == 200:
-                result: dict[str, Any] = response.json()
-                return result
-            logger.warning(
-                "TCA API returned non-200",
-                extra={"status": response.status_code, "body": response.text[:200]},
-            )
-    except httpx.RequestError as e:
-        logger.warning("TCA API unavailable", extra={"error": str(e)})
+    response = await client.get(
+        f"{EXECUTION_GATEWAY_URL}/api/v1/tca/analysis",
+        params=params,
+        headers=_build_tca_auth_headers(user_id, role, strategies),
+    )
+    if response.status_code == 200:
+        result: dict[str, Any] = response.json()
+        return result
+    logger.warning(
+        "TCA API returned non-200",
+        extra={
+            "status": response.status_code,
+            "strategy_id": strategy_id,
+            "body": response.text[:200],
+        },
+    )
     return None
 
 
@@ -144,11 +162,15 @@ async def _fetch_tca_benchmarks(
     benchmark: str = "vwap",
     *,
     symbol: str = "",
-    strategy_id: str = "",
+    strategy_id: str | None = "",
 ) -> dict[str, Any] | None:
     """Fetch benchmark comparison series for a specific order.
 
-    Returns None on error or when the benchmark series is unavailable.
+    Returns None when the API returns a non-200 status or an unexpected
+    payload type.
+    Raises httpx.RequestError on connectivity issues so the caller can
+    decide whether to fall back gracefully.
+    Raises ValueError / KeyError / TypeError on response parse errors.
 
     Args:
         symbol: Optional symbol for structured log context (not sent to API).
@@ -160,40 +182,26 @@ async def _fetch_tca_benchmarks(
         "symbol": symbol,
         "strategy_id": strategy_id,
     }
-    try:
-        # Use a short timeout since the benchmark chart is supplementary;
-        # a slow or unavailable benchmark API should not noticeably delay
-        # the main dashboard (summary cards + decomposition chart + table).
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(
-                f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
-                params={"client_order_id": client_order_id, "benchmark": benchmark},
-                headers=_build_tca_auth_headers(user_id, role, strategies),
-            )
-            if response.status_code == 200:
-                result = response.json()
-                if not isinstance(result, dict):
-                    logger.warning(
-                        "TCA benchmark API returned unexpected payload type",
-                        extra={**log_ctx, "type": type(result).__name__},
-                    )
-                    return None
-                return result
+    # Reuse the shared client for connection pooling.
+    client = _get_shared_client()
+    response = await client.get(
+        f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
+        params={"client_order_id": client_order_id, "benchmark": benchmark},
+        headers=_build_tca_auth_headers(user_id, role, strategies),
+    )
+    if response.status_code == 200:
+        result = response.json()
+        if not isinstance(result, dict):
             logger.warning(
-                "TCA benchmark API returned non-200",
-                extra={**log_ctx, "status": response.status_code},
+                "TCA benchmark API returned unexpected payload type",
+                extra={**log_ctx, "type": type(result).__name__},
             )
-    except httpx.RequestError as e:
-        logger.warning(
-            "TCA benchmark API unavailable",
-            extra={**log_ctx, "error": str(e)},
-        )
-    except (ValueError, KeyError, TypeError) as e:
-        logger.error(
-            "TCA benchmark API response parse error",
-            extra={**log_ctx, "error": str(e)},
-            exc_info=True,
-        )
+            return None
+        return result
+    logger.warning(
+        "TCA benchmark API returned non-200",
+        extra={**log_ctx, "status": response.status_code},
+    )
     return None
 
 
@@ -508,9 +516,16 @@ async def _render_tca_dashboard(
         state["strategy_id"] = strategy
 
         # Fetch data - use authorized_strategies for API auth (not raw session strategies)
-        data = await _fetch_tca_data(
-            start_dt, end_dt, symbol, strategy, user_id, role, authorized_strategies
-        )
+        try:
+            data = await _fetch_tca_data(
+                start_dt, end_dt, symbol, strategy, user_id, role, authorized_strategies
+            )
+        except httpx.RequestError as exc:
+            logger.warning(
+                "TCA API unavailable, falling back to demo data",
+                extra={"error": str(exc), "strategy_id": strategy},
+            )
+            data = None
 
         # Discard results from superseded requests (rapid filter changes)
         if current_generation != state["_load_generation"]:
@@ -558,14 +573,30 @@ async def _render_tca_dashboard(
             if state.get("_benchmark_cache_key") == fetch_order_id:
                 benchmark_data = state["_benchmark_cache_data"]
             else:
-                benchmark_data = await _fetch_tca_benchmarks(
-                    client_order_id=fetch_order_id,
-                    user_id=user_id,
-                    role=role,
-                    strategies=authorized_strategies,
-                    symbol=str(orders[0].get("symbol", "")),
-                    strategy_id=str(state.get("strategy_id") or ""),
-                )
+                try:
+                    benchmark_data = await _fetch_tca_benchmarks(
+                        client_order_id=fetch_order_id,
+                        user_id=user_id,
+                        role=role,
+                        strategies=authorized_strategies,
+                        strategy_id=str(state.get("strategy_id") or ""),
+                        symbol=str(orders[0].get("symbol", "")),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "TCA benchmark fetch failed, skipping chart",
+                        extra={
+                            "client_order_id": fetch_order_id,
+                            "strategy_id": str(state.get("strategy_id") or ""),
+                            "error": str(exc),
+                        },
+                    )
+                    benchmark_data = None
+
+                # Discard results from superseded requests
+                if current_generation != state["_load_generation"]:
+                    return
+
                 if benchmark_data is not None:
                     state["_benchmark_cache_key"] = fetch_order_id
                     state["_benchmark_cache_data"] = benchmark_data
