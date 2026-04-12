@@ -1309,7 +1309,8 @@ async def dashboard(client: Client) -> None:
                         "status": trade.get("status") or "filled",
                     }
                 )
-            order_flow_panel.add_trades(recent_trades)
+            # get_trades returns newest->oldest; add_trades expects oldest->newest.
+            order_flow_panel.add_trades(list(reversed(recent_trades)))
 
         _update_filter_options()
         if tabbed_panel is not None:
