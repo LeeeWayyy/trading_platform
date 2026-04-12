@@ -94,9 +94,7 @@ services:
 
   loki_server:
     image: grafana/loki:3.0.0
-    container_name: trading_platform_loki_server
-    # Run as root to allow volume directory creation (staging only)
-    user: "0"
+    container_name: staging_loki
     ports:
       - "3100:3100"
     volumes:
@@ -114,7 +112,7 @@ services:
 
   promtail:
     image: grafana/promtail:3.0.0
-    container_name: trading_platform_promtail
+    container_name: staging_promtail
     volumes:
       - ./infra/promtail:/etc/promtail
       - /var/run/docker.sock:/var/run/docker.sock:ro
