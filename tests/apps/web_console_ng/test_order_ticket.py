@@ -2011,6 +2011,28 @@ class TestOrderTicketQuantityRules:
         assert component._state.quantity == 200
         component._quantity_input.set_value.assert_called_with(200)
 
+    def test_set_quantity_rules_noop_when_rules_unchanged(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Repeated identical rules should not trigger UI churn."""
+        component._apply_quantity_rules_to_ui = MagicMock()
+        component._refresh_quantity_preset_profile = MagicMock()
+        component._update_buying_power_impact = MagicMock()
+        component._update_quantity_presets_context = MagicMock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._apply_quantity_rules_to_ui.reset_mock()
+        component._refresh_quantity_preset_profile.reset_mock()
+        component._update_buying_power_impact.reset_mock()
+        component._update_quantity_presets_context.reset_mock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        component._apply_quantity_rules_to_ui.assert_not_called()
+        component._refresh_quantity_preset_profile.assert_not_called()
+        component._update_buying_power_impact.assert_not_called()
+        component._update_quantity_presets_context.assert_not_called()
+
     def test_submission_blocks_invalid_step_quantity(self, component: OrderTicketComponent) -> None:
         """Submission is blocked when qty does not match symbol step rules."""
         now = datetime.now(UTC)
