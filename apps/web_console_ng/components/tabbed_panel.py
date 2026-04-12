@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -175,9 +176,9 @@ class TabbedPanel:
         if callable(set_label):
             set_label(label)
             return
-        props = getattr(tab, "_props", None)
-        if isinstance(props, dict):
-            props["label"] = label
+        set_props = getattr(tab, "props", None)
+        if callable(set_props):
+            set_props(f"label={json.dumps(label)}")
             tab.update()
             return
         logger.warning("tabbed_panel_badge_update_unsupported", extra={"tab": tab_name})

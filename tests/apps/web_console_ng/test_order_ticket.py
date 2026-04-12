@@ -992,6 +992,51 @@ class TestOrderTicketBuyingPowerImpact:
         assert result["warning"] is True
 
 
+class TestOrderTicketDomSettle:
+    """Tests for DOM click settle-window button behavior."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=[],
+        )
+        comp._connection_read_only = False
+        comp._kill_switch_engaged = False
+        comp._circuit_breaker_tripped = False
+        comp._buy_action_button = MagicMock()
+        comp._sell_action_button = MagicMock()
+        return comp
+
+    def test_finish_dom_settle_reenables_actions_even_if_form_incomplete(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._state.symbol = "AAPL"
+        component._state.quantity = None
+
+        component._finish_dom_settle()
+
+        component._buy_action_button.set_enabled.assert_called_with(True)
+        component._sell_action_button.set_enabled.assert_called_with(True)
+
+    def test_finish_dom_settle_keeps_actions_disabled_when_connection_locked(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._connection_read_only = True
+
+        component._finish_dom_settle()
+
+        component._buy_action_button.set_enabled.assert_called_with(False)
+        component._sell_action_button.set_enabled.assert_called_with(False)
+
+
 class TestOrderTicketClosePreset:
     """Tests for CLOSE preset behavior."""
 

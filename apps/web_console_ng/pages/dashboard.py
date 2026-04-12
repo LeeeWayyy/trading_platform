@@ -248,6 +248,18 @@ def should_enable_strategy_context_refresh(
     return gate_enabled or has_strategy_widget
 
 
+def resolve_model_gate_inputs(
+    *,
+    model_status: str | None,
+    model_version: str | None,
+    feature_model_registry_enabled: bool,
+) -> tuple[str, str | None, bool]:
+    """Normalize model context and whether model status should enforce execution gating."""
+    if feature_model_registry_enabled:
+        return normalize_execution_status(model_status), model_version, True
+    return "ready", (model_version or "disabled"), False
+
+
 def compute_workspace_data_staleness(
     *,
     last_live_data_at: float | None,
@@ -1950,13 +1962,18 @@ async def dashboard(client: Client) -> None:
             if model_version is None:
                 model_version = db_model_version
 
+        model_status, model_version, enforce_model_gate = resolve_model_gate_inputs(
+            model_status=model_status,
+            model_version=model_version,
+            feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
+        )
         strategy_safe = is_strategy_execution_safe(strategy_status)
         model_safe = is_model_execution_safe(model_status)
 
         gate_reason: str | None = None
         if not strategy_safe:
             gate_reason = f"strategy is {strategy_status.upper()}"
-        elif not model_safe:
+        elif enforce_model_gate and not model_safe:
             gate_reason = f"model is {model_status.upper()}"
         if reason_parts:
             context_reason = "; ".join(reason_parts)

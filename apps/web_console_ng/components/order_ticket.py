@@ -649,11 +649,14 @@ class OrderTicketComponent:
 
     def _finish_dom_settle(self) -> None:
         """Re-enable action buttons using latest safety gate decision."""
-        disabled, _ = self._should_disable_submission()
-        enabled = not disabled
+        enabled = not self._is_trade_action_locked()
         for button in (self._buy_action_button, self._sell_action_button):
             if button is not None:
                 button.set_enabled(enabled)
+
+    def _is_trade_action_locked(self) -> bool:
+        """Return whether action buttons must stay disabled due global safety state."""
+        return self._connection_read_only or self._kill_switch_engaged or self._circuit_breaker_tripped
 
     # ================= Safety State Callbacks =================
 

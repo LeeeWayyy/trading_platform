@@ -138,6 +138,15 @@ def _get_user_jobs_sync(
     if invalid:
         raise ValueError(f"Invalid statuses: {invalid}. Valid: {VALID_STATUSES}")
 
+    def _sync_connection() -> Any:
+        """Return a sync DB connection context manager or fail with clear guidance."""
+        conn_ctx = db_pool.connection()
+        if not hasattr(conn_ctx, "__enter__"):
+            raise TypeError(
+                "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
+            )
+        return conn_ctx
+
     sql = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
@@ -173,7 +182,7 @@ def _get_user_jobs_sync(
                   AND column_name = 'cost_summary'
             ) AS has_column
         """
-        with db_pool.connection() as probe_conn, probe_conn.cursor() as probe_cur:
+        with _sync_connection() as probe_conn, probe_conn.cursor() as probe_cur:
             try:
                 probe_cur.execute(probe_sql)
                 row = probe_cur.fetchone()
@@ -193,7 +202,7 @@ def _get_user_jobs_sync(
 
     use_cost_summary_sql = _has_cost_summary_column()
 
-    with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+    with _sync_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         try:
             selected_sql = sql if use_cost_summary_sql else legacy_sql
             cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))

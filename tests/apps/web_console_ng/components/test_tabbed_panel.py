@@ -58,6 +58,19 @@ class DummyTab:
         self.label = label
 
 
+class DummyTabPropsOnly:
+    def __init__(self) -> None:
+        self.props_calls: list[str] = []
+        self.updated = False
+
+    def props(self, value: str) -> DummyTabPropsOnly:
+        self.props_calls.append(value)
+        return self
+
+    def update(self) -> None:
+        self.updated = True
+
+
 class DummyContainer:
     def classes(self, *_args, **_kwargs):
         return self
@@ -162,6 +175,24 @@ def test_tabbed_panel_lazy_load(monkeypatch: pytest.MonkeyPatch) -> None:
 
     panel.set_badge_count(panel_module.TAB_POSITIONS, 5)
     assert tab.label == "Positions (5)"
+
+
+def test_tabbed_panel_badge_count_props_fallback() -> None:
+    state = panel_module.TabbedPanelState(user_id=None)
+    tab = DummyTabPropsOnly()
+    panel = panel_module.TabbedPanel(
+        state=state,
+        tabs=object(),
+        tab_map={panel_module.TAB_POSITIONS: tab},  # type: ignore[arg-type]
+        tab_containers={},
+        grid_factories={},
+        symbol_filter=panel_module.SymbolFilterState(value=None, select=None),
+    )
+
+    panel.set_badge_count(panel_module.TAB_POSITIONS, 3)
+
+    assert tab.props_calls == ['label="Positions (3)"']
+    assert tab.updated is True
 
 
 def test_tabbed_panel_missing_factory() -> None:
