@@ -373,7 +373,7 @@ def test_cancel_order_viewer_allowed_single_admin():
         }
     )
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "too risky cancel",
             "requested_by": "u",
@@ -387,7 +387,7 @@ def test_cancel_order_viewer_allowed_single_admin():
 def test_cancel_order_operator_success():
     client = build_client()
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "duplicate order cancel",
             "requested_by": "user-1",
@@ -409,7 +409,7 @@ def test_cancel_order_any_strategy_allowed_single_admin():
         }
     )
     response = client.post(
-        "/orders/ord-2/cancel",
+        "/manual/orders/ord-2/cancel",
         json={
             "reason": "cancel any strat order",
             "requested_by": "user-1",
@@ -424,7 +424,7 @@ def test_cancel_order_any_strategy_allowed_single_admin():
 def test_rate_limit_blocked():
     client = build_client(overrides={deps.get_rate_limiter: lambda: StubRateLimiter(allow=False)})
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "rate limit check",
             "requested_by": "user-1",
@@ -471,7 +471,7 @@ def test_header_validation_missing_authorization(monkeypatch: pytest.MonkeyPatch
     client = TestClient(app)
 
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         headers={"X-User-ID": "u1", "X-Request-ID": str(uuid.uuid4()), "X-Session-Version": "1"},
         json={
             "reason": "missing auth header",
@@ -513,7 +513,7 @@ def test_jwt_error_mapping(exc: Exception, expected: str, monkeypatch: pytest.Mo
 
     client = TestClient(app)
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         headers=_auth_headers(),
         json={
             "reason": "jwt error mapping",
@@ -929,7 +929,7 @@ def test_cancel_order_not_found():
     """Test canceling a non-existent order returns 404."""
     client = build_client()
     response = client.post(
-        "/orders/nonexistent/cancel",
+        "/manual/orders/nonexistent/cancel",
         json={
             "reason": "trying to cancel missing order",
             "requested_by": "user-1",
@@ -949,7 +949,7 @@ def test_cancel_order_no_broker_order_id():
     client = build_client(overrides={deps.get_db_client: lambda: db})
 
     response = client.post(
-        "/orders/ord-no-broker/cancel",
+        "/manual/orders/ord-no-broker/cancel",
         json={
             "reason": "cancel order without broker id",
             "requested_by": "user-1",
@@ -972,7 +972,7 @@ def test_cancel_order_db_update_error_returns_500():
 
     client = build_client(overrides={deps.get_db_client: lambda: ErrorDB()})
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "trigger db update error",
             "requested_by": "user-1",
@@ -1001,7 +1001,7 @@ def test_cancel_order_validation_error_returns_500():
 
     client = build_client(overrides={deps.get_db_client: lambda: ValidationErrorDB()})
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "trigger validation error",
             "requested_by": "user-1",
@@ -1016,7 +1016,7 @@ def test_cancel_order_broker_unavailable():
     """Test cancel order fails when broker executor is unavailable."""
     client = build_client(overrides={deps.get_alpaca_executor: lambda: None})
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "cancel with broker unavailable",
             "requested_by": "user-1",
@@ -1054,7 +1054,7 @@ def test_cancel_order_broker_timeout():
         }
     )
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "testing broker timeout handling",
             "requested_by": "user-1",
@@ -1093,7 +1093,7 @@ def test_cancel_order_broker_error():
         }
     )
     response = client.post(
-        "/orders/ord-1/cancel",
+        "/manual/orders/ord-1/cancel",
         json={
             "reason": "testing broker error handling",
             "requested_by": "user-1",

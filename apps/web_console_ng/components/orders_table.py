@@ -377,7 +377,7 @@ async def update_orders_table(
 
     if previous_order_ids is None:
         # Fire-and-forget to avoid UI timeouts when the browser is busy.
-        grid.run_grid_method("setRowData", valid_orders, timeout=5)
+        grid.run_grid_method("setGridOption", "rowData", valid_orders, timeout=5)
         return current_ids
 
     added_orders = [o for o in valid_orders if o["client_order_id"] not in previous_order_ids]
@@ -494,7 +494,7 @@ async def update_hierarchical_orders_table(
         return current_ids, current_parent_ids
 
     if previous_order_ids is None:
-        grid.run_grid_method("setRowData", hierarchy_rows, timeout=5)
+        grid.run_grid_method("setGridOption", "rowData", hierarchy_rows, timeout=5)
         return current_ids, current_parent_ids
 
     added_orders = [o for o in hierarchy_rows if o["client_order_id"] not in previous_order_ids]

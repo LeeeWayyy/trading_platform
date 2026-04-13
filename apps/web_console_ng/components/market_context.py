@@ -132,47 +132,57 @@ class MarketContextComponent:
 
     def create(self) -> ui.card:
         """Create the market context UI card."""
-        with ui.card().classes("p-3 w-full") as card:
+        with ui.card().classes(
+            "workspace-v2-panel workspace-v2-market-context-card p-2 w-full h-full overflow-hidden"
+        ) as card:
             # Symbol header with staleness badge
-            with ui.row().classes("justify-between items-center mb-2 w-full"):
-                self._symbol_label = ui.label("--").classes("text-lg font-bold")
+            with ui.row().classes("w-full items-center justify-between mb-1"):
+                self._symbol_label = ui.label("--").classes(
+                    "workspace-v2-data-mono workspace-v2-market-symbol"
+                )
                 self._staleness_badge = ui.badge("No data").classes(
-                    "text-xs bg-gray-500 text-white"
+                    "workspace-v2-pill workspace-v2-pill-muted workspace-v2-market-badge"
                 )
 
             # Bid/Ask grid
-            with ui.grid(columns=2).classes("gap-2 w-full"):
+            with ui.grid(columns=2).classes("w-full gap-1"):
                 # Bid column
                 with ui.column().classes("items-start"):
-                    ui.label("BID").classes("text-xs text-gray-500")
+                    ui.label("BID").classes("workspace-v2-field-label")
                     self._bid_price_label = ui.label("--").classes(
-                        "text-xl font-mono text-green-500"
+                        "workspace-v2-data-mono workspace-v2-market-price workspace-v2-market-price-bid"
                     )
-                    self._bid_size_label = ui.label("").classes("text-xs text-gray-400")
+                    self._bid_size_label = ui.label("").classes("workspace-v2-kv workspace-v2-data-mono")
 
                 # Ask column
                 with ui.column().classes("items-end"):
-                    ui.label("ASK").classes("text-xs text-gray-500")
-                    self._ask_price_label = ui.label("--").classes("text-xl font-mono text-red-500")
-                    self._ask_size_label = ui.label("").classes("text-xs text-gray-400")
+                    ui.label("ASK").classes("workspace-v2-field-label")
+                    self._ask_price_label = ui.label("--").classes(
+                        "workspace-v2-data-mono workspace-v2-market-price workspace-v2-market-price-ask"
+                    )
+                    self._ask_size_label = ui.label("").classes("workspace-v2-kv workspace-v2-data-mono")
 
             # Spread row
-            with ui.row().classes("justify-center mt-2"):
-                ui.label("Spread:").classes("text-xs text-gray-500")
-                self._spread_label = ui.label("--").classes("text-xs font-mono ml-1")
+            with ui.row().classes("w-full items-center justify-between mt-1"):
+                ui.label("Spread").classes("workspace-v2-field-label")
+                self._spread_label = ui.label("--").classes("workspace-v2-kv workspace-v2-data-mono")
 
             # Last price & change
-            ui.separator().classes("my-2")
-            with ui.row().classes("justify-between items-center w-full"):
+            ui.separator().classes("my-1")
+            with ui.row().classes("w-full items-center justify-between"):
                 with ui.column().classes("items-start"):
-                    ui.label("Last").classes("text-xs text-gray-500")
-                    self._last_price_label = ui.label("--").classes("text-lg font-mono")
-                self._change_badge = ui.badge("N/A").classes("text-sm bg-gray-500 text-white")
+                    ui.label("Last").classes("workspace-v2-field-label")
+                    self._last_price_label = ui.label("--").classes(
+                        "workspace-v2-data-mono workspace-v2-market-price workspace-v2-market-price-last"
+                    )
+                self._change_badge = ui.badge("N/A").classes(
+                    "workspace-v2-pill workspace-v2-pill-muted workspace-v2-market-badge"
+                )
 
             # Volume
-            with ui.row().classes("justify-start mt-2"):
-                ui.label("Vol:").classes("text-xs text-gray-500")
-                self._volume_label = ui.label("--").classes("text-xs font-mono ml-1")
+            with ui.row().classes("w-full items-center justify-between mt-1"):
+                ui.label("Volume").classes("workspace-v2-field-label")
+                self._volume_label = ui.label("--").classes("workspace-v2-kv workspace-v2-data-mono")
 
         return card
 
@@ -393,15 +403,12 @@ class MarketContextComponent:
                 sign = "+" if data.change_pct >= 0 else ""
                 self._change_badge.set_text(f"{sign}{data.change_pct:.2f}%")
                 if data.change_pct >= 0:
-                    self._change_badge.classes(remove="bg-red-500 bg-gray-500")
-                    self._change_badge.classes(add="bg-green-500 text-white")
+                    self._set_badge_tone(self._change_badge, tone="positive")
                 else:
-                    self._change_badge.classes(remove="bg-green-500 bg-gray-500")
-                    self._change_badge.classes(add="bg-red-500 text-white")
+                    self._set_badge_tone(self._change_badge, tone="negative")
             else:
                 self._change_badge.set_text("N/A")
-                self._change_badge.classes(remove="bg-green-500 bg-red-500")
-                self._change_badge.classes(add="bg-gray-500 text-white")
+                self._set_badge_tone(self._change_badge, tone="muted")
 
         # Volume
         if self._volume_label:
@@ -431,14 +438,12 @@ class MarketContextComponent:
             self._last_price_label.set_text("--")
         if self._change_badge:
             self._change_badge.set_text("N/A")
-            self._change_badge.classes(remove="bg-green-500 bg-red-500")
-            self._change_badge.classes(add="bg-gray-500 text-white")
+            self._set_badge_tone(self._change_badge, tone="muted")
         if self._volume_label:
             self._volume_label.set_text("--")
         if self._staleness_badge:
             self._staleness_badge.set_text("No data")
-            self._staleness_badge.classes(remove="bg-green-500 bg-yellow-500 bg-red-500")
-            self._staleness_badge.classes(add="bg-gray-500 text-white")
+            self._set_badge_tone(self._staleness_badge, tone="muted")
 
     # ================= Staleness =================
 
@@ -467,24 +472,40 @@ class MarketContextComponent:
 
         if not timestamp:
             self._staleness_badge.set_text("No data")
-            self._staleness_badge.classes(remove="bg-green-500 bg-yellow-500 bg-red-500")
-            self._staleness_badge.classes(add="bg-gray-500 text-white")
+            self._set_badge_tone(self._staleness_badge, tone="muted")
             return
 
         age_s = (datetime.now(UTC) - timestamp).total_seconds()
 
         if age_s < 5:
             self._staleness_badge.set_text("Live")
-            self._staleness_badge.classes(remove="bg-yellow-500 bg-red-500 bg-gray-500")
-            self._staleness_badge.classes(add="bg-green-500 text-white")
+            self._set_badge_tone(self._staleness_badge, tone="positive")
         elif age_s < STALE_THRESHOLD_S:
             self._staleness_badge.set_text(f"{int(age_s)}s ago")
-            self._staleness_badge.classes(remove="bg-green-500 bg-red-500 bg-gray-500")
-            self._staleness_badge.classes(add="bg-yellow-500 text-black")
+            self._set_badge_tone(self._staleness_badge, tone="warning")
         else:
             self._staleness_badge.set_text(f"Stale ({int(age_s)}s)")
-            self._staleness_badge.classes(remove="bg-green-500 bg-yellow-500 bg-gray-500")
-            self._staleness_badge.classes(add="bg-red-500 text-white")
+            self._set_badge_tone(self._staleness_badge, tone="negative")
+
+    def _set_badge_tone(self, badge: ui.badge | None, *, tone: str) -> None:
+        """Apply workspace pill tone to a badge."""
+        if badge is None:
+            return
+        badge.classes(
+            remove=(
+                "workspace-v2-pill-positive workspace-v2-pill-warning "
+                "workspace-v2-pill-negative workspace-v2-pill-muted "
+                "bg-green-500 bg-yellow-500 bg-red-500 bg-gray-500 text-black text-white"
+            )
+        )
+        if tone == "positive":
+            badge.classes(add="workspace-v2-pill-positive")
+        elif tone == "negative":
+            badge.classes(add="workspace-v2-pill-negative")
+        elif tone == "warning":
+            badge.classes(add="workspace-v2-pill-warning")
+        else:
+            badge.classes(add="workspace-v2-pill-muted")
 
     def is_data_stale(self) -> bool:
         """Check if current data is stale (>30s old)."""

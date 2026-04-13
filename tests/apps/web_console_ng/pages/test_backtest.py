@@ -24,6 +24,7 @@ from typing import Any
 
 import polars as pl
 import pytest
+from psycopg import errors as pg_errors
 
 from apps.web_console_ng.pages import backtest as backtest_module
 
@@ -357,6 +358,9 @@ def test_get_user_jobs_sync_parses_progress() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
 
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
         def __enter__(self) -> FakeCursor:
             return self
 
@@ -416,8 +420,14 @@ def test_get_user_jobs_sync_parses_progress() -> None:
             ]
 
     class FakeConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
         def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
             return FakeCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
 
         def __enter__(self) -> FakeConn:
             return self
@@ -426,8 +436,11 @@ def test_get_user_jobs_sync_parses_progress() -> None:
             return False
 
     class FakePool:
+        def __init__(self) -> None:
+            self.conn = FakeConn()
+
         def connection(self) -> FakeConn:
-            return FakeConn()
+            return self.conn
 
     class FakeRedis:
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
@@ -482,6 +495,9 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
 
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
         def __enter__(self) -> FakeCursor:
             return self
 
@@ -490,6 +506,169 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
 
         def fetchall(self) -> list[dict[str, Any]]:
             return []
+
+    class FakeConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
+        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
+            return FakeCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
+
+        def __enter__(self) -> FakeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.conn = FakeConn()
+
+        def connection(self) -> FakeConn:
+            return self.conn
+
+    class FakeRedis:
+        pass
+
+    jobs = backtest_module._get_user_jobs_sync(
+        created_by="u1",
+        status=["running"],
+        db_pool=FakePool(),  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+
+    assert jobs == []
+
+
+def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test legacy schema fallback when backtest_jobs lacks cost_summary column."""
+
+    class ProbeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
+        def __enter__(self) -> ProbeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryCursor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def execute(self, *_: Any, **__: Any) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                raise pg_errors.UndefinedColumn("column \"cost_summary\" does not exist")
+
+        def __enter__(self) -> QueryCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def fetchall(self) -> list[dict[str, Any]]:
+            return [
+                {
+                    "job_id": "legacy-1",
+                    "alpha_name": "alpha_legacy",
+                    "start_date": date(2025, 1, 1),
+                    "end_date": date(2025, 2, 1),
+                    "status": "completed",
+                    "created_at": datetime(2025, 1, 1, 12, 0, 0),
+                    "error_message": None,
+                    "mean_ic": None,
+                    "icir": None,
+                    "hit_rate": None,
+                    "coverage": None,
+                    "average_turnover": None,
+                    "result_path": "/tmp/result.parquet",
+                    "cost_summary": None,
+                    "provider": "crsp",
+                }
+            ]
+
+    class ProbeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> ProbeCursor:
+            return ProbeCursor()
+
+        def __enter__(self) -> ProbeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+            self.cursor_instance = QueryCursor()
+
+        def cursor(self, *args: Any, **kwargs: Any) -> QueryCursor:
+            return self.cursor_instance
+
+        def rollback(self) -> None:
+            self.rollback_called = True
+
+        def __enter__(self) -> QueryConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.query_conn = QueryConn()
+
+        def connection(self) -> ProbeConn | QueryConn:
+            self.calls += 1
+            if self.calls == 1:
+                return ProbeConn()
+            return self.query_conn
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            return [None]
+
+    monkeypatch.setattr(backtest_module, "_BACKTEST_COST_SUMMARY_COLUMN_PRESENT", None)
+
+    pool = FakePool()
+    jobs = backtest_module._get_user_jobs_sync(
+        created_by="u1",
+        status=["completed"],
+        db_pool=pool,  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0]["job_id"] == "legacy-1"
+    assert jobs[0]["cost_summary"] is None
+    assert jobs[0]["provider"] == "crsp"
+    assert jobs[0]["progress_pct"] == 0.0
+    assert pool.query_conn.rollback_called is True
+
+
+def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:
+    """Non-schema probe failures should bubble up as connectivity/runtime errors."""
+
+    class FakeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise RuntimeError("db unavailable")
+
+        def __enter__(self) -> FakeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
 
     class FakeConn:
         def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
@@ -506,16 +685,81 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
             return FakeConn()
 
     class FakeRedis:
-        pass
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            raise AssertionError("Redis should not be touched when probe fails")
 
-    jobs = backtest_module._get_user_jobs_sync(
-        created_by="u1",
-        status=["running"],
-        db_pool=FakePool(),  # type: ignore[arg-type]
-        redis_client=FakeRedis(),  # type: ignore[arg-type]
-    )
+    previous_cache = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
+    try:
+        with pytest.raises(RuntimeError, match="db unavailable"):
+            backtest_module._get_user_jobs_sync(
+                created_by="u1",
+                status=["completed"],
+                db_pool=FakePool(),  # type: ignore[arg-type]
+                redis_client=FakeRedis(),  # type: ignore[arg-type]
+            )
+    finally:
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
+
+
+def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
+    """Missing backtest_jobs table should fail closed with empty result set."""
+
+    class FakeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise pg_errors.UndefinedTable("relation \"backtest_jobs\" does not exist")
+
+        def __enter__(self) -> FakeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakeConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
+        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
+            return FakeCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
+
+        def __enter__(self) -> FakeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.conn = FakeConn()
+
+        def connection(self) -> FakeConn:
+            return self.conn
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            raise AssertionError("Redis should not be queried when table is missing")
+
+    previous_cache = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    previous_missing_warning = backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = True
+    backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
+    pool = FakePool()
+    try:
+        jobs = backtest_module._get_user_jobs_sync(
+            created_by="u1",
+            status=["completed"],
+            db_pool=pool,  # type: ignore[arg-type]
+            redis_client=FakeRedis(),  # type: ignore[arg-type]
+        )
+    finally:
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
+        backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED = previous_missing_warning
 
     assert jobs == []
+    assert pool.conn.rollback_called is True
 
 
 def test_verify_job_ownership_returns_true_for_owner() -> None:
@@ -1378,6 +1622,9 @@ def test_get_user_jobs_sync_progress_parse_error() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
 
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
         def __enter__(self) -> FakeCursor:
             return self
 
@@ -1440,6 +1687,9 @@ def test_get_user_jobs_sync_progress_none() -> None:
     class FakeCursor:
         def execute(self, *_: Any, **__: Any) -> None:
             pass
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
 
         def __enter__(self) -> FakeCursor:
             return self

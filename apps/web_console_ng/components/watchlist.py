@@ -198,7 +198,7 @@ class WatchlistComponent:
             )
             .props(f'id="{row_id}" data-symbol="{escaped_symbol}"') as row
         ):
-            row.on("click", lambda s=item.symbol: self._select_symbol(s))
+            row.on("click", lambda _, s=item.symbol: self._select_symbol(s))
 
             # Symbol and price column
             with ui.column().classes("flex-grow"):
@@ -225,7 +225,7 @@ class WatchlistComponent:
             # Remove button
             ui.button(
                 icon="close",
-                on_click=lambda s=item.symbol: self._on_remove_clicked(s),
+                on_click=lambda _, s=item.symbol: self._remove_symbol(s),
             ).classes("w-6 h-6 opacity-50 hover:opacity-100").props("flat dense")
 
     def _render_sparkline(self, data: Sequence[float], change_pct: Decimal | None) -> None:
@@ -314,12 +314,6 @@ class WatchlistComponent:
         # Re-render
         self._render_items()
         ui.notify(f"Added {symbol}", type="positive")
-
-    def _on_remove_clicked(self, symbol: str) -> None:
-        """Handle remove button click (schedules async removal)."""
-        if self._disposed:
-            return
-        asyncio.create_task(self._remove_symbol(symbol))
 
     async def _remove_symbol(self, symbol: str) -> None:
         """Remove symbol from watchlist."""

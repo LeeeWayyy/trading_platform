@@ -158,11 +158,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_items = [
                     ("Dashboard", "/", "dashboard", None),
                     ("Manual Controls", "/manual-order", "edit", None),
+                    ("Position Mgmt", "/position-management", "swap_vert", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
                     ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
                     ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
+                    ("Attribution", "/attribution", "pie_chart", None),  # P6T16
                     ("Universes", "/research/universes", "category", None),  # P6T15
                     ("Alpha Explorer", "/alpha-explorer", "insights", None),  # P5T8
                     ("Compare", "/compare", "compare_arrows", None),  # P5T8
@@ -170,6 +172,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Notebooks", "/notebooks", "article", None),  # P5T8
                     ("Performance", "/performance", "show_chart", None),  # P5T8
                     ("Reports", "/reports", "summarize", None),  # P5T8
+                    ("Data Hub", "/data", "storage", None),  # P6T13
+                    ("Coverage", "/data/coverage", "dataset", None),  # P6T13
+                    ("Sources", "/data/sources", "cloud", None),  # P6T13
+                    ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
+                    ("Features", "/data/features", "auto_awesome", None),  # P6T13
+                    ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
                     ("Backtest", "/backtest", "science", None),
                     ("Strategies", "/strategies", "model_training", None),  # P6T17
                     ("Models", "/models", "hub", None),  # P6T17
@@ -184,7 +192,48 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ),  # Visibility controlled by permission check
                 ]
 
-                for label, path, icon, _required_role in nav_items:
+                nav_groups: list[tuple[str, list[str]]] = [
+                    ("Execute", ["/", "/manual-order", "/position-management", "/circuit-breaker"]),
+                    ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
+                    (
+                        "Analysis",
+                        [
+                            "/risk",
+                            "/risk/exposure",
+                            "/execution-quality",
+                            "/attribution",
+                            "/tax-lots",
+                        ],
+                    ),
+                    (
+                        "Research",
+                        [
+                            "/research/universes",
+                            "/alpha-explorer",
+                            "/compare",
+                            "/notebooks",
+                            "/backtest",
+                            "/strategies",
+                            "/models",
+                        ],
+                    ),
+                    (
+                        "Data",
+                        [
+                            "/data",
+                            "/data/coverage",
+                            "/data/sources",
+                            "/data/inspector",
+                            "/data/features",
+                            "/data/sql-explorer",
+                        ],
+                    ),
+                    ("Governance", ["/admin"]),
+                ]
+
+                nav_lookup = {path: (label, path, icon, role) for label, path, icon, role in nav_items}
+
+                def is_nav_item_visible(path: str) -> bool:
                     # Admin link requires MANAGE_API_KEYS or MANAGE_SYSTEM_CONFIG or VIEW_AUDIT
                     if path == "/admin" and not any(
                         has_permission(user, p)
@@ -194,45 +243,116 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             Permission.VIEW_AUDIT,
                         )
                     ):
-                        continue
+                        return False
 
                     # Tax Lots link requires VIEW_TAX_LOTS
                     if path == "/tax-lots" and not has_permission(
                         user, Permission.VIEW_TAX_LOTS
                     ):
-                        continue
+                        return False
 
                     # Exposure link requires VIEW_STRATEGY_EXPOSURE
                     if path == "/risk/exposure" and not has_permission(
                         user, Permission.VIEW_STRATEGY_EXPOSURE
                     ):
-                        continue
+                        return False
+
+                    # Execution quality requires feature flag.
+                    if path == "/execution-quality" and not config.FEATURE_TCA_DASHBOARD:
+                        return False
+
+                    # Attribution link requires VIEW_PNL
+                    if path == "/attribution" and not has_permission(user, Permission.VIEW_PNL):
+                        return False
 
                     # Universes link requires VIEW_UNIVERSES
                     if path == "/research/universes" and not has_permission(
                         user, Permission.VIEW_UNIVERSES
                     ):
-                        continue
+                        return False
+
+                    # Data pages require explicit data-access permissions.
+                    if path in {"/data", "/data/sources", "/data/coverage"} and not has_permission(
+                        user, Permission.VIEW_DATA_SYNC
+                    ):
+                        return False
+
+                    if path == "/data/inspector" and not has_permission(
+                        user, Permission.VIEW_DATA_QUALITY
+                    ):
+                        return False
+
+                    if path == "/data/features" and not has_permission(
+                        user, Permission.VIEW_FEATURES
+                    ):
+                        return False
+
+                    if path == "/data/sql-explorer" and not has_permission(
+                        user, Permission.QUERY_DATA
+                    ):
+                        return False
 
                     # Strategies link requires feature flag + MANAGE_STRATEGIES
                     if path == "/strategies" and (
                         not config.FEATURE_STRATEGY_MANAGEMENT
                         or not has_permission(user, Permission.MANAGE_STRATEGIES)
                     ):
-                        continue
+                        return False
 
                     # Models link requires feature flag + VIEW_MODELS
                     if path == "/models" and (
                         not config.FEATURE_MODEL_REGISTRY
                         or not has_permission(user, Permission.VIEW_MODELS)
                     ):
-                        continue
+                        return False
 
                     # Alerts link requires feature flag + VIEW_ALERTS
                     if path == "/alerts" and (
                         not config.FEATURE_ALERTS
                         or not has_permission(user, Permission.VIEW_ALERTS)
                     ):
+                        return False
+
+                    # Position management is unavailable for viewer role.
+                    if path == "/position-management" and user_role == "viewer":
+                        return False
+
+                    return True
+
+                rendered_paths: set[str] = set()
+
+                for section_label, section_paths in nav_groups:
+                    section_items = [
+                        nav_lookup[path]
+                        for path in section_paths
+                        if path in nav_lookup and is_nav_item_visible(path)
+                    ]
+                    if not section_items:
+                        continue
+
+                    ui.label(section_label).classes(
+                        "text-[10px] text-gray-500 uppercase tracking-wide mt-2 mb-1"
+                    )
+
+                    for label, path, icon, _required_role in section_items:
+                        rendered_paths.add(path)
+                        is_active = current_path == path
+                        active_classes = (
+                            "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
+                        )
+
+                        with ui.link(target=path).classes(
+                            f"nav-link w-full rounded {active_classes}"
+                        ):
+                            with ui.row().classes("items-center gap-3 p-2"):
+                                ui.icon(icon).classes(
+                                    "text-blue-600" if is_active else "text-gray-600"
+                                )
+                                ui.label(label).classes("text-sm")
+
+                # Fallback rendering for any future nav item not mapped to a section.
+                for label, path, icon, _required_role in nav_items:
+                    if path in rendered_paths or not is_nav_item_visible(path):
                         continue
 
                     is_active = current_path == path
@@ -293,13 +413,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
             ui.space()
 
+            log_drawer = LogDrawer(notification_router)
+
             with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
                 kill_switch_button = (
                     ui.button(
                         "KILL SWITCH: UNKNOWN",
                     )
                     .classes(
-                        "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black shrink-0"
+                        "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 shrink-0"
                     )
                     .props("id=kill-switch-badge unelevated")
                 )
@@ -309,7 +431,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         icon="power_settings_new",
                         on_click=lambda: open_kill_switch_dialog("ENGAGE"),
                     )
-                    .classes("h-8 px-2 py-1 rounded text-xs bg-red-600 text-white shrink-0")
+                    .classes("h-8 px-2 py-1 rounded text-xs bg-slate-700 text-slate-100 shrink-0")
                     .props("id=kill-switch-engage")
                 )
                 disengage_button = (
@@ -318,13 +440,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         icon="power_off",
                         on_click=lambda: open_kill_switch_dialog("DISENGAGE"),
                     )
-                    .classes("h-8 px-2 py-1 rounded text-xs bg-green-600 text-white shrink-0")
+                    .classes("h-8 px-2 py-1 rounded text-xs bg-slate-700 text-slate-100 shrink-0")
                     .props("id=kill-switch-disengage")
                 )
                 circuit_breaker_badge = (
                     ui.label("Circuit: Unknown")
                     .classes(
-                        "h-8 px-3 py-1 rounded text-sm font-medium bg-yellow-500 text-black flex items-center shrink-0"
+                        "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 flex items-center shrink-0"
                     )
                     .props("id=circuit-breaker-badge")
                 )
@@ -337,8 +459,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     .props("id=connection-badge")
                 )
 
-                log_drawer = LogDrawer(notification_router)
-                log_drawer.create()
+                log_drawer.create_toggle_button()
 
                 with ui.row().classes("items-center gap-2"):
                     ui.label(user_name).classes("text-sm")
@@ -392,6 +513,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
 
         # Main content area
+        # Top-level layout elements (e.g. drawers) must be outside header/rows.
+        log_drawer.create_drawer()
+
         with ui.column().classes("w-full p-2 bg-surface-0 min-h-screen text-text-primary"):
             await page_func(*args, **kwargs)
 
@@ -593,50 +717,50 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if state == "ENGAGED":
                         kill_switch_button.set_text("KILL SWITCH: ENGAGED")
                         kill_switch_button.classes(
-                            "bg-red-500 text-white",
-                            remove="bg-green-500 bg-yellow-500 text-black",
+                            "bg-red-700 text-rose-100",
+                            remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                         )
                         if last_kill_switch_state != "ENGAGED":
                             ui.notify("Kill switch engaged", type="negative")
                     elif state == "DISENGAGED":
-                        # Only show "TRADING ACTIVE" for explicit DISENGAGED state
+                        # Keep muted visual weight when disarmed (do not compete with chart/ticket).
                         kill_switch_button.set_text("KILL SWITCH: DISENGAGED")
                         kill_switch_button.classes(
-                            "bg-green-500 text-white",
-                            remove="bg-red-500 bg-yellow-500 text-black",
+                            "bg-slate-700 text-slate-100",
+                            remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                         )
                     else:
                         # Unknown/invalid state - show warning
                         kill_switch_button.set_text(f"KILL SWITCH: {state}")
                         kill_switch_button.classes(
-                            "bg-yellow-500 text-black",
-                            remove="bg-red-500 bg-green-500 text-white",
+                            "bg-amber-500 text-black",
+                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
                     status_bar.update_state(state)
 
                     if cb_state == "TRIPPED":
                         circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
                         circuit_breaker_badge.classes(
-                            "bg-red-500 text-white",
-                            remove="bg-green-500 bg-yellow-500 text-black",
+                            "bg-red-700 text-rose-100",
+                            remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                         )
                     elif cb_state == "OPEN":
                         circuit_breaker_badge.set_text("CIRCUIT OK")
                         circuit_breaker_badge.classes(
-                            "bg-green-500 text-white",
-                            remove="bg-red-500 bg-yellow-500 text-black",
+                            "bg-slate-700 text-slate-100",
+                            remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                         )
                     elif cb_state == "QUIET_PERIOD":
                         circuit_breaker_badge.set_text("CIRCUIT QUIET PERIOD")
                         circuit_breaker_badge.classes(
-                            "bg-yellow-500 text-black",
-                            remove="bg-red-500 bg-green-500 text-white",
+                            "bg-amber-500 text-black",
+                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
                     else:
                         circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
                         circuit_breaker_badge.classes(
-                            "bg-yellow-500 text-black",
-                            remove="bg-red-500 bg-green-500 text-white",
+                            "bg-amber-500 text-black",
+                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
 
                     last_kill_switch_state = state
@@ -655,15 +779,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     kill_switch_state = "UNKNOWN"
                     kill_switch_button.set_text("STATUS UNKNOWN")
                     kill_switch_button.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500",
+                        "bg-amber-500 text-black",
+                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                     )
                     status_bar.update_state("UNKNOWN")
                     set_kill_switch_controls("UNKNOWN")
                     circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
                     circuit_breaker_badge.classes(
-                        "bg-yellow-500 text-black",
-                        remove="bg-red-500 bg-green-500 text-white",
+                        "bg-amber-500 text-black",
+                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                     )
 
                 if status_success:

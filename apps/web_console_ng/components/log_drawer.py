@@ -47,8 +47,11 @@ class LogDrawer:
             on_badge_update=self._on_badge_update,
         )
 
-    def create(self) -> tuple[ui.button, ui.right_drawer]:
-        """Create and return the drawer toggle button and drawer."""
+    def create_toggle_button(self) -> ui.button:
+        """Create and return the drawer toggle button."""
+        if self._toggle_button is not None:
+            return self._toggle_button
+
         with ui.button(icon="notifications", on_click=self._toggle_drawer).props(
             "flat color=white"
         ) as btn:
@@ -56,6 +59,12 @@ class LogDrawer:
             self._badge = ui.badge("0").props("floating color=red").classes("text-xs")
             self._badge.set_visibility(False)
         self._toggle_button.tooltip("Notification Log")
+        return self._toggle_button
+
+    def create_drawer(self) -> ui.right_drawer:
+        """Create and return the right drawer container."""
+        if self._drawer is not None:
+            return self._drawer
 
         self._drawer = ui.right_drawer(value=False).classes("bg-surface-1 w-80")
         with self._drawer:
@@ -77,7 +86,14 @@ class LogDrawer:
                     for notif in self._router.get_history():
                         self._render_notification(notif)
 
-        return self._toggle_button, self._drawer
+        return self._drawer
+
+    def create(self) -> tuple[ui.button, ui.right_drawer]:
+        """Create and return the drawer toggle button and drawer."""
+        button = self.create_toggle_button()
+        drawer = self.create_drawer()
+        return button, drawer
+
 
     def _toggle_drawer(self) -> None:
         """Toggle drawer visibility and mark read on open."""

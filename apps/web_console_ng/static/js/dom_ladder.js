@@ -1,6 +1,8 @@
 // DOM ladder rendering helpers
 
 (function() {
+    const sizeFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
     function formatPrice(value) {
         const num = Number(value);
         if (!Number.isFinite(num)) return '--';
@@ -10,7 +12,7 @@
     function formatSize(value) {
         const num = Number(value);
         if (!Number.isFinite(num)) return '--';
-        return num.toFixed(0);
+        return sizeFormatter.format(num);
     }
 
     function ensureContainer(containerId) {
@@ -36,6 +38,13 @@
     function buildRow(level, side, symbol) {
         const row = document.createElement('div');
         row.className = `dom-ladder-row dom-ladder-${side}`;
+        const ratio = Math.max(0, Math.min(1, Number(level.ratio || 0)));
+        row.style.setProperty('--liquidity-alpha', String(ratio));
+        if (ratio >= 0.72) {
+            row.classList.add('dom-ladder-deep');
+        } else if (ratio <= 0.2) {
+            row.classList.add('dom-ladder-thin');
+        }
         if (level.is_large) {
             row.classList.add('dom-ladder-large');
         }
@@ -47,14 +56,19 @@
         const priceCell = document.createElement('button');
         priceCell.className = 'dom-ladder-price';
         priceCell.textContent = formatPrice(level.price);
+        priceCell.setAttribute('type', 'button');
+        priceCell.setAttribute('aria-label', `${side} ${formatPrice(level.price)}`);
         priceCell.onclick = function() {
             const actionSide = side === 'bid' ? 'sell' : 'buy';
+            row.classList.remove('dom-ladder-clicked');
+            // Force reflow so repeated clicks still retrigger the pulse animation.
+            void row.offsetWidth;
+            row.classList.add('dom-ladder-clicked');
             dispatchPriceClick(symbol, actionSide, level.price);
         };
 
         const bar = document.createElement('div');
         bar.className = 'dom-ladder-bar';
-        const ratio = Math.max(0, Math.min(1, Number(level.ratio || 0)));
         bar.style.width = `${ratio * 100}%`;
 
         if (side === 'bid') {
