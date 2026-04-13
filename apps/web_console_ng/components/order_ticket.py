@@ -661,8 +661,9 @@ class OrderTicketComponent:
             self._timer_tracker(self._dom_settle_timer)
 
     def _finish_dom_settle(self) -> None:
-        """Re-enable action buttons using latest safety gate decision."""
-        enabled = not self._is_trade_action_locked()
+        """Re-evaluate action button availability after DOM settle debounce."""
+        disabled, _reason = self._should_disable_submission()
+        enabled = not disabled
         for button in (self._buy_action_button, self._sell_action_button):
             if button is not None:
                 button.set_enabled(enabled)
@@ -797,6 +798,21 @@ class OrderTicketComponent:
         self._price_last_updated = None
         self._current_position = 0
         self._position_last_updated = None
+        # Fail-closed symbol handoff: clear prior strategy/model state so
+        # submissions cannot inherit authorization from the previous symbol.
+        should_fail_closed_gate = (
+            self._execution_gate_enabled
+            or self._strategy_status != "unknown"
+            or self._model_status != "unknown"
+        )
+        self._execution_gate_enabled = should_fail_closed_gate
+        self._strategy_status = "unknown"
+        self._model_status = "unknown"
+        self._execution_gate_reason = (
+            "Refreshing strategy/model execution context for selected symbol"
+            if should_fail_closed_gate
+            else None
+        )
         # DO NOT reset _limits_loaded/_limits_last_updated - limits are global
 
         if self._symbol_input and self._symbol_input.value != symbol:

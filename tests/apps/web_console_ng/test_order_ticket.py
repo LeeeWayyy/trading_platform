@@ -842,6 +842,27 @@ class TestOrderTicketStateCallbacks:
         assert component._last_price is None
         assert component._current_position == 0
 
+    @pytest.mark.asyncio()
+    async def test_on_symbol_changed_resets_execution_context_to_fail_closed(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component.set_strategy_model_context(
+            strategy_status="active",
+            model_status="active",
+            gate_enabled=True,
+            gate_reason=None,
+        )
+
+        await component.on_symbol_changed("NVDA")
+
+        assert component._state.symbol == "NVDA"
+        assert component._execution_gate_enabled is True
+        assert component._strategy_status == "unknown"
+        assert component._model_status == "unknown"
+        assert component._execution_gate_reason == (
+            "Refreshing strategy/model execution context for selected symbol"
+        )
+
 
 class TestOrderTicketExposureLimits:
     """Tests for total exposure limit enforcement."""
@@ -1012,11 +1033,12 @@ class TestOrderTicketDomSettle:
         comp._connection_read_only = False
         comp._kill_switch_engaged = False
         comp._circuit_breaker_tripped = False
+        comp._safety_state_loaded = True
         comp._buy_action_button = MagicMock()
         comp._sell_action_button = MagicMock()
         return comp
 
-    def test_finish_dom_settle_reenables_actions_even_if_form_incomplete(
+    def test_finish_dom_settle_keeps_actions_disabled_when_form_incomplete(
         self, component: OrderTicketComponent
     ) -> None:
         component._state.symbol = "AAPL"
@@ -1024,8 +1046,8 @@ class TestOrderTicketDomSettle:
 
         component._finish_dom_settle()
 
-        component._buy_action_button.set_enabled.assert_called_with(True)
-        component._sell_action_button.set_enabled.assert_called_with(True)
+        component._buy_action_button.set_enabled.assert_called_with(False)
+        component._sell_action_button.set_enabled.assert_called_with(False)
 
     def test_finish_dom_settle_keeps_actions_disabled_when_connection_locked(
         self, component: OrderTicketComponent
