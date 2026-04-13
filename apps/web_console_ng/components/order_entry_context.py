@@ -172,7 +172,7 @@ class OrderEntryContext:
         # Cached prices for one-click trading (symbol -> (price, timestamp))
         self._cached_prices: dict[str, tuple[Decimal, datetime]] = {}
         # Optional symbol-level quantity rules from market-data metadata
-        self._symbol_quantity_rules: dict[str, tuple[int, int, str]] = {}
+        self._symbol_quantity_rules: dict[str, tuple[int, int, str, int]] = {}
 
         # Current selected symbol (shared state)
         self._selected_symbol: str | None = None
@@ -1083,7 +1083,9 @@ class OrderEntryContext:
             return None
         return parsed if parsed > 0 else None
 
-    def _extract_symbol_quantity_rules(self, data: dict[str, Any]) -> tuple[int, int, str] | None:
+    def _extract_symbol_quantity_rules(
+        self, data: dict[str, Any]
+    ) -> tuple[int, int, str, int] | None:
         """Extract optional symbol quantity rules from price payload."""
         step_candidates = (
             data.get("qty_step"),
@@ -1109,6 +1111,8 @@ class OrderEntryContext:
                 qty_step = parsed
                 break
 
+        lot_size = self._parse_positive_int(data.get("lot_size"))
+
         min_qty: int | None = None
         for candidate in min_candidates:
             parsed = self._parse_positive_int(candidate)
@@ -1131,7 +1135,15 @@ class OrderEntryContext:
         normalized_step = qty_step or 1
         normalized_min = max(normalized_step, min_qty or normalized_step)
         normalized_unit = qty_unit or "shares"
-        return (normalized_step, normalized_min, normalized_unit)
+        normalized_unit_size = 1
+        if normalized_unit == "lots":
+            if lot_size is not None and (
+                normalized_step < lot_size or normalized_min < lot_size
+            ):
+                normalized_unit_size = lot_size
+            elif lot_size is None and normalized_step <= 10 and normalized_min <= 10:
+                normalized_unit_size = 100
+        return (normalized_step, normalized_min, normalized_unit, normalized_unit_size)
 
     def _cache_symbol_quantity_rules(self, symbol: str, data: dict[str, Any]) -> None:
         """Cache symbol quantity rules if present in payload metadata."""
@@ -1146,11 +1158,12 @@ class OrderEntryContext:
         rules = self._symbol_quantity_rules.get(symbol)
         if rules is None:
             return
-        qty_step, min_qty, qty_unit = rules
+        qty_step, min_qty, qty_unit, qty_unit_size = rules
         self._order_ticket.set_quantity_rules(
             qty_step=qty_step,
             min_qty=min_qty,
             qty_unit=qty_unit,
+            qty_unit_size=qty_unit_size,
         )
 
     async def _on_price_update(self, data: dict[str, Any]) -> None:

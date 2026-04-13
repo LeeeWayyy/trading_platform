@@ -81,6 +81,7 @@ class OrderTicketComponent:
     DEFAULT_QTY_STEP = 1
     DEFAULT_MIN_QTY = 1
     DEFAULT_QTY_UNIT = "shares"
+    DEFAULT_LOT_SIZE = 100
     POSITION_DISPLAY_UNIT = "shares"
     IMPACT_WARNING_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_WARNING_RATIO))
     IMPACT_DANGER_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_DANGER_RATIO))
@@ -150,6 +151,7 @@ class OrderTicketComponent:
         self._qty_step: int = self.DEFAULT_QTY_STEP
         self._min_qty: int = self.DEFAULT_MIN_QTY
         self._qty_unit: str = self.DEFAULT_QTY_UNIT
+        self._qty_unit_size: int = 1
 
         # Safety state (FAIL-CLOSED defaults)
         self._kill_switch_engaged: bool = True  # Default: engaged (unsafe)
@@ -455,23 +457,32 @@ class OrderTicketComponent:
         qty_step: int | None,
         min_qty: int | None,
         qty_unit: str | None,
+        qty_unit_size: int | None = None,
     ) -> None:
         """Update quantity stepping/minimum rules for selected symbol."""
         next_qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
         raw_min = max(1, int(min_qty)) if min_qty is not None else self.DEFAULT_MIN_QTY
         next_min_qty = self._align_min_qty_to_step(raw_min, next_qty_step)
         next_qty_unit = self._normalize_qty_unit(qty_unit)
+        next_qty_unit_size = self._resolve_qty_unit_size(
+            qty_unit=next_qty_unit,
+            qty_step=next_qty_step,
+            min_qty=next_min_qty,
+            qty_unit_size=qty_unit_size,
+        )
 
         if (
             next_qty_step == self._qty_step
             and next_min_qty == self._min_qty
             and next_qty_unit == self._qty_unit
+            and next_qty_unit_size == self._qty_unit_size
         ):
             return
 
         self._qty_step = next_qty_step
         self._min_qty = next_min_qty
         self._qty_unit = next_qty_unit
+        self._qty_unit_size = next_qty_unit_size
         self._apply_quantity_rules_to_ui()
         self._refresh_quantity_preset_profile()
 
@@ -486,7 +497,7 @@ class OrderTicketComponent:
 
     def reset_quantity_rules(self) -> None:
         """Reset quantity rules to safe defaults."""
-        self.set_quantity_rules(qty_step=None, min_qty=None, qty_unit=None)
+        self.set_quantity_rules(qty_step=None, min_qty=None, qty_unit=None, qty_unit_size=None)
 
     def _on_close_preset_selected(self) -> None:
         """Prefill quantity/side to close open position (never auto-submit)."""
@@ -505,9 +516,21 @@ class OrderTicketComponent:
 
         close_side = "sell" if current_position > 0 else "buy"
         raw_close_qty = abs(current_position)
+        qty_unit_size = max(1, self._qty_unit_size)
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
         close_qty = raw_close_qty
+        if qty_unit_size > 1:
+            close_qty = raw_close_qty // qty_unit_size
+            if close_qty <= 0:
+                ui.notify(
+                    (
+                        "CLOSE prefill unavailable: position is smaller than one "
+                        f"{self._qty_unit} unit"
+                    ),
+                    type="warning",
+                )
+                return
         unit_label = self._qty_unit
 
         if close_qty <= 0:
@@ -518,6 +541,10 @@ class OrderTicketComponent:
             rule_notes.append(f"below symbol minimum {min_qty} {unit_label}")
         if close_qty % qty_step != 0:
             rule_notes.append(f"off-step for {qty_step} {unit_label} increments")
+        if qty_unit_size > 1:
+            residual = raw_close_qty - (close_qty * qty_unit_size)
+            if residual > 0:
+                rule_notes.append(f"leaves residual {residual} {self.POSITION_DISPLAY_UNIT}")
 
         if rule_notes:
             ui.notify(
@@ -834,6 +861,21 @@ class OrderTicketComponent:
             return candidate
         return self.DEFAULT_QTY_UNIT
 
+    def _resolve_qty_unit_size(
+        self,
+        *,
+        qty_unit: str,
+        qty_step: int,
+        min_qty: int,
+        qty_unit_size: int | None,
+    ) -> int:
+        """Resolve canonical-unit multiplier for entered quantity units."""
+        if qty_unit_size is not None:
+            return max(1, int(qty_unit_size))
+        if qty_unit == "lots" and qty_step <= 10 and min_qty <= 10:
+            return self.DEFAULT_LOT_SIZE
+        return 1
+
     def _normalize_quantity(self, qty: int) -> int:
         """Clamp quantity to configured min/step constraints."""
         if qty <= 0:
@@ -843,11 +885,21 @@ class OrderTicketComponent:
             return clamped
         return self._min_qty + ((clamped - self._min_qty) // self._qty_step) * self._qty_step
 
-    def _canonical_quantity(self, qty: int | None) -> int | None:
-        """Return quantity in canonical position units (shares/contracts)."""
+    def _raw_quantity(self, qty: int | None) -> int | None:
+        """Parse positive quantity in the currently displayed ticket unit."""
         if qty is None:
             return None
-        canonical = int(qty)
+        raw = int(qty)
+        if raw <= 0:
+            return None
+        return raw
+
+    def _canonical_quantity(self, qty: int | None) -> int | None:
+        """Return quantity in canonical position units (shares/contracts)."""
+        raw_quantity = self._raw_quantity(qty)
+        if raw_quantity is None:
+            return None
+        canonical = raw_quantity * max(1, self._qty_unit_size)
         if canonical <= 0:
             return None
         return canonical
@@ -1001,7 +1053,7 @@ class OrderTicketComponent:
                 max_position_per_symbol=max_position_per_symbol,
                 max_notional_per_order=self._max_notional_per_order,
                 side=self._state.side,
-                effective_price=self._state.limit_price or self._state.stop_price,
+                effective_price=effective_price,
                 qty_step=self._qty_step,
                 min_qty=self._min_qty,
             )
@@ -1142,21 +1194,24 @@ class OrderTicketComponent:
         if not self._state.symbol:
             return (True, "Select a symbol")
 
-        quantity = self._canonical_quantity(self._state.quantity)
-        if quantity is None:
+        raw_quantity = self._raw_quantity(self._state.quantity)
+        quantity = self._canonical_quantity(raw_quantity)
+        if raw_quantity is None or quantity is None:
             return (True, "Enter quantity")
 
         # Safety policy: permit strict risk-reducing exits even below lot min/step
         # so operators can flatten residual risk during stressed conditions.
         if not self._is_risk_reducing_order():
-            if quantity < self._min_qty:
-                return (True, f"Minimum quantity is {self._format_quantity_limit(self._min_qty)}")
+            if raw_quantity < self._min_qty:
+                minimum_display_qty = self._canonical_quantity(self._min_qty) or self._min_qty
+                return (True, f"Minimum quantity is {self._format_quantity_limit(minimum_display_qty)}")
 
-            normalized_quantity = self._normalize_quantity(quantity)
-            if normalized_quantity != quantity:
+            normalized_quantity = self._normalize_quantity(raw_quantity)
+            if normalized_quantity != raw_quantity:
+                step_display_qty = self._canonical_quantity(self._qty_step) or self._qty_step
                 return (
                     True,
-                    f"Quantity must increment by {self._format_quantity_limit(self._qty_step)}",
+                    f"Quantity must increment by {self._format_quantity_limit(step_display_qty)}",
                 )
 
         if self._is_position_data_stale():
@@ -1626,7 +1681,7 @@ class OrderTicketComponent:
             return False
 
         # Build order data
-        canonical_quantity = self._state_canonical_quantity()
+        canonical_quantity = self._canonical_quantity(self._state.quantity)
         if canonical_quantity is None:
             ui.notify("Cannot submit: Enter quantity", type="negative")
             return False

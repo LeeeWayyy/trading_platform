@@ -1994,6 +1994,7 @@ class TestOrderTicketQuantityRules:
         assert component._qty_step == 100
         assert component._min_qty == 100
         assert component._qty_unit == "lots"
+        assert component._qty_unit_size == 1
         component._quantity_label.set_text.assert_called_once_with("QTY (LOTS)")
         component._quantity_input.props.assert_called_with("min=100 step=100")
         component._quantity_presets.set_presets.assert_called_with([100])
@@ -2016,6 +2017,15 @@ class TestOrderTicketQuantityRules:
         component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="contracts")
 
         component._quantity_presets.set_presets.assert_called_with([1, 5, 10])
+
+    def test_set_quantity_rules_defaults_lot_size_for_small_lot_units(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Small lot-unit rules use default 100-share canonical multiplier."""
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
+
+        assert component._qty_unit_size == 100
+        assert component._canonical_quantity(1) == 100
 
     def test_position_display_keeps_canonical_share_units(
         self, component: OrderTicketComponent
@@ -2158,3 +2168,18 @@ class TestOrderTicketQuantityRules:
 
         assert disabled is False
         assert reason == ""
+
+    def test_position_limit_check_uses_canonical_qty_for_lot_units(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Lot-unit entry is converted to canonical shares for exposure checks."""
+        component._state.symbol = "AAPL"
+        component._state.side = "buy"
+        component._state.quantity = 1  # 1 lot
+        component._max_position_per_symbol = 50
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
+
+        violation = component._check_position_limits()
+
+        assert violation is not None
+        assert "Order exceeds position limit" in violation

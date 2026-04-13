@@ -885,6 +885,7 @@ class TestPriceUpdateCallback:
             qty_step=100,
             min_qty=100,
             qty_unit="lots",
+            qty_unit_size=1,
         )
 
     @pytest.mark.asyncio()
@@ -908,6 +909,7 @@ class TestPriceUpdateCallback:
             qty_step=1,
             min_qty=100,
             qty_unit="lots",
+            qty_unit_size=1,
         )
 
 
@@ -991,7 +993,7 @@ class TestSymbolSelection:
     ) -> None:
         """Selecting a symbol applies previously cached quantity rules."""
         context._order_ticket.set_quantity_rules = MagicMock()
-        context._symbol_quantity_rules["AAPL"] = (100, 100, "lots")
+        context._symbol_quantity_rules["AAPL"] = (100, 100, "lots", 1)
 
         await context.on_symbol_selected("AAPL")
 
@@ -999,6 +1001,7 @@ class TestSymbolSelection:
             qty_step=100,
             min_qty=100,
             qty_unit="lots",
+            qty_unit_size=1,
         )
 
     @pytest.mark.asyncio()
