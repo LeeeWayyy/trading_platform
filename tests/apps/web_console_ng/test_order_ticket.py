@@ -1079,6 +1079,20 @@ class TestOrderTicketClosePreset:
         component._quantity_input.set_value.assert_called_once_with(40)
         component._side_toggle.set_value.assert_called_once_with("buy")
 
+    def test_close_prefill_handles_missing_position_state(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = None  # type: ignore[assignment]
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.quantity is None
+        assert component._state.side == "buy"
+        notify.assert_called_once_with("No open position to close", type="warning")
+
     def test_close_prefill_blocks_on_stale_position(self, component: OrderTicketComponent) -> None:
         component._current_position = 100
         component._position_last_updated = datetime.now(UTC) - timedelta(

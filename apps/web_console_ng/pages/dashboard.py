@@ -1796,7 +1796,7 @@ async def dashboard(client: Client) -> None:
         )
 
         sql = (
-            "SELECT strategy_id "
+            "SELECT strategy_id, MAX(created_at) AS last_order_at "
             "FROM orders "
             "WHERE symbol = %s AND strategy_id IS NOT NULL "
             "AND strategy_id = ANY(%s) "
@@ -1807,7 +1807,7 @@ async def dashboard(client: Client) -> None:
             authorized_strategy_scope,
             strategy_lookback_start,
         )
-        sql += "GROUP BY strategy_id ORDER BY strategy_id LIMIT 2"
+        sql += "GROUP BY strategy_id ORDER BY last_order_at DESC, strategy_id LIMIT 2"
 
         try:
             async with acquire_connection(async_pool) as conn:
