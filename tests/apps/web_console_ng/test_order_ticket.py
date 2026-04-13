@@ -1194,6 +1194,30 @@ class TestOrderTicketClosePreset:
         )
         assert notify.call_count == 2
 
+    def test_close_prefill_preserves_full_flatten_for_odd_lot_positions(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Odd-lot CLOSE prefill keeps exact share flatten via canonical override."""
+        component._current_position = 150
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots", qty_unit_size=100)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 150
+        assert component._state_quantity_canonical_override == 150
+        notify.assert_any_call(
+            "CLOSE prefill uses exact 150 shares (using share precision to flatten odd-lot residual)",
+            type="warning",
+        )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 150 shares (preview required)",
+            type="info",
+        )
+
 
 class TestOrderTicketIdempotency:
     """Tests for idempotent order submission."""

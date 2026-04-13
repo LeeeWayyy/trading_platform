@@ -17,6 +17,7 @@ import logging
 import math
 import os
 import re
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 _LEGACY_SCHEMA_WARNING_EMITTED = False
 _BACKTEST_COST_SUMMARY_COLUMN_PRESENT: bool | None = None
+_BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT: float | None = None
 _MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
 
 # Constants
@@ -64,6 +66,7 @@ MAX_COMPARISON_SELECTIONS = 5
 DEFAULT_END_DATE_OFFSET_DAYS = 1
 DEFAULT_BACKTEST_PERIOD_DAYS = 730  # ~2 years
 MIN_BACKTEST_PERIOD_DAYS = 30
+BACKTEST_SCHEMA_CACHE_TTL_S = 300.0
 
 # Polling intervals (progressive backoff) in seconds
 POLL_INTERVALS = {
@@ -176,7 +179,13 @@ def _get_user_jobs_sync(
     def _has_cost_summary_column() -> bool:
         """Return whether backtest_jobs has cost_summary column (cached per process)."""
         global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-        if _BACKTEST_COST_SUMMARY_COLUMN_PRESENT is not None:
+        global _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
+        if (
+            _BACKTEST_COST_SUMMARY_COLUMN_PRESENT is not None
+            and _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT is not None
+            and (time.monotonic() - _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT)
+            < BACKTEST_SCHEMA_CACHE_TTL_S
+        ):
             return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
 
         probe_sql = """
@@ -193,6 +202,7 @@ def _get_user_jobs_sync(
                 probe_cur.execute(probe_sql)
                 row = probe_cur.fetchone()
                 _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
+                _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
             except Exception as exc:  # pragma: no cover - connectivity/pathology path
                 logger.warning(
                     "backtest_jobs_schema_probe_failed",
@@ -230,6 +240,8 @@ def _get_user_jobs_sync(
             # Defensive fallback for schema drift/race where probe cache is stale.
             global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
             _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
+            global _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
+            _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
             global _LEGACY_SCHEMA_WARNING_EMITTED
             if not _LEGACY_SCHEMA_WARNING_EMITTED:
                 logger.warning(

@@ -1142,7 +1142,7 @@ class OrderEntryContext:
             ):
                 normalized_unit_size = lot_size
             elif lot_size is None and normalized_step <= 10 and normalized_min <= 10:
-                normalized_unit_size = 100
+                normalized_unit_size = DEFAULT_LOT_SIZE
         return (normalized_step, normalized_min, normalized_unit, normalized_unit_size)
 
     def _cache_symbol_quantity_rules(self, symbol: str, data: dict[str, Any]) -> None:
