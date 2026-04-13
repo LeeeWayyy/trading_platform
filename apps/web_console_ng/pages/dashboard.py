@@ -98,6 +98,8 @@ logger = logging.getLogger(__name__)
 MAX_FILLS_ITEMS = 100
 # Workspace live-data staleness threshold before interaction lock
 WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
+# Strategy resolution query lookback to keep orders scan bounded
+STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
 
 ScopeKey = tuple[str, frozenset[str]]
 
@@ -1734,7 +1736,8 @@ async def dashboard(client: Client) -> None:
             role=user_role,
             strategies=user_strategies,
         )
-        _mark_workspace_live_data()
+        if has_fresh_market_data:
+            _mark_workspace_live_data()
         _evaluate_workspace_mask()
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
@@ -1788,13 +1791,22 @@ async def dashboard(client: Client) -> None:
         except ValueError:
             return (None, "invalid_symbol")
 
+        strategy_lookback_start = datetime.now(UTC) - timedelta(
+            days=STRATEGY_RESOLUTION_LOOKBACK_DAYS
+        )
+
         sql = (
             "SELECT strategy_id "
             "FROM orders "
             "WHERE symbol = %s AND strategy_id IS NOT NULL "
             "AND strategy_id = ANY(%s) "
+            "AND created_at >= %s "
         )
-        params: tuple[Any, ...] = (normalized_symbol, authorized_strategy_scope)
+        params: tuple[Any, ...] = (
+            normalized_symbol,
+            authorized_strategy_scope,
+            strategy_lookback_start,
+        )
         sql += "GROUP BY strategy_id ORDER BY strategy_id LIMIT 2"
 
         try:
@@ -1930,12 +1942,24 @@ async def dashboard(client: Client) -> None:
             unresolved_banner = (
                 f"{unresolved_reason}. Risk-increasing orders may be gated."
             )
-            if resolution_reason == "no_history" and authorized_strategy_scope:
+            if (
+                resolution_reason == "no_history"
+                and authorized_strategy_scope
+                and config.FEATURE_STRATEGY_SYMBOL_MONITORING_MODE
+            ):
                 unresolved_reason = "No strategy history for selected symbol yet"
                 unresolved_gate_enabled = False
                 unresolved_gate_reason = None
                 unresolved_banner = (
                     f"{unresolved_reason}. Monitoring mode enabled while history is established."
+                )
+            elif resolution_reason == "no_history" and authorized_strategy_scope:
+                unresolved_reason = "No strategy history for selected symbol yet"
+                unresolved_gate_reason = (
+                    "No symbol ownership history available; execution remains gated"
+                )
+                unresolved_banner = (
+                    f"{unresolved_reason}. Execution remains gated until symbol ownership is established."
                 )
             order_context.dispatch_strategy_model_context(
                 strategy_status="unknown",

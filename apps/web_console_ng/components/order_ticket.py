@@ -502,25 +502,23 @@ class OrderTicketComponent:
         raw_close_qty = abs(self._current_position)
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
-        close_qty = (raw_close_qty // qty_step) * qty_step
+        close_qty = raw_close_qty
         unit_label = self._qty_unit
 
-        if close_qty <= 0 or close_qty < min_qty:
-            ui.notify(
-                (
-                    "Cannot prefill CLOSE: position size is below symbol minimum "
-                    f"({min_qty} {unit_label})"
-                ),
-                type="warning",
-            )
+        if close_qty <= 0:
             return
 
-        if close_qty < raw_close_qty:
-            residual = raw_close_qty - close_qty
+        rule_notes: list[str] = []
+        if close_qty < min_qty:
+            rule_notes.append(f"below symbol minimum {min_qty} {unit_label}")
+        if close_qty % qty_step != 0:
+            rule_notes.append(f"off-step for {qty_step} {unit_label} increments")
+
+        if rule_notes:
             ui.notify(
                 (
-                    f"CLOSE prefill adjusted to {close_qty} {unit_label} "
-                    f"(residual {residual} {unit_label})"
+                    f"CLOSE prefill uses exact {close_qty} {unit_label} "
+                    f"({'; '.join(rule_notes)})"
                 ),
                 type="warning",
             )
