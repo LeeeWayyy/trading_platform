@@ -662,8 +662,9 @@ class OrderTicketComponent:
             self._timer_tracker(self._dom_settle_timer)
 
     def _finish_dom_settle(self) -> None:
-        """Re-enable action buttons using latest safety gate decision."""
-        enabled = not self._is_trade_action_locked()
+        """Re-evaluate action button availability after DOM settle debounce."""
+        disabled, _reason = self._should_disable_submission()
+        enabled = not disabled
         for button in (self._buy_action_button, self._sell_action_button):
             if button is not None:
                 button.set_enabled(enabled)

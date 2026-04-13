@@ -1033,11 +1033,12 @@ class TestOrderTicketDomSettle:
         comp._connection_read_only = False
         comp._kill_switch_engaged = False
         comp._circuit_breaker_tripped = False
+        comp._safety_state_loaded = True
         comp._buy_action_button = MagicMock()
         comp._sell_action_button = MagicMock()
         return comp
 
-    def test_finish_dom_settle_reenables_actions_even_if_form_incomplete(
+    def test_finish_dom_settle_keeps_actions_disabled_when_form_incomplete(
         self, component: OrderTicketComponent
     ) -> None:
         component._state.symbol = "AAPL"
@@ -1045,8 +1046,8 @@ class TestOrderTicketDomSettle:
 
         component._finish_dom_settle()
 
-        component._buy_action_button.set_enabled.assert_called_with(True)
-        component._sell_action_button.set_enabled.assert_called_with(True)
+        component._buy_action_button.set_enabled.assert_called_with(False)
+        component._sell_action_button.set_enabled.assert_called_with(False)
 
     def test_finish_dom_settle_keeps_actions_disabled_when_connection_locked(
         self, component: OrderTicketComponent
