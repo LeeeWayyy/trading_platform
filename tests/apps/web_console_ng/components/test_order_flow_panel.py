@@ -40,3 +40,41 @@ def test_add_trades_keeps_newest_trade_at_top() -> None:
     )
 
     assert [trade["time"] for trade in panel._trades] == ["10:00:02", "10:00:01", "10:00:00"]
+
+
+def test_add_trade_drops_overflow_qty_payload() -> None:
+    """Overflow-like qty values are ignored instead of raising."""
+    panel = OrderFlowPanel()
+    panel._refresh_summary = MagicMock()
+    panel._render_rows = MagicMock()
+
+    panel.add_trade(
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": "1e309",
+            "price": "100.00",
+            "timestamp": "2026-04-12T10:00:00Z",
+        }
+    )
+
+    assert len(panel._trades) == 0
+
+
+def test_add_trade_drops_infinite_qty_payload() -> None:
+    """Infinite qty metadata must not crash order-flow rendering."""
+    panel = OrderFlowPanel()
+    panel._refresh_summary = MagicMock()
+    panel._render_rows = MagicMock()
+
+    panel.add_trade(
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": "inf",
+            "price": "100.00",
+            "timestamp": "2026-04-12T10:00:00Z",
+        }
+    )
+
+    assert len(panel._trades) == 0

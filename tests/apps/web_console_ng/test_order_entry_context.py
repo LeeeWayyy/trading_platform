@@ -887,6 +887,29 @@ class TestPriceUpdateCallback:
             qty_unit="lots",
         )
 
+    @pytest.mark.asyncio()
+    async def test_price_update_ignores_overflow_quantity_rule_metadata(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Malformed huge metadata must not break update dispatch."""
+        await context._on_price_update(
+            {
+                "symbol": "AAPL",
+                "price": "150.00",
+                "timestamp": "2024-01-01T12:00:00Z",
+                "qty_step": "1e309",
+                "min_qty": "100",
+                "qty_unit": "lots",
+            }
+        )
+
+        context._order_ticket.set_price_data.assert_called_once()
+        context._order_ticket.set_quantity_rules.assert_called_once_with(
+            qty_step=1,
+            min_qty=100,
+            qty_unit="lots",
+        )
+
 
 class TestSymbolSelection:
     """Tests for symbol selection."""

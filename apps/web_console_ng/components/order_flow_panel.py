@@ -209,7 +209,7 @@ class OrderFlowPanel:
     def _parse_qty(self, raw_qty: Any) -> int | None:
         try:
             parsed = int(float(raw_qty))
-        except (TypeError, ValueError):
+        except (OverflowError, TypeError, ValueError):
             return None
         if parsed <= 0:
             return None

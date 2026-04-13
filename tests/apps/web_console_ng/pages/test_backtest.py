@@ -543,10 +543,25 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
     assert jobs == []
 
 
-def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
+def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test legacy schema fallback when backtest_jobs lacks cost_summary column."""
 
-    class FakeCursor:
+    class ProbeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
+        def __enter__(self) -> ProbeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryCursor:
         def __init__(self) -> None:
             self.calls = 0
 
@@ -555,7 +570,7 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
             if self.calls == 1:
                 raise pg_errors.UndefinedColumn("column \"cost_summary\" does not exist")
 
-        def __enter__(self) -> FakeCursor:
+        def __enter__(self) -> QueryCursor:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
@@ -582,17 +597,28 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
                 }
             ]
 
-    class FakeConn:
+    class ProbeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> ProbeCursor:
+            return ProbeCursor()
+
+        def __enter__(self) -> ProbeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryConn:
         def __init__(self) -> None:
             self.rollback_called = False
+            self.cursor_instance = QueryCursor()
 
-        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
-            return FakeCursor()
+        def cursor(self, *args: Any, **kwargs: Any) -> QueryCursor:
+            return self.cursor_instance
 
         def rollback(self) -> None:
             self.rollback_called = True
 
-        def __enter__(self) -> FakeConn:
+        def __enter__(self) -> QueryConn:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
@@ -600,14 +626,20 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
 
     class FakePool:
         def __init__(self) -> None:
-            self.conn = FakeConn()
+            self.calls = 0
+            self.query_conn = QueryConn()
 
-        def connection(self) -> FakeConn:
-            return self.conn
+        def connection(self) -> ProbeConn | QueryConn:
+            self.calls += 1
+            if self.calls == 1:
+                return ProbeConn()
+            return self.query_conn
 
     class FakeRedis:
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
             return [None]
+
+    monkeypatch.setattr(backtest_module, "_BACKTEST_COST_SUMMARY_COLUMN_PRESENT", None)
 
     pool = FakePool()
     jobs = backtest_module._get_user_jobs_sync(
@@ -622,7 +654,7 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
     assert jobs[0]["cost_summary"] is None
     assert jobs[0]["provider"] == "crsp"
     assert jobs[0]["progress_pct"] == 0.0
-    assert pool.conn.rollback_called is True
+    assert pool.query_conn.rollback_called is True
 
 
 def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:

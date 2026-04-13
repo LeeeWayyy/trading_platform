@@ -138,12 +138,12 @@ class _MetricStripValue:
                 self._value_label.classes(add=new_color)
             self._current_color = new_color
         self._value_label.classes(remove="opacity-55")
-        self._last_update = time.time()
+        self._last_update = time.monotonic()
 
     def is_stale(self, threshold: float = 30.0) -> bool:
         if self._last_update is None:
             return False
-        return (time.time() - self._last_update) > threshold
+        return (time.monotonic() - self._last_update) > threshold
 
     def mark_stale(self) -> None:
         if self._value_label is not None:
