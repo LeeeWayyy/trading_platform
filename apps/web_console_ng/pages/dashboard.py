@@ -1807,7 +1807,7 @@ async def dashboard(client: Client) -> None:
             authorized_strategy_scope,
             strategy_lookback_start,
         )
-        sql += "GROUP BY strategy_id ORDER BY last_order_at DESC, strategy_id LIMIT 2"
+        sql += "GROUP BY strategy_id ORDER BY last_order_at DESC, strategy_id ASC LIMIT 2"
 
         try:
             async with acquire_connection(async_pool) as conn:
@@ -2099,10 +2099,23 @@ async def dashboard(client: Client) -> None:
         strategy_context_refresh_pending = False
         for timer in timers:
             timer.cancel()
+
+    async def cleanup_strategy_context_task() -> None:
         if strategy_context_refresh_task and not strategy_context_refresh_task.done():
             strategy_context_refresh_task.cancel()
+            try:
+                await strategy_context_refresh_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.debug(
+                    "strategy_context_refresh_task_cleanup_failed",
+                    extra={"client_id": client_id},
+                    exc_info=True,
+                )
 
     await lifecycle.register_cleanup_callback(client_id, cleanup_timers)
+    await lifecycle.register_cleanup_callback(client_id, cleanup_strategy_context_task)
     await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
 
     # Initialize OrderEntryContext AFTER UI creation (per spec lifecycle pattern)

@@ -1194,6 +1194,30 @@ class TestOrderTicketClosePreset:
         )
         assert notify.call_count == 2
 
+    def test_close_prefill_preserves_full_flatten_for_odd_lot_positions(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Odd-lot CLOSE prefill keeps exact share flatten via canonical override."""
+        component._current_position = 150
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots", qty_unit_size=100)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 150
+        assert component._state_quantity_canonical_override == 150
+        notify.assert_any_call(
+            "CLOSE prefill uses exact 150 shares (using share precision to flatten odd-lot residual)",
+            type="warning",
+        )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 150 shares (preview required)",
+            type="info",
+        )
+
 
 class TestOrderTicketIdempotency:
     """Tests for idempotent order submission."""
@@ -1724,10 +1748,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "limit",
             "limit_price": "150.00",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is True
@@ -1746,10 +1776,47 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",  # Original
             "side": "buy",
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "market",
             "limit_price": "",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
+        }
+
+        assert component._validate_preview_snapshot() is False
+
+    def test_quantity_unit_context_changed_returns_false(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Validation fails when canonical quantity mapping changes after preview."""
+        component._state.symbol = "AAPL"
+        component._state.side = "buy"
+        component._state.quantity = 1
+        component._state.order_type = "market"
+        component._state.limit_price = None
+        component._state.stop_price = None
+        component._state.time_in_force = "day"
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
+
+        component._preview_snapshot = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": 1,
+            "canonical_quantity": 1,  # stale mapping from preview time
+            "order_type": "market",
+            "limit_price": "",
+            "stop_price": "",
+            "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "lots",
+            "qty_unit_size": 1,  # stale mapping from preview time
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1768,10 +1835,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",
             "quantity": 100,  # Original
+            "canonical_quantity": 100,
             "order_type": "market",
             "limit_price": "",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1790,10 +1863,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",  # Original
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "market",
             "limit_price": "",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1812,10 +1891,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "limit",
             "limit_price": "150.00",  # Original
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False

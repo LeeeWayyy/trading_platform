@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from apps.web_console_ng.core.state_manager import UserStateManager
 
 logger = logging.getLogger(__name__)
+DEFAULT_LOT_SIZE = 100
 
 # Connection states that disable trading
 READ_ONLY_CONNECTION_STATES = {"DISCONNECTED", "RECONNECTING", "DEGRADED"}
@@ -1141,7 +1142,7 @@ class OrderEntryContext:
             ):
                 normalized_unit_size = lot_size
             elif lot_size is None and normalized_step <= 10 and normalized_min <= 10:
-                normalized_unit_size = 100
+                normalized_unit_size = DEFAULT_LOT_SIZE
         return (normalized_step, normalized_min, normalized_unit, normalized_unit_size)
 
     def _cache_symbol_quantity_rules(self, symbol: str, data: dict[str, Any]) -> None:

@@ -152,6 +152,7 @@ class OrderTicketComponent:
         self._min_qty: int = self.DEFAULT_MIN_QTY
         self._qty_unit: str = self.DEFAULT_QTY_UNIT
         self._qty_unit_size: int = 1
+        self._state_quantity_canonical_override: int | None = None
 
         # Safety state (FAIL-CLOSED defaults)
         self._kill_switch_engaged: bool = True  # Default: engaged (unsafe)
@@ -435,6 +436,7 @@ class OrderTicketComponent:
 
     def _on_quantity_changed(self, value: float | None) -> None:
         """Handle quantity input change."""
+        self._state_quantity_canonical_override = None
         if value is not None and value > 0:
             # Keep raw typed value during editing; enforce rule compatibility on submit.
             self._state.quantity = int(value)
@@ -444,6 +446,7 @@ class OrderTicketComponent:
 
     def _on_preset_selected(self, preset: int) -> None:
         """Handle quantity preset selection."""
+        self._state_quantity_canonical_override = None
         normalized_qty = self._normalize_quantity(preset)
         self._state.quantity = normalized_qty
         if self._quantity_input:
@@ -482,6 +485,7 @@ class OrderTicketComponent:
         self._min_qty = next_min_qty
         self._qty_unit = next_qty_unit
         self._qty_unit_size = next_qty_unit_size
+        self._state_quantity_canonical_override = None
         self._apply_quantity_rules_to_ui()
         self._refresh_quantity_preset_profile()
 
@@ -519,18 +523,17 @@ class OrderTicketComponent:
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
         close_qty = raw_close_qty
-        if qty_unit_size > 1:
-            close_qty = raw_close_qty // qty_unit_size
-            if close_qty <= 0:
-                ui.notify(
-                    (
-                        "CLOSE prefill unavailable: position is smaller than one "
-                        f"{self._qty_unit} unit"
-                    ),
-                    type="warning",
-                )
-                return
         unit_label = self._qty_unit
+        self._state_quantity_canonical_override = None
+        if qty_unit_size > 1:
+            if raw_close_qty % qty_unit_size == 0:
+                close_qty = raw_close_qty // qty_unit_size
+            else:
+                # Preserve full flatten behavior for odd-lot residuals by using
+                # an explicit canonical-quantity override for this prefill state.
+                close_qty = raw_close_qty
+                unit_label = self.POSITION_DISPLAY_UNIT
+                self._state_quantity_canonical_override = raw_close_qty
 
         if close_qty <= 0:
             return
@@ -540,10 +543,8 @@ class OrderTicketComponent:
             rule_notes.append(f"below symbol minimum {min_qty} {unit_label}")
         if close_qty % qty_step != 0:
             rule_notes.append(f"off-step for {qty_step} {unit_label} increments")
-        if qty_unit_size > 1:
-            residual = raw_close_qty - (close_qty * qty_unit_size)
-            if residual > 0:
-                rule_notes.append(f"leaves residual {residual} {self.POSITION_DISPLAY_UNIT}")
+        if self._state_quantity_canonical_override is not None:
+            rule_notes.append("using share precision to flatten odd-lot residual")
 
         if rule_notes:
             ui.notify(
@@ -817,6 +818,7 @@ class OrderTicketComponent:
     async def on_symbol_changed(self, symbol: str | None) -> None:
         """Called by OrderEntryContext when selected symbol changes externally."""
         self._state.symbol = symbol
+        self._state_quantity_canonical_override = None
         self.reset_quantity_rules()
 
         # Reset symbol-scoped state only - NOT risk limits
@@ -902,6 +904,16 @@ class OrderTicketComponent:
         if canonical <= 0:
             return None
         return canonical
+
+    def _state_canonical_quantity(self) -> int | None:
+        """Return canonical quantity for current state (with close-flow override)."""
+        raw_quantity = self._raw_quantity(self._state.quantity)
+        if raw_quantity is None:
+            return None
+        if self._state_quantity_canonical_override is not None:
+            override = int(self._state_quantity_canonical_override)
+            return override if override > 0 else None
+        return self._canonical_quantity(raw_quantity)
 
     def _format_quantity_limit(self, qty: int) -> str:
         """Format quantity limits with canonical units and optional ticket-unit hint."""
@@ -1194,7 +1206,7 @@ class OrderTicketComponent:
             return (True, "Select a symbol")
 
         raw_quantity = self._raw_quantity(self._state.quantity)
-        quantity = self._canonical_quantity(raw_quantity)
+        quantity = self._state_canonical_quantity()
         if raw_quantity is None or quantity is None:
             return (True, "Enter quantity")
 
@@ -1266,7 +1278,7 @@ class OrderTicketComponent:
 
     def _is_risk_reducing_order(self) -> bool:
         """Return True only when order strictly reduces current open exposure."""
-        qty = self._canonical_quantity(self._state.quantity)
+        qty = self._state_canonical_quantity()
         if qty is None:
             return False
 
@@ -1317,10 +1329,16 @@ class OrderTicketComponent:
             "symbol": self._state.symbol,
             "side": self._state.side,
             "quantity": self._state.quantity,
+            "canonical_quantity": self._state_canonical_quantity(),
             "order_type": self._state.order_type,
             "limit_price": str(self._state.limit_price or ""),
             "stop_price": str(self._state.stop_price or ""),
             "time_in_force": self._state.time_in_force,
+            "qty_step": self._qty_step,
+            "min_qty": self._min_qty,
+            "qty_unit": self._qty_unit,
+            "qty_unit_size": self._qty_unit_size,
+            "quantity_canonical_override": self._state_quantity_canonical_override,
         }
 
         return current == self._preview_snapshot
@@ -1375,7 +1393,7 @@ class OrderTicketComponent:
         """Check if proposed order violates position limits."""
         if not self._state.symbol:
             return None
-        proposed_qty = self._canonical_quantity(self._state.quantity)
+        proposed_qty = self._state_canonical_quantity()
         if proposed_qty is None:
             return None
         if self._state.side == "sell":
@@ -1458,7 +1476,7 @@ class OrderTicketComponent:
 
     def _calculate_buying_power_impact(self) -> dict[str, Any]:
         """Calculate order's impact on buying power."""
-        quantity = self._canonical_quantity(self._state.quantity)
+        quantity = self._state_canonical_quantity()
         if quantity is None:
             return {
                 "notional": None,
@@ -1566,10 +1584,16 @@ class OrderTicketComponent:
             "symbol": self._state.symbol,
             "side": self._state.side,
             "quantity": self._state.quantity,
+            "canonical_quantity": self._state_canonical_quantity(),
             "order_type": self._state.order_type,
             "limit_price": str(self._state.limit_price or ""),
             "stop_price": str(self._state.stop_price or ""),
             "time_in_force": self._state.time_in_force,
+            "qty_step": self._qty_step,
+            "min_qty": self._min_qty,
+            "qty_unit": self._qty_unit,
+            "qty_unit_size": self._qty_unit_size,
+            "quantity_canonical_override": self._state_quantity_canonical_override,
         }
 
         await self._show_preview_dialog()
@@ -1668,7 +1692,7 @@ class OrderTicketComponent:
             return False
 
         # Build order data
-        canonical_quantity = self._canonical_quantity(self._state.quantity)
+        canonical_quantity = self._state_canonical_quantity()
         if canonical_quantity is None:
             ui.notify("Cannot submit: Enter quantity", type="negative")
             return False
@@ -1836,6 +1860,7 @@ class OrderTicketComponent:
                         "time_in_force", {"day", "gtc", "ioc", "fok"}, "day"
                     ),
                 )
+                self._state_quantity_canonical_override = None
                 self._pending_client_order_id = form_data.get("client_order_id")
                 self._sync_inputs_from_state()
                 self._update_ui_from_state()
@@ -1844,11 +1869,13 @@ class OrderTicketComponent:
                 logger.warning(f"Failed to restore pending form: {exc}")
                 await self._state_manager.clear_pending_form(form_key)
                 self._state = OrderTicketState()
+                self._state_quantity_canonical_override = None
                 self._pending_client_order_id = None
 
     async def _clear_form(self) -> None:
         """Clear the order form."""
         self._state = OrderTicketState()
+        self._state_quantity_canonical_override = None
         self._pending_client_order_id = None
 
         if self._symbol_input:
