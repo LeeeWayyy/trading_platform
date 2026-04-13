@@ -157,14 +157,12 @@ class QuantityPresetsComponent:
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
 
-        # Apply safety margin (95% to avoid edge cases)
-        safe_max = int(max_qty * self.MAX_SAFETY_MARGIN)
-        if safe_max < min_qty and max_qty >= min_qty:
-            safe_max = min_qty
-        safe_max = (safe_max // qty_step) * qty_step
-
-        if safe_max < min_qty and max_qty >= min_qty:
-            safe_max = (max_qty // qty_step) * qty_step
+        # Apply safety margin and quantize down to the symbol step.
+        # We intentionally do not re-escalate to raw max_qty after quantization,
+        # because that can bypass the safety margin at boundary conditions.
+        safe_max_qty = int(max_qty * self.MAX_SAFETY_MARGIN)
+        quantized_qty = (safe_max_qty // qty_step) * qty_step
+        safe_max = quantized_qty if quantized_qty >= min_qty else 0
 
         if safe_max > 0:
             self._on_preset_selected(safe_max)

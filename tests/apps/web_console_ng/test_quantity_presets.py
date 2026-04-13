@@ -242,6 +242,29 @@ class TestQuantityPresetsMaxCalculation:
             comp._calculate_and_select_max()
             mock_callback.assert_called_once_with(100)
 
+    def test_max_does_not_bypass_safety_margin_after_quantization(self) -> None:
+        """MAX does not fallback to raw max when safety margin cannot fit one lot."""
+        from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
+
+        callback = MagicMock()
+        comp = QuantityPresetsComponent(on_preset_selected=callback)
+        comp.update_context(
+            buying_power=Decimal("10000"),  # max_qty = 100 at $100
+            current_price=Decimal("100"),
+            current_position=0,
+            qty_step=100,
+            min_qty=100,
+        )
+
+        # safe_max_qty=95, quantized=0, so no MAX selection should occur.
+        with (
+            patch.object(comp, "_on_preset_selected") as mock_callback,
+            patch("apps.web_console_ng.components.quantity_presets.ui.notify") as mock_notify,
+        ):
+            comp._calculate_and_select_max()
+            mock_callback.assert_not_called()
+            mock_notify.assert_called_once_with("Insufficient buying power", type="warning")
+
 
 class TestQuantityPresetsSetEnabled:
     """Tests for QuantityPresetsComponent.set_enabled()."""
