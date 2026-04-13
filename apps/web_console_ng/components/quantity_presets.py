@@ -157,11 +157,15 @@ class QuantityPresetsComponent:
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
 
-        # Apply safety margin and quantize down to the symbol step.
+        # Apply safety margin and quantize to the same min+N*step lattice used by
+        # OrderTicket quantity normalization logic.
         # We intentionally do not re-escalate to raw max_qty after quantization,
         # because that can bypass the safety margin at boundary conditions.
         safe_max_qty = int(max_qty * self.MAX_SAFETY_MARGIN)
-        quantized_qty = (safe_max_qty // qty_step) * qty_step
+        if safe_max_qty >= min_qty:
+            quantized_qty = min_qty + ((safe_max_qty - min_qty) // qty_step) * qty_step
+        else:
+            quantized_qty = 0
         safe_max = quantized_qty if quantized_qty >= min_qty else 0
 
         if safe_max > 0:

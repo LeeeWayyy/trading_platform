@@ -265,6 +265,25 @@ class TestQuantityPresetsMaxCalculation:
             mock_callback.assert_not_called()
             mock_notify.assert_called_once_with("Insufficient buying power", type="warning")
 
+    def test_max_uses_min_offset_step_quantization(self) -> None:
+        """MAX quantization follows min_qty + N * qty_step."""
+        from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
+
+        callback = MagicMock()
+        comp = QuantityPresetsComponent(on_preset_selected=callback)
+        comp.update_context(
+            buying_power=Decimal("25000"),  # max_qty = 250 at $100
+            current_price=Decimal("100"),
+            current_position=0,
+            qty_step=100,
+            min_qty=150,
+        )
+
+        # safe_max_qty=237 should quantize to 150 on the 150+N*100 lattice.
+        with patch.object(comp, "_on_preset_selected") as mock_callback:
+            comp._calculate_and_select_max()
+            mock_callback.assert_called_once_with(150)
+
 
 class TestQuantityPresetsSetEnabled:
     """Tests for QuantityPresetsComponent.set_enabled()."""

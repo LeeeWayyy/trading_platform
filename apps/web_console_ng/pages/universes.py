@@ -192,6 +192,23 @@ async def universes_page() -> None:
     can_query_crsp = has_dataset_permission(user, "crsp")
     try:
         service = await asyncio.to_thread(_get_service)
+    except PermissionError as exc:
+        logger.error(
+            "universe_service_storage_unwritable",
+            extra={"error": str(exc)},
+        )
+        ui.notify(
+            "Universe storage is not writable; universe management is unavailable.",
+            type="warning",
+        )
+        with ui.card().classes("w-full p-6"):
+            ui.label("Universe storage is not writable on this deployment.").classes(
+                "text-red-500 text-center"
+            )
+            ui.label(
+                "Configure a writable UNIVERSES_DIR/UNIVERSES_DIR_FALLBACK volume to enable this page."
+            ).classes("text-gray-400 text-center text-sm mt-2")
+        return
     except Exception:
         logger.exception("universe_service_init_failed")
         with ui.card().classes("w-full p-6"):
