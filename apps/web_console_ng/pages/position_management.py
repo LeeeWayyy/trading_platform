@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -194,7 +195,7 @@ async def position_management_page(client: Client) -> None:
         def _as_float(value: Any) -> float:
             if value is None:
                 return 0.0
-            if isinstance(value, int | float):
+            if isinstance(value, int | float | Decimal):
                 return float(value)
             if isinstance(value, str):
                 cleaned = value.replace(",", "").strip()
