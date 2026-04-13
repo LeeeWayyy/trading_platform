@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -98,6 +98,8 @@ logger = logging.getLogger(__name__)
 MAX_FILLS_ITEMS = 100
 # Workspace live-data staleness threshold before interaction lock
 WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
+# Strategy resolution query lookback to keep orders scan bounded
+STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
 
 ScopeKey = tuple[str, frozenset[str]]
 
@@ -431,11 +433,33 @@ class MarketPriceCache:
         role: str | None,
         strategies: list[str] | None,
     ) -> list[dict[str, Any]]:
+        """Get market prices for callers that only need the payload."""
+        prices, _ = await cls.get_prices_with_freshness(
+            client,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        return prices
+
+    @classmethod
+    async def get_prices_with_freshness(
+        cls,
+        client: AsyncTradingClient,
+        *,
+        user_id: str,
+        role: str | None,
+        strategies: list[str] | None,
+    ) -> tuple[list[dict[str, Any]], bool]:
         """Get market prices, using per-scope cache if fresh.
 
         Returns a copy to prevent cross-session mutation.
         Implements failure backoff to avoid thundering herd on outages.
         Cache is scoped by user's strategy permissions to prevent authorization leaks.
+
+        Returns:
+            tuple[list[dict[str, Any]], bool]:
+                prices and whether data should be considered fresh for live-workspace safety checks.
         """
         scope_key = cls._get_scope_key(role, strategies)
 
@@ -448,11 +472,11 @@ class MarketPriceCache:
 
             # Return cached data during error cooldown
             if last_error and (now - last_error) < cls._error_cooldown:
-                return [dict(p) for p in cached_prices]
+                return ([dict(p) for p in cached_prices], False)
 
             # Return cached data if still fresh
             if (now - last_fetch) < cls._ttl and cached_prices:
-                return [dict(p) for p in cached_prices]
+                return ([dict(p) for p in cached_prices], True)
 
             # Check for in-flight request for this scope
             if scope_key in cls._in_flight:
@@ -463,7 +487,7 @@ class MarketPriceCache:
                     logger.warning(
                         "market_prices_fetch_missing", extra={"reason": "method_missing"}
                     )
-                    return [dict(p) for p in cached_prices]
+                    return ([dict(p) for p in cached_prices], False)
                 task = asyncio.create_task(
                     fetch_prices(
                         user_id,
@@ -490,7 +514,7 @@ class MarketPriceCache:
                 cls._cache[scope_key]["last_error"] = time.time()
                 if cls._in_flight.get(scope_key) is task:
                     del cls._in_flight[scope_key]
-                return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
+                return ([dict(p) for p in cls._cache[scope_key].get("prices", [])], False)
         except (ValueError, KeyError) as exc:
             # Catch validation errors (e.g., malformed payload) to reset _in_flight
             # and allow recovery on next call
@@ -508,7 +532,7 @@ class MarketPriceCache:
                 cls._cache[scope_key]["last_error"] = time.time()
                 if cls._in_flight.get(scope_key) is task:
                     del cls._in_flight[scope_key]
-                return [dict(p) for p in cls._cache[scope_key].get("prices", [])]
+                return ([dict(p) for p in cls._cache[scope_key].get("prices", [])], False)
 
         async with cls._lock:
             if cls._in_flight.get(scope_key) is task:
@@ -518,7 +542,7 @@ class MarketPriceCache:
                 "last_fetch": time.time(),
                 "last_error": 0.0,
             }
-            return [dict(p) for p in cls._cache[scope_key]["prices"]]
+            return ([dict(p) for p in cls._cache[scope_key]["prices"]], True)
 
 
 @ui.page("/")
@@ -1706,13 +1730,14 @@ async def dashboard(client: Client) -> None:
     await realtime.subscribe(fills_channel(user_id), on_fill_event)
 
     async def update_market_data() -> None:
-        _ = await MarketPriceCache.get_prices(
+        _, has_fresh_market_data = await MarketPriceCache.get_prices_with_freshness(
             trading_client,
             user_id=user_id,
             role=user_role,
             strategies=user_strategies,
         )
-        _mark_workspace_live_data()
+        if has_fresh_market_data:
+            _mark_workspace_live_data()
         _evaluate_workspace_mask()
 
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
@@ -1766,13 +1791,22 @@ async def dashboard(client: Client) -> None:
         except ValueError:
             return (None, "invalid_symbol")
 
+        strategy_lookback_start = datetime.now(UTC) - timedelta(
+            days=STRATEGY_RESOLUTION_LOOKBACK_DAYS
+        )
+
         sql = (
             "SELECT strategy_id "
             "FROM orders "
             "WHERE symbol = %s AND strategy_id IS NOT NULL "
             "AND strategy_id = ANY(%s) "
+            "AND created_at >= %s "
         )
-        params: tuple[Any, ...] = (normalized_symbol, authorized_strategy_scope)
+        params: tuple[Any, ...] = (
+            normalized_symbol,
+            authorized_strategy_scope,
+            strategy_lookback_start,
+        )
         sql += "GROUP BY strategy_id ORDER BY strategy_id LIMIT 2"
 
         try:
@@ -1908,12 +1942,24 @@ async def dashboard(client: Client) -> None:
             unresolved_banner = (
                 f"{unresolved_reason}. Risk-increasing orders may be gated."
             )
-            if resolution_reason == "no_history" and authorized_strategy_scope:
+            if (
+                resolution_reason == "no_history"
+                and authorized_strategy_scope
+                and config.FEATURE_STRATEGY_SYMBOL_MONITORING_MODE
+            ):
                 unresolved_reason = "No strategy history for selected symbol yet"
                 unresolved_gate_enabled = False
                 unresolved_gate_reason = None
                 unresolved_banner = (
                     f"{unresolved_reason}. Monitoring mode enabled while history is established."
+                )
+            elif resolution_reason == "no_history" and authorized_strategy_scope:
+                unresolved_reason = "No strategy history for selected symbol yet"
+                unresolved_gate_reason = (
+                    "No symbol ownership history available; execution remains gated"
+                )
+                unresolved_banner = (
+                    f"{unresolved_reason}. Execution remains gated until symbol ownership is established."
                 )
             order_context.dispatch_strategy_model_context(
                 strategy_status="unknown",

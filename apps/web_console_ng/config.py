@@ -462,6 +462,9 @@ FEATURE_MODEL_REGISTRY = _get_bool_env("FEATURE_MODEL_REGISTRY")
 FEATURE_STRATEGY_MODEL_EXECUTION_GATING = _get_bool_env(
     "FEATURE_STRATEGY_MODEL_EXECUTION_GATING"
 )
+FEATURE_STRATEGY_SYMBOL_MONITORING_MODE = _get_bool_env(
+    "FEATURE_STRATEGY_SYMBOL_MONITORING_MODE"
+)
 
 # =============================================================================
 # Auto-refresh and UI settings (P5T7)

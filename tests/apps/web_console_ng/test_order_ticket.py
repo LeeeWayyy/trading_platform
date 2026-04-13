@@ -1110,7 +1110,7 @@ class TestOrderTicketClosePreset:
             type="info",
         )
 
-    def test_close_prefill_adjusts_to_qty_step_with_residual_warning(
+    def test_close_prefill_prefers_exact_quantity_with_step_warning(
         self, component: OrderTicketComponent
     ) -> None:
         component._current_position = 125
@@ -1123,18 +1123,18 @@ class TestOrderTicketClosePreset:
             component._on_close_preset_selected()
 
         assert component._state.side == "sell"
-        assert component._state.quantity == 100
+        assert component._state.quantity == 125
         notify.assert_any_call(
-            "CLOSE prefill adjusted to 100 shares (residual 25 shares)",
+            "CLOSE prefill uses exact 125 shares (off-step for 100 shares increments)",
             type="warning",
         )
         notify.assert_any_call(
-            "CLOSE prefill ready: SELL 100 shares (preview required)",
+            "CLOSE prefill ready: SELL 125 shares (preview required)",
             type="info",
         )
         assert notify.call_count == 2
 
-    def test_close_prefill_blocks_when_position_below_symbol_minimum(
+    def test_close_prefill_allows_exact_quantity_below_symbol_minimum(
         self, component: OrderTicketComponent
     ) -> None:
         component._current_position = 50
@@ -1146,12 +1146,17 @@ class TestOrderTicketClosePreset:
             monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
             component._on_close_preset_selected()
 
-        assert component._state.quantity is None
-        assert component._state.side == "buy"
-        notify.assert_called_once_with(
-            "Cannot prefill CLOSE: position size is below symbol minimum (100 shares)",
+        assert component._state.side == "sell"
+        assert component._state.quantity == 50
+        notify.assert_any_call(
+            "CLOSE prefill uses exact 50 shares (below symbol minimum 100 shares; off-step for 100 shares increments)",
             type="warning",
         )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 50 shares (preview required)",
+            type="info",
+        )
+        assert notify.call_count == 2
 
 
 class TestOrderTicketIdempotency:
