@@ -1078,7 +1078,7 @@ class OrderEntryContext:
         """Parse positive integer metadata value."""
         try:
             parsed = int(float(value))
-        except (ValueError, TypeError):
+        except (OverflowError, ValueError, TypeError):
             return None
         return parsed if parsed > 0 else None
 

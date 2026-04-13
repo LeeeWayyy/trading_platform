@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -73,6 +74,30 @@ def test_dispatch_trading_state_event_handles_unserializable_payload(
 
     assert "trading_state_dispatch_failed" in caplog.text
     assert called is False
+
+
+def test_metric_strip_value_update_uses_monotonic_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    metric = dashboard_module._MetricStripValue.__new__(dashboard_module._MetricStripValue)
+    metric._format_fn = lambda value: str(value)
+    metric._color_fn = None
+    metric._last_update = None
+    metric._value_label = MagicMock()
+    metric._current_color = None
+
+    monkeypatch.setattr(dashboard_module.time, "monotonic", lambda: 123.5)
+    metric.update(42)
+
+    assert metric._last_update == 123.5
+
+
+def test_metric_strip_value_is_stale_uses_monotonic_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    metric = dashboard_module._MetricStripValue.__new__(dashboard_module._MetricStripValue)
+    metric._last_update = 100.0
+
+    monkeypatch.setattr(dashboard_module.time, "monotonic", lambda: 140.5)
+    monkeypatch.setattr(dashboard_module.time, "time", lambda: 10_000_000.0)
+
+    assert metric.is_stale(threshold=30.0)
 
 
 def test_should_apply_strategy_context_result_true_when_generation_and_symbol_match() -> None:

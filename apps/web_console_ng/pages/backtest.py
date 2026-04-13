@@ -188,11 +188,6 @@ def _get_user_jobs_sync(
                 probe_cur.execute(probe_sql)
                 row = probe_cur.fetchone()
                 _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
-            except pg_errors.UndefinedColumn:
-                # Keep transaction usable for the caller in legacy schemas.
-                if hasattr(probe_conn, "rollback"):
-                    probe_conn.rollback()
-                _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
             except Exception as exc:  # pragma: no cover - connectivity/pathology path
                 logger.warning(
                     "backtest_jobs_schema_probe_failed",
