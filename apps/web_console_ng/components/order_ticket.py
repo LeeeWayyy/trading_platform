@@ -494,12 +494,17 @@ class OrderTicketComponent:
             ui.notify("Cannot prefill CLOSE: position data stale", type="warning")
             return
 
-        if self._current_position == 0:
+        try:
+            current_position = int(self._current_position)
+        except (TypeError, ValueError):
+            current_position = 0
+
+        if current_position == 0:
             ui.notify("No open position to close", type="warning")
             return
 
-        close_side = "sell" if self._current_position > 0 else "buy"
-        raw_close_qty = abs(self._current_position)
+        close_side = "sell" if current_position > 0 else "buy"
+        raw_close_qty = abs(current_position)
         qty_step = max(1, self._qty_step)
         min_qty = max(qty_step, self._min_qty)
         close_qty = raw_close_qty
