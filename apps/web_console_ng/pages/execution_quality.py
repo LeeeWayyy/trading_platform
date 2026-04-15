@@ -176,6 +176,18 @@ def _get_shared_client() -> httpx.AsyncClient:
     return _shared_client
 
 
+async def close_shared_client() -> None:
+    """Close the module-level shared httpx.AsyncClient.
+
+    Called during application shutdown to release pooled connections and
+    avoid unclosed-resource warnings / file-descriptor leaks.
+    """
+    global _shared_client  # noqa: PLW0603
+    if _shared_client is not None and not _shared_client.is_closed:
+        await _shared_client.aclose()
+    _shared_client = None
+
+
 async def _fetch_tca_data(
     start_date: date,
     end_date: date,
@@ -944,4 +956,4 @@ async def _render_tca_dashboard(
     await load_data()
 
 
-__all__ = ["execution_quality_page"]
+__all__ = ["close_shared_client", "execution_quality_page"]
