@@ -111,7 +111,7 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
 
     The resolved name is validated against the set of queues this worker
     is allowed to process (``_get_allowed_queues``).  Unrecognised names
-    are replaced with the first allowed queue and a warning is logged so
+    are replaced with the first allowed queue and an error is logged so
     that a rogue ``origin`` value cannot cause unbounded cache growth.
     """
     allowed = _get_allowed_queues()
@@ -120,7 +120,7 @@ def _get_rq_queue(queue_name: str | None = None) -> Queue:
     current_job = get_current_job()
 
     if queue_name is None:
-        queue_name = getattr(current_job, "origin", None) or default_queue
+        queue_name = (current_job.origin if current_job else None) or default_queue
 
     if queue_name not in allowed:
         job_id = getattr(current_job, "id", None)
