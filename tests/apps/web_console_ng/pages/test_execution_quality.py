@@ -25,6 +25,7 @@ from apps.web_console_ng.pages.execution_quality import (
     _generate_demo_benchmark_data,
     _is_cacheable_benchmark,
     _is_numeric,
+    _is_valid_price,
     _safe_float,
     _should_fetch_benchmark,
 )
@@ -402,6 +403,51 @@ class TestSafeFloat:
         assert _is_numeric(False) is False
 
 
+class TestIsValidPrice:
+    """Tests for _is_valid_price — stricter than _is_numeric for chart data."""
+
+    def test_positive_float_is_valid(self) -> None:
+        """Positive float is a valid price."""
+        assert _is_valid_price(150.5) is True
+        assert _is_valid_price(0.01) is True
+
+    def test_positive_string_is_valid(self) -> None:
+        """Numeric string is valid."""
+        assert _is_valid_price("150.5") is True
+
+    def test_zero_is_invalid(self) -> None:
+        """Zero is not a valid price (placeholder data)."""
+        assert _is_valid_price(0.0) is False
+        assert _is_valid_price(0) is False
+
+    def test_negative_is_invalid(self) -> None:
+        """Negative price is not valid."""
+        assert _is_valid_price(-10.0) is False
+        assert _is_valid_price("-5") is False
+
+    def test_none_is_invalid(self) -> None:
+        """None is not valid."""
+        assert _is_valid_price(None) is False
+
+    def test_non_numeric_string_is_invalid(self) -> None:
+        """Non-numeric string is not valid."""
+        assert _is_valid_price("abc") is False
+
+    def test_boolean_is_invalid(self) -> None:
+        """Booleans are not valid prices (float(True) == 1.0)."""
+        assert _is_valid_price(True) is False
+        assert _is_valid_price(False) is False
+
+    def test_nan_is_invalid(self) -> None:
+        """NaN is not valid."""
+        assert _is_valid_price(float("nan")) is False
+
+    def test_inf_is_invalid(self) -> None:
+        """Infinity is not valid."""
+        assert _is_valid_price(float("inf")) is False
+        assert _is_valid_price(float("-inf")) is False
+
+
 class TestShouldFetchBenchmark:
     """Tests for the _should_fetch_benchmark gating function."""
 
@@ -670,12 +716,12 @@ class TestGenerateDemoBenchmarkData:
         assert r1["points"] == r2["points"]
 
     def test_demo_benchmark_points_have_valid_prices(self) -> None:
-        """All demo benchmark points have finite numeric prices."""
+        """All demo benchmark points have valid positive prices."""
         order = {"client_order_id": "demo-0002", "symbol": "MSFT"}
         result = _generate_demo_benchmark_data(order)
         for point in result["points"]:
-            assert _is_numeric(point["execution_price"])
-            assert _is_numeric(point["benchmark_price"])
+            assert _is_valid_price(point["execution_price"])
+            assert _is_valid_price(point["benchmark_price"])
 
 
 class TestDefaultDateRange:

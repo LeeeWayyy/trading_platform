@@ -147,6 +147,24 @@ def _is_numeric(value: Any) -> bool:
     return math.isfinite(result)
 
 
+def _is_valid_price(value: Any) -> bool:
+    """Return True if *value* is a finite positive price.
+
+    Rejects zero, negative, NaN, infinity, booleans, and non-numeric values.
+    This is stricter than ``_is_numeric`` because zero and negative values
+    are not valid prices and would distort charts.
+    """
+    import math
+
+    if isinstance(value, bool):
+        return False
+    try:
+        f = float(value)
+        return f > 0.0 and math.isfinite(f)
+    except (TypeError, ValueError):
+        return False
+
+
 def _build_tca_auth_headers(user_id: str, role: str, strategies: list[str]) -> dict[str, str]:
     """Build auth headers for TCA API requests."""
     return {
@@ -394,8 +412,8 @@ def _is_cacheable_benchmark(data: dict[str, Any]) -> bool:
         return False
     return any(
         isinstance(p, dict)
-        and _is_numeric(p.get("execution_price"))
-        and _is_numeric(p.get("benchmark_price"))
+        and _is_valid_price(p.get("execution_price"))
+        and _is_valid_price(p.get("benchmark_price"))
         for p in points
     )
 
