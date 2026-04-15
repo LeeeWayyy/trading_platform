@@ -800,6 +800,20 @@ async def _render_tca_dashboard(
                         and _is_valid_price(p.get("benchmark_price"))
                     ]
                     if valid_points:
+                        # Warn if the backend may have truncated data.
+                        # Prefer the ``truncated`` flag from the API
+                        # when present; fall back to comparing point
+                        # count against the known backend fill limit.
+                        is_truncated = benchmark_data.get("truncated")
+                        if is_truncated is None:
+                            raw_count = len(benchmark_data.get("points", []))
+                            is_truncated = raw_count >= _BACKEND_FILL_LIMIT
+                        if is_truncated:
+                            ui.label(
+                                "Note: benchmark data may be truncated "
+                                f"(showing first {len(valid_points)} fills)."
+                            ).classes("text-amber-500 text-xs mb-1")
+
                         create_benchmark_comparison_chart(
                             timestamps=[str(point.get("timestamp", "")) for point in valid_points],
                             execution_prices=[
