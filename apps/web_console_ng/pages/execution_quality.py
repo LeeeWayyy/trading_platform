@@ -113,19 +113,6 @@ def _is_valid_price(value: Any) -> bool:
         return False
 
 
-def _build_tca_auth_headers(
-    user_id: str,
-    role: str,
-    strategies: list[str],
-) -> dict[str, str]:
-    """Build auth headers for TCA API calls."""
-    return {
-        "X-User-ID": user_id,
-        "X-User-Role": role,
-        "X-User-Strategies": ",".join(strategies),
-    }
-
-
 def _safe_float(value: Any, default: float = 0.0) -> float:
     """Safely coerce a value to a finite float, returning *default* on failure.
 
@@ -681,6 +668,23 @@ async def _render_tca_dashboard(
                 # Discard results from superseded requests
                 if current_generation != state["_load_generation"]:
                     return
+
+                # Validate that the response belongs to the requested
+                # order before caching.  An upstream cache/routing bug
+                # could return data for a different order, which would
+                # be silently cached under the wrong key.
+                if benchmark_data is not None:
+                    resp_order_id = str(benchmark_data.get("client_order_id", "")).strip()
+                    if resp_order_id and resp_order_id != fetch_order_id:
+                        logger.warning(
+                            "TCA benchmarks response order mismatch, discarding",
+                            extra={
+                                "requested": fetch_order_id,
+                                "received": resp_order_id,
+                                "strategy_id": str(state.get("strategy_id") or ""),
+                            },
+                        )
+                        benchmark_data = None
 
                 # Only cache responses whose payload passes the same
                 # shape validation used at render time.  This prevents
