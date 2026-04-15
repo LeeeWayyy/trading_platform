@@ -279,73 +279,6 @@ async def _fetch_tca_benchmarks(
     return None
 
 
-async def _fetch_tca_benchmarks(
-    client_order_id: str,
-    user_id: str,
-    role: str,
-    strategies: list[str],
-    benchmark: str = "vwap",
-    *,
-    symbol: str = "",
-    strategy_id: str = "",
-) -> dict[str, Any] | None:
-    """Fetch benchmark time series for an order.
-
-    Returns None on error so callers can hide the benchmark chart instead of
-    rendering synthetic data.
-    """
-    log_ctx: dict[str, Any] = {
-        "client_order_id": client_order_id,
-        "benchmark": benchmark,
-        "symbol": symbol,
-        "strategy_id": strategy_id,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
-                params={"client_order_id": client_order_id, "benchmark": benchmark},
-                headers=_build_tca_auth_headers(user_id, role, strategies),
-            )
-            if response.status_code == 200:
-                raw = response.json()
-                if not isinstance(raw, dict):
-                    logger.warning(
-                        "TCA benchmarks API returned non-dict JSON",
-                        extra=log_ctx,
-                    )
-                    return None
-                result: dict[str, Any] = raw
-                points = result.get("points")
-                if not isinstance(points, list):
-                    logger.warning(
-                        "TCA benchmarks API returned non-list points",
-                        extra={**log_ctx, "points_type": type(points).__name__},
-                    )
-                    return None
-                if not points:
-                    return None
-                # Discard entries that are not dicts to guard against
-                # schema drift from the upstream API.
-                result["points"] = [p for p in points if isinstance(p, dict)]
-                return result if result["points"] else None
-            logger.warning(
-                "TCA benchmarks API returned non-200",
-                extra={
-                    **log_ctx,
-                    "status": response.status_code,
-                    "body": response.text[:200],
-                },
-            )
-    except (httpx.RequestError, ValueError, KeyError, TypeError, AttributeError) as e:
-        logger.warning(
-            "TCA benchmarks API error",
-            extra={**log_ctx, "error": str(e)},
-        )
-        raise
-    return None
-
-
 def _generate_demo_data(
     start_date: date,
     end_date: date,
@@ -681,10 +614,6 @@ async def _render_tca_dashboard(
 
         # Discard results from superseded requests (rapid filter changes)
         if current_generation != state["_load_generation"]:
-            return
-
-        # Discard stale results if a newer load was triggered
-        if state["_load_version"] != current_version:
             return
 
         # Check for demo mode: API failure OR API returned demo data
