@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
+# Time-to-live for cached benchmark data (seconds).  Active orders can
+# accumulate new fills while keeping the same order ID, so the cache
+# must expire periodically to pick up fresh data.
+_BENCHMARK_CACHE_TTL_SECONDS = 120
 # Backend default fill limit for TCA queries (database.py:get_trades_for_tca).
 # Used to detect potential data truncation in the benchmark chart.
 # Note: a "may be truncated" warning is shown when point count reaches this
@@ -482,9 +486,11 @@ async def _render_tca_dashboard(
         "data": None,
         "demo_mode": False,
         # Cache benchmark data to avoid re-fetching on filter changes
-        # when the first order hasn't changed.
+        # when the first order hasn't changed.  Expires after
+        # _BENCHMARK_CACHE_TTL_SECONDS to pick up new fills.
         "_benchmark_cache_key": None,
         "_benchmark_cache_data": None,
+        "_benchmark_cache_time": 0.0,
         # Request versioning to prevent stale async results from
         # overwriting newer UI state on rapid filter changes.
         "_load_generation": 0,
@@ -639,11 +645,18 @@ async def _render_tca_dashboard(
         benchmark_data: dict[str, Any] | None = None
         fetch_order_id = _should_fetch_benchmark(orders, bool(state.get("demo_mode")))
         if fetch_order_id:
+            import time as _time
+
             # Use cached benchmark data if the first order hasn't
-            # changed, avoiding redundant API calls on filter tweaks.
-            # Only cache successful responses so transient failures
-            # are retried on the next load_data invocation.
-            if state.get("_benchmark_cache_key") == fetch_order_id:
+            # changed AND the cache hasn't expired, avoiding redundant
+            # API calls on rapid filter tweaks while still refreshing
+            # periodically to pick up new fills.
+            cache_age = _time.monotonic() - state.get("_benchmark_cache_time", 0.0)
+            cache_valid = (
+                state.get("_benchmark_cache_key") == fetch_order_id
+                and cache_age < _BENCHMARK_CACHE_TTL_SECONDS
+            )
+            if cache_valid:
                 benchmark_data = state["_benchmark_cache_data"]
             else:
                 try:
@@ -694,11 +707,13 @@ async def _render_tca_dashboard(
                 if benchmark_data is not None and _is_cacheable_benchmark(benchmark_data):
                     state["_benchmark_cache_key"] = fetch_order_id
                     state["_benchmark_cache_data"] = benchmark_data
+                    state["_benchmark_cache_time"] = _time.monotonic()
                 else:
                     # Clear stale cache so transient failures or
                     # malformed responses don't stick.
                     state["_benchmark_cache_key"] = None
                     state["_benchmark_cache_data"] = None
+                    state["_benchmark_cache_time"] = 0.0
         elif orders and state.get("demo_mode"):
             # Generate deterministic demo benchmark data so the chart
             # section is still visible in demo/fallback mode.
