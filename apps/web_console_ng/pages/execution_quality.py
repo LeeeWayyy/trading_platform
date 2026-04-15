@@ -96,23 +96,6 @@ def _format_benchmark_timestamp(value: Any, *, include_date: bool = False) -> st
     return dt.strftime(fmt)
 
 
-def _is_valid_price(value: Any) -> bool:
-    """Return True if *value* is a finite positive price.
-
-    Rejects zero, negative, NaN, infinity, booleans, and non-numeric values.
-    """
-    import math
-
-    # Reject booleans explicitly since float(True) == 1.0
-    if isinstance(value, bool):
-        return False
-    try:
-        f = float(value)
-        return f > 0.0 and math.isfinite(f)
-    except (TypeError, ValueError):
-        return False
-
-
 def _safe_float(value: Any, default: float = 0.0) -> float:
     """Safely coerce a value to a finite float, returning *default* on failure.
 
@@ -793,13 +776,13 @@ async def _render_tca_dashboard(
                         chart_title += " (First Order)"
                     ui.label(chart_title).classes("text-lg font-bold mb-2")
 
-                    # Filter out points with non-finite prices to avoid
-                    # misleading zero-price dips on the chart.
+                    # Filter out points with invalid prices (zero, negative,
+                    # NaN, null) to avoid misleading chart distortions.
                     valid_points = [
                         p
                         for p in validated_points
-                        if _is_numeric(p.get("execution_price"))
-                        and _is_numeric(p.get("benchmark_price"))
+                        if _is_valid_price(p.get("execution_price"))
+                        and _is_valid_price(p.get("benchmark_price"))
                     ]
                     if valid_points:
                         create_benchmark_comparison_chart(
