@@ -51,6 +51,79 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
+# Backend default fill limit for TCA queries (database.py:get_trades_for_tca).
+# Used to detect potential data truncation in the benchmark chart.
+# Note: a "may be truncated" warning is shown when point count reaches this
+# limit. This can false-positive when there are exactly _BACKEND_FILL_LIMIT
+# fills, but under-warning is worse than over-warning for TCA accuracy.
+_BACKEND_FILL_LIMIT = 500
+
+
+_DATETIME_MIN_UTC = datetime.min.replace(tzinfo=UTC)
+
+
+def _parse_utc(value: Any) -> datetime:
+    """Parse a timestamp to a UTC-aware datetime.
+
+    Naive values are assumed UTC.  Unparseable values map to
+    ``_DATETIME_MIN_UTC`` so they sort first.
+    """
+    text = str(value)
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except ValueError:
+        return _DATETIME_MIN_UTC
+
+
+def _is_valid_timestamp(value: Any) -> bool:
+    """Return True if *value* can be parsed to a real UTC datetime."""
+    return _parse_utc(value) != _DATETIME_MIN_UTC
+
+
+def _format_benchmark_timestamp(value: Any, *, include_date: bool = False) -> str:
+    """Format a benchmark point timestamp as ``HH:MM:SS UTC``.
+
+    When *include_date* is True the output includes the date prefix
+    (``YYYY-MM-DD HH:MM:SS UTC``) for multi-day fill windows.
+    """
+    dt = _parse_utc(value)
+    if dt == _DATETIME_MIN_UTC:
+        return str(value)
+    fmt = "%Y-%m-%d %H:%M:%S UTC" if include_date else "%H:%M:%S UTC"
+    return dt.strftime(fmt)
+
+
+def _is_valid_price(value: Any) -> bool:
+    """Return True if *value* is a finite positive price.
+
+    Rejects zero, negative, NaN, infinity, booleans, and non-numeric values.
+    """
+    import math
+
+    # Reject booleans explicitly since float(True) == 1.0
+    if isinstance(value, bool):
+        return False
+    try:
+        f = float(value)
+        return f > 0.0 and math.isfinite(f)
+    except (TypeError, ValueError):
+        return False
+
+
+def _build_tca_auth_headers(
+    user_id: str,
+    role: str,
+    strategies: list[str],
+) -> dict[str, str]:
+    """Build auth headers for TCA API calls."""
+    return {
+        "X-User-ID": user_id,
+        "X-User-Role": role,
+        "X-User-Strategies": ",".join(strategies),
+    }
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -203,6 +276,73 @@ async def _fetch_tca_benchmarks(
         "TCA benchmark API returned non-200",
         extra={**log_ctx, "status": response.status_code},
     )
+    return None
+
+
+async def _fetch_tca_benchmarks(
+    client_order_id: str,
+    user_id: str,
+    role: str,
+    strategies: list[str],
+    benchmark: str = "vwap",
+    *,
+    symbol: str = "",
+    strategy_id: str = "",
+) -> dict[str, Any] | None:
+    """Fetch benchmark time series for an order.
+
+    Returns None on error so callers can hide the benchmark chart instead of
+    rendering synthetic data.
+    """
+    log_ctx: dict[str, Any] = {
+        "client_order_id": client_order_id,
+        "benchmark": benchmark,
+        "symbol": symbol,
+        "strategy_id": strategy_id,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
+                params={"client_order_id": client_order_id, "benchmark": benchmark},
+                headers=_build_tca_auth_headers(user_id, role, strategies),
+            )
+            if response.status_code == 200:
+                raw = response.json()
+                if not isinstance(raw, dict):
+                    logger.warning(
+                        "TCA benchmarks API returned non-dict JSON",
+                        extra=log_ctx,
+                    )
+                    return None
+                result: dict[str, Any] = raw
+                points = result.get("points")
+                if not isinstance(points, list):
+                    logger.warning(
+                        "TCA benchmarks API returned non-list points",
+                        extra={**log_ctx, "points_type": type(points).__name__},
+                    )
+                    return None
+                if not points:
+                    return None
+                # Discard entries that are not dicts to guard against
+                # schema drift from the upstream API.
+                result["points"] = [p for p in points if isinstance(p, dict)]
+                return result if result["points"] else None
+            logger.warning(
+                "TCA benchmarks API returned non-200",
+                extra={
+                    **log_ctx,
+                    "status": response.status_code,
+                    "body": response.text[:200],
+                },
+            )
+    except (httpx.RequestError, ValueError, KeyError, TypeError, AttributeError) as e:
+        logger.warning(
+            "TCA benchmarks API error",
+            extra={**log_ctx, "error": str(e)},
+        )
+        raise
     return None
 
 
@@ -541,6 +681,10 @@ async def _render_tca_dashboard(
 
         # Discard results from superseded requests (rapid filter changes)
         if current_generation != state["_load_generation"]:
+            return
+
+        # Discard stale results if a newer load was triggered
+        if state["_load_version"] != current_version:
             return
 
         # Check for demo mode: API failure OR API returned demo data

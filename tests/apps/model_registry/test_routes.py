@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -61,10 +62,10 @@ def _client_with_registry(registry: MagicMock) -> TestClient:
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes.verify_read_scope] = lambda: ServiceToken(
-        token="read", scopes=["model:read"], service_name="svc"
+        scopes=("model:read",), auth_role="svc"
     )
     app.dependency_overrides[routes.verify_write_scope] = lambda: ServiceToken(
-        token="write", scopes=["model:write"], service_name="svc"
+        scopes=("model:write",), auth_role="svc"
     )
     app.dependency_overrides[routes.get_registry] = lambda: registry
     return TestClient(app)
@@ -92,6 +93,99 @@ def test_get_current_model_success() -> None:
     assert payload["model_type"] == "risk_model"
     assert payload["version"] == "v1.0.0"
     assert payload["checksum"] == "checksum"
+
+
+def _assert_auth_role_in_logs(
+    caplog: pytest.LogCaptureFixture,
+    expected_message: str,
+) -> None:
+    """Assert that a log record with the given message includes auth_role."""
+    matching = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.INFO and expected_message in r.getMessage()
+    ]
+    assert len(matching) >= 1, (
+        f"Expected INFO record containing '{expected_message}'"
+    )
+    for record in matching:
+        assert hasattr(record, "auth_role"), "Log record must include auth_role"
+        assert record.auth_role == "svc"
+        # Verify constant service identifier for log query compatibility
+        assert hasattr(record, "service"), "Log record must include service"
+        assert record.service == "model_registry"
+
+
+def test_get_current_model_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
+    """Ensure route logs include auth_role field (fixes #174)."""
+    registry = MagicMock()
+    registry.get_current_production.return_value = _build_metadata()
+    client = _client_with_registry(registry)
+
+    with caplog.at_level(logging.INFO, logger="apps.model_registry.routes"):
+        response = client.get("/api/v1/models/risk_model/current")
+
+    assert response.status_code == 200
+    _assert_auth_role_in_logs(caplog, "Retrieved current production model")
+
+
+def test_get_model_metadata_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
+    """Ensure metadata endpoint logs include auth_role field."""
+    metadata = _build_metadata()
+    registry = MagicMock()
+    registry.get_model_metadata.return_value = metadata
+    registry.get_model_info.return_value = {
+        "status": "production",
+        "artifact_path": "/tmp/artifact",
+        "promoted_at": datetime(2024, 2, 1, tzinfo=UTC),
+    }
+    client = _client_with_registry(registry)
+
+    with caplog.at_level(logging.INFO, logger="apps.model_registry.routes"):
+        response = client.get("/api/v1/models/risk_model/v1.0.0")
+
+    assert response.status_code == 200
+    _assert_auth_role_in_logs(caplog, "Retrieved model metadata")
+
+
+def test_list_models_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
+    """Ensure list endpoint logs include auth_role field."""
+    metadata = _build_metadata()
+    registry = MagicMock()
+    registry.list_models.return_value = [metadata]
+    registry.get_model_info_bulk.return_value = {
+        metadata.version: {
+            "status": ModelStatus.production.value,
+            "artifact_path": "/tmp/artifact",
+            "promoted_at": None,
+        },
+    }
+    client = _client_with_registry(registry)
+
+    with caplog.at_level(logging.INFO, logger="apps.model_registry.routes"):
+        response = client.get("/api/v1/models/risk_model")
+
+    assert response.status_code == 200
+    _assert_auth_role_in_logs(caplog, "Listed models")
+
+
+def test_validate_model_logs_auth_role(caplog: pytest.LogCaptureFixture) -> None:
+    """Ensure validate endpoint logs include auth_role field."""
+    registry = MagicMock()
+    registry.validate_model.return_value = ValidationResult(
+        valid=True,
+        model_id="model-v1",
+        checksum_verified=True,
+        load_successful=True,
+        errors=[],
+    )
+    client = _client_with_registry(registry)
+
+    with caplog.at_level(logging.INFO, logger="apps.model_registry.routes"):
+        response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
+
+    assert response.status_code == 200
+    _assert_auth_role_in_logs(caplog, "Validated model")
 
 
 def test_get_current_model_handles_lock_error() -> None:

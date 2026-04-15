@@ -324,11 +324,13 @@ def test_navigation_item_structure() -> None:
     assert items == [
         ("Dashboard", "/", "dashboard", None),
         ("Manual Controls", "/manual-order", "edit", None),
+        ("Position Mgmt", "/position-management", "swap_vert", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
         ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
         ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
+        ("Attribution", "/attribution", "pie_chart", None),  # P6T16
         ("Universes", "/research/universes", "category", None),  # P6T15
         ("Alpha Explorer", "/alpha-explorer", "insights", None),
         ("Compare", "/compare", "compare_arrows", None),
@@ -336,6 +338,12 @@ def test_navigation_item_structure() -> None:
         ("Notebooks", "/notebooks", "article", None),
         ("Performance", "/performance", "show_chart", None),
         ("Reports", "/reports", "summarize", None),
+        ("Data Hub", "/data", "storage", None),  # P6T13
+        ("Coverage", "/data/coverage", "dataset", None),  # P6T13
+        ("Sources", "/data/sources", "cloud", None),  # P6T13
+        ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
+        ("Features", "/data/features", "auto_awesome", None),  # P6T13
+        ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
         ("Backtest", "/backtest", "science", None),
         ("Strategies", "/strategies", "model_training", None),  # P6T17
         ("Models", "/models", "hub", None),  # P6T17

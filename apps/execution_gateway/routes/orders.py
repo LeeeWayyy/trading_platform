@@ -203,6 +203,37 @@ order_modify_rl = rate_limit(
 )
 
 
+def _ensure_strategy_access(
+    strategy_id: str,
+    auth_context: AuthContext,
+    *,
+    detail: str = "Not authorized",
+) -> None:
+    """Enforce fail-closed strategy-scope authorization.
+
+    Checks that the authenticated user's strategy list includes the given
+    ``strategy_id`` (case-insensitive).  Internal S2S callers
+    (``auth_type == "internal_token"``) are authorized via their service-level
+    permissions and bypass user-level strategy scoping.  Unauthenticated
+    callers (``log_only`` mode) are allowed through so that staged rollouts
+    are not broken.  Used consistently by all order-level endpoints: get,
+    cancel, modify, modification history, and audit trail.
+    """
+    # Internal services bypass strategy-level scoping (authorized via service permissions)
+    if auth_context.auth_type == "internal_token":
+        return
+
+    # Respect log_only mode: allow unauthenticated requests to proceed
+    # when auth enforcement is disabled (staged rollouts)
+    if not auth_context.is_authenticated:
+        return
+
+    authorized_strategies = {s.lower() for s in get_authorized_strategies(auth_context.user)}
+    target_strategy = (strategy_id or "").lower()
+    if not authorized_strategies or target_strategy not in authorized_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
 # =============================================================================
 # Safety Gate Helpers (Redis-based, fail-closed)
 # =============================================================================
@@ -1348,6 +1379,30 @@ async def twap_preview(
     )
 
 
+def _idempotency_payload_matches(
+    order: OrderRequest, existing: OrderDetail, strategy_id: str
+) -> bool:
+    """Return True when the incoming request matches the stored order.
+
+    Comparison covers the core order-defining fields (symbol, side, qty,
+    order_type, prices, time_in_force, execution_style, strategy_id).
+    TWAP-specific timing fields are omitted because the ``/api/v1/orders``
+    endpoint rejects TWAP orders; if TWAP support is added later, extend
+    this comparison accordingly.
+    """
+    return (
+        order.symbol == existing.symbol
+        and order.side == existing.side
+        and order.qty == existing.qty
+        and order.order_type == existing.order_type
+        and order.limit_price == existing.limit_price
+        and order.stop_price == existing.stop_price
+        and order.time_in_force == existing.time_in_force
+        and order.execution_style == (existing.execution_style or "instant")
+        and strategy_id == existing.strategy_id
+    )
+
+
 # =============================================================================
 # POST /api/v1/orders - Submit Order
 # =============================================================================
@@ -1365,9 +1420,13 @@ async def submit_order(
     """
     Submit order with idempotent retry semantics.
 
-    The order is assigned a deterministic client_order_id based on the order
-    parameters and current date. This ensures that the same order submitted
-    multiple times will have the same ID and won't create duplicates.
+    By default the order is assigned a deterministic client_order_id
+    derived from the order parameters and current date, ensuring that the
+    same order submitted multiple times gets the same ID.  Callers may
+    supply an explicit ``client_order_id`` to disambiguate repeat orders
+    that share identical parameters on the same day.  When a
+    caller-supplied ID collides with an existing order whose payload
+    differs, the request is rejected with HTTP 409.
 
     In DRY_RUN mode (default), orders are logged to database but NOT submitted
     to Alpaca. Set DRY_RUN=false to enable actual paper trading.
@@ -1398,14 +1457,16 @@ async def submit_order(
 
     Raises:
         HTTPException 400: Invalid order parameters
+        HTTPException 409: Caller-supplied client_order_id collides with different order
         HTTPException 422: Order rejected by broker
         HTTPException 503: Broker connection error
     """
     # Safety gating uses RecoveryManager (thread-safe, fail-closed)
     start_time = time.time()
 
-    # Generate deterministic client_order_id
-    client_order_id = generate_client_order_id(order, config.strategy_id)
+    # Honour caller-supplied client_order_id so repeat orders with identical
+    # parameters can be disambiguated.  Fall back to deterministic generation.
+    client_order_id = order.client_order_id if order.client_order_id is not None else generate_client_order_id(order, config.strategy_id)
 
     logger.info(
         f"Order request received: {order.symbol} {order.side} {order.qty}",
@@ -1630,6 +1691,36 @@ async def submit_order(
     if existing_order:
         # Release reservation for duplicate order
         position_reservation.release(order.symbol, reservation_token)
+
+        # Verify that the request payload matches the existing order.
+        # A mismatch means the ID was reused for a different order
+        # (caller-supplied collision or hash collision), which would
+        # silently suppress the intended order.
+        if not _idempotency_payload_matches(
+            order, existing_order, config.strategy_id
+        ):
+            logger.warning(
+                f"Caller-supplied client_order_id collides with a different order: "
+                f"{client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "strategy_id": config.strategy_id,
+                    "existing_symbol": existing_order.symbol,
+                    "existing_side": existing_order.side,
+                    "existing_qty": existing_order.qty,
+                    "request_symbol": order.symbol,
+                    "request_side": order.side,
+                    "request_qty": order.qty,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"client_order_id '{client_order_id}' already exists for a "
+                    "different order. Supply a unique ID."
+                ),
+            )
+
         logger.info(
             f"Order already exists (idempotent): {client_order_id}",
             extra={
@@ -1710,6 +1801,30 @@ async def submit_order(
         )
         order_detail = ctx.db.get_order_by_client_id(client_order_id)
         if order_detail:
+            # Guard against ID collision in the race path (caller-supplied
+            # or hash collision)
+            if not _idempotency_payload_matches(
+                order, order_detail, config.strategy_id
+            ):
+                logger.warning(
+                    f"client_order_id race collision with a different "
+                    f"order: {client_order_id}",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "strategy_id": config.strategy_id,
+                        "existing_symbol": order_detail.symbol,
+                        "existing_side": order_detail.side,
+                        "request_symbol": order.symbol,
+                        "request_side": order.side,
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"client_order_id '{client_order_id}' already exists for a "
+                        "different order. Supply a unique ID."
+                    ),
+                ) from None
             return OrderResponse(
                 client_order_id=client_order_id,
                 status=order_detail.status,
@@ -2003,9 +2118,7 @@ async def modify_order(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies or order.strategy_id not in authorized_strategies:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     # Idempotency check BEFORE status check to allow retries of completed modifications
     existing = ctx.db.get_modification_by_idempotency_key(client_order_id, payload.idempotency_key)
@@ -2138,9 +2251,7 @@ async def get_modification_history(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies or order.strategy_id not in authorized_strategies:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     records = ctx.db.get_modifications_for_order(client_order_id)
     return [
@@ -2175,7 +2286,6 @@ async def cancel_order(
 
     Args:
         client_order_id: The client order ID to cancel
-        response: FastAPI response object
         _auth_context: Authentication context (injected)
         _rate_limit_remaining: Rate limit remaining (injected)
         ctx: Application context with all dependencies (injected)
@@ -2183,6 +2293,10 @@ async def cancel_order(
 
     Returns:
         Dict with cancellation status
+
+    Raises:
+        HTTPException 404: Order not found
+        HTTPException 403: Not authorized for this order's strategy
     """
     order = ctx.db.get_order_by_client_id(client_order_id)
     if not order:
@@ -2190,6 +2304,8 @@ async def cancel_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Order not found: {client_order_id}",
         )
+
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     if order.status in TERMINAL_STATUSES:
         return {
@@ -2245,7 +2361,7 @@ async def get_order(
     Get order details by client_order_id.
 
     Args:
-        client_order_id: Deterministic client order ID
+        client_order_id: Client order ID (deterministic or caller-supplied)
         _auth_context: Authentication context (injected)
         ctx: Application context with all dependencies (injected)
 
@@ -2254,6 +2370,7 @@ async def get_order(
 
     Raises:
         HTTPException 404: Order not found
+        HTTPException 403: Not authorized for this order's strategy
     """
     order = ctx.db.get_order_by_client_id(client_order_id)
 
@@ -2262,6 +2379,8 @@ async def get_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Order not found: {client_order_id}",
         )
+
+    _ensure_strategy_access(order.strategy_id, _auth_context)
 
     return order
 
@@ -2313,7 +2432,7 @@ async def get_order_audit_trail(
     Each entry includes IP address and session ID for compliance tracking.
 
     Args:
-        client_order_id: Deterministic client order ID
+        client_order_id: Client order ID (deterministic or caller-supplied)
         limit: Maximum entries to return (default 100)
 
     Returns:
@@ -2331,19 +2450,9 @@ async def get_order_audit_trail(
             detail=f"Order not found: {client_order_id}",
         )
 
-    # Verify strategy authorization (fail-closed: empty list = deny)
-    authorized_strategies = get_authorized_strategies(_auth_context.user)
-    if not authorized_strategies:
-        # No strategies assigned - deny access (fail-closed security)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No strategy access - cannot view audit trail",
-        )
-    if order.strategy_id not in authorized_strategies:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this order's audit trail",
-        )
+    _ensure_strategy_access(
+        order.strategy_id, _auth_context, detail="Not authorized to view this order's audit trail"
+    )
 
     # Check if user is admin (for PII visibility)
     user_is_admin = is_admin(_auth_context.user)

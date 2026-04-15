@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-04-06
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 
@@ -638,6 +638,8 @@ tests/
 │       ├── backtest/
 │       ├── risk/
 │       └── risk_management/
+├── infra/                 # Infrastructure config tests
+│   └── test_nicegui_alerts.py
 ├── strategies/            # Strategy tests
 │   └── alpha_baseline/
 ├── scripts/               # Script tests
@@ -894,5 +896,5 @@ make kill-switch # Emergency stop
 ---
 
 **Document Version:** 2.3 (AI Context Optimization — cross-platform skills & context)
-**Last Updated:** 2026-03-02
+**Last Updated:** 2026-04-06
 **Maintained By:** Development Team

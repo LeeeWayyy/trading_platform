@@ -18,6 +18,8 @@ RUN mkdir -p /app/.nicegui && chown appuser:appuser /app/.nicegui
 
 COPY --chown=appuser:appuser apps/web_console_ng /app/apps/web_console_ng
 COPY --chown=appuser:appuser libs /app/libs
+COPY --chown=appuser:appuser config /app/config
+COPY --chown=appuser:appuser strategies /app/strategies
 
 ENV PYTHONPATH=/app
 

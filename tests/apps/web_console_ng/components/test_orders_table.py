@@ -34,8 +34,9 @@ class DummyGrid:
         """Mock update method for NiceGUI aggrid."""
         pass
 
-    def run_grid_method(self, method: str, payload: object, timeout: float = 5) -> None:
+    def run_grid_method(self, method: str, *args: object, timeout: float = 5) -> None:
         """Mock run_grid_method - sync to capture fire-and-forget calls."""
+        payload: object = args[0] if len(args) == 1 else args
         self.calls.append((method, payload))
 
 
@@ -114,7 +115,10 @@ async def test_update_orders_table_add_update_remove(dummy_ui) -> None:
 
     current_ids = await orders_module.update_orders_table(grid, first_orders)
     assert current_ids == {"id-1", "id-2"}
-    assert grid.calls[-1][0] == "setRowData"
+    method, payload = grid.calls[-1]
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
+    assert payload[1] == first_orders
 
     next_orders = [
         {"client_order_id": "id-1", "symbol": "AAPL", "status": "filled"},
@@ -146,8 +150,9 @@ async def test_update_orders_table_missing_client_order_id_fallback(dummy_ui) ->
     assert current_ids == {"__ng_fallback_broker-1"}
 
     method, payload = grid.calls[-1]
-    assert method == "setRowData"
-    row = payload[0]
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
+    row = payload[1][0]
     assert row["client_order_id"] == "__ng_fallback_broker-1"
     assert row["_missing_client_order_id"] is True
     assert row["_broker_order_id"] == "broker-1"
@@ -235,9 +240,10 @@ async def test_update_orders_table_same_batch_duplicates_get_unique_ids(dummy_ui
 
     # Verify grid received both orders
     method, payload = grid.calls[-1]
-    assert method == "setRowData"
-    assert len(payload) == 2
-    row_ids = [row["client_order_id"] for row in payload]
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
+    assert len(payload[1]) == 2
+    row_ids = [row["client_order_id"] for row in payload[1]]
     assert len(set(row_ids)) == 2  # All unique
 
 

@@ -372,6 +372,7 @@ services:
     environment:
       # Use Docker DNS for in-network execution gateway access
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
+      - PROJECT_ROOT=/app
       - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
       # SECURITY: No defaults - force explicit credential configuration
       # Create .env file with: WEB_CONSOLE_USER=<your_username>

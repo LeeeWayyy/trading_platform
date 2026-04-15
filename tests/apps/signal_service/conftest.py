@@ -526,6 +526,7 @@ def mock_settings():
     settings.data_dir = "data/adjusted"
     settings.top_n = 2
     settings.bottom_n = 2
+    settings.environment = "dev"
 
     return settings
 

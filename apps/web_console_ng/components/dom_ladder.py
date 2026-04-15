@@ -48,14 +48,14 @@ class DOMLadderComponent:
         return "Mock" in self._entitlement_reason
 
     def create(self) -> ui.card:
-        with ui.card().classes("p-3 w-full bg-surface-1") as card:
+        with ui.card().classes("workspace-v2-panel p-2 w-full h-full overflow-hidden") as card:
             header = ui.row().classes("w-full items-center justify-between mb-2")
             with header:
-                ui.label("Order Book (L2)").classes("text-sm font-semibold text-text-secondary")
-                self._symbol_label = ui.label("--").classes("text-sm font-mono-numbers")
+                ui.label("Order Book (L2)").classes("workspace-v2-panel-title")
+                self._symbol_label = ui.label("--").classes("workspace-v2-kv workspace-v2-data-mono")
 
-            self._status_label = ui.label("").classes("text-xs text-text-secondary mb-2")
-            ui.element("div").classes("dom-ladder").props(f'id="{self._container_id}"')
+            self._status_label = ui.label("").classes("workspace-v2-kv mb-1")
+            ui.element("div").classes("dom-ladder h-full").props(f'id="{self._container_id}"')
 
         if not self._entitled:
             self._set_status(self._entitlement_reason, is_warning=True)

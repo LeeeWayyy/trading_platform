@@ -55,3 +55,17 @@
     gap: 4px;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
+
+.workspace-v2 .ag-grid-compact .ag-row {
+    height: 20px !important;
+}
+
+.workspace-v2 .ag-grid-compact .ag-header-row {
+    height: 26px !important;
+}
+
+.workspace-v2 .ag-grid-compact .ag-cell {
+    font-size: 11px !important;
+    line-height: 20px !important;
+    padding: 0 3px !important;
+}

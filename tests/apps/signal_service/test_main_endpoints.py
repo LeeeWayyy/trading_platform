@@ -376,7 +376,7 @@ class TestGenerateSignalsEndpoint:
         )
 
         assert response.status_code == 404
-        assert "Data not found" in response.json()["detail"]
+        assert "market data not found" in response.json()["detail"]
 
     def test_generate_signals_value_error(
         self,

@@ -68,6 +68,12 @@ def format_tab_label(title: str, count: int | None) -> str:
     return f"{title} ({display})"
 
 
+def _quote_tab_label(label: str) -> str:
+    """Quote label for NiceGUI props assignment."""
+    escaped = label.replace("\\", "\\\\").replace('"', '\\"')
+    return f'label="{escaped}"'
+
+
 def filter_items_by_symbol(items: list[dict[str, Any]], symbol: str | None) -> list[dict[str, Any]]:
     """Filter items by symbol if provided."""
     normalized = normalize_symbol(symbol)
@@ -167,7 +173,20 @@ class TabbedPanel:
         title = TAB_TITLES.get(tab_name, tab_name.title())
         if tab is None:
             return
-        tab.set_label(format_tab_label(title, count))  # type: ignore[attr-defined]
+        label = format_tab_label(title, count)
+        # NiceGUI Tab API differs across versions:
+        # - some expose `set_label(...)`
+        # - newer versions only keep a `label` prop and `update()`.
+        set_label = getattr(tab, "set_label", None)
+        if callable(set_label):
+            set_label(label)
+            return
+        set_props = getattr(tab, "props", None)
+        if callable(set_props):
+            set_props(_quote_tab_label(label))
+            tab.update()
+            return
+        logger.warning("tabbed_panel_badge_update_unsupported", extra={"tab": tab_name})
 
     def get_grid(self, tab_name: str) -> ui.aggrid | None:
         """Get grid instance if created."""

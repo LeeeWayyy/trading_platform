@@ -100,6 +100,20 @@ async def test_runtime_error_before_startup() -> None:
 
 
 @pytest.mark.asyncio()
+@respx.mock
+async def test_fetch_strategy_status(trading_client: AsyncTradingClient) -> None:
+    route = respx.get("http://testserver/api/v1/strategies/alpha_baseline").mock(
+        return_value=Response(200, json={"strategy_id": "alpha_baseline", "status": "active"})
+    )
+
+    result = await trading_client.fetch_strategy_status("alpha_baseline", "user-1")
+
+    assert result["strategy_id"] == "alpha_baseline"
+    assert result["status"] == "active"
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio()
 async def test_client_lifecycle() -> None:
     client = AsyncTradingClient.get()
     client._http_client = None

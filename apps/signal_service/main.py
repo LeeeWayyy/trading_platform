@@ -78,7 +78,7 @@ from libs.platform.web_console_auth.permissions import Permission
 from .config import Settings
 from .model_registry import ModelMetadata, ModelRegistry
 from .shadow_validator import ShadowModeValidator, ShadowValidationResult
-from .signal_generator import SignalGenerator
+from .signal_generator import FeatureGenerationError, SignalGenerator
 
 
 def _format_database_url_for_logging(database_url: str) -> str:
@@ -116,7 +116,7 @@ hydration_complete = True
 # Bounded to prevent memory leaks from arbitrary user-provided combinations
 # Uses OrderedDict + asyncio.Lock for thread-safe LRU eviction
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
-_generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
+_generator_cache: OrderedDict[tuple[int, int, str], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
 
 
@@ -801,6 +801,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 top_n=settings.top_n,
                 bottom_n=settings.bottom_n,
                 feature_cache=feature_cache,  # Pass feature cache (None if disabled)
+                environment=settings.environment,
             )
 
         # Step 4.2: Initialize shadow validator (T4)
@@ -1834,7 +1835,7 @@ async def generate_signals(
             # This avoids creating a new SignalGenerator for each request
             # Uses asyncio.Lock for thread-safety and LRU eviction policy
             if request.top_n is not None or request.bottom_n is not None:
-                cache_key = (top_n, bottom_n)
+                cache_key = (top_n, bottom_n, settings.environment.lower())
                 cached_generator = None
 
                 async with _generator_cache_lock:
@@ -1857,6 +1858,7 @@ async def generate_signals(
                             top_n=top_n,
                             bottom_n=bottom_n,
                             feature_cache=feature_cache,  # Pass feature cache for consistency
+                            environment=settings.environment,
                         )
                         _generator_cache[cache_key] = cached_generator
 
@@ -1869,19 +1871,56 @@ async def generate_signals(
                     symbols=request.symbols,
                     as_of_date=as_of_date,
                 )
-        except FileNotFoundError as exc:
+        except FeatureGenerationError as exc:
+            logger.error(
+                "Signal generation failed: feature generation error (mock fallback disabled)",
+                extra={
+                    "symbols": request.symbols[:10],
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=f"Data not found: {str(exc)}"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Signal generation failed due to a feature generation error",
+            ) from exc
+        except FileNotFoundError as exc:
+            logger.error(
+                "Signal generation failed: data not found",
+                extra={
+                    "symbols": request.symbols[:10],
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Requested market data not found",
             ) from exc
         except ValueError as exc:
+            logger.error(
+                "Signal generation failed: value error",
+                extra={
+                    "symbols": request.symbols[:10],
+                    "as_of_date": as_of_date.date().isoformat(),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request: {str(exc)}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid request parameters or data unavailable",
             ) from exc
-        except (KeyError, TypeError) as exc:
+        except (KeyError, TypeError, AttributeError) as exc:
             logger.error(
                 "Signal generation failed: invalid data format",
                 extra={
-                    "symbols": request.symbols,
+                    "symbols": request.symbols[:10],
                     "as_of_date": as_of_date.date().isoformat(),
                     "strategy": (
                         model_registry.current_metadata.strategy_name
@@ -1895,13 +1934,13 @@ async def generate_signals(
             )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Signal generation failed: {str(exc)}",
+                detail="Signal generation failed due to a data format error",
             ) from exc
         except OSError as exc:
             logger.error(
                 "Signal generation failed: data file I/O error",
                 extra={
-                    "symbols": request.symbols,
+                    "symbols": request.symbols[:10],
                     "as_of_date": as_of_date.date().isoformat(),
                     "error": str(exc),
                     "error_type": type(exc).__name__,
@@ -1910,13 +1949,13 @@ async def generate_signals(
             )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Signal generation failed: {str(exc)}",
+                detail="Signal generation failed due to a system I/O error",
             ) from exc
         except RedisConnectionError as exc:
             logger.error(
                 "Signal generation failed: Redis connection error",
                 extra={
-                    "symbols": request.symbols,
+                    "symbols": request.symbols[:10],
                     "as_of_date": as_of_date.date().isoformat(),
                     "error": str(exc),
                 },
@@ -2007,7 +2046,7 @@ async def generate_signals(
         logger.error(
             "Unhandled failure in generate_signals: invalid data or type error",
             extra={
-                "symbols": request.symbols if "request" in locals() else [],
+                "symbols": request.symbols[:10] if "request" in locals() else [],
                 "error": str(e),
                 "error_type": type(e).__name__,
             },
@@ -2019,7 +2058,7 @@ async def generate_signals(
         logger.error(
             "Unhandled failure in generate_signals: file or I/O error",
             extra={
-                "symbols": request.symbols if "request" in locals() else [],
+                "symbols": request.symbols[:10] if "request" in locals() else [],
                 "error": str(e),
                 "error_type": type(e).__name__,
             },
@@ -2031,7 +2070,7 @@ async def generate_signals(
         logger.error(
             "Unhandled failure in generate_signals: runtime error",
             extra={
-                "symbols": request.symbols if "request" in locals() else [],
+                "symbols": request.symbols[:10] if "request" in locals() else [],
                 "error": str(e),
             },
             exc_info=True,
@@ -2068,6 +2107,12 @@ class PrecomputeRequest(BaseModel):
         description="Date for feature computation (ISO format: YYYY-MM-DD). Defaults to today.",
         examples=["2024-12-31"],
     )
+
+    @validator("symbols")
+    @classmethod
+    def validate_symbols(cls, v: list[str]) -> list[str]:
+        """Normalize symbols to uppercase."""
+        return [s.upper() for s in v]
 
 
 class PrecomputeResponse(BaseModel):
@@ -2147,14 +2192,92 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
     else:
         as_of_date = datetime.now(UTC)
 
-    # Normalize symbols to uppercase
-    symbols = [s.upper() for s in request.symbols]
+    # Symbols already normalized to uppercase by PrecomputeRequest.validate_symbols
+    symbols = request.symbols
 
-    # Pre-compute features
-    result = signal_generator.precompute_features(
-        symbols=symbols,
-        as_of_date=as_of_date,
-    )
+    # Pre-compute features (run in thread to avoid blocking the event loop
+    # during heavy Parquet I/O and Qlib feature computation)
+    try:
+        result = await asyncio.to_thread(
+            signal_generator.precompute_features,
+            symbols=symbols,
+            as_of_date=as_of_date,
+        )
+    except FileNotFoundError as exc:
+        logger.error(
+            "Feature precomputation failed: data not found",
+            extra={
+                "symbols": symbols[:10],
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested market data not found",
+        ) from exc
+    except FeatureGenerationError as exc:
+        logger.error(
+            "Feature precomputation failed: feature generation error (mock fallback disabled)",
+            extra={
+                "symbols": symbols[:10],
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Feature precomputation failed due to a feature generation error",
+        ) from exc
+    except ValueError as exc:
+        logger.error(
+            "Feature precomputation failed: value error",
+            extra={
+                "symbols": symbols[:10],
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Feature precomputation failed due to a data error",
+        ) from exc
+    except (KeyError, TypeError, AttributeError) as exc:
+        logger.error(
+            "Feature precomputation failed: invalid data format",
+            extra={
+                "symbols": symbols[:10],
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Feature precomputation failed due to a data format error",
+        ) from exc
+    except OSError as exc:
+        logger.error(
+            "Feature precomputation failed: data file I/O error",
+            extra={
+                "symbols": symbols[:10],
+                "as_of_date": as_of_date.date().isoformat(),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Feature precomputation failed due to a system I/O error",
+        ) from exc
 
     return PrecomputeResponse(
         cached_count=result["cached_count"],

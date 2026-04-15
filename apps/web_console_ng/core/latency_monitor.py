@@ -8,6 +8,7 @@ historical data for debugging purposes.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections import deque
 from enum import Enum
@@ -34,6 +35,12 @@ HISTORY_SIZE = 100  # Number of historical measurements to keep
 
 # Measurement timeout
 PING_TIMEOUT_SECONDS = 5.0
+
+# Lightweight ping endpoint used for latency checks.
+# Defaults to root to avoid triggering expensive dependency checks on /health.
+EXECUTION_GATEWAY_PING_PATH = os.getenv("EXECUTION_GATEWAY_PING_PATH", "/").strip() or "/"
+if not EXECUTION_GATEWAY_PING_PATH.startswith("/"):
+    EXECUTION_GATEWAY_PING_PATH = f"/{EXECUTION_GATEWAY_PING_PATH}"
 
 
 class LatencyStatus(Enum):
@@ -145,7 +152,7 @@ class LatencyMonitor:
             self._current_latency = None
 
     async def measure(self) -> float | None:
-        """Measure round-trip latency to the API health endpoint.
+        """Measure round-trip latency to the API ping endpoint.
 
         This method should be called periodically (every 5 seconds).
 
@@ -158,7 +165,7 @@ class LatencyMonitor:
             # Use persistent client for efficiency
             http_client = self._get_http_client()
             base_url = config.EXECUTION_GATEWAY_URL.rstrip("/")
-            response = await http_client.get(f"{base_url}/healthz")
+            response = await http_client.get(f"{base_url}{EXECUTION_GATEWAY_PING_PATH}")
             response.raise_for_status()
 
             # Calculate latency
