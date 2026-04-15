@@ -260,12 +260,15 @@ async def _fetch_tca_benchmarks(
         "symbol": symbol,
         "strategy_id": strategy_id,
     }
-    # Reuse the shared client for connection pooling.
+    # Reuse the shared client for connection pooling.  Use a shorter
+    # per-request timeout (10s) because benchmark fetches block the
+    # dashboard render path and should not stall the UI.
     client = _get_shared_client()
     response = await client.get(
         f"{EXECUTION_GATEWAY_URL}/api/v1/tca/benchmarks",
         params={"client_order_id": client_order_id, "benchmark": benchmark},
         headers=_build_tca_auth_headers(user_id, role, strategies),
+        timeout=10.0,
     )
     if response.status_code == 200:
         result = response.json()
