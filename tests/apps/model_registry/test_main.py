@@ -807,8 +807,8 @@ async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pyt
         _cors_allow_origins.clear()
 
 
-def test_verify_cors_guard_raises_on_copied_origins():
-    """Test guard raises RuntimeError when allow_origins is a different object."""
+def test_verify_cors_guard_reassigns_copied_origins():
+    """Test guard reassigns shared reference when allow_origins is a different object."""
     from starlette.middleware.cors import CORSMiddleware as RealCORSMiddleware
 
     # Create a middleware with a different list (simulates copy/freeze)
@@ -820,8 +820,11 @@ def test_verify_cors_guard_raises_on_copied_origins():
     guard_app = FastAPI()
     guard_app.middleware_stack = cors_mw
 
-    with pytest.raises(RuntimeError, match="does not hold a live reference"):
-        _verify_cors_middleware_uses_shared_origins(guard_app)
+    # Should not raise — guard reassigns the shared reference
+    _verify_cors_middleware_uses_shared_origins(guard_app)
+
+    # Verify the middleware now holds the shared reference
+    assert cors_mw.allow_origins is _cors_allow_origins
 
 
 def test_verify_cors_guard_logs_error_when_middleware_missing(caplog):

@@ -296,12 +296,14 @@ app.add_middleware(
 
 
 def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
-    """Verify CORSMiddleware holds a live reference to _cors_allow_origins.
+    """Ensure CORSMiddleware holds a live reference to _cors_allow_origins.
 
     Starlette currently stores ``allow_origins`` by reference, so mutating
     the list in-place during lifespan works.  If a future Starlette version
-    copies or freezes the sequence at init, this function **raises**
-    RuntimeError to prevent silently broken CORS.
+    copies or freezes the sequence at init, this function explicitly
+    reassigns the shared list reference onto the middleware instance so
+    that in-place mutations (``_cors_allow_origins[:] = ...``) are always
+    reflected at runtime.
 
     If CORSMiddleware is not found in the stack at all (less severe -- could
     be a test or config issue), an ERROR is logged but startup continues.
@@ -310,10 +312,6 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
         ``_cors_allow_origins`` is process-global by design (single-app-per-
         process architecture).  See the module-level comment above the list
         declaration for rationale.
-
-    Raises:
-        RuntimeError: If CORSMiddleware exists but its allow_origins is not
-            the same object as _cors_allow_origins (reference mismatch).
     """
     # ``middleware_stack`` is a plain instance attribute (not a property) in
     # Starlette <=0.36 and is ``None`` until the ASGI app is started.  When
@@ -331,12 +329,15 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
     while current is not None:
         if isinstance(current, CORSMiddleware):
             if current.allow_origins is not _cors_allow_origins:
-                raise RuntimeError(
-                    "CORSMiddleware does not hold a live reference to "
-                    "_cors_allow_origins. Starlette may have changed its "
-                    "init behavior. Pin starlette or revert to module-level "
-                    "CORS configuration."
+                # Starlette copied or froze the sequence during init.
+                # Force the middleware to use our shared list reference so
+                # that in-place mutations during lifespan are reflected.
+                logger.warning(
+                    "CORSMiddleware copied allow_origins during init; "
+                    "reassigning shared reference",
+                    extra={"middleware_type": type(current).__name__},
                 )
+                current.allow_origins = _cors_allow_origins
             return
         current = getattr(current, "app", None)
 
