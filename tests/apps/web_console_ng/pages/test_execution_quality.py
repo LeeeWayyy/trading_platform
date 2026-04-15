@@ -23,6 +23,7 @@ from apps.web_console_ng.pages.execution_quality import (
     _fetch_tca_benchmarks,
     _fetch_tca_data,
     _generate_demo_benchmark_data,
+    _is_cacheable_benchmark,
     _is_numeric,
     _safe_float,
     _should_fetch_benchmark,
@@ -175,9 +176,7 @@ class TestFetchTCAData:
                 )
 
     @pytest.mark.asyncio()
-    async def test_fetch_sends_auth_headers(
-        self, mock_response_data: dict[str, Any]
-    ) -> None:
+    async def test_fetch_sends_auth_headers(self, mock_response_data: dict[str, Any]) -> None:
         """Fetch sends correct authentication headers."""
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -507,6 +506,80 @@ class TestShouldFetchBenchmark:
         # returns the raw payload so the render guard can do its job.
         assert result is not None
         assert result["points"] == "bad-data"
+
+
+class TestIsCacheableBenchmark:
+    """Tests for _is_cacheable_benchmark validation helper."""
+
+    def test_valid_payload_is_cacheable(self) -> None:
+        """Well-formed benchmark payload with valid prices is cacheable."""
+        data: dict[str, Any] = {
+            "client_order_id": "order-1",
+            "points": [
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": 150.25,
+                    "benchmark_price": 150.1,
+                }
+            ],
+        }
+        assert _is_cacheable_benchmark(data) is True
+
+    def test_empty_points_is_not_cacheable(self) -> None:
+        """Empty points list is not cacheable (nothing to render)."""
+        data: dict[str, Any] = {"client_order_id": "order-1", "points": []}
+        assert _is_cacheable_benchmark(data) is False
+
+    def test_non_list_points_is_not_cacheable(self) -> None:
+        """Non-list points field is not cacheable."""
+        data: dict[str, Any] = {"client_order_id": "order-1", "points": "bad"}
+        assert _is_cacheable_benchmark(data) is False
+
+    def test_missing_points_is_not_cacheable(self) -> None:
+        """Missing points key is not cacheable."""
+        data: dict[str, Any] = {"client_order_id": "order-1"}
+        assert _is_cacheable_benchmark(data) is False
+
+    def test_non_dict_points_only_is_not_cacheable(self) -> None:
+        """Points containing only non-dict entries is not cacheable."""
+        data: dict[str, Any] = {"points": ["bad", 42, None]}
+        assert _is_cacheable_benchmark(data) is False
+
+    def test_null_prices_not_cacheable(self) -> None:
+        """Points with null prices are not cacheable."""
+        data: dict[str, Any] = {
+            "points": [
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": None,
+                    "benchmark_price": None,
+                }
+            ],
+        }
+        assert _is_cacheable_benchmark(data) is False
+
+    def test_nan_prices_not_cacheable(self) -> None:
+        """Points with NaN prices are not cacheable."""
+        data: dict[str, Any] = {
+            "points": [
+                {
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "execution_price": float("nan"),
+                    "benchmark_price": 150.0,
+                }
+            ],
+        }
+        assert _is_cacheable_benchmark(data) is False
+
+    def test_mixed_valid_and_invalid_is_cacheable(self) -> None:
+        """At least one valid point makes the payload cacheable."""
+        data: dict[str, Any] = {
+            "points": [
+                {"execution_price": None, "benchmark_price": None},
+                {"execution_price": 150.0, "benchmark_price": 149.5},
+            ],
+        }
+        assert _is_cacheable_benchmark(data) is True
 
 
 class TestBenchmarkFetchCacheContract:

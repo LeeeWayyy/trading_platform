@@ -46,6 +46,7 @@ def _stable_hash(value: str) -> int:
     """
     return int(hashlib.sha256(value.encode()).hexdigest(), 16)
 
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_RANGE_DAYS = 30
@@ -226,24 +227,26 @@ def _generate_demo_data(
         symbol = random.choice(symbols)
         side = random.choice(["buy", "sell"])
 
-        orders.append({
-            "client_order_id": f"demo-{i:04d}",
-            "symbol": symbol,
-            "side": side,
-            "execution_date": order_date.isoformat(),
-            "target_qty": random.randint(100, 2000),
-            "filled_qty": random.randint(80, 2000),
-            "fill_rate": random.uniform(0.85, 1.0),
-            "implementation_shortfall_bps": random.uniform(-5, 15),
-            "price_shortfall_bps": random.uniform(-3, 8),
-            "vwap_slippage_bps": random.uniform(-2, 5),
-            "fee_cost_bps": random.uniform(0.5, 2),
-            "opportunity_cost_bps": random.uniform(0, 3),
-            "timing_cost_bps": random.uniform(0.5, 2),
-            "market_impact_bps": random.uniform(0, 4),
-            "total_notional": random.uniform(10000, 100000),
-            "warnings": ["Demo data"],
-        })
+        orders.append(
+            {
+                "client_order_id": f"demo-{i:04d}",
+                "symbol": symbol,
+                "side": side,
+                "execution_date": order_date.isoformat(),
+                "target_qty": random.randint(100, 2000),
+                "filled_qty": random.randint(80, 2000),
+                "fill_rate": random.uniform(0.85, 1.0),
+                "implementation_shortfall_bps": random.uniform(-5, 15),
+                "price_shortfall_bps": random.uniform(-3, 8),
+                "vwap_slippage_bps": random.uniform(-2, 5),
+                "fee_cost_bps": random.uniform(0.5, 2),
+                "opportunity_cost_bps": random.uniform(0, 3),
+                "timing_cost_bps": random.uniform(0.5, 2),
+                "market_impact_bps": random.uniform(0, 4),
+                "total_notional": random.uniform(10000, 100000),
+                "warnings": ["Demo data"],
+            }
+        )
 
     # Compute averages - collect values explicitly to avoid mypy issues with dict typing
     is_values = [o["implementation_shortfall_bps"] for o in orders]
@@ -310,16 +313,31 @@ def _generate_demo_benchmark_data(order: dict[str, Any]) -> dict[str, Any]:
         "points": [
             {
                 "timestamp": f"{demo_date}T{10 + i // 12:02d}:{(i * 5) % 60:02d}:00Z",
-                "execution_price": round(
-                    base_price * (1 + random.uniform(-0.002, 0.003)), 2
-                ),
-                "benchmark_price": round(
-                    base_price * (1 + random.uniform(-0.001, 0.001)), 2
-                ),
+                "execution_price": round(base_price * (1 + random.uniform(-0.002, 0.003)), 2),
+                "benchmark_price": round(base_price * (1 + random.uniform(-0.001, 0.001)), 2),
             }
             for i in range(num_points)
         ],
     }
+
+
+def _is_cacheable_benchmark(data: dict[str, Any]) -> bool:
+    """Return True when *data* is well-formed enough to cache.
+
+    A benchmark response is cacheable when it contains at least one
+    dict-typed point with finite numeric prices.  This mirrors the
+    render-time validation so that malformed payloads are not cached
+    and will be retried on the next ``load_data`` invocation.
+    """
+    points = data.get("points")
+    if not isinstance(points, list):
+        return False
+    return any(
+        isinstance(p, dict)
+        and _is_numeric(p.get("execution_price"))
+        and _is_numeric(p.get("benchmark_price"))
+        for p in points
+    )
 
 
 def _should_fetch_benchmark(orders: list[dict[str, Any]], demo_mode: bool) -> str | None:
@@ -483,15 +501,9 @@ async def _render_tca_dashboard(
         # Parse dates
         try:
             start_dt = (
-                date.fromisoformat(start_input.value)
-                if start_input.value
-                else state["start_date"]
+                date.fromisoformat(start_input.value) if start_input.value else state["start_date"]
             )
-            end_dt = (
-                date.fromisoformat(end_input.value)
-                if end_input.value
-                else state["end_date"]
-            )
+            end_dt = date.fromisoformat(end_input.value) if end_input.value else state["end_date"]
         except ValueError:
             ui.notify("Invalid date format", type="negative")
             return
@@ -597,12 +609,16 @@ async def _render_tca_dashboard(
                 if current_generation != state["_load_generation"]:
                     return
 
-                if benchmark_data is not None:
+                # Only cache responses whose payload passes the same
+                # shape validation used at render time.  This prevents
+                # malformed-but-200 responses from being cached and
+                # reused, which would block retries on subsequent loads.
+                if benchmark_data is not None and _is_cacheable_benchmark(benchmark_data):
                     state["_benchmark_cache_key"] = fetch_order_id
                     state["_benchmark_cache_data"] = benchmark_data
                 else:
-                    # Clear stale cache so transient failures don't
-                    # stick if the order changes later.
+                    # Clear stale cache so transient failures or
+                    # malformed responses don't stick.
                     state["_benchmark_cache_key"] = None
                     state["_benchmark_cache_data"] = None
         elif orders and state.get("demo_mode"):
@@ -643,8 +659,7 @@ async def _render_tca_dashboard(
                         for d in sorted_dates
                     ]
                     fee_cost = [
-                        round(date_data[d]["fee"] / date_data[d]["count"], 2)
-                        for d in sorted_dates
+                        round(date_data[d]["fee"] / date_data[d]["count"], 2) for d in sorted_dates
                     ]
                     opportunity_cost = [
                         round(date_data[d]["opportunity"] / date_data[d]["count"], 2)
@@ -666,24 +681,16 @@ async def _render_tca_dashboard(
                     ui.label("No order data available").classes("text-gray-500 p-4")
 
             # Validate benchmark payload shape before rendering.
-            raw_points = (
-                benchmark_data.get("points", []) if benchmark_data else []
-            )
+            raw_points = benchmark_data.get("points", []) if benchmark_data else []
             # Guard: points must be a list of dict-like objects.
             if not isinstance(raw_points, list):
                 raw_points = []
-            validated_points: list[dict[str, Any]] = [
-                p for p in raw_points if isinstance(p, dict)
-            ]
+            validated_points: list[dict[str, Any]] = [p for p in raw_points if isinstance(p, dict)]
 
             if benchmark_data and validated_points:
                 with ui.card().classes("w-full p-4"):
-                    bm_symbol = str(
-                        benchmark_data.get("symbol", orders[0].get("symbol", ""))
-                    )
-                    bm_type = str(
-                        benchmark_data.get("benchmark_type", "VWAP")
-                    ).upper()
+                    bm_symbol = str(benchmark_data.get("symbol", orders[0].get("symbol", "")))
+                    bm_type = str(benchmark_data.get("benchmark_type", "VWAP")).upper()
                     chart_title = f"Execution vs {bm_type} — {bm_symbol}"
                     if state.get("demo_mode"):
                         chart_title += " (Demo)"
@@ -701,36 +708,25 @@ async def _render_tca_dashboard(
                     ]
                     if valid_points:
                         create_benchmark_comparison_chart(
-                            timestamps=[
-                                str(point.get("timestamp", ""))
-                                for point in valid_points
-                            ],
+                            timestamps=[str(point.get("timestamp", "")) for point in valid_points],
                             execution_prices=[
-                                _safe_float(point.get("execution_price"))
-                                for point in valid_points
+                                _safe_float(point.get("execution_price")) for point in valid_points
                             ],
                             benchmark_prices=[
-                                _safe_float(point.get("benchmark_price"))
-                                for point in valid_points
+                                _safe_float(point.get("benchmark_price")) for point in valid_points
                             ],
                             benchmark_type=bm_type,
                             symbol=bm_symbol,
                         )
                     else:
-                        ui.label("Benchmark data unavailable").classes(
-                            "text-gray-500 p-4"
-                        )
+                        ui.label("Benchmark data unavailable").classes("text-gray-500 p-4")
             elif orders:
                 # Benchmark API returned no data or invalid payload —
                 # show a diagnostic card so the user knows the section
                 # exists but data is missing.
                 with ui.card().classes("w-full p-4"):
-                    ui.label("Execution vs Benchmark").classes(
-                        "text-lg font-bold mb-2"
-                    )
-                    ui.label("Benchmark data unavailable").classes(
-                        "text-gray-500 p-4"
-                    )
+                    ui.label("Execution vs Benchmark").classes("text-lg font-bold mb-2")
+                    ui.label("Benchmark data unavailable").classes("text-gray-500 p-4")
 
         # Render orders table
         with orders_container:
@@ -752,10 +748,25 @@ async def _render_tca_dashboard(
                         {"field": "execution_date", "headerName": "Date", "sortable": True},
                         {"field": "symbol", "headerName": "Symbol", "sortable": True, "width": 100},
                         {"field": "side", "headerName": "Side", "sortable": True, "width": 80},
-                        {"field": "filled_qty", "headerName": "Filled", "sortable": True, "width": 100},
+                        {
+                            "field": "filled_qty",
+                            "headerName": "Filled",
+                            "sortable": True,
+                            "width": 100,
+                        },
                         {"field": "fill_rate_pct", "headerName": "Fill %", "width": 100},
-                        {"field": "is_bps", "headerName": "IS (bps)", "sortable": True, "width": 100},
-                        {"field": "vwap_bps", "headerName": "VWAP (bps)", "sortable": True, "width": 100},
+                        {
+                            "field": "is_bps",
+                            "headerName": "IS (bps)",
+                            "sortable": True,
+                            "width": 100,
+                        },
+                        {
+                            "field": "vwap_bps",
+                            "headerName": "VWAP (bps)",
+                            "sortable": True,
+                            "width": 100,
+                        },
                         {"field": "impact_bps", "headerName": "Impact (bps)", "width": 100},
                         {"field": "notional", "headerName": "Notional", "width": 120},
                     ]
@@ -768,35 +779,37 @@ async def _render_tca_dashboard(
                         else:
                             notional_str = f"${notional:.0f}"
 
-                        rows.append({
-                            "client_order_id": order.get("client_order_id", f"order-{idx}"),
-                            "execution_date": order.get("execution_date", ""),
-                            "symbol": order.get("symbol", ""),
-                            "side": order.get("side", "").upper(),
-                            "filled_qty": order.get("filled_qty", 0),
-                            "fill_rate_pct": f"{order.get('fill_rate', 0) * 100:.1f}%",
-                            "is_bps": f"{order.get('implementation_shortfall_bps', 0):+.2f}",
-                            "vwap_bps": f"{order.get('vwap_slippage_bps', 0):+.2f}",
-                            "impact_bps": f"{order.get('market_impact_bps', 0):+.2f}",
-                            "notional": notional_str,
-                        })
+                        rows.append(
+                            {
+                                "client_order_id": order.get("client_order_id", f"order-{idx}"),
+                                "execution_date": order.get("execution_date", ""),
+                                "symbol": order.get("symbol", ""),
+                                "side": order.get("side", "").upper(),
+                                "filled_qty": order.get("filled_qty", 0),
+                                "fill_rate_pct": f"{order.get('fill_rate', 0) * 100:.1f}%",
+                                "is_bps": f"{order.get('implementation_shortfall_bps', 0):+.2f}",
+                                "vwap_bps": f"{order.get('vwap_slippage_bps', 0):+.2f}",
+                                "impact_bps": f"{order.get('market_impact_bps', 0):+.2f}",
+                                "notional": notional_str,
+                            }
+                        )
 
                     # Create AG Grid with compact styling and global window registration
-                    grid_options = apply_compact_grid_options({
-                        "columnDefs": column_defs,
-                        "rowData": rows,
-                        "domLayout": "autoHeight",
-                        "rowSelection": "single",
-                        ":getRowId": "params => params.data.client_order_id",
-                        # Register API on window for GridExportToolbar
-                        ":onGridReady": "params => { window['tca-orders-grid'] = params.api; params.api.sizeColumnsToFit(); }",
-                    })
+                    grid_options = apply_compact_grid_options(
+                        {
+                            "columnDefs": column_defs,
+                            "rowData": rows,
+                            "domLayout": "autoHeight",
+                            "rowSelection": "single",
+                            ":getRowId": "params => params.data.client_order_id",
+                            # Register API on window for GridExportToolbar
+                            ":onGridReady": "params => { window['tca-orders-grid'] = params.api; params.api.sizeColumnsToFit(); }",
+                        }
+                    )
 
                     ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark")
                 else:
-                    ui.label("No orders found for selected filters").classes(
-                        "text-gray-500 p-4"
-                    )
+                    ui.label("No orders found for selected filters").classes("text-gray-500 p-4")
 
     # Preset button handlers
     async def set_preset(days: int) -> None:
