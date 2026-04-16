@@ -1178,17 +1178,24 @@ def _fetch_orders_data(
     """Fetch orders scoped to authorized strategies.
 
     This fetcher returns ALL orders matching strategy scope and the
-    caller-provided filter clause.  It intentionally does NOT inject
-    implicit status predicates because the server cannot know which UI
-    tab originated the export request.
+    caller-provided ``filter_clause``.  It intentionally does NOT
+    inject implicit status predicates because the server cannot know
+    which UI tab originated the export request.
 
-    **Frontend contract:** When the user exports from a status-scoped
-    tab (e.g. the "Working Orders" tab, which pre-filters to
-    pending/open/partially_filled statuses before calling
-    ``setRowData``), the UI component MUST inject the corresponding
-    ``status`` filter into the AG Grid ``filterModel`` before sending
-    the export audit request.  ``GridExportToolbar`` is responsible for
-    this; see ``apps/web_console_ng/components/grid_export_toolbar.py``.
+    **Working-status scoping is handled by the caller chain:**
+
+    1. ``GridExportToolbar`` in
+       ``apps/web_console_ng/components/grid_export_toolbar.py``
+       injects a ``status`` set filter via ``extra_filters`` for the
+       Working Orders tab (see ``tabbed_panel.py`` lines 289-294).
+    2. The injected filter is merged into the AG Grid ``filterModel``
+       before the export audit record is created (line 179 of
+       ``grid_export_toolbar.py``).
+    3. ``_generate_excel_content`` resolves aliases and builds the
+       ``filter_clause`` from the full grid allowlist (lines 1554-1571
+       below), which includes the status predicate.
+    4. This fetcher receives the ``filter_clause`` already containing
+       ``AND "status" = ANY(%s)`` with working-status values.
 
     If the frontend omits the status filter, the export will correctly
     return all strategy-scoped orders -- which is the expected behavior
@@ -1549,8 +1556,11 @@ async def _generate_excel_content(
     if grid_name == "tca":
         tca_filter_map = _TCA_COL_MAP
 
-    # Also resolve aliases in filter_params keys before building the
-    # filter clause (e.g. "type" -> "order_type" for orders grid).
+    # Resolve frontend aliases in filter_params keys before building
+    # the filter clause (e.g. "type" -> "order_type" for orders,
+    # "execution_date" -> "executed_at" for TCA).  This ensures that
+    # filters using display-friendly names pass the allowlist check
+    # in ``_build_filter_clause`` without being silently dropped.
     resolved_filter = filter_params
     if filter_params:
         aliases = _COLUMN_ALIASES.get(grid_name, {})
