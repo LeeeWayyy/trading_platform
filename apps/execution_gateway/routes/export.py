@@ -903,15 +903,20 @@ def _resolve_filter_aliases(
 
 
 def _quote_identifier(name: str) -> str:
-    """Quote a possibly table-qualified identifier via psycopg.sql.
+    """Quote a possibly table-qualified identifier for SQL interpolation.
 
-    ``psycopg.sql.Identifier`` accepts multiple string parts for qualified
-    names (e.g. ``Identifier("p", "symbol")`` produces ``"p"."symbol"``).
-    This helper splits on ``.`` and delegates to ``Identifier`` so that
-    both simple and qualified names are safely quoted.
+    Splits on ``.`` and double-quotes each part to produce safe
+    identifiers (e.g. ``"p"."symbol"``).  This is equivalent to
+    ``psycopg.sql.Identifier(...).as_string(conn)`` but avoids the
+    need for a live connection context, which ``as_string(None)``
+    only supports in psycopg >= 3.2.
+
+    **Safety:** All callers pass column names from hardcoded allowlists
+    (``_GRID_COLUMNS``, ``_TCA_COL_MAP``) or hardcoded table-alias
+    prefixes.  No user input reaches this function.
     """
     parts = name.split(".")
-    return sql.Identifier(*parts).as_string(None)
+    return ".".join(f'"{p}"' for p in parts)
 
 
 def _build_order_clause(
@@ -1115,8 +1120,8 @@ def _build_single_condition(
     ``_build_filter_clause`` before calling this helper.
 
     **Safety:** ``qcol`` is produced by ``_quote_identifier()`` which
-    delegates to ``psycopg.sql.Identifier(...).as_string(None)`` --
-    all identifiers are properly double-quoted before interpolation.
+    double-quotes each identifier part -- all identifiers originate
+    from hardcoded allowlists, never from user input.
     """
     filter_type = spec.get("filterType", "text")
     builder = _FILTER_TYPE_BUILDERS.get(filter_type)
@@ -1417,7 +1422,17 @@ def _fetch_audit_data(
     top-level key in the JSONB ``details`` column.  This matches the
     current audit_log schema.  If the schema evolves to nest strategy_id
     differently, update the WHERE clause below and the corresponding
-    GIN index on ``audit_log.details``.
+    index on ``audit_log.details``.
+
+    **Index requirement:** The ``->>`` text extraction operator cannot
+    leverage a generic GIN index on the ``details`` column.  A
+    functional B-tree index is needed for performant lookups::
+
+        CREATE INDEX idx_audit_log_strategy_id
+            ON audit_log ((details->>'strategy_id'));
+
+    If this index does not yet exist, add it via a migration before
+    the audit table grows large enough for sequential scans to matter.
     """
     # Use full grid allowlist for sort qualification so that sorts
     # on hidden columns are preserved in the exported row order.
