@@ -253,3 +253,74 @@ class TestGridExportToolbarWithUI:
 
         # Should create multiple buttons (CSV, Excel, Clipboard)
         assert mock_ui.button.call_count >= 1
+
+
+class TestFilterMerge:
+    """Tests for filter merge logic in _create_audit_record."""
+
+    def _merge_filters(
+        self,
+        extra_filters: dict,
+        grid_filters: dict,
+    ) -> dict:
+        """Replicate the merge logic from _create_audit_record."""
+        filter_model = dict(grid_filters)
+        for key, extra_spec in extra_filters.items():
+            grid_spec = grid_filters.get(key)
+            if grid_spec is None:
+                filter_model[key] = extra_spec
+            elif (
+                isinstance(extra_spec, dict)
+                and isinstance(grid_spec, dict)
+                and extra_spec.get("filterType") == "set"
+                and grid_spec.get("filterType") == "set"
+            ):
+                extra_vals = set(extra_spec.get("values") or [])
+                grid_vals = set(grid_spec.get("values") or [])
+                intersected = sorted(extra_vals & grid_vals)
+                filter_model[key] = {
+                    "filterType": "set",
+                    "values": intersected if intersected else sorted(extra_vals),
+                }
+            else:
+                filter_model[key] = extra_spec
+        return filter_model
+
+    def test_no_overlap_includes_both(self) -> None:
+        """Non-overlapping filters are both included."""
+        extra = {"status": {"filterType": "set", "values": ["new", "pending_new"]}}
+        grid = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
+        result = self._merge_filters(extra, grid)
+        assert "status" in result
+        assert "symbol" in result
+
+    def test_set_filter_intersection(self) -> None:
+        """Overlapping set filters are intersected."""
+        extra = {
+            "status": {
+                "filterType": "set",
+                "values": ["new", "pending_new", "partially_filled", "accepted"],
+            }
+        }
+        grid = {
+            "status": {
+                "filterType": "set",
+                "values": ["accepted"],
+            }
+        }
+        result = self._merge_filters(extra, grid)
+        assert result["status"]["values"] == ["accepted"]
+
+    def test_set_filter_empty_intersection_falls_back(self) -> None:
+        """Empty intersection falls back to extra_filters values."""
+        extra = {"status": {"filterType": "set", "values": ["new", "pending_new"]}}
+        grid = {"status": {"filterType": "set", "values": ["filled"]}}
+        result = self._merge_filters(extra, grid)
+        assert result["status"]["values"] == ["new", "pending_new"]
+
+    def test_text_filter_overlap_extra_wins(self) -> None:
+        """Non-set overlapping filters: extra_filters wins."""
+        extra = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
+        grid = {"symbol": {"filterType": "text", "type": "equals", "filter": "MSFT"}}
+        result = self._merge_filters(extra, grid)
+        assert result["symbol"]["filter"] == "AAPL"

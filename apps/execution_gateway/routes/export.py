@@ -846,10 +846,56 @@ def _resolve_sort_aliases(
     aliases = _COLUMN_ALIASES.get(grid_name, {})
     if not aliases:
         return sort_model
-    return [
-        {**item, "colId": aliases.get(item.get("colId", ""), item.get("colId", ""))}
-        for item in sort_model
-    ]
+    resolved: list[dict[str, Any]] = []
+    for item in sort_model:
+        col_id = item.get("colId", "")
+        resolved.append({**item, "colId": aliases.get(col_id, col_id)})
+    return resolved
+
+
+def _qualify_sort_model(
+    sort_model: list[dict[str, Any]] | None,
+    allowed_columns: list[str],
+    prefix: str,
+) -> list[dict[str, Any]] | None:
+    """Prefix sort model column IDs with a table alias.
+
+    Columns whose ``colId`` appears in *allowed_columns* are prefixed
+    with *prefix* (e.g. ``"p."``, ``"t."``).  Unrecognised columns
+    are kept as-is so that ``_build_order_clause`` can silently drop
+    them.  This helper is shared by ``_fetch_positions_data`` and
+    ``_fetch_fills_data`` to avoid duplicating the qualification loop.
+    """
+    if not sort_model:
+        return None
+    qualified: list[dict[str, Any]] = []
+    for item in sort_model:
+        col_id = item.get("colId", "")
+        if col_id in allowed_columns:
+            qualified.append({**item, "colId": f"{prefix}{col_id}"})
+        else:
+            qualified.append(item)
+    return qualified
+
+
+def _resolve_filter_aliases(
+    grid_name: str,
+    filter_params: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Resolve frontend column aliases in AG Grid filter model keys.
+
+    Translates display-friendly filter keys (e.g. ``"type"`` for
+    orders, ``"execution_date"`` for TCA) to their database column
+    names via ``_COLUMN_ALIASES``.  This ensures the filter passes the
+    allowlist check in ``_build_filter_clause`` without being silently
+    dropped.
+    """
+    if not filter_params:
+        return filter_params
+    aliases = _COLUMN_ALIASES.get(grid_name, {})
+    if not aliases:
+        return filter_params
+    return {aliases.get(k, k): v for k, v in filter_params.items()}
 
 
 def _quote_identifier(name: str) -> str:
@@ -1121,15 +1167,7 @@ def _fetch_positions_data(
     # grid allowlist (not just the visible export columns) so that
     # sorts on hidden columns are preserved in the exported order.
     full_allowed = _GRID_COLUMNS["positions"]
-    qualified_sort: list[dict[str, Any]] | None = None
-    if sort_model:
-        qualified_sort = []
-        for item in sort_model:
-            col_id = item.get("colId", "")
-            if col_id in full_allowed:
-                qualified_sort.append({**item, "colId": f"p.{col_id}"})
-            else:
-                qualified_sort.append(item)
+    qualified_sort = _qualify_sort_model(sort_model, full_allowed, "p.")
     qualified_allowed = [f"p.{c}" for c in full_allowed]
     order_clause = _build_order_clause(
         qualified_sort, qualified_allowed, "p.symbol ASC",
@@ -1239,15 +1277,7 @@ def _fetch_fills_data(
     # Use full grid allowlist for sort qualification so that sorts
     # on hidden columns are preserved in the exported row order.
     full_allowed = _GRID_COLUMNS["fills"]
-    qualified_sort: list[dict[str, Any]] | None = None
-    if sort_model:
-        qualified_sort = []
-        for item in sort_model:
-            col_id = item.get("colId", "")
-            if col_id in full_allowed:
-                qualified_sort.append({**item, "colId": f"t.{col_id}"})
-            else:
-                qualified_sort.append(item)
+    qualified_sort = _qualify_sort_model(sort_model, full_allowed, "t.")
     qualified_allowed = [f"t.{c}" for c in full_allowed]
     order_clause = _build_order_clause(qualified_sort, qualified_allowed, "t.executed_at DESC")
     select_cols = sql.SQL(", ").join(
@@ -1561,13 +1591,7 @@ async def _generate_excel_content(
     # "execution_date" -> "executed_at" for TCA).  This ensures that
     # filters using display-friendly names pass the allowlist check
     # in ``_build_filter_clause`` without being silently dropped.
-    resolved_filter = filter_params
-    if filter_params:
-        aliases = _COLUMN_ALIASES.get(grid_name, {})
-        if aliases:
-            resolved_filter = {
-                aliases.get(k, k): v for k, v in filter_params.items()
-            }
+    resolved_filter = _resolve_filter_aliases(grid_name, filter_params)
 
     # Build filter WHERE clause from AG Grid filter model.
     # Use the full grid allowlist (not just the export projection) so
