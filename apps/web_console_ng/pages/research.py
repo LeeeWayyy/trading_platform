@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 
-from nicegui import app, ui
+from nicegui import ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -34,6 +34,8 @@ TAB_VALIDATE = "validate"
 TAB_PROMOTE = "promote"
 VALID_TABS = {TAB_DISCOVER, TAB_VALIDATE, TAB_PROMOTE}
 VALID_VALIDATE_BACKTEST_TABS = {"new", "running", "results"}
+_research_workspace_service_cache: ResearchWorkspaceService | None = None
+_research_workspace_service_registry_dir: Path | None = None
 
 
 def _resolve_accessible_tabs(
@@ -81,14 +83,21 @@ def _get_requested_research_tab() -> str:
 
 
 def _get_research_workspace_service() -> ResearchWorkspaceService:
-    """Get cached workspace adapter service."""
-    if not hasattr(app.storage, "_research_workspace_service"):
-        registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
-        app.storage._research_workspace_service = ResearchWorkspaceService(  # type: ignore[attr-defined]  # noqa: B010
+    """Get process-local workspace adapter service."""
+    global _research_workspace_service_cache
+    global _research_workspace_service_registry_dir
+
+    registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
+    if (
+        _research_workspace_service_cache is None
+        or _research_workspace_service_registry_dir != registry_dir
+    ):
+        _research_workspace_service_cache = ResearchWorkspaceService(
             registry_dir=registry_dir
         )
-    service: ResearchWorkspaceService = app.storage._research_workspace_service  # type: ignore[attr-defined]  # noqa: B009
-    return service
+        _research_workspace_service_registry_dir = registry_dir
+
+    return _research_workspace_service_cache
 
 
 def _build_validate_backtest_link(*, signal_id: str, source: str = "alpha_explorer") -> str:
@@ -367,7 +376,10 @@ async def research_workspace_page() -> None:
 
     can_view_discover = has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
     can_view_validate = has_permission(user, Permission.VIEW_PNL)
-    can_view_promote = has_permission(user, Permission.VIEW_MODELS)
+    can_view_promote = (
+        config.FEATURE_MODEL_REGISTRY
+        and has_permission(user, Permission.VIEW_MODELS)
+    )
     accessible_tabs = _resolve_accessible_tabs(
         can_view_discover=can_view_discover,
         can_view_validate=can_view_validate,
@@ -375,7 +387,8 @@ async def research_workspace_page() -> None:
     )
     if not accessible_tabs:
         ui.label(
-            "Permission denied: one of VIEW_ALPHA_SIGNALS, VIEW_PNL, VIEW_MODELS required"
+            "Permission denied: one of VIEW_ALPHA_SIGNALS, VIEW_PNL, "
+            "or VIEW_MODELS(with FEATURE_MODEL_REGISTRY) required"
         ).classes("text-red-500 text-lg")
         return
 

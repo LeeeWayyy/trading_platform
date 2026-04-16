@@ -255,7 +255,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path == "/research" and not (
                         has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
                         or has_permission(user, Permission.VIEW_PNL)
-                        or has_permission(user, Permission.VIEW_MODELS)
+                        or (
+                            config.FEATURE_MODEL_REGISTRY
+                            and has_permission(user, Permission.VIEW_MODELS)
+                        )
                     ):
                         return False
 

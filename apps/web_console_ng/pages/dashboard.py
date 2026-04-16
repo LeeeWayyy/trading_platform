@@ -1802,18 +1802,24 @@ async def dashboard(client: Client) -> None:
         )
 
         sql = (
-            "SELECT strategy_id, MAX(created_at) AS last_order_at "
-            "FROM orders "
-            "WHERE symbol = %s AND strategy_id IS NOT NULL "
-            "AND strategy_id = ANY(%s) "
-            "AND created_at >= %s "
+            "WITH latest_strategy_orders AS ( "
+            "    SELECT DISTINCT ON (strategy_id) strategy_id, created_at "
+            "    FROM orders "
+            "    WHERE symbol = %s AND strategy_id IS NOT NULL "
+            "    AND strategy_id = ANY(%s) "
+            "    AND created_at >= %s "
+            "    ORDER BY strategy_id, created_at DESC "
+            ") "
+            "SELECT strategy_id "
+            "FROM latest_strategy_orders "
+            "ORDER BY created_at DESC, strategy_id ASC "
+            "LIMIT 2"
         )
         params: tuple[Any, ...] = (
             normalized_symbol,
             authorized_strategy_scope,
             strategy_lookback_start,
         )
-        sql += "GROUP BY strategy_id ORDER BY last_order_at DESC, strategy_id ASC LIMIT 2"
 
         try:
             async with acquire_connection(async_pool) as conn:
@@ -2007,13 +2013,28 @@ async def dashboard(client: Client) -> None:
         signal_id: str | None = None
         reason_parts: list[str] = []
 
-        try:
-            strategy_payload = await trading_client.fetch_strategy_status(
+        strategy_payload_task = asyncio.create_task(
+            trading_client.fetch_strategy_status(
                 strategy_id,
                 user_id=user_id,
                 role=user_role,
                 strategies=user_strategies,
             )
+        )
+        db_model_context_task = asyncio.create_task(_fetch_model_registry_context(strategy_id))
+
+        strategy_payload: dict[str, Any] | None = None
+        try:
+            strategy_payload = await strategy_payload_task
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
+            reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
+
+        db_model_status, db_model_version = await db_model_context_task
+
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
+
+        if strategy_payload is not None:
             strategy_status = normalize_execution_status(strategy_payload.get("status"))
             payload_model_status = strategy_payload.get("model_status")
             if payload_model_status:
@@ -2024,19 +2045,11 @@ async def dashboard(client: Client) -> None:
             payload_signal_id = strategy_payload.get("signal_id")
             if payload_signal_id:
                 signal_id = str(payload_signal_id).strip()
-        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
-            reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
 
-        if model_status == "unknown" or model_version is None:
-            db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
-            if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-                return
-            if model_status == "unknown":
-                model_status = db_model_status
-            if model_version is None:
-                model_version = db_model_version
+        if model_status == "unknown":
+            model_status = db_model_status
+        if model_version is None:
+            model_version = db_model_version
 
         model_status, model_version, enforce_model_gate = resolve_model_gate_inputs(
             model_status=model_status,

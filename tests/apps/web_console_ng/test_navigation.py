@@ -743,6 +743,7 @@ async def test_research_link_visible_with_models_permission_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Research workspace link stays visible when only Promote-tab permission exists."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
     await _run_layout(monkeypatch, current_path="/")
 
     fake_ui = _FakeUI()
@@ -766,6 +767,37 @@ async def test_research_link_visible_with_models_permission_only(
 
     targets = {link.target for link in fake_ui.links}
     assert "/research" in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_hidden_with_models_permission_only_when_registry_flag_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link is hidden when Promote tab is feature-disabled."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
+    await _run_layout(monkeypatch, current_path="/")
+
+    fake_ui = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+
+    denied = {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_PNL,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" not in targets
 
 
 @pytest.mark.asyncio()

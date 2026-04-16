@@ -88,6 +88,23 @@ def test_build_validate_backtest_link() -> None:
     )
 
 
+def test_get_research_workspace_service_process_cache(monkeypatch) -> None:
+    """Workspace service should cache per process and refresh on dir change."""
+    monkeypatch.setattr(research_module, "_research_workspace_service_cache", None)
+    monkeypatch.setattr(research_module, "_research_workspace_service_registry_dir", None)
+    monkeypatch.setenv("MODEL_REGISTRY_DIR", "/tmp/research-cache-a")
+
+    first = research_module._get_research_workspace_service()
+    second = research_module._get_research_workspace_service()
+
+    assert first is second
+
+    monkeypatch.setenv("MODEL_REGISTRY_DIR", "/tmp/research-cache-b")
+    third = research_module._get_research_workspace_service()
+
+    assert third is not first
+
+
 def _row(
     *,
     strategy_name: str,
