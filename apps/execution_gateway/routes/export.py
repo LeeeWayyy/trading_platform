@@ -877,7 +877,7 @@ def _qualify_sort_model(
         if col_id in allowed_columns:
             qualified.append({**item, "colId": f"{prefix}{col_id}"})
         else:
-            qualified.append(item)
+            qualified.append(item.copy())
     return qualified
 
 
