@@ -171,17 +171,39 @@ class GridExportToolbar:
         try:
             import httpx
 
-            # Merge extra_filters into the AG Grid filter model so that
-            # tab-scoped predicates are included in the export query.
-            # Page-level scope constraints (extra_filters) are used as
-            # defaults; grid-level filters override on matching keys to
-            # preserve the user's narrower selections (e.g. user filters
-            # to only "accepted" within the working-status set).  This is
-            # safe because the page-level pre-filtering removes rows
-            # before setRowData, so in-grid filters for the same column
-            # are necessarily subsets of the page-level scope.
-            filter_model = dict(self.extra_filters)
-            filter_model.update(grid_state.get("filterModel") or {})
+            # Merge extra_filters into the AG Grid filter model.
+            # For non-overlapping keys, both are simply included.
+            # For overlapping keys, intersect set-filter values (so the
+            # user's narrower selection within the page scope is honoured)
+            # and let extra_filters win for other filter types (page-level
+            # scope constraints like the symbol dropdown cannot be widened
+            # by a conflicting in-grid filter).
+            grid_filters = grid_state.get("filterModel") or {}
+            filter_model = dict(grid_filters)
+            for key, extra_spec in self.extra_filters.items():
+                grid_spec = grid_filters.get(key)
+                if grid_spec is None:
+                    # No overlap -- add the extra filter.
+                    filter_model[key] = extra_spec
+                elif (
+                    isinstance(extra_spec, dict)
+                    and isinstance(grid_spec, dict)
+                    and extra_spec.get("filterType") == "set"
+                    and grid_spec.get("filterType") == "set"
+                ):
+                    # Both are set filters on the same column -- intersect
+                    # values so the user's selection is honoured within
+                    # the page scope.
+                    extra_vals = set(extra_spec.get("values") or [])
+                    grid_vals = set(grid_spec.get("values") or [])
+                    intersected = sorted(extra_vals & grid_vals)
+                    filter_model[key] = {
+                        "filterType": "set",
+                        "values": intersected if intersected else sorted(extra_vals),
+                    }
+                else:
+                    # Non-set overlap -- page-level scope wins.
+                    filter_model[key] = extra_spec
 
             headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:
