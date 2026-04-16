@@ -277,10 +277,9 @@ class TestFilterMerge:
             ):
                 extra_vals = set(extra_spec.get("values") or [])
                 grid_vals = set(grid_spec.get("values") or [])
-                intersected = sorted(extra_vals & grid_vals)
                 filter_model[key] = {
                     "filterType": "set",
-                    "values": intersected if intersected else sorted(extra_vals),
+                    "values": sorted(extra_vals & grid_vals),
                 }
             else:
                 filter_model[key] = extra_spec
@@ -311,12 +310,12 @@ class TestFilterMerge:
         result = self._merge_filters(extra, grid)
         assert result["status"]["values"] == ["accepted"]
 
-    def test_set_filter_empty_intersection_falls_back(self) -> None:
-        """Empty intersection falls back to extra_filters values."""
+    def test_set_filter_empty_intersection_produces_empty(self) -> None:
+        """Empty intersection is kept to preserve view/export parity."""
         extra = {"status": {"filterType": "set", "values": ["new", "pending_new"]}}
         grid = {"status": {"filterType": "set", "values": ["filled"]}}
         result = self._merge_filters(extra, grid)
-        assert result["status"]["values"] == ["new", "pending_new"]
+        assert result["status"]["values"] == []
 
     def test_text_filter_overlap_extra_wins(self) -> None:
         """Non-set overlapping filters: extra_filters wins."""

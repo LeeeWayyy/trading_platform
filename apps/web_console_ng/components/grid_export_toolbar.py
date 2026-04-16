@@ -193,13 +193,14 @@ class GridExportToolbar:
                 ):
                     # Both are set filters on the same column -- intersect
                     # values so the user's selection is honoured within
-                    # the page scope.
+                    # the page scope.  An empty intersection is kept
+                    # (produces zero results) to preserve view/export
+                    # parity rather than silently widening the export.
                     extra_vals = set(extra_spec.get("values") or [])
                     grid_vals = set(grid_spec.get("values") or [])
-                    intersected = sorted(extra_vals & grid_vals)
                     filter_model[key] = {
                         "filterType": "set",
-                        "values": intersected if intersected else sorted(extra_vals),
+                        "values": sorted(extra_vals & grid_vals),
                     }
                 else:
                     # Non-set overlap -- page-level scope wins.
