@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from psycopg import sql
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
@@ -912,6 +913,13 @@ def _build_single_condition(
     This handles one atomic condition (``type`` + ``filter``).  Compound
     filters (``operator`` + ``conditions``) are decomposed by
     ``_build_filter_clause`` before calling this helper.
+
+    **Safety:** ``qcol`` is produced by ``_quote_identifier()`` which
+    delegates to ``psycopg.sql.Identifier(...).as_string(None)`` --
+    all identifiers are properly double-quoted before interpolation.
+    The resulting clause strings are assembled with parameterized
+    ``%s`` placeholders and the final query is built via
+    ``psycopg.sql.SQL`` composition.
     """
     filter_type = spec.get("filterType", "text")
     ftype = spec.get("type", "")
@@ -929,7 +937,9 @@ def _build_single_condition(
             clauses.append(f"{text_col} ILIKE %s")
             params.append(f"%{value}%")
         elif ftype == "equals":
-            clauses.append(f"{text_col} = %s")
+            # AG Grid text filtering is case-insensitive by default,
+            # so use ILIKE to match the grid's behaviour.
+            clauses.append(f"{text_col} ILIKE %s")
             params.append(value)
         elif ftype == "startsWith":
             clauses.append(f"{text_col} ILIKE %s")
@@ -938,7 +948,8 @@ def _build_single_condition(
             clauses.append(f"{text_col} ILIKE %s")
             params.append(f"%{value}")
         elif ftype == "notEqual":
-            clauses.append(f"{text_col} != %s")
+            # Case-insensitive to match AG Grid behaviour.
+            clauses.append(f"{text_col} NOT ILIKE %s")
             params.append(value)
 
     elif filter_type == "number":
@@ -1111,16 +1122,19 @@ def _fetch_positions_data(
     data leakage.
     """
     # Qualify sort columns with the "p." alias to avoid ambiguity when
-    # joining positions with the symbol_strategy CTE.
+    # joining positions with the symbol_strategy CTE.  Use the full
+    # grid allowlist (not just the visible export columns) so that
+    # sorts on hidden columns are preserved in the exported order.
+    full_allowed = _GRID_COLUMNS["positions"]
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
         qualified_sort = [
-            {**item, "colId": f"p.{item.get('colId', '')}"} if item.get("colId") in columns else item
+            {**item, "colId": f"p.{item.get('colId', '')}"} if item.get("colId") in full_allowed else item
             for item in sort_model
         ]
-    qualified_columns = [f"p.{c}" for c in columns]
+    qualified_allowed = [f"p.{c}" for c in full_allowed]
     order_clause = _build_order_clause(
-        qualified_sort, qualified_columns, "p.symbol ASC",
+        qualified_sort, qualified_allowed, "p.symbol ASC",
     )
     # Build SELECT list using psycopg.sql.Identifier for column names.
     select_cols = sql.SQL(", ").join(
@@ -1136,7 +1150,7 @@ def _fetch_positions_data(
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             query = sql.SQL(
                 "WITH {cte} "
                 "SELECT {cols} FROM positions p "
@@ -1152,8 +1166,7 @@ def _fetch_positions_data(
                 order_clause=sql.SQL(order_clause),
             )
             cur.execute(query, query_params)
-            col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
+            return list(cur.fetchall())
 
 
 def _fetch_orders_data(
@@ -1183,14 +1196,17 @@ def _fetch_orders_data(
     return all strategy-scoped orders -- which is the expected behavior
     for the "All Orders" / "History" views.
     """
-    order_clause = _build_order_clause(sort_model, columns, "created_at DESC")
+    # Use the full grid allowlist for sort qualification so that sorts
+    # on hidden columns are preserved in the exported row order.
+    full_allowed = _GRID_COLUMNS["orders"]
+    order_clause = _build_order_clause(sort_model, full_allowed, "created_at DESC")
     select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             query = sql.SQL(
                 "SELECT {cols} FROM orders "
                 "WHERE strategy_id = ANY(%s) "
@@ -1203,8 +1219,7 @@ def _fetch_orders_data(
                 order_clause=sql.SQL(order_clause),
             )
             cur.execute(query, query_params)
-            col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
+            return list(cur.fetchall())
 
 
 def _fetch_fills_data(
@@ -1216,7 +1231,17 @@ def _fetch_fills_data(
     filter_params_list: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch fills (trades) scoped to authorized strategies."""
-    order_clause = _build_order_clause(sort_model, columns, "executed_at DESC")
+    # Use full grid allowlist for sort qualification so that sorts
+    # on hidden columns are preserved in the exported row order.
+    full_allowed = _GRID_COLUMNS["fills"]
+    qualified_sort: list[dict[str, Any]] | None = None
+    if sort_model:
+        qualified_sort = [
+            {**item, "colId": f"t.{item.get('colId', '')}"} if item.get("colId") in full_allowed else item
+            for item in sort_model
+        ]
+    qualified_allowed = [f"t.{c}" for c in full_allowed]
+    order_clause = _build_order_clause(qualified_sort, qualified_allowed, "t.executed_at DESC")
     select_cols = sql.SQL(", ").join(
         sql.SQL("{tbl}.{col}").format(
             tbl=sql.Identifier("t"),
@@ -1229,7 +1254,7 @@ def _fetch_fills_data(
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             query = sql.SQL(
                 "SELECT {cols} FROM trades t "
                 "WHERE COALESCE(t.superseded, FALSE) = FALSE "
@@ -1243,8 +1268,7 @@ def _fetch_fills_data(
                 order_clause=sql.SQL(order_clause),
             )
             cur.execute(query, query_params)
-            col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
+            return list(cur.fetchall())
 
 
 def _fetch_audit_data(
@@ -1271,14 +1295,17 @@ def _fetch_audit_data(
     differently, update the WHERE clause below and the corresponding
     GIN index on ``audit_log.details``.
     """
-    order_clause = _build_order_clause(sort_model, columns, "timestamp DESC, id DESC")
+    # Use full grid allowlist for sort qualification so that sorts
+    # on hidden columns are preserved in the exported row order.
+    full_allowed = _GRID_COLUMNS["audit"]
+    order_clause = _build_order_clause(sort_model, full_allowed, "timestamp DESC, id DESC")
     select_cols = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             query = sql.SQL(
                 "SELECT {cols} FROM audit_log "
                 "WHERE details->>'strategy_id' = ANY(%s) "
@@ -1291,8 +1318,7 @@ def _fetch_audit_data(
                 order_clause=sql.SQL(order_clause),
             )
             cur.execute(query, query_params)
-            col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
+            return list(cur.fetchall())
 
 
 # Map TCA column names to their qualified table references.
@@ -1359,7 +1385,7 @@ def _fetch_tca_data(
         query_params.extend(filter_params_list)
     query_params.append(_EXPORT_ROW_LIMIT)
     with ctx.db.transaction() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             query = sql.SQL(
                 "SELECT {cols} "
                 "FROM trades t "
@@ -1375,8 +1401,7 @@ def _fetch_tca_data(
                 order_clause=sql.SQL(order_clause),
             )
             cur.execute(query, query_params)
-            col_names = [desc[0] for desc in cur.description]
-            return [dict(zip(col_names, row, strict=True)) for row in cur.fetchall()]
+            return list(cur.fetchall())
 
 
 # Dispatch table for grid data fetchers
