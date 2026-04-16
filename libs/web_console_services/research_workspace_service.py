@@ -136,6 +136,10 @@ class ResearchWorkspaceService:
 
     def list_research_signals(self, *, limit: int = 500) -> list[ResearchSignalRow]:
         """List research registry alpha rows with status/provenance details."""
+        normalized_limit = max(0, limit)
+        if normalized_limit == 0:
+            return []
+
         models = self._registry.list_models(model_type=ModelType.alpha_weights.value)
         if not models:
             return []
@@ -143,7 +147,7 @@ class ResearchWorkspaceService:
         versions = [metadata.version for metadata in models]
         info_map = self._registry.get_model_info_bulk(ModelType.alpha_weights.value, versions)
         result: list[ResearchSignalRow] = []
-        for metadata in models[: max(1, limit)]:
+        for metadata in models[:normalized_limit]:
             params = metadata.parameters if isinstance(metadata.parameters, dict) else {}
             metrics = metadata.metrics if isinstance(metadata.metrics, dict) else {}
             info = info_map.get(metadata.version, {})

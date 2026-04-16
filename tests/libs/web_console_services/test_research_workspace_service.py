@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -85,6 +86,38 @@ def test_derive_lifecycle_label_unlinked() -> None:
         )
         == LIFECYCLE_UNLINKED
     )
+
+
+def test_list_research_signals_respects_zero_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit zero limit should return zero rows."""
+    service = ResearchWorkspaceService(registry_dir=Path("data/models"))
+    metadata = SimpleNamespace(
+        model_id="alpha-1",
+        version="v1",
+        parameters={},
+        metrics={},
+        snapshot_id=None,
+        dataset_version_ids={},
+        config_hash="cfg-1",
+    )
+
+    class _StubRegistry:
+        def list_models(self, *, model_type: str) -> list[Any]:
+            assert model_type == "alpha_weights"
+            return [metadata]
+
+        def get_model_info_bulk(
+            self,
+            model_type: str,
+            versions: list[str],
+        ) -> dict[str, dict[str, str]]:
+            assert model_type == "alpha_weights"
+            assert versions == ["v1"]
+            return {"v1": {"status": "staged"}}
+
+    monkeypatch.setattr(service, "_registry", _StubRegistry())
+
+    assert service.list_research_signals(limit=0) == []
 
 
 @pytest.mark.asyncio()
