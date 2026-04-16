@@ -189,6 +189,7 @@ class WorkspacePersistenceService:
                         """,
                         (user_id, workspace_key, state_json, SCHEMA_VERSIONS["grid"]),
                     )
+                await conn.commit()
 
         logger.info(
             "workspace_state_saved",
@@ -342,6 +343,7 @@ class WorkspacePersistenceService:
                         """,
                         (user_id, workspace_key, state_json, SCHEMA_VERSIONS["panel"]),
                     )
+                await conn.commit()
 
         logger.info(
             "workspace_state_saved",
@@ -468,6 +470,7 @@ class WorkspacePersistenceService:
                             "DELETE FROM workspace_state WHERE user_id = %s",
                             (user_id,),
                         )
+                await conn.commit()
 
         logger.info(
             "workspace_state_reset",

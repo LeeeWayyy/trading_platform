@@ -166,16 +166,6 @@ app.add_middleware(SuppressNoResponseReturnedMiddleware)
 @app.exception_handler(Exception)
 async def log_unhandled_exception(request: Request, exc: Exception) -> PlainTextResponse:
     """Log unhandled exceptions with full traceback for debug."""
-    if (
-        isinstance(exc, RuntimeError)
-        and str(exc) == "No response returned."
-        and await request.is_disconnected()
-    ):
-        # Starlette emits this sentinel RuntimeError when the client disconnects
-        # before any downstream response can be produced.
-        logger.debug("suppressing_no_response_returned_runtime_error")
-        return PlainTextResponse("", status_code=204)
-
     logger.error(
         "unhandled_exception path=%s type=%s message=%s",
         str(request.url.path),

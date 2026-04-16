@@ -312,9 +312,13 @@ async def test_log_unhandled_exception_returns_plaintext(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio()
-async def test_log_unhandled_exception_suppresses_disconnected_no_response(
+async def test_log_unhandled_exception_no_response_returns_500(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """'No response returned.' is handled by SuppressNoResponseReturnedMiddleware.
+
+    The exception handler treats it as any other unhandled error (500).
+    """
     module = _import_main(monkeypatch)
 
     request = Request(
@@ -325,38 +329,6 @@ async def test_log_unhandled_exception_suppresses_disconnected_no_response(
             "headers": [],
         }
     )
-
-    async def _disconnected() -> bool:
-        return True
-
-    request.is_disconnected = _disconnected  # type: ignore[method-assign]
-
-    response = await module.log_unhandled_exception(request, RuntimeError("No response returned."))
-
-    assert isinstance(response, PlainTextResponse)
-    assert response.status_code == 204
-    assert response.body == b""
-
-
-@pytest.mark.asyncio()
-async def test_log_unhandled_exception_no_response_while_connected_returns_500(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = _import_main(monkeypatch)
-
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/login",
-            "headers": [],
-        }
-    )
-
-    async def _connected() -> bool:
-        return False
-
-    request.is_disconnected = _connected  # type: ignore[method-assign]
 
     response = await module.log_unhandled_exception(request, RuntimeError("No response returned."))
 
