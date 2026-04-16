@@ -95,6 +95,12 @@ async def alpha_explorer_page() -> None:
 
     # Page title
     ui.label("Alpha Signal Explorer").classes("text-2xl font-bold mb-4")
+    with ui.card().classes("w-full p-2 mb-3 border border-slate-800 bg-slate-900/35"):
+        with ui.row().classes("items-center justify-between gap-2"):
+            ui.label("Legacy page: use Research Workspace → Discover for consolidated flow.").classes(
+                "text-xs text-slate-300"
+            )
+            ui.link("Open /research", "/research?tab=discover").classes("text-xs")
 
     # Feature flag check
     if not FEATURE_ALPHA_EXPLORER:
@@ -357,7 +363,9 @@ async def _render_signal_details(
 
             # Launch backtest button
             def launch_backtest() -> None:
-                ui.navigate.to(f"/backtest?signal={selected.signal_id}")
+                ui.navigate.to(
+                    f"/backtest?signal_id={selected.signal_id}&source=alpha_explorer"
+                )
 
             ui.button("Launch Backtest", icon="play_arrow", on_click=launch_backtest).classes(
                 "w-full mb-2"

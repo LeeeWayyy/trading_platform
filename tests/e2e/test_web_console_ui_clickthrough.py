@@ -279,6 +279,15 @@ def _is_ignorable_console_error(message: str) -> bool:
     return any(pattern.search(message) for pattern in IGNORABLE_CONSOLE_PATTERNS)
 
 
+def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -> bool:
+    """Ignore expected browser-aborted navigations during rapid click-through."""
+    if method.upper() != "GET":
+        return False
+    if not url.startswith(BASE_URL):
+        return False
+    return "net::ERR_ABORTED" in failure_message
+
+
 def _default_input_value(input_type: str) -> str:
     normalized = (input_type or "").lower()
     if normalized in {"number", "range"}:
@@ -464,6 +473,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
     ignored_console_errors: list[str] = []
     response_5xx: list[str] = []
     request_failures: list[str] = []
+    ignored_request_failures: list[str] = []
     results: list[PageResult] = []
     total_interactions = 0
 
@@ -487,10 +497,15 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
             "response",
             lambda resp: response_5xx.append(f"{resp.status} {resp.url}") if resp.status >= 500 else None,
         )
-        page.on(
-            "requestfailed",
-            lambda req: request_failures.append(f"{req.method} {req.url} {req.failure}"),
-        )
+        def _on_request_failed(req: Any) -> None:
+            failure_message = str(req.failure or "")
+            entry = f"{req.method} {req.url} {failure_message}"
+            if _is_ignorable_request_failure(str(req.method), str(req.url), failure_message):
+                ignored_request_failures.append(entry)
+                return
+            request_failures.append(entry)
+
+        page.on("requestfailed", _on_request_failed)
 
         page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
         page.get_by_label("Username").fill(LOGIN_USER)
@@ -643,6 +658,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
         "ignored_console_errors": ignored_console_errors,
         "response_5xx": response_5xx,
         "request_failures": request_failures,
+        "ignored_request_failures": ignored_request_failures,
         "docker_errors": docker_errors,
     }
     report_path = Path("artifacts/ui_clickthrough_report.json")

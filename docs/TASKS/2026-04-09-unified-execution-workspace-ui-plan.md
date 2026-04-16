@@ -794,3 +794,34 @@ Completed in current branch (`codex/unified-execution-workspace-ui`):
   - blocks prefill when position is below symbol minimum tradable size
 - Updated `CLOSE` prefill confirmation text and position label to use the active quantity unit.
 - Added unit coverage for dynamic preset profile updates and unit-aware close notification behavior.
+
+23. Zone A session clock + command-strip temporal context (`dashboard.py`)
+- Added a live UTC session clock pill in the workspace command strip.
+- Clock updates every second via dashboard timer and uses the same muted status-pill visual language.
+- Keeps top-strip context (connection/safety/account/time) in one scan plane.
+
+24. Strategy/model context deep links (`strategy_context.py`, `dashboard.py`, `custom.css`)
+- Added compact in-widget deep links for `Strategies` and `Models` pages.
+- Links are feature/permission-gated from dashboard wiring:
+  - strategies link requires strategy-management feature + permission
+  - models link requires model-registry feature + permission
+- Added `resolve_context_links(...)` helper and unit coverage (`test_strategy_context.py`).
+
+25. Buying-power gauge policy + mobile ergonomics pass (`config.py`, `order_ticket.py`, `custom.css`)
+- Added configurable buying-power impact thresholds:
+  - `WORKSPACE_BP_IMPACT_WARNING_RATIO` (default `0.5`)
+  - `WORKSPACE_BP_IMPACT_DANGER_RATIO` (default `0.8`)
+  - values are parsed, clamped to `[0,1]`, and warning is auto-aligned if it exceeds danger.
+- Wired order-ticket impact status/warning logic to those config values.
+- Improved mobile/touch ergonomics:
+  - raised execution action target heights (`40px` base, `44px` on mobile)
+  - tightened microstructure row sizing on narrow screens
+  - improved quick-link/log sizing for small viewports.
+
+26. Lightweight chart loader integrity repair + live coverage validation (`ui/lightweight_charts.py`)
+- Updated pinned SRI hash for `lightweight-charts@4.1.0` to match current CDN asset digest, resolving blocked chart script load on the workspace dashboard.
+- Re-ran live Docker browser automation coverage on `http://localhost:8080` after `web_console_dev` restart.
+- Generated fresh page-by-page report with screenshots:
+  - `artifacts/ui_clickthrough/20260411_134904/report.md`
+  - `artifacts/ui_clickthrough/20260411_134904/report.json`
+- Result: 28/28 routes pass with zero console/page errors under authenticated UI login flow.

@@ -8,6 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from apps.web_console_ng.components.execution_context import (
+    build_execution_context_snapshot,
+)
 from apps.web_console_ng.components.order_ticket import (
     BUYING_POWER_STALE_THRESHOLD_S,
     LIMITS_STALE_THRESHOLD_S,
@@ -305,11 +308,24 @@ class TestStrategyModelExecutionGate:
             gate_enabled=True,
             gate_reason="strategy paused",
         )
+        component.set_execution_context_snapshot(
+            build_execution_context_snapshot(
+                symbol="AAPL",
+                strategy_id="alpha_1",
+                strategy_status="inactive",
+                model_status="active",
+                model_version="v1",
+                signal_id="sig-1",
+                data_freshness_s=1.0,
+                gate_reason="strategy paused",
+                freshness_threshold_s=30.0,
+            )
+        )
 
         disabled, reason = component._should_disable_submission()
 
         assert disabled is True
-        assert "Execution gated" in reason
+        assert "Execution context blocked" in reason
 
     def test_allows_risk_reducing_orders_when_context_unsafe(
         self, component: OrderTicketComponent
@@ -356,11 +372,53 @@ class TestStrategyModelExecutionGate:
             model_status="ready",
             gate_enabled=True,
         )
+        component.set_execution_context_snapshot(
+            build_execution_context_snapshot(
+                symbol="AAPL",
+                strategy_id="alpha_1",
+                strategy_status="ready",
+                model_status="ready",
+                model_version="v1",
+                signal_id="sig-1",
+                data_freshness_s=1.0,
+                gate_reason=None,
+                freshness_threshold_s=30.0,
+            )
+        )
 
         disabled, reason = component._should_disable_submission()
 
         assert disabled is False
         assert reason == ""
+
+    def test_blocks_risk_increasing_orders_when_context_stale(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Stale execution context blocks risk-increasing submissions."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="active",
+            model_status="active",
+            gate_enabled=True,
+        )
+        component.set_execution_context_snapshot(
+            build_execution_context_snapshot(
+                symbol="AAPL",
+                strategy_id="alpha_1",
+                strategy_status="active",
+                model_status="active",
+                model_version="v1",
+                signal_id="sig-1",
+                data_freshness_s=90.0,
+                gate_reason=None,
+                freshness_threshold_s=30.0,
+            )
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert "market data stale" in reason
 
 
 class TestOrderTicketStalenessChecks:

@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis as AsyncRedis
 
     from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
+    from apps.web_console_ng.components.execution_context import ExecutionContextSnapshot
     from apps.web_console_ng.components.flatten_controls import FlattenControls
     from apps.web_console_ng.components.market_context import MarketContextComponent
     from apps.web_console_ng.components.one_click_handler import OneClickHandler
@@ -242,6 +243,7 @@ class OrderEntryContext:
         strategy_label: str | None = None,
         model_label: str | None = None,
         banner: str | None = None,
+        snapshot: ExecutionContextSnapshot | None = None,
     ) -> None:
         """Dispatch strategy/model execution context to ticket and context widget."""
         if self._order_ticket:
@@ -251,6 +253,7 @@ class OrderEntryContext:
                 gate_enabled=gate_enabled,
                 gate_reason=gate_reason,
             )
+            self._order_ticket.set_execution_context_snapshot(snapshot)
 
         if self._strategy_context_widget:
             self._strategy_context_widget.set_status(

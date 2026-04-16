@@ -18,6 +18,9 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.data_health_widget import render_data_health
+from apps.web_console_ng.components.execution_context import (
+    build_execution_context_snapshot,
+)
 from apps.web_console_ng.components.execution_gate import (
     is_model_execution_safe,
     is_strategy_execution_safe,
@@ -546,6 +549,7 @@ class MarketPriceCache:
 
 
 @ui.page("/")
+@ui.page("/trade")
 @requires_auth
 @main_layout
 async def dashboard(client: Client) -> None:
@@ -1912,6 +1916,7 @@ async def dashboard(client: Client) -> None:
 
     async def _refresh_strategy_model_context(refresh_generation: int) -> None:
         selected_symbol = order_context.get_selected_symbol()
+        _stale, data_age_s = _is_workspace_data_stale()
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
@@ -1929,6 +1934,17 @@ async def dashboard(client: Client) -> None:
                 strategy_label="Strategy: --",
                 model_label="Model: --",
                 banner="Select a symbol to resolve strategy/model execution context.",
+                snapshot=build_execution_context_snapshot(
+                    symbol=None,
+                    strategy_id=None,
+                    strategy_status="unknown",
+                    model_status="unknown",
+                    model_version=None,
+                    signal_id=None,
+                    data_freshness_s=data_age_s,
+                    gate_reason="Select a symbol to resolve execution context",
+                    freshness_threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+                ),
             )
             return
 
@@ -1969,12 +1985,24 @@ async def dashboard(client: Client) -> None:
                 strategy_label="Strategy: unresolved",
                 model_label="Model: unresolved",
                 banner=unresolved_banner,
+                snapshot=build_execution_context_snapshot(
+                    symbol=selected_symbol,
+                    strategy_id=None,
+                    strategy_status="unknown",
+                    model_status="unknown",
+                    model_version=None,
+                    signal_id=None,
+                    data_freshness_s=data_age_s,
+                    gate_reason=unresolved_gate_reason,
+                    freshness_threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+                ),
             )
             return
 
         strategy_status = "unknown"
         model_status = "unknown"
         model_version: str | None = None
+        signal_id: str | None = None
         reason_parts: list[str] = []
 
         try:
@@ -1991,6 +2019,9 @@ async def dashboard(client: Client) -> None:
             payload_model_version = strategy_payload.get("model_version")
             if payload_model_version:
                 model_version = str(payload_model_version).strip()
+            payload_signal_id = strategy_payload.get("signal_id")
+            if payload_signal_id:
+                signal_id = str(payload_signal_id).strip()
         except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
             reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
@@ -2040,6 +2071,17 @@ async def dashboard(client: Client) -> None:
             strategy_label=strategy_label,
             model_label=model_label,
             banner=banner,
+            snapshot=build_execution_context_snapshot(
+                symbol=selected_symbol,
+                strategy_id=strategy_id,
+                strategy_status=strategy_status,
+                model_status=model_status,
+                model_version=model_version,
+                signal_id=signal_id,
+                data_freshness_s=data_age_s,
+                gate_reason=gate_reason,
+                freshness_threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+            ),
         )
 
     async def _run_strategy_model_context_refresh(refresh_generation: int) -> None:

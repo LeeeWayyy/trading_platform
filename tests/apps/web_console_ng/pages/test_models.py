@@ -10,6 +10,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
@@ -48,6 +49,14 @@ class _El:
     def on_click(self, fn: Callable[..., Any] | None) -> _El:
         self._on_click = fn
         return self
+
+
+def test_models_page_contains_research_promote_banner_link() -> None:
+    """Legacy models page should link users to consolidated Promote tab."""
+    source = inspect.getsource(models_module.models_page)
+
+    assert "Legacy page: use Research Workspace" in source
+    assert '"/research?tab=promote"' in source
 
 
 class _UI:

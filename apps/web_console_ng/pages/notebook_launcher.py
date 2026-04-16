@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from nicegui import run, ui
@@ -33,6 +34,166 @@ _NOTEBOOK_SESSION_PREFIX = "notebook_session:"
 _NOTEBOOK_SESSION_TTL = 86400  # 24 hours
 
 
+def _serialize_notebook_session(session: Any) -> dict[str, Any]:
+    """Convert NotebookSession-like objects to JSON-safe payloads."""
+    status_raw = getattr(session, "status", None)
+    if isinstance(status_raw, str):
+        status_value = status_raw
+    elif status_raw is None:
+        status_value = "error"
+    else:
+        enum_like_value = getattr(status_raw, "value", None)
+        status_value = str(enum_like_value) if enum_like_value is not None else str(status_raw)
+
+    created_at = getattr(session, "created_at", None)
+    if isinstance(created_at, datetime):
+        created_at_value = created_at.isoformat()
+    elif created_at is None:
+        created_at_value = datetime.now(UTC).isoformat()
+    else:
+        created_at_value = str(created_at)
+
+    updated_at = getattr(session, "updated_at", None)
+    if isinstance(updated_at, datetime):
+        updated_at_value = updated_at.isoformat()
+    elif updated_at is None:
+        updated_at_value = datetime.now(UTC).isoformat()
+    else:
+        updated_at_value = str(updated_at)
+
+    command = getattr(session, "command", None)
+    command_value = [str(part) for part in command] if isinstance(command, list) else None
+
+    parameters = getattr(session, "parameters", None)
+    parameters_value = dict(parameters) if isinstance(parameters, dict) else {}
+
+    return {
+        "session_id": str(getattr(session, "session_id", "")),
+        "template_id": str(getattr(session, "template_id", "")),
+        "parameters": parameters_value,
+        "status": status_value,
+        "created_at": created_at_value,
+        "updated_at": updated_at_value,
+        "process_id": getattr(session, "process_id", None),
+        "port": getattr(session, "port", None),
+        "token": getattr(session, "token", None),
+        "access_url": getattr(session, "access_url", None),
+        "error_message": getattr(session, "error_message", None),
+        "command": command_value,
+    }
+
+
+def _serialize_session_store_for_redis(session_store: dict[str, Any]) -> dict[str, Any]:
+    """Normalize notebook session store into a JSON-safe dict."""
+    serialized: dict[str, Any] = {}
+    for key, value in session_store.items():
+        if isinstance(value, dict):
+            serialized[str(key)] = value
+            continue
+        if hasattr(value, "session_id") and hasattr(value, "template_id"):
+            serialized[str(key)] = _serialize_notebook_session(value)
+            continue
+        serialized[str(key)] = value
+    return serialized
+
+
+def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict[str, Any]:
+    """Convert Redis payload into NotebookSession-backed store."""
+    from libs.web_console_services.notebook_launcher_service import (
+        NotebookSession,
+        SessionStatus,
+    )
+
+    deserialized: dict[str, Any] = {}
+    for key, value in session_store.items():
+        if not isinstance(value, dict):
+            deserialized[str(key)] = value
+            continue
+        if "session_id" not in value or "template_id" not in value:
+            deserialized[str(key)] = value
+            continue
+
+        status_raw = value.get("status")
+        try:
+            status = SessionStatus(str(status_raw))
+        except ValueError:
+            status = SessionStatus.ERROR
+
+        created_at_raw = value.get("created_at")
+        try:
+            created_at = (
+                datetime.fromisoformat(str(created_at_raw))
+                if created_at_raw
+                else datetime.now(UTC)
+            )
+        except ValueError:
+            created_at = datetime.now(UTC)
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+
+        updated_at_raw = value.get("updated_at")
+        try:
+            updated_at = (
+                datetime.fromisoformat(str(updated_at_raw))
+                if updated_at_raw
+                else datetime.now(UTC)
+            )
+        except ValueError:
+            updated_at = datetime.now(UTC)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
+
+        process_id_raw = value.get("process_id")
+        process_id = _coerce_optional_int(process_id_raw)
+        port_raw = value.get("port")
+        port = _coerce_optional_int(port_raw)
+
+        parameters_raw = value.get("parameters")
+        command_raw = value.get("command")
+        command: list[str] | None
+        if isinstance(command_raw, list):
+            command = [str(part) for part in command_raw]
+        else:
+            command = None
+
+        deserialized[str(key)] = NotebookSession(
+            session_id=str(value.get("session_id") or key),
+            template_id=str(value.get("template_id") or "unknown"),
+            parameters=dict(parameters_raw) if isinstance(parameters_raw, dict) else {},
+            status=status,
+            created_at=created_at,
+            updated_at=updated_at,
+            process_id=process_id,
+            port=port,
+            token=(
+                str(value.get("token"))
+                if isinstance(value.get("token"), str)
+                else None
+            ),
+            access_url=(
+                str(value.get("access_url"))
+                if isinstance(value.get("access_url"), str)
+                else None
+            ),
+            error_message=(
+                str(value.get("error_message"))
+                if isinstance(value.get("error_message"), str)
+                else None
+            ),
+            command=command,
+        )
+    return deserialized
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    """Parse integers from Redis payload fields with tolerant fallback."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
 def _get_redis_session_store(user_id: str) -> dict[str, Any]:
     """Get notebook session store from Redis for a user.
 
@@ -45,7 +206,7 @@ def _get_redis_session_store(user_id: str) -> dict[str, Any]:
         try:
             parsed = json.loads(data)  # type: ignore[arg-type]
             if isinstance(parsed, dict):
-                return parsed
+                return _deserialize_session_store_from_redis(parsed)
             return {}
         except (json.JSONDecodeError, TypeError):
             return {}
@@ -56,7 +217,8 @@ def _save_redis_session_store(user_id: str, session_store: dict[str, Any]) -> No
     """Save notebook session store to Redis for a user."""
     redis_client = get_sync_redis_client()
     key = f"{_NOTEBOOK_SESSION_PREFIX}{user_id}"
-    redis_client.setex(key, _NOTEBOOK_SESSION_TTL, json.dumps(session_store))
+    payload = _serialize_session_store_for_redis(session_store)
+    redis_client.setex(key, _NOTEBOOK_SESSION_TTL, json.dumps(payload))
 
 
 def _get_service(user: dict[str, Any], session_store: dict[str, Any]) -> Any:

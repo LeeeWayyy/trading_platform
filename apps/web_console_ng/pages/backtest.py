@@ -21,6 +21,7 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs
 
 import plotly.graph_objects as go
 import polars as pl
@@ -78,6 +79,14 @@ POLL_INTERVALS = {
 
 # Valid job statuses
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
+BACKTEST_TAB_NEW = "new"
+BACKTEST_TAB_RUNNING = "running"
+BACKTEST_TAB_RESULTS = "results"
+VALID_BACKTEST_TABS = {
+    BACKTEST_TAB_NEW,
+    BACKTEST_TAB_RUNNING,
+    BACKTEST_TAB_RESULTS,
+}
 
 # Symbol validation pattern: must start with letter, then alphanumeric/dots/hyphens (e.g., BRK.A, KHC)
 # Prevents injection via malicious symbol names and enforces exchange naming conventions
@@ -85,6 +94,76 @@ SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
 # Cached Redis client for RQ (decode_responses=False for binary payloads)
 _rq_redis_client: Redis | None = None
+
+
+def _get_backtest_prefill_from_request() -> dict[str, str | None]:
+    """Extract non-blocking prefill hints from query params."""
+    try:
+        request = ui.context.client.request
+    except Exception:
+        return {"signal_id": None, "source": None}
+    if request is None:
+        return {"signal_id": None, "source": None}
+    raw_query = request.scope.get("query_string", b"")
+    query_string = (
+        raw_query.decode("utf-8")
+        if isinstance(raw_query, bytes)
+        else str(raw_query)
+    )
+    params = parse_qs(query_string)
+    signal_id = params.get("signal_id", [None])[0]
+    source = params.get("source", [None])[0]
+    return {
+        "signal_id": str(signal_id).strip() if signal_id else None,
+        "source": str(source).strip() if source else None,
+    }
+
+
+def _get_requested_backtest_tab() -> str:
+    """Resolve requested Backtest Manager tab from query string."""
+    try:
+        request = ui.context.client.request
+    except Exception:
+        return BACKTEST_TAB_NEW
+    if request is None:
+        return BACKTEST_TAB_NEW
+    raw_query = request.scope.get("query_string", b"")
+    query_string = (
+        raw_query.decode("utf-8")
+        if isinstance(raw_query, bytes)
+        else str(raw_query)
+    )
+    params = parse_qs(query_string)
+    raw_tab = params.get("tab", [BACKTEST_TAB_NEW])[0]
+    normalized = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
+    return normalized if normalized in VALID_BACKTEST_TABS else BACKTEST_TAB_NEW
+
+
+async def _resolve_prefill_alpha_name(
+    *,
+    signal_id: str | None,
+) -> tuple[str | None, str | None]:
+    """Resolve alpha select value from signal_id deep-link.
+
+    Returns:
+        (alpha_name, warning_message)
+    """
+    if not signal_id:
+        return (None, None)
+    try:
+        from apps.web_console_ng.pages.alpha_explorer import _get_alpha_service
+
+        service = await run.io_bound(_get_alpha_service)
+        if service is None:
+            return (None, "Prefill unavailable: alpha explorer service is not ready")
+        metrics = await run.io_bound(service.get_signal_metrics, signal_id)
+    except Exception:
+        return (None, f"Prefill unavailable: unknown signal_id '{signal_id}'")
+
+    alpha_name = str(getattr(metrics, "name", "") or "").strip()
+    if not alpha_name:
+        return (None, f"Prefill unavailable: signal '{signal_id}' has no alpha name mapping")
+    return (alpha_name, None)
 
 
 def _get_rq_redis_client() -> Redis:
@@ -358,6 +437,8 @@ def _verify_job_ownership(job_id: str, user_id: str, db_pool: ConnectionPool) ->
 async def backtest_page() -> None:
     """Backtest Manager page."""
     user = get_current_user()
+    prefill = _get_backtest_prefill_from_request()
+    requested_tab = _get_requested_backtest_tab()
 
     # Feature flag check
     if not config.FEATURE_BACKTEST_MANAGER:
@@ -380,17 +461,29 @@ async def backtest_page() -> None:
 
     # Page title
     ui.label("Backtest Manager").classes("text-2xl font-bold mb-4")
+    with ui.card().classes("w-full p-2 mb-3 border border-slate-800 bg-slate-900/35"):
+        with ui.row().classes("items-center justify-between gap-2"):
+            ui.label("Legacy page: use Research Workspace → Validate for consolidated flow.").classes(
+                "text-xs text-slate-300"
+            )
+            ui.link("Open /research", "/research?tab=validate").classes("text-xs")
 
     # Tabs
     with ui.tabs().classes("w-full") as tabs:
         tab_new = ui.tab("New Backtest")
         tab_running = ui.tab("Running Jobs")
         tab_results = ui.tab("Results")
+    tab_map = {
+        BACKTEST_TAB_NEW: tab_new,
+        BACKTEST_TAB_RUNNING: tab_running,
+        BACKTEST_TAB_RESULTS: tab_results,
+    }
+    selected_tab = tab_map.get(requested_tab, tab_new)
 
-    with ui.tab_panels(tabs, value=tab_new).classes("w-full"):
+    with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
         # === NEW BACKTEST TAB ===
         with ui.tab_panel(tab_new):
-            await _render_new_backtest_form(user)
+            await _render_new_backtest_form(user, prefill=prefill)
 
         # === RUNNING JOBS TAB ===
         with ui.tab_panel(tab_running):
@@ -401,7 +494,11 @@ async def backtest_page() -> None:
             await _render_backtest_results(user, db_pool, redis_client)
 
 
-async def _render_new_backtest_form(user: dict[str, Any]) -> None:
+async def _render_new_backtest_form(
+    user: dict[str, Any],
+    *,
+    prefill: dict[str, str | None] | None = None,
+) -> None:
     """Render the new backtest submission form."""
     from libs.trading.backtest.job_queue import (
         BacktestJobConfig,
@@ -481,11 +578,28 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     )
                     return  # Cannot submit without alphas
 
+                prefill_alpha_name: str | None = None
+                prefill_warning: str | None = None
+                if prefill and prefill.get("source") == "alpha_explorer":
+                    prefill_alpha_name, prefill_warning = await _resolve_prefill_alpha_name(
+                        signal_id=prefill.get("signal_id")
+                    )
+                default_alpha = alpha_options[0]
+                if prefill_alpha_name:
+                    if prefill_alpha_name in alpha_options:
+                        default_alpha = prefill_alpha_name
+                    else:
+                        prefill_warning = (
+                            f"Prefill hint '{prefill_alpha_name}' not in registered alpha catalog"
+                        )
+
                 alpha_select = ui.select(
                     label="Alpha Signal",
                     options=alpha_options,
-                    value=alpha_options[0],
+                    value=default_alpha,
                 ).classes("w-full")
+                if prefill_warning:
+                    ui.notify(prefill_warning, type="warning")
 
                 # Default dates
                 default_end = date.today() - timedelta(days=DEFAULT_END_DATE_OFFSET_DAYS)

@@ -16,6 +16,7 @@ Target: 85%+ branch coverage
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -349,6 +350,118 @@ def test_get_poll_interval_progressive_backoff() -> None:
     # >= 300s: 30s
     assert backtest_module._get_poll_interval(300) == 30.0
     assert backtest_module._get_poll_interval(1000) == 30.0
+
+
+def test_get_backtest_prefill_from_request_parses_query(
+    dummy_ui: DummyUI,
+) -> None:
+    """Prefill parser extracts signal and source hints from query string."""
+    dummy_ui.context.client.request = SimpleNamespace(
+        scope={"query_string": b"signal_id=sig-123&source=alpha_explorer"}
+    )
+
+    result = backtest_module._get_backtest_prefill_from_request()
+
+    assert result == {"signal_id": "sig-123", "source": "alpha_explorer"}
+
+
+def test_backtest_page_contains_research_validate_banner_link() -> None:
+    """Legacy backtest page should link users to consolidated Validate tab."""
+    source = inspect.getsource(backtest_module.backtest_page)
+
+    assert "Legacy page: use Research Workspace" in source
+    assert '"/research?tab=validate"' in source
+
+
+def test_get_backtest_prefill_from_request_handles_missing_request(
+    dummy_ui: DummyUI,
+) -> None:
+    """Prefill parser fails open when request context is unavailable."""
+    dummy_ui.context.client.request = None
+
+    result = backtest_module._get_backtest_prefill_from_request()
+
+    assert result == {"signal_id": None, "source": None}
+
+
+def test_get_requested_backtest_tab_valid(
+    dummy_ui: DummyUI,
+) -> None:
+    """Tab parser preserves valid tab query values."""
+    dummy_ui.context.client.request = SimpleNamespace(
+        scope={"query_string": b"tab=running"}
+    )
+
+    result = backtest_module._get_requested_backtest_tab()
+
+    assert result == backtest_module.BACKTEST_TAB_RUNNING
+
+
+def test_get_requested_backtest_tab_invalid_defaults_to_new(
+    dummy_ui: DummyUI,
+) -> None:
+    """Tab parser defaults to New Backtest on unknown tab values."""
+    dummy_ui.context.client.request = SimpleNamespace(
+        scope={"query_string": b"tab=invalid"}
+    )
+
+    result = backtest_module._get_requested_backtest_tab()
+
+    assert result == backtest_module.BACKTEST_TAB_NEW
+
+
+def test_get_requested_backtest_tab_missing_request_defaults_to_new(
+    dummy_ui: DummyUI,
+) -> None:
+    """Tab parser fails open to New Backtest when request context is missing."""
+    dummy_ui.context.client.request = None
+
+    result = backtest_module._get_requested_backtest_tab()
+
+    assert result == backtest_module.BACKTEST_TAB_NEW
+
+
+@pytest.mark.asyncio()
+async def test_resolve_prefill_alpha_name_returns_warning_when_service_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deep-link resolution returns warning (non-blocking) when service is not ready."""
+    from apps.web_console_ng.pages import alpha_explorer as alpha_module
+
+    async def _fake_io_bound(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(alpha_module, "_get_alpha_service", lambda: None)
+    monkeypatch.setattr(backtest_module.run, "io_bound", _fake_io_bound)
+
+    alpha_name, warning = await backtest_module._resolve_prefill_alpha_name(signal_id="sig-404")
+
+    assert alpha_name is None
+    assert warning is not None
+    assert "not ready" in warning
+
+
+@pytest.mark.asyncio()
+async def test_resolve_prefill_alpha_name_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deep-link resolution maps signal_id to alpha name when available."""
+    from apps.web_console_ng.pages import alpha_explorer as alpha_module
+
+    class _Service:
+        def get_signal_metrics(self, _signal_id: str) -> Any:
+            return SimpleNamespace(name="Alpha Momentum")
+
+    async def _fake_io_bound(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(alpha_module, "_get_alpha_service", lambda: _Service())
+    monkeypatch.setattr(backtest_module.run, "io_bound", _fake_io_bound)
+
+    alpha_name, warning = await backtest_module._resolve_prefill_alpha_name(signal_id="sig-1")
+
+    assert alpha_name == "Alpha Momentum"
+    assert warning is None
 
 
 def test_get_user_jobs_sync_parses_progress() -> None:

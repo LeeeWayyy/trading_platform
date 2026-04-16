@@ -125,6 +125,12 @@ async def models_page() -> None:
     can_manage = is_admin(user)
 
     ui.label("Model Registry Browser").classes("text-2xl font-bold mb-2")
+    with ui.card().classes("w-full p-2 mb-2 border border-slate-800 bg-slate-900/35"):
+        with ui.row().classes("items-center justify-between gap-2"):
+            ui.label("Legacy page: use Research Workspace → Promote for consolidated flow.").classes(
+                "text-xs text-slate-300"
+            )
+            ui.link("Open /research", "/research?tab=promote").classes("text-xs")
     ui.label(
         "Dense model registry surface grouped by strategy with scoped promote/demote actions."
     ).classes("text-xs text-slate-400 mb-3")

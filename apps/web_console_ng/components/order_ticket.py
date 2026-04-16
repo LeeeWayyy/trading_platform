@@ -25,6 +25,11 @@ from nicegui import ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.components.action_button import ActionButton
+from apps.web_console_ng.components.execution_context import (
+    EXECUTION_CONTEXT_READY,
+    ExecutionContextSnapshot,
+    format_execution_context_ribbon,
+)
 from apps.web_console_ng.components.execution_gate import (
     is_model_execution_safe,
     is_strategy_execution_safe,
@@ -140,6 +145,8 @@ class OrderTicketComponent:
         self._impact_label: ui.label | None = None
         self._impact_status_label: ui.label | None = None
         self._impact_bar_fill: ui.element | None = None
+        self._execution_context_label: ui.label | None = None
+        self._execution_context_state_label: ui.label | None = None
         self._quantity_presets: QuantityPresetsComponent | None = None
 
         # State
@@ -196,6 +203,7 @@ class OrderTicketComponent:
         self._strategy_status: str = "unknown"
         self._model_status: str = "unknown"
         self._execution_gate_reason: str | None = None
+        self._execution_context_snapshot: ExecutionContextSnapshot | None = None
 
     async def initialize(self, timer_tracker: Callable[[ui.timer], None]) -> None:
         """Initialize with timer tracking.
@@ -302,6 +310,14 @@ class OrderTicketComponent:
             with ui.row().classes("w-full items-center justify-between mt-2"):
                 self._impact_label = ui.label("--").classes("workspace-v2-kv workspace-v2-data-mono")
                 self._impact_status_label = ui.label("UNAVAILABLE").classes(
+                    "workspace-v2-pill workspace-v2-pill-warning"
+                )
+
+            with ui.row().classes("w-full items-center justify-between mt-1"):
+                self._execution_context_label = ui.label("Context: --").classes(
+                    "workspace-v2-kv workspace-v2-data-mono"
+                )
+                self._execution_context_state_label = ui.label("BLOCKED").classes(
                     "workspace-v2-pill workspace-v2-pill-warning"
                 )
 
@@ -814,6 +830,12 @@ class OrderTicketComponent:
         self._model_status = normalize_execution_status(model_status)
         self._execution_gate_enabled = bool(gate_enabled)
         self._execution_gate_reason = str(gate_reason) if gate_reason else None
+        self._update_execution_context_ribbon()
+
+    def set_execution_context_snapshot(self, snapshot: ExecutionContextSnapshot | None) -> None:
+        """Set latest execution-context snapshot shown in ribbon and gate checks."""
+        self._execution_context_snapshot = snapshot
+        self._update_execution_context_ribbon()
 
     async def on_symbol_changed(self, symbol: str | None) -> None:
         """Called by OrderEntryContext when selected symbol changes externally."""
@@ -842,6 +864,7 @@ class OrderTicketComponent:
             if should_fail_closed_gate
             else None
         )
+        self._execution_context_snapshot = None
         # DO NOT reset _limits_loaded/_limits_last_updated - limits are global
 
         if self._symbol_input and self._symbol_input.value != symbol:
@@ -1075,7 +1098,29 @@ class OrderTicketComponent:
         self._update_position_display()
         self._update_buying_power_display()
         self._update_buying_power_impact()
+        self._update_execution_context_ribbon()
         self._update_quantity_presets_context()
+
+    def _update_execution_context_ribbon(self) -> None:
+        """Refresh compact execution-context ribbon above action buttons."""
+        text, tone = format_execution_context_ribbon(self._execution_context_snapshot)
+        if self._execution_context_label is not None:
+            self._execution_context_label.set_text(text)
+        if self._execution_context_state_label is not None:
+            state_text = (
+                self._execution_context_snapshot.risk_gate_state
+                if self._execution_context_snapshot is not None
+                else "BLOCKED"
+            )
+            self._execution_context_state_label.set_text(state_text)
+            if tone == "normal":
+                self._execution_context_state_label.classes(
+                    replace="workspace-v2-pill workspace-v2-pill-positive"
+                )
+            else:
+                self._execution_context_state_label.classes(
+                    replace="workspace-v2-pill workspace-v2-pill-warning"
+                )
 
     def _sync_inputs_from_state(self) -> None:
         """Sync all input controls from internal state.
@@ -1258,6 +1303,22 @@ class OrderTicketComponent:
         """Return strategy/model gate block reason for risk-increasing orders."""
         if not self._execution_gate_enabled:
             return None
+
+        if self._execution_context_snapshot is None:
+            if self._is_risk_reducing_order():
+                return None
+            return "Execution context blocked: unavailable"
+
+        if self._execution_context_snapshot.risk_gate_state != EXECUTION_CONTEXT_READY:
+            if self._is_risk_reducing_order():
+                return None
+            snapshot_reason = self._execution_context_snapshot.gate_reason
+            if snapshot_reason:
+                return f"Execution context blocked: {snapshot_reason}"
+            return (
+                "Execution context blocked: "
+                f"{self._execution_context_snapshot.risk_gate_state}"
+            )
 
         strategy_safe = is_strategy_execution_safe(self._strategy_status)
         model_safe = is_model_execution_safe(self._model_status)

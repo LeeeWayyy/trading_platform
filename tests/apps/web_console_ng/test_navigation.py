@@ -323,6 +323,8 @@ def test_navigation_item_structure() -> None:
     items = _extract_nav_items()
     assert items == [
         ("Dashboard", "/", "dashboard", None),
+        ("Trade", "/trade", "candlestick_chart", None),
+        ("Research Workspace", "/research", "hub", None),
         ("Manual Controls", "/manual-order", "edit", None),
         ("Position Mgmt", "/position-management", "swap_vert", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
@@ -744,3 +746,64 @@ async def test_p6t17_links_hidden_when_permissions_denied(
     assert "/strategies" not in targets
     assert "/models" not in targets
     assert "/alerts" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_visible_with_models_permission_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link stays visible when only Promote-tab permission exists."""
+    await _run_layout(monkeypatch, current_path="/")
+
+    fake_ui = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+
+    denied = {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_PNL,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_hidden_without_workspace_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link is hidden when no consolidated-tab permission exists."""
+    await _run_layout(monkeypatch, current_path="/")
+
+    fake_ui = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+
+    denied = {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_PNL,
+        Permission.VIEW_MODELS,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" not in targets

@@ -11,6 +11,7 @@ import pytest
 from apps.web_console_ng.pages import notebook_launcher as notebook_module
 from libs.web_console_services.notebook_launcher_service import (
     NotebookParameter,
+    NotebookSession,
     NotebookTemplate,
     SessionStatus,
 )
@@ -167,6 +168,74 @@ def test_save_redis_session_store_persists(monkeypatch: pytest.MonkeyPatch) -> N
     assert args[0] == "notebook_session:user-1"
     assert args[1] == notebook_module._NOTEBOOK_SESSION_TTL
     assert json.loads(args[2])["s"] == 1
+
+
+def test_save_redis_session_store_serializes_notebook_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis_client = MagicMock()
+    monkeypatch.setattr(notebook_module, "get_sync_redis_client", lambda: redis_client)
+    now = datetime.now(UTC)
+    session = NotebookSession(
+        session_id="sess-1",
+        template_id="tmpl-1",
+        parameters={"alpha": "v1"},
+        status=SessionStatus.RUNNING,
+        created_at=now,
+        updated_at=now,
+        process_id=1234,
+        port=8901,
+        token="tok",
+        access_url="http://localhost:8901/?token=tok",
+        error_message=None,
+        command=["jupyter", "lab"],
+    )
+
+    notebook_module._save_redis_session_store("user-1", {"sess-1": session})
+
+    redis_client.setex.assert_called_once()
+    args, _ = redis_client.setex.call_args
+    payload = json.loads(args[2])
+    assert payload["sess-1"]["session_id"] == "sess-1"
+    assert payload["sess-1"]["status"] == "running"
+    assert payload["sess-1"]["command"] == ["jupyter", "lab"]
+
+
+@pytest.mark.asyncio()
+async def test_get_redis_session_store_deserializes_notebook_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now_iso = datetime.now(UTC).isoformat()
+    raw = {
+        "sess-1": {
+            "session_id": "sess-1",
+            "template_id": "tmpl-1",
+            "parameters": {"alpha": "v1"},
+            "status": "running",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "process_id": 1234,
+            "port": 8901,
+            "token": "tok",
+            "access_url": "http://localhost:8901/?token=tok",
+            "error_message": None,
+            "command": ["jupyter", "lab"],
+        }
+    }
+
+    class DummyRedis:
+        def get(self, key: str):
+            return json.dumps(raw).encode("utf-8")
+
+    monkeypatch.setattr(notebook_module, "get_sync_redis_client", lambda: DummyRedis())
+
+    result = notebook_module._get_redis_session_store("user-1")
+
+    assert "sess-1" in result
+    session = result["sess-1"]
+    assert isinstance(session, NotebookSession)
+    assert session.status == SessionStatus.RUNNING
+    assert session.template_id == "tmpl-1"
 
 
 @pytest.mark.asyncio()

@@ -157,6 +157,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                 nav_items = [
                     ("Dashboard", "/", "dashboard", None),
+                    ("Trade", "/trade", "candlestick_chart", None),
+                    ("Research Workspace", "/research", "hub", None),
                     ("Manual Controls", "/manual-order", "edit", None),
                     ("Position Mgmt", "/position-management", "swap_vert", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
@@ -193,7 +195,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 ]
 
                 nav_groups: list[tuple[str, list[str]]] = [
-                    ("Execute", ["/", "/manual-order", "/position-management", "/circuit-breaker"]),
+                    (
+                        "Execute",
+                        ["/", "/trade", "/manual-order", "/position-management", "/circuit-breaker"],
+                    ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
                         "Analysis",
@@ -208,6 +213,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     (
                         "Research",
                         [
+                            "/research",
                             "/research/universes",
                             "/alpha-explorer",
                             "/compare",
@@ -248,6 +254,14 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # Tax Lots link requires VIEW_TAX_LOTS
                     if path == "/tax-lots" and not has_permission(
                         user, Permission.VIEW_TAX_LOTS
+                    ):
+                        return False
+
+                    # Research workspace is visible when any consolidated tab permission exists.
+                    if path == "/research" and not (
+                        has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+                        or has_permission(user, Permission.VIEW_PNL)
+                        or has_permission(user, Permission.VIEW_MODELS)
                     ):
                         return False
 
