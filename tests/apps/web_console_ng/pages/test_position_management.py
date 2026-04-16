@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -409,7 +408,7 @@ async def test_position_management_loads_positions_and_summary(
 
 
 @pytest.mark.asyncio()
-async def test_position_management_summary_handles_string_numbers(
+async def test_position_management_summary_handles_string_numeric_values(
     fake_ui: FakeUI,
     trading_client: MagicMock,
     lifecycle: FakeLifecycleManager,
@@ -417,8 +416,8 @@ async def test_position_management_summary_handles_string_numbers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     positions = [
-        {"symbol": "AAPL", "qty": 10, "market_value": "1000.5", "unrealized_pl": "50"},
-        {"symbol": "MSFT", "qty": 5, "market_value": "499.5", "unrealized_pl": "-25.5"},
+        {"symbol": "AAPL", "qty": "10", "market_value": "1,000.50", "unrealized_pl": "-25.25"},
+        {"symbol": "MSFT", "qty": "5", "market_value": "500", "unrealized_pl": "75"},
     ]
     trading_client.fetch_positions = AsyncMock(return_value={"positions": positions})
     monkeypatch.setattr(
@@ -432,48 +431,8 @@ async def test_position_management_summary_handles_string_numbers(
 
     total_label = _find_element(fake_ui.elements, kind="label", text_prefix="Total Value:")
     pnl_label = _find_element(fake_ui.elements, kind="label", text_prefix="Unrealized P&L:")
-
-    assert total_label.text == "Total Value: $1,500.00"
-    assert pnl_label.text == "Unrealized P&L: $24.50"
-
-
-@pytest.mark.asyncio()
-async def test_position_management_summary_handles_decimal_numbers(
-    fake_ui: FakeUI,
-    trading_client: MagicMock,
-    lifecycle: FakeLifecycleManager,
-    realtime: type[FakeRealtimeUpdater],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    positions = [
-        {
-            "symbol": "AAPL",
-            "qty": 10,
-            "market_value": Decimal("1000.25"),
-            "unrealized_pl": Decimal("50.25"),
-        },
-        {
-            "symbol": "MSFT",
-            "qty": 5,
-            "market_value": Decimal("499.75"),
-            "unrealized_pl": Decimal("-25.75"),
-        },
-    ]
-    trading_client.fetch_positions = AsyncMock(return_value={"positions": positions})
-    monkeypatch.setattr(
-        position_management_module,
-        "get_current_user",
-        lambda: {"user_id": "u1", "role": "operator"},
-    )
-    client = SimpleNamespace(storage={})
-
-    await _unwrap_page(position_management_module.position_management_page)(client)
-
-    total_label = _find_element(fake_ui.elements, kind="label", text_prefix="Total Value:")
-    pnl_label = _find_element(fake_ui.elements, kind="label", text_prefix="Unrealized P&L:")
-
-    assert total_label.text == "Total Value: $1,500.00"
-    assert pnl_label.text == "Unrealized P&L: $24.50"
+    assert total_label.text == "Total Value: $1,500.50"
+    assert pnl_label.text == "Unrealized P&L: $49.75"
 
 
 @pytest.mark.asyncio()

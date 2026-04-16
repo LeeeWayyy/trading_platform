@@ -104,6 +104,7 @@ def _render_status_plot(sources: list[DataSourceStatusDTO], container: ui.column
         ui.plotly(fig).classes("w-full")
 
 
+@ui.page("/data/source-status")
 @ui.page("/data/sources")
 @requires_auth
 @main_layout

@@ -17,7 +17,6 @@ import logging
 import math
 import os
 import re
-import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 import plotly.graph_objects as go
 import polars as pl
 from nicegui import run, ui
-from psycopg import errors as pg_errors
+from psycopg.errors import UndefinedColumn, UndefinedTable
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -55,10 +54,6 @@ if TYPE_CHECKING:
     from libs.trading.backtest.job_queue import BacktestJobQueue
 
 logger = logging.getLogger(__name__)
-_LEGACY_SCHEMA_WARNING_EMITTED = False
-_BACKTEST_COST_SUMMARY_COLUMN_PRESENT: bool | None = None
-_BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT: float | None = None
-_MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -66,7 +61,6 @@ MAX_COMPARISON_SELECTIONS = 5
 DEFAULT_END_DATE_OFFSET_DAYS = 1
 DEFAULT_BACKTEST_PERIOD_DAYS = 730  # ~2 years
 MIN_BACKTEST_PERIOD_DAYS = 30
-BACKTEST_SCHEMA_CACHE_TTL_S = 300.0
 
 # Polling intervals (progressive backoff) in seconds
 POLL_INTERVALS = {
@@ -99,6 +93,11 @@ def _get_rq_redis_client() -> Redis:
 
         _rq_redis_client = _Redis.from_url(config.REDIS_URL, decode_responses=False)
     return _rq_redis_client
+
+
+def _is_missing_column_error(exc: Exception, column_name: str) -> bool:
+    """Return True when a DB error indicates a missing column."""
+    return isinstance(exc, UndefinedColumn) and f'column "{column_name}"' in str(exc).lower()
 
 
 def _get_user_id(user: dict[str, Any]) -> str:
@@ -142,16 +141,7 @@ def _get_user_jobs_sync(
     if invalid:
         raise ValueError(f"Invalid statuses: {invalid}. Valid: {VALID_STATUSES}")
 
-    def _sync_connection() -> Any:
-        """Return a sync DB connection context manager or fail with clear guidance."""
-        conn_ctx = db_pool.connection()
-        if not hasattr(conn_ctx, "__enter__"):
-            raise TypeError(
-                "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
-            )
-        return conn_ctx
-
-    sql = """
+    sql_with_cost_summary = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
                result_path, cost_summary,
@@ -161,99 +151,34 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
-    legacy_sql = """
+    sql_without_cost_summary = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
-               result_path, NULL::jsonb AS cost_summary, 'crsp' AS provider
+               result_path, NULL AS cost_summary,
+               COALESCE(config_json->>'provider', 'crsp') AS provider
         FROM backtest_jobs
         WHERE created_by = %s AND status = ANY(%s)
         ORDER BY created_at DESC
         LIMIT %s
     """
-
-    def _has_cost_summary_column() -> bool:
-        """Return whether backtest_jobs has cost_summary column (cached per process)."""
-        global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-        global _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
-        if (
-            _BACKTEST_COST_SUMMARY_COLUMN_PRESENT is not None
-            and _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT is not None
-            and (time.monotonic() - _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT)
-            < BACKTEST_SCHEMA_CACHE_TTL_S
-        ):
-            return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-
-        probe_sql = """
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'backtest_jobs'
-                  AND column_name = 'cost_summary'
-            ) AS has_column
-        """
-        with _sync_connection() as probe_conn, probe_conn.cursor() as probe_cur:
-            try:
-                probe_cur.execute(probe_sql)
-                row = probe_cur.fetchone()
-                _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
-                _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
-            except Exception as exc:  # pragma: no cover - connectivity/pathology path
-                logger.warning(
-                    "backtest_jobs_schema_probe_failed",
-                    extra={"created_by": created_by, "error": str(exc)},
-                )
-                raise
-        return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-
-    use_cost_summary_sql = _has_cost_summary_column()
-
-    with _sync_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+    with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         try:
-            selected_sql = sql if use_cost_summary_sql else legacy_sql
-            cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
-            jobs = cur.fetchall()
+            cur.execute(sql_with_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
         except Exception as exc:
-            if isinstance(exc, pg_errors.UndefinedTable):
-                if hasattr(conn, "rollback"):
-                    conn.rollback()
-                global _MISSING_BACKTEST_TABLE_WARNING_EMITTED
-                if not _MISSING_BACKTEST_TABLE_WARNING_EMITTED:
-                    logger.warning(
-                        "backtest_jobs_table_missing",
-                        extra={"created_by": created_by, "error": str(exc)},
-                    )
-                    _MISSING_BACKTEST_TABLE_WARNING_EMITTED = True
-                else:
-                    logger.debug(
-                        "backtest_jobs_table_missing",
-                        extra={"created_by": created_by},
-                    )
-                return []
-            if not isinstance(exc, pg_errors.UndefinedColumn):
-                raise
-            # Defensive fallback for schema drift/race where probe cache is stale.
-            global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-            _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
-            global _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
-            _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
-            global _LEGACY_SCHEMA_WARNING_EMITTED
-            if not _LEGACY_SCHEMA_WARNING_EMITTED:
+            if isinstance(exc, UndefinedTable):
                 logger.warning(
-                    "backtest_jobs_legacy_schema_missing_columns",
+                    "backtest_jobs_table_missing",
                     extra={"created_by": created_by, "error": str(exc)},
                 )
-                _LEGACY_SCHEMA_WARNING_EMITTED = True
-            else:
-                logger.debug(
-                    "backtest_jobs_legacy_schema_missing_columns",
-                    extra={"created_by": created_by},
-                )
-            # UndefinedColumn aborts the current transaction; clear it before retry.
-            if hasattr(conn, "rollback"):
-                conn.rollback()
-            cur.execute(legacy_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
-            jobs = cur.fetchall()
+                return []
+            if not _is_missing_column_error(exc, "cost_summary"):
+                raise
+            logger.warning(
+                "backtest_jobs_cost_summary_column_missing: falling back without cost_summary"
+            )
+            conn.rollback()
+            cur.execute(sql_without_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+        jobs = cur.fetchall()
 
     if not jobs:
         return []

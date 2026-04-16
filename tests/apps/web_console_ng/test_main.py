@@ -271,6 +271,7 @@ def test_app_configuration_and_middleware(monkeypatch: pytest.MonkeyPatch) -> No
         "SessionMiddleware",
         "AdmissionControlMiddleware",
         "TrustedHostMiddleware",
+        "SuppressNoResponseReturnedMiddleware",
     ]
 
 
@@ -304,6 +305,32 @@ async def test_log_unhandled_exception_returns_plaintext(monkeypatch: pytest.Mon
         }
     )
     response = await module.log_unhandled_exception(request, RuntimeError("boom"))
+
+    assert isinstance(response, PlainTextResponse)
+    assert response.status_code == 500
+    assert response.body == b"Server error"
+
+
+@pytest.mark.asyncio()
+async def test_log_unhandled_exception_no_response_returns_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'No response returned.' is handled by SuppressNoResponseReturnedMiddleware.
+
+    The exception handler treats it as any other unhandled error (500).
+    """
+    module = _import_main(monkeypatch)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/login",
+            "headers": [],
+        }
+    )
+
+    response = await module.log_unhandled_exception(request, RuntimeError("No response returned."))
 
     assert isinstance(response, PlainTextResponse)
     assert response.status_code == 500
@@ -394,6 +421,120 @@ def test_trusted_host_middleware_configuration(monkeypatch: pytest.MonkeyPatch) 
     assert trusted_host is not None
     _, kwargs = trusted_host
     assert "allowed_hosts" in kwargs
+
+
+@pytest.mark.asyncio()
+async def test_suppress_no_response_returned_middleware_swallows_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify middleware suppresses Starlette's disconnect sentinel runtime error."""
+    module = _import_main(monkeypatch)
+
+    async def _failing_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        raise RuntimeError("No response returned.")
+
+    middleware = module.SuppressNoResponseReturnedMiddleware(_failing_app)
+
+    async def _receive() -> dict[str, str]:
+        return {"type": "http.disconnect"}
+
+    async def _send(_message: dict[str, Any]) -> None:
+        return None
+
+    await middleware({"type": "http"}, _receive, _send)
+
+
+@pytest.mark.asyncio()
+async def test_suppress_no_response_returned_middleware_swallows_exception_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify middleware suppresses ExceptionGroup containing only sentinel errors."""
+    module = _import_main(monkeypatch)
+
+    async def _failing_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        raise ExceptionGroup(
+            "wrapped",
+            [RuntimeError("No response returned."), RuntimeError("No response returned.")],
+        )
+
+    middleware = module.SuppressNoResponseReturnedMiddleware(_failing_app)
+
+    async def _receive() -> dict[str, str]:
+        return {"type": "http.disconnect"}
+
+    async def _send(_message: dict[str, Any]) -> None:
+        return None
+
+    await middleware({"type": "http"}, _receive, _send)
+
+
+@pytest.mark.asyncio()
+async def test_suppress_no_response_returned_middleware_preserves_other_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify middleware does not swallow unrelated runtime errors."""
+    module = _import_main(monkeypatch)
+
+    async def _failing_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        raise RuntimeError("boom")
+
+    middleware = module.SuppressNoResponseReturnedMiddleware(_failing_app)
+
+    async def _receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def _send(_message: dict[str, Any]) -> None:
+        return None
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await middleware({"type": "http"}, _receive, _send)
+
+
+@pytest.mark.asyncio()
+async def test_suppress_no_response_returned_middleware_raises_when_connected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify no-response sentinel is re-raised if client is still connected."""
+    module = _import_main(monkeypatch)
+
+    async def _failing_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        raise RuntimeError("No response returned.")
+
+    middleware = module.SuppressNoResponseReturnedMiddleware(_failing_app)
+
+    async def _receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def _send(_message: dict[str, Any]) -> None:
+        return None
+
+    with pytest.raises(RuntimeError, match="No response returned."):
+        await middleware({"type": "http"}, _receive, _send)
+
+
+@pytest.mark.asyncio()
+async def test_suppress_no_response_returned_middleware_preserves_mixed_exception_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify middleware does not swallow mixed exception groups."""
+    module = _import_main(monkeypatch)
+
+    async def _failing_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        raise ExceptionGroup(
+            "mixed",
+            [RuntimeError("No response returned."), ValueError("boom")],
+        )
+
+    middleware = module.SuppressNoResponseReturnedMiddleware(_failing_app)
+
+    async def _receive() -> dict[str, str]:
+        return {"type": "http.request"}
+
+    async def _send(_message: dict[str, Any]) -> None:
+        return None
+
+    with pytest.raises(ExceptionGroup):
+        await middleware({"type": "http"}, _receive, _send)
 
 
 @pytest.mark.asyncio()

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -93,6 +92,41 @@ async def check_kill_switch_safety(
         )
 
 
+def _coerce_numeric(value: Any) -> float:
+    """Convert API payload values to float for safe summary calculations.
+
+    Handles None, bool, int, float, and string inputs. Returns 0.0 for
+    values that cannot be converted, logging a warning for unexpected types
+    per the project's "never swallow exceptions" standard.
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized:
+            return 0.0
+        try:
+            return float(normalized)
+        except ValueError:
+            logger.warning(
+                "coerce_numeric_failed",
+                extra={"value_type": "str", "value_repr": repr(value[:50])},
+            )
+            return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "coerce_numeric_failed",
+            extra={"value_type": type(value).__name__},
+        )
+        return 0.0
+
+
 @ui.page("/position-management")
 @requires_auth
 @main_layout
@@ -168,7 +202,7 @@ async def position_management_page(client: Client) -> None:
                 ],
                 "rowData": [],
                 "domLayout": "autoHeight",
-                ":getRowId": "(params) => params.data.symbol",
+                ":getRowId": "params => params?.data?.symbol ?? ('row-' + String(params?.rowIndex ?? ''))",
                 "rowSelection": "single",
             }
         ).classes("w-full mb-4")
@@ -192,25 +226,10 @@ async def position_management_page(client: Client) -> None:
             )
 
     def update_summary() -> None:
-        def _as_float(value: Any) -> float:
-            if value is None:
-                return 0.0
-            if isinstance(value, int | float | Decimal):
-                return float(value)
-            if isinstance(value, str):
-                cleaned = value.replace(",", "").strip()
-                if not cleaned:
-                    return 0.0
-                try:
-                    return float(cleaned)
-                except ValueError:
-                    return 0.0
-            return 0.0
-
         position_count_label.set_text(f"Positions: {len(positions_data)}")
-        total_value = sum(_as_float(p.get("market_value")) for p in positions_data)
+        total_value = sum(_coerce_numeric(p.get("market_value")) for p in positions_data)
         total_value_label.set_text(f"Total Value: ${total_value:,.2f}")
-        unrealized = sum(_as_float(p.get("unrealized_pl")) for p in positions_data)
+        unrealized = sum(_coerce_numeric(p.get("unrealized_pl")) for p in positions_data)
         color = "text-green-600" if unrealized >= 0 else "text-red-600"
         unrealized_pnl_label.classes(remove="text-green-600 text-red-600", add=color)
         unrealized_pnl_label.set_text(f"Unrealized P&L: ${unrealized:,.2f}")
