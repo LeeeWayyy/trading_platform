@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 def main() -> int:
+    # scripts/ops/ensure_web_console_jwt_keys.py -> repo root is two levels up.
     repo_root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repo_root))
     from scripts.dev.generate_certs import generate_jwt_keypair

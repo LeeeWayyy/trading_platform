@@ -264,6 +264,12 @@ class _DummyLogDrawer:
     def create(self) -> None:
         return None
 
+    def create_toggle_button(self) -> None:
+        return None
+
+    def create_drawer(self) -> None:
+        return None
+
 
 class _DummyUserStateManager:
     """Mock UserStateManager for layout tests."""

@@ -130,7 +130,8 @@ jobs:
           # Use python -m pip to ensure installs land in the runner Python (not a Poetry venv)
           python -m pip install -r requirements.txt
           # Install additional test dependencies
-          python -m pip install pytest pytest-cov pytest-asyncio httpx
+          python -m pip install pytest pytest-cov pytest-asyncio httpx playwright pytest-playwright
+          python -m playwright install chromium
 
       - name: Run E2E integration tests
         run: |

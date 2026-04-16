@@ -5,6 +5,7 @@
 polars>=1.0.0
 pandas>=2.2.0
 numpy>=1.26.0
+scipy>=1.11.0
 duckdb>=0.9.0
 pyarrow>=10.0.0  # Required for DuckDB-Polars integration
 
@@ -35,19 +36,25 @@ pre-commit>=3.6.0
 # FastAPI and web (T3, T4)
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
+pyjwt[crypto]>=2.8.0  # Needed by shared web_console_auth modules in CI images
 
 # Database (T3, T4, T5)
 psycopg2-binary>=2.9.9
 psycopg[binary]>=3.1.0
+psycopg-pool>=3.1.0
 
 # Alpaca API (T4)
 alpaca-py>=0.15.0
+pytz>=2024.1
 
 # HTTP client (T5)
 httpx>=0.25.0
 
 # Retry logic (T4, T5)
 tenacity>=8.2.0
+
+# Structured logging
+structlog>=24.0.0
 
 # Redis (T1.2 - P1 Feature Store & Event Bus)
 redis>=5.0.0

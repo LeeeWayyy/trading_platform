@@ -153,15 +153,21 @@ def test_port_allocation_skips_bound_port(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setenv("NOTEBOOK_LAUNCH_COMMAND", "echo launch {template_id}")
 
-    # Bind a socket to the first port in the range
-    bound_port = 8900
+    # Pick a currently-free base port, then occupy it to force skip behavior.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        bound_port = probe.getsockname()[1]
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # Remove SO_REUSEADDR to ensure port is truly unavailable
     sock.bind(("127.0.0.1", bound_port))
 
     try:
-        service = NotebookLauncherService(user={"role": "researcher"})
-        # _allocate_port should skip 8900 and return 8901
+        service = NotebookLauncherService(
+            user={"role": "researcher"},
+            port_base=bound_port,
+            port_span=2,
+        )
+        # _allocate_port should skip the occupied base port.
         allocated = service._allocate_port()
         assert allocated != bound_port
         assert allocated == bound_port + 1

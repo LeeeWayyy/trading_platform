@@ -27,26 +27,6 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 
 logger = logging.getLogger(__name__)
 
-_ALPHA158_IMPORT_ERROR: str | None
-try:
-    from strategies.alpha_baseline.features import (
-        get_alpha158_features as _imported_alpha158_features,
-    )
-except ModuleNotFoundError as exc:
-    # Only tolerate the ``strategies`` package itself being absent (it is
-    # not shipped in the web-console Docker image).  Any other missing
-    # module (e.g. a renamed internal import) is a real regression.
-    if exc.name is not None and (
-        exc.name == "strategies" or exc.name.startswith("strategies.")
-    ):
-        _get_alpha158_features: Any | None = None
-        _ALPHA158_IMPORT_ERROR = str(exc)
-    else:
-        raise
-else:
-    _get_alpha158_features = _imported_alpha158_features
-    _ALPHA158_IMPORT_ERROR = None
-
 _MAX_CACHE_DAYS = 30
 _MAX_CACHE_SYMBOLS = 5
 _MAX_LOOKBACK_DAYS = 60
@@ -55,6 +35,36 @@ _MAX_CACHE_BYTES = 5 * 1024 * 1024
 _DEFAULT_SYMBOLS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
 _CLEANUP_OWNER_KEY = "feature_browser_cache"
 _CACHE_KEY = "feature_cache"
+
+
+def _get_alpha158_features(
+    *, symbols: list[str], start_date: str, end_date: str
+) -> pd.DataFrame | None:
+    """Load Alpha158 features via lazy import.
+
+    The lightweight web console Docker image does not always include qlib.
+    Deferring this import allows the application to boot while degrading this
+    page gracefully when qlib-backed feature computation is unavailable.
+    """
+    try:
+        from strategies.alpha_baseline.features import (
+            get_alpha158_features as _get_alpha158_features_impl,
+        )
+    except ModuleNotFoundError as exc:
+        # Only tolerate the ``strategies`` package itself being absent (it is
+        # not shipped in the web-console Docker image).  Any other missing
+        # module (e.g. a renamed internal import) is a real regression.
+        if exc.name is not None and (
+            exc.name == "strategies" or exc.name.startswith("strategies.")
+        ):
+            raise RuntimeError("alpha158 feature dependencies are unavailable") from exc
+        raise
+
+    return _get_alpha158_features_impl(
+        symbols=symbols,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 def _cache_fresh(cached_at: float) -> bool:
@@ -189,19 +199,6 @@ async def feature_browser_page() -> None:
 
         loading_state["feature_data_loading"] = True
         try:
-            if _get_alpha158_features is None:
-                logger.warning(
-                    "feature_browser_dependency_missing",
-                    extra={
-                        "reason": _ALPHA158_IMPORT_ERROR or "feature dependencies unavailable",
-                    },
-                )
-                ui.notify(
-                    "Feature engine dependencies are not available in this runtime.",
-                    type="warning",
-                )
-                return None
-
             end_dt = date.today()
             start_dt = end_dt - timedelta(days=_MAX_CACHE_DAYS + _MAX_LOOKBACK_DAYS)
             symbols = _DEFAULT_SYMBOLS[:_MAX_CACHE_SYMBOLS]
@@ -242,6 +239,17 @@ async def feature_browser_page() -> None:
             return features_df
         except FileNotFoundError:
             ui.notify("Feature data not available — run ETL pipeline first", type="warning")
+            return None
+        except RuntimeError as exc:
+            if "alpha158 feature dependencies are unavailable" in str(exc):
+                logger.warning(
+                    "feature_dependencies_unavailable",
+                    extra={"dependency": "qlib"},
+                )
+                ui.notify("Feature data unavailable: optional qlib dependency missing", type="warning")
+                return None
+            logger.exception("feature_data_load_failed")
+            ui.notify("Feature data unavailable", type="warning")
             return None
         except Exception:
             logger.exception("feature_data_load_failed")
