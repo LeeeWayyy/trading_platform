@@ -203,8 +203,14 @@ class GridExportToolbar:
                         "values": sorted(extra_vals & grid_vals),
                     }
                 else:
-                    # Non-set overlap -- page-level scope wins.
-                    filter_model[key] = extra_spec
+                    # Non-set overlap -- combine as an AND compound
+                    # filter so both constraints must be satisfied.
+                    # This ensures the export cannot widen beyond
+                    # what the page scope and grid filter allow.
+                    filter_model[key] = {
+                        "operator": "AND",
+                        "conditions": [extra_spec, grid_spec],
+                    }
 
             headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:

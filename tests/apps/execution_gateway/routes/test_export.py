@@ -280,11 +280,16 @@ class TestBuildFilterClause:
         assert '"status" = ANY(%s)' in result_sql
         assert params == [["new", "pending_new", "partially_filled"]]
 
-    def test_set_filter_empty_values_ignored(self) -> None:
-        """Set filter with empty values list is silently skipped."""
+    def test_set_filter_empty_values_produces_false(self) -> None:
+        """Set filter with empty values list produces a no-match predicate.
+
+        This ensures that empty set intersections (e.g. from page-level
+        and grid filters with no common values) correctly produce zero
+        results instead of silently dropping the filter.
+        """
         filt = {"status": {"filterType": "set", "values": []}}
         result_sql, params = _build_filter_clause(filt, ["status"])
-        assert result_sql == ""
+        assert "FALSE" in result_sql
         assert params == []
 
     def test_set_filter_respects_allowlist(self) -> None:

@@ -282,7 +282,10 @@ class TestFilterMerge:
                     "values": sorted(extra_vals & grid_vals),
                 }
             else:
-                filter_model[key] = extra_spec
+                filter_model[key] = {
+                    "operator": "AND",
+                    "conditions": [extra_spec, grid_spec],
+                }
         return filter_model
 
     def test_no_overlap_includes_both(self) -> None:
@@ -317,9 +320,10 @@ class TestFilterMerge:
         result = self._merge_filters(extra, grid)
         assert result["status"]["values"] == []
 
-    def test_text_filter_overlap_extra_wins(self) -> None:
-        """Non-set overlapping filters: extra_filters wins."""
+    def test_text_filter_overlap_combined_as_and(self) -> None:
+        """Non-set overlapping filters: combined as AND compound filter."""
         extra = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
         grid = {"symbol": {"filterType": "text", "type": "equals", "filter": "MSFT"}}
         result = self._merge_filters(extra, grid)
-        assert result["symbol"]["filter"] == "AAPL"
+        assert result["symbol"]["operator"] == "AND"
+        assert len(result["symbol"]["conditions"]) == 2

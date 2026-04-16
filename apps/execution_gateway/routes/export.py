@@ -1062,11 +1062,18 @@ def _build_single_condition(
 
     elif filter_type == "set":
         values = spec.get("values")
-        if isinstance(values, list) and values:
-            # Use ANY(%s) with a list parameter for set membership
-            text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
-            clauses.append(f"{text_col} = ANY(%s)")
-            params.append(values)
+        if isinstance(values, list):
+            if values:
+                # Use ANY(%s) with a list parameter for set membership
+                text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+                clauses.append(f"{text_col} = ANY(%s)")
+                params.append(values)
+            else:
+                # Empty values list: no rows should match.
+                # This occurs when page-level and grid set filters have
+                # no common values (empty intersection).  Emit a
+                # false-constant predicate to produce zero results.
+                clauses.append("FALSE")
 
 
 def _build_filter_clause(
