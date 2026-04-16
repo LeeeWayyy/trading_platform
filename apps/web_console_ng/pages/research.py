@@ -6,13 +6,14 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 from nicegui import app, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.pages import models as models_page
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission, is_admin
@@ -32,6 +33,7 @@ TAB_DISCOVER = "discover"
 TAB_VALIDATE = "validate"
 TAB_PROMOTE = "promote"
 VALID_TABS = {TAB_DISCOVER, TAB_VALIDATE, TAB_PROMOTE}
+VALID_VALIDATE_BACKTEST_TABS = {"new", "running", "results"}
 
 
 def _resolve_accessible_tabs(
@@ -89,6 +91,38 @@ def _get_research_workspace_service() -> ResearchWorkspaceService:
     return service
 
 
+def _build_validate_backtest_link(*, signal_id: str, source: str = "alpha_explorer") -> str:
+    """Build a research workspace link that pre-fills Validate/New backtest form."""
+    return "/research?" + urlencode(
+        {
+            "tab": TAB_VALIDATE,
+            "backtest_tab": "new",
+            "signal_id": signal_id,
+            "source": source,
+        }
+    )
+
+
+def _get_requested_validate_backtest_tab() -> str:
+    """Resolve selected backtest sub-tab from research query string."""
+    try:
+        request = ui.context.client.request
+    except Exception:
+        return "new"
+    if request is None:
+        return "new"
+    raw_query = request.scope.get("query_string", b"")
+    query_string = (
+        raw_query.decode("utf-8")
+        if isinstance(raw_query, bytes)
+        else str(raw_query)
+    )
+    params = parse_qs(query_string)
+    raw_tab = params.get("backtest_tab", ["new"])[0]
+    normalized = str(raw_tab or "new").strip().lower()
+    return normalized if normalized in VALID_VALIDATE_BACKTEST_TABS else "new"
+
+
 def _lifecycle_pill_classes(label: str) -> str:
     normalized = label.strip().upper()
     if normalized == LIFECYCLE_LIVE:
@@ -129,31 +163,58 @@ def _resolve_promote_action(row: LifecycleRow, *, can_manage: bool) -> str | Non
     return None
 
 
-def _render_validate_tab() -> None:
+async def _render_validate_tab(user: dict[str, Any]) -> None:
+    from apps.web_console_ng.pages import backtest as backtest_page
+
+    prefill = backtest_page._get_backtest_prefill_from_request()
+    requested_backtest_tab = _get_requested_validate_backtest_tab()
+
     with ui.card().classes("w-full p-4 border border-slate-800 bg-slate-900/35"):
         ui.label("Validate").classes("text-lg font-semibold text-slate-100")
         ui.label(
-            "Reuse existing Backtest Manager for new/running/results/compare workflows."
+            "Backtest workflows are embedded here (new, running, results, comparison)."
         ).classes("text-xs text-slate-400 mb-3")
-        with ui.row().classes("gap-2 flex-wrap"):
-            ui.button(
-                "Open Backtest",
-                on_click=lambda: ui.navigate.to(
-                    "/backtest?source=research_workspace&tab=new"
-                ),
-            ).props("outline")
-            ui.button(
-                "Running Jobs",
-                on_click=lambda: ui.navigate.to(
-                    "/backtest?source=research_workspace&tab=running"
-                ),
-            ).props("flat")
-            ui.button(
-                "Compare Results",
-                on_click=lambda: ui.navigate.to(
-                    "/backtest?source=research_workspace&tab=results"
-                ),
-            ).props("flat")
+
+        if not config.FEATURE_BACKTEST_MANAGER:
+            ui.label("Backtest Manager feature is disabled.").classes("text-slate-300")
+            ui.label("Set FEATURE_BACKTEST_MANAGER=true to enable.").classes(
+                "text-xs text-slate-500"
+            )
+            return
+
+        try:
+            db_pool = get_sync_db_pool()
+            redis_client = get_sync_redis_client()
+        except RuntimeError as error:
+            ui.label(f"Infrastructure unavailable: {error}").classes("text-red-400")
+            return
+
+        with ui.tabs().classes("w-full") as tabs:
+            tab_new = ui.tab("New Backtest")
+            tab_running = ui.tab("Running Jobs")
+            tab_results = ui.tab("Results")
+        tab_map = {
+            "new": tab_new,
+            "running": tab_running,
+            "results": tab_results,
+        }
+        selected_tab = tab_map.get(requested_backtest_tab, tab_new)
+
+        with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
+            with ui.tab_panel(tab_new):
+                await backtest_page._render_new_backtest_form(user, prefill=prefill)  # noqa: SLF001
+            with ui.tab_panel(tab_running):
+                await backtest_page._render_running_jobs(  # noqa: SLF001
+                    user,
+                    db_pool,
+                    redis_client,
+                )
+            with ui.tab_panel(tab_results):
+                await backtest_page._render_backtest_results(  # noqa: SLF001
+                    user,
+                    db_pool,
+                    redis_client,
+                )
 
 
 def _render_discover_rows(service: ResearchWorkspaceService) -> None:
@@ -185,7 +246,7 @@ def _render_discover_rows(service: ResearchWorkspaceService) -> None:
                     ui.button(
                         "Backtest",
                         on_click=lambda sid=row.signal_id: ui.navigate.to(
-                            f"/backtest?signal_id={sid}&source=alpha_explorer"
+                            _build_validate_backtest_link(signal_id=sid)
                         ),
                     ).props("flat")
 
@@ -220,7 +281,7 @@ def _render_discover_candidate_rows(rows: list[LifecycleRow]) -> None:
                         ui.button(
                             "Backtest",
                             on_click=lambda sid=row.signal_id: ui.navigate.to(
-                                f"/backtest?signal_id={sid}&source=alpha_explorer"
+                                _build_validate_backtest_link(signal_id=sid)
                             ),
                         ).props("flat dense")
 
@@ -344,7 +405,7 @@ async def research_workspace_page() -> None:
 
     ui.label("Research Workspace").classes("text-2xl font-bold mb-2")
     ui.label(
-        "Consolidated Discover / Validate / Promote surface (legacy pages remain available)."
+        "Consolidated Discover / Validate / Promote surface (legacy routes redirect here)."
     ).classes("text-xs text-slate-400 mb-3")
 
     tab_map: dict[str, Any] = {}
@@ -371,7 +432,7 @@ async def research_workspace_page() -> None:
 
         if TAB_VALIDATE in tab_map:
             with ui.tab_panel(tab_map[TAB_VALIDATE]):
-                _render_validate_tab()
+                await _render_validate_tab(user)
 
         if TAB_PROMOTE in tab_map:
             with ui.tab_panel(tab_map[TAB_PROMOTE]):

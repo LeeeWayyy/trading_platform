@@ -51,11 +51,11 @@ class _El:
         return self
 
 
-def test_models_page_contains_research_promote_banner_link() -> None:
-    """Legacy models page should link users to consolidated Promote tab."""
+def test_models_page_redirects_to_research_promote() -> None:
+    """Legacy models page should redirect users to consolidated Promote tab."""
     source = inspect.getsource(models_module.models_page)
 
-    assert "Legacy page: use Research Workspace" in source
+    assert 'ui.navigate.to("/research?tab=promote")' in source
     assert '"/research?tab=promote"' in source
 
 

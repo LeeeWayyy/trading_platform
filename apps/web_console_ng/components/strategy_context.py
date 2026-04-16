@@ -50,7 +50,7 @@ def resolve_context_links(
     if show_strategy_link:
         links.append(("Strategies", "/strategies"))
     if show_model_link:
-        links.append(("Models", "/models"))
+        links.append(("Research Promote", "/research?tab=promote"))
     return links
 
 

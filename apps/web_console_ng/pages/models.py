@@ -102,6 +102,10 @@ def _summarize_metrics(metrics: Any) -> str:
 @main_layout
 async def models_page() -> None:
     """Model Registry Browser page."""
+    if config.FEATURE_RESEARCH_WORKSPACE:
+        ui.navigate.to("/research?tab=promote")
+        return
+
     user = get_current_user()
 
     # Feature flag check

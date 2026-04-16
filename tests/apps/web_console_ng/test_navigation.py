@@ -334,7 +334,6 @@ def test_navigation_item_structure() -> None:
         ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
         ("Attribution", "/attribution", "pie_chart", None),  # P6T16
         ("Universes", "/research/universes", "category", None),  # P6T15
-        ("Alpha Explorer", "/alpha-explorer", "insights", None),
         ("Compare", "/compare", "compare_arrows", None),
         ("Journal", "/journal", "book", None),
         ("Notebooks", "/notebooks", "article", None),
@@ -346,9 +345,7 @@ def test_navigation_item_structure() -> None:
         ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
         ("Features", "/data/features", "auto_awesome", None),  # P6T13
         ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
-        ("Backtest", "/backtest", "science", None),
         ("Strategies", "/strategies", "model_training", None),  # P6T17
-        ("Models", "/models", "hub", None),  # P6T17
         ("Tax Lots", "/tax-lots", "receipt_long", None),  # P6T16
         # P6T19: ("Users", "/admin/users") removed (single-admin model)
         ("Alerts", "/alerts", "notifications", None),  # P5T7/P6T17
@@ -676,17 +673,15 @@ async def test_universes_link_hidden_without_permission(
 async def test_p6t17_links_hidden_when_feature_flags_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Strategies, Models, and Alerts nav links are hidden when feature flags are False."""
-    # Disable all P6T17 feature flags
+    """Strategies and Alerts nav links are hidden when feature flags are False."""
+    # Disable P6T17 feature flags that drive primary nav items.
     monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", False)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", False)
 
     fake_ui = await _run_layout(monkeypatch, current_path="/")
 
     targets = {link.target for link in fake_ui.links}
     assert "/strategies" not in targets
-    assert "/models" not in targets
     assert "/alerts" not in targets
 
 
@@ -694,16 +689,14 @@ async def test_p6t17_links_hidden_when_feature_flags_disabled(
 async def test_p6t17_links_visible_when_feature_flags_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Strategies, Models, and Alerts nav links are visible when feature flags are True."""
+    """Strategies and Alerts nav links are visible when feature flags are True."""
     monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
 
     fake_ui = await _run_layout(monkeypatch, current_path="/")
 
     targets = {link.target for link in fake_ui.links}
     assert "/strategies" in targets
-    assert "/models" in targets
     assert "/alerts" in targets
 
 
@@ -713,13 +706,11 @@ async def test_p6t17_links_hidden_when_permissions_denied(
 ) -> None:
     """P6T17 links are hidden when user lacks the required permission (even with flags on)."""
     monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
 
-    # Deny all P6T17-related permissions; allow all others (so layout renders)
+    # Deny all nav-visible P6T17-related permissions; allow all others.
     denied = {
         Permission.MANAGE_STRATEGIES,
-        Permission.VIEW_MODELS,
         Permission.VIEW_ALERTS,
     }
 
@@ -744,7 +735,6 @@ async def test_p6t17_links_hidden_when_permissions_denied(
 
     targets = {link.target for link in fake_ui2.links}
     assert "/strategies" not in targets
-    assert "/models" not in targets
     assert "/alerts" not in targets
 
 

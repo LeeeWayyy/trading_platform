@@ -362,7 +362,7 @@ def resolve_workspace_quick_links(
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
         ("Strategies", "/strategies"),
-        ("Models", "/models"),
+        ("Promote", "/research?tab=promote"),
         ("Compare", "/compare"),
         ("Inspector", "/data/inspector"),
     ]
@@ -376,7 +376,9 @@ def resolve_workspace_quick_links(
             not feature_strategy_management_enabled or not can_manage_strategies
         ):
             continue
-        if path == "/models" and (not feature_model_registry_enabled or not can_view_models):
+        if path == "/research?tab=promote" and (
+            not feature_model_registry_enabled or not can_view_models
+        ):
             continue
         if path == "/data/inspector" and not can_view_data_quality:
             continue

@@ -319,7 +319,6 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
         "/risk/exposure",
         "/attribution",
         "/research/universes",
-        "/alpha-explorer",
         "/compare",
         "/journal",
         "/notebooks",
@@ -331,7 +330,6 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
         "/data/inspector",
         "/data/features",
         "/data/sql-explorer",
-        "/backtest",
         "/tax-lots",
         # P6T19: "/admin/users" removed (single-admin model)
         "/admin",

@@ -318,7 +318,7 @@ def test_resolve_workspace_quick_links_for_trader() -> None:
     assert "/alerts" in paths
     assert "/journal" in paths
     assert "/strategies" in paths
-    assert "/models" in paths
+    assert "/research?tab=promote" in paths
     assert "/compare" in paths
     assert "/data/inspector" in paths
 
@@ -338,7 +338,7 @@ def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
     assert "/position-management" not in paths
     assert "/alerts" not in paths
     assert "/strategies" not in paths
-    assert "/models" not in paths
+    assert "/research?tab=promote" not in paths
     assert "/data/inspector" not in paths
 
 

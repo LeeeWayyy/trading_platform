@@ -21,7 +21,7 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go
 import polars as pl
@@ -119,7 +119,33 @@ def _get_backtest_prefill_from_request() -> dict[str, str | None]:
     }
 
 
-def _get_requested_backtest_tab() -> str:
+def _build_research_validate_redirect_url(query_string: bytes | str | None) -> str:
+    """Build redirect URL from legacy /backtest query params."""
+    raw_query = query_string or b""
+    normalized_query = (
+        raw_query.decode("utf-8")
+        if isinstance(raw_query, bytes)
+        else str(raw_query)
+    )
+    params = parse_qs(normalized_query)
+
+    target: dict[str, str] = {"tab": "validate"}
+    raw_tab = params.get("tab", [BACKTEST_TAB_NEW])[0]
+    normalized_tab = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
+    if normalized_tab in VALID_BACKTEST_TABS:
+        target["backtest_tab"] = normalized_tab
+
+    signal_id = params.get("signal_id", [None])[0]
+    source = params.get("source", [None])[0]
+    if signal_id:
+        target["signal_id"] = str(signal_id).strip()
+    if source:
+        target["source"] = str(source).strip()
+
+    return f"/research?{urlencode(target)}"
+
+
+def _get_requested_backtest_tab(*, query_param: str = "tab") -> str:
     """Resolve requested Backtest Manager tab from query string."""
     try:
         request = ui.context.client.request
@@ -134,7 +160,7 @@ def _get_requested_backtest_tab() -> str:
         else str(raw_query)
     )
     params = parse_qs(query_string)
-    raw_tab = params.get("tab", [BACKTEST_TAB_NEW])[0]
+    raw_tab = params.get(query_param, [BACKTEST_TAB_NEW])[0]
     normalized = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
     return normalized if normalized in VALID_BACKTEST_TABS else BACKTEST_TAB_NEW
 
@@ -436,6 +462,17 @@ def _verify_job_ownership(job_id: str, user_id: str, db_pool: ConnectionPool) ->
 @main_layout
 async def backtest_page() -> None:
     """Backtest Manager page."""
+    if config.FEATURE_RESEARCH_WORKSPACE:
+        try:
+            request = ui.context.client.request
+        except Exception:
+            request = None
+        raw_query = b""
+        if request is not None:
+            raw_query = request.scope.get("query_string", b"")
+        ui.navigate.to(_build_research_validate_redirect_url(raw_query))
+        return
+
     user = get_current_user()
     prefill = _get_backtest_prefill_from_request()
     requested_tab = _get_requested_backtest_tab()

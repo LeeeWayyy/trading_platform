@@ -48,11 +48,11 @@ class DummyService:
         return pd.DataFrame([[1.0, 0.2], [0.2, 1.0]], columns=signal_ids, index=signal_ids)
 
 
-def test_alpha_explorer_contains_research_discover_banner_link() -> None:
-    """Legacy alpha page should link users to consolidated Discover tab."""
+def test_alpha_explorer_redirects_to_research_discover() -> None:
+    """Legacy alpha page should redirect to consolidated Discover tab."""
     source = inspect.getsource(alpha_module.alpha_explorer_page)
 
-    assert "Legacy page: use Research Workspace" in source
+    assert 'ui.navigate.to("/research?tab=discover")' in source
     assert '"/research?tab=discover"' in source
 
 

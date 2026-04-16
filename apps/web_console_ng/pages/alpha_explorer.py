@@ -31,7 +31,7 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.correlation_matrix import render_correlation_matrix
 from apps.web_console_ng.components.decay_curve import render_decay_curve
 from apps.web_console_ng.components.ic_chart import render_ic_chart
-from apps.web_console_ng.config import FEATURE_ALPHA_EXPLORER
+from apps.web_console_ng.config import FEATURE_ALPHA_EXPLORER, FEATURE_RESEARCH_WORKSPACE
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
@@ -90,17 +90,12 @@ def _get_alpha_service() -> AlphaExplorerService | None:
 @requires_auth
 @main_layout
 async def alpha_explorer_page() -> None:
-    """Alpha Signal Explorer page."""
-    user = get_current_user()
+    """Legacy route alias for Discover tab in consolidated Research Workspace."""
+    if FEATURE_RESEARCH_WORKSPACE:
+        ui.navigate.to("/research?tab=discover")
+        return
 
-    # Page title
-    ui.label("Alpha Signal Explorer").classes("text-2xl font-bold mb-4")
-    with ui.card().classes("w-full p-2 mb-3 border border-slate-800 bg-slate-900/35"):
-        with ui.row().classes("items-center justify-between gap-2"):
-            ui.label("Legacy page: use Research Workspace → Discover for consolidated flow.").classes(
-                "text-xs text-slate-300"
-            )
-            ui.link("Open /research", "/research?tab=discover").classes("text-xs")
+    user = get_current_user()
 
     # Feature flag check
     if not FEATURE_ALPHA_EXPLORER:

@@ -51,6 +51,43 @@ def test_get_requested_research_tab_missing_request_defaults(monkeypatch) -> Non
     assert research_module._get_requested_research_tab() == research_module.TAB_DISCOVER
 
 
+def test_get_requested_validate_backtest_tab_valid(monkeypatch) -> None:
+    """Valid backtest sub-tab query should be preserved."""
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(
+            client=SimpleNamespace(
+                request=SimpleNamespace(scope={"query_string": b"backtest_tab=running"})
+            )
+        )
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_requested_validate_backtest_tab() == "running"
+
+
+def test_get_requested_validate_backtest_tab_invalid_defaults(monkeypatch) -> None:
+    """Invalid backtest sub-tab query should default to new."""
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(
+            client=SimpleNamespace(
+                request=SimpleNamespace(scope={"query_string": b"backtest_tab=invalid"})
+            )
+        )
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_requested_validate_backtest_tab() == "new"
+
+
+def test_build_validate_backtest_link() -> None:
+    """Discover links should route to consolidated Research Validate tab."""
+    result = research_module._build_validate_backtest_link(signal_id="sig-123")
+
+    assert result == (
+        "/research?tab=validate&backtest_tab=new&signal_id=sig-123&source=alpha_explorer"
+    )
+
+
 def _row(
     *,
     strategy_name: str,
@@ -156,10 +193,10 @@ def test_resolve_selected_tab_falls_back_to_first_accessible() -> None:
     assert selected == research_module.TAB_DISCOVER
 
 
-def test_validate_tab_links_open_backtest_sections() -> None:
-    """Validate tab should deep-link into Backtest Manager sections."""
+def test_validate_tab_embeds_backtest_sections() -> None:
+    """Validate tab should render embedded backtest workflows."""
     source = inspect.getsource(research_module._render_validate_tab)
 
-    assert "/backtest?source=research_workspace&tab=new" in source
-    assert "/backtest?source=research_workspace&tab=running" in source
-    assert "/backtest?source=research_workspace&tab=results" in source
+    assert "_render_new_backtest_form" in source
+    assert "_render_running_jobs" in source
+    assert "_render_backtest_results" in source

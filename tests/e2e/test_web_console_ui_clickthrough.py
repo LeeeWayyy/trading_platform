@@ -283,9 +283,17 @@ def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -
     """Ignore expected browser-aborted navigations during rapid click-through."""
     if method.upper() != "GET":
         return False
-    if not url.startswith(BASE_URL):
+
+    normalized_failure = failure_message.lower()
+    if "net::err_aborted" not in normalized_failure:
         return False
-    return "net::ERR_ABORTED" in failure_message
+
+    if url.startswith(BASE_URL):
+        return True
+
+    # Third-party static assets can be aborted during rapid route transitions.
+    parsed = urlparse(url)
+    return bool(parsed.scheme and parsed.netloc)
 
 
 def _default_input_value(input_type: str) -> str:
@@ -453,6 +461,20 @@ def _collect_docker_errors(since_token: str) -> list[str]:
     return [line for line in lines if DOCKER_ERROR_PATTERN.search(line)]
 
 
+def _login_with_retry(page: Any, *, attempts: int = 3) -> bool:
+    """Login with bounded retries to handle transient auth/bootstrap delays."""
+    for _ in range(attempts):
+        page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+        page.get_by_label("Username").fill(LOGIN_USER)
+        page.get_by_label("Password").fill(LOGIN_PASSWORD)
+        page.get_by_role("button", name="Sign In").click(timeout=ACTION_TIMEOUT_MS * 2)
+        page.wait_for_timeout(1000)
+        if "/login" not in page.url:
+            return True
+        page.wait_for_timeout(1500)
+    return False
+
+
 @pytest.mark.e2e()
 def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None:
     """Run authenticated live click-through and verify no runtime errors."""
@@ -507,13 +529,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
 
         page.on("requestfailed", _on_request_failed)
 
-        page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
-        page.get_by_label("Username").fill(LOGIN_USER)
-        page.get_by_label("Password").fill(LOGIN_PASSWORD)
-        page.get_by_role("button", name="Sign In").click(timeout=ACTION_TIMEOUT_MS * 2)
-        page.wait_for_timeout(1000)
-
-        if "/login" in page.url:
+        if not _login_with_retry(page):
             screenshot = Path("artifacts/ui_clickthrough_login_failed.png")
             screenshot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(screenshot), full_page=True)

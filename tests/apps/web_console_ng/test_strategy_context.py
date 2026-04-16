@@ -56,12 +56,12 @@ def test_resolve_execution_gate_state_off_when_gate_disabled() -> None:
 def test_resolve_context_links_respects_flags() -> None:
     assert resolve_context_links(show_strategy_link=True, show_model_link=True) == [
         ("Strategies", "/strategies"),
-        ("Models", "/models"),
+        ("Research Promote", "/research?tab=promote"),
     ]
     assert resolve_context_links(show_strategy_link=True, show_model_link=False) == [
         ("Strategies", "/strategies")
     ]
     assert resolve_context_links(show_strategy_link=False, show_model_link=True) == [
-        ("Models", "/models")
+        ("Research Promote", "/research?tab=promote")
     ]
     assert resolve_context_links(show_strategy_link=False, show_model_link=False) == []

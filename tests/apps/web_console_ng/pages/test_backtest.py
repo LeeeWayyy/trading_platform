@@ -16,7 +16,6 @@ Target: 85%+ branch coverage
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -365,12 +364,23 @@ def test_get_backtest_prefill_from_request_parses_query(
     assert result == {"signal_id": "sig-123", "source": "alpha_explorer"}
 
 
-def test_backtest_page_contains_research_validate_banner_link() -> None:
-    """Legacy backtest page should link users to consolidated Validate tab."""
-    source = inspect.getsource(backtest_module.backtest_page)
+def test_build_research_validate_redirect_url_maps_legacy_query() -> None:
+    """Legacy /backtest deep-links should map to /research Validate query params."""
+    result = backtest_module._build_research_validate_redirect_url(
+        b"tab=running&signal_id=sig-123&source=alpha_explorer"
+    )
 
-    assert "Legacy page: use Research Workspace" in source
-    assert '"/research?tab=validate"' in source
+    assert (
+        result
+        == "/research?tab=validate&backtest_tab=running&signal_id=sig-123&source=alpha_explorer"
+    )
+
+
+def test_build_research_validate_redirect_url_defaults_on_invalid_tab() -> None:
+    """Invalid legacy tab query should fail open to Validate/New."""
+    result = backtest_module._build_research_validate_redirect_url(b"tab=unknown")
+
+    assert result == "/research?tab=validate"
 
 
 def test_get_backtest_prefill_from_request_handles_missing_request(
@@ -419,6 +429,19 @@ def test_get_requested_backtest_tab_missing_request_defaults_to_new(
     result = backtest_module._get_requested_backtest_tab()
 
     assert result == backtest_module.BACKTEST_TAB_NEW
+
+
+def test_get_requested_backtest_tab_supports_custom_query_param(
+    dummy_ui: DummyUI,
+) -> None:
+    """Tab parser supports alternate query param names for embedded workflows."""
+    dummy_ui.context.client.request = SimpleNamespace(
+        scope={"query_string": b"backtest_tab=results"}
+    )
+
+    result = backtest_module._get_requested_backtest_tab(query_param="backtest_tab")
+
+    assert result == backtest_module.BACKTEST_TAB_RESULTS
 
 
 @pytest.mark.asyncio()
