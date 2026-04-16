@@ -133,7 +133,9 @@ class TestBuildFilterClause:
     def test_text_equals_filter(self) -> None:
         filt = {"status": {"filterType": "text", "type": "equals", "filter": "filled"}}
         sql, params = _build_filter_clause(filt, ["status"])
-        assert "= %s" in sql
+        # AG Grid text filtering is case-insensitive by default,
+        # so equals uses ILIKE to match grid behaviour.
+        assert "ILIKE %s" in sql
         assert "filled" in params
 
     def test_number_greater_than_filter(self) -> None:
@@ -371,10 +373,17 @@ class TestBuildOrderClause:
 
 
 def _make_cursor_mock(rows: list[tuple[Any, ...]], col_names: list[str]) -> MagicMock:
-    """Create a mock cursor that returns the given rows."""
+    """Create a mock cursor that returns the given rows as dicts.
+
+    The production code uses ``psycopg.rows.dict_row`` row factory, so
+    ``fetchall()`` returns a list of dicts keyed by column name.  This
+    helper converts the provided tuples into dicts for compatibility.
+    """
     cursor = MagicMock()
     cursor.description = [(name,) for name in col_names]
-    cursor.fetchall.return_value = rows
+    cursor.fetchall.return_value = [
+        dict(zip(col_names, row, strict=True)) for row in rows
+    ]
     cursor.__enter__ = MagicMock(return_value=cursor)
     cursor.__exit__ = MagicMock(return_value=False)
     return cursor
@@ -614,7 +623,8 @@ class TestGenerateExcelContent:
         # psycopg.sql.Composed objects are passed to execute(); convert
         # to string representation for assertion.
         executed_sql = str(cursor.execute.call_args[0][0])
-        assert '"symbol" = %s' in executed_sql
+        # Text equals uses ILIKE for case-insensitive matching
+        assert '"symbol" ILIKE %s' in executed_sql
         # The bind parameters should include the filter value
         executed_params = cursor.execute.call_args[0][1]
         assert "AAPL" in executed_params
