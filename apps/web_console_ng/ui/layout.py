@@ -252,15 +252,18 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         return False
 
                     # Research workspace is visible when any consolidated tab permission exists.
-                    if path == "/research" and not (
-                        has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
-                        or has_permission(user, Permission.VIEW_PNL)
-                        or (
-                            config.FEATURE_MODEL_REGISTRY
-                            and has_permission(user, Permission.VIEW_MODELS)
-                        )
-                    ):
-                        return False
+                    if path == "/research":
+                        if not config.FEATURE_RESEARCH_WORKSPACE:
+                            return False
+                        if not (
+                            has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+                            or has_permission(user, Permission.VIEW_PNL)
+                            or (
+                                config.FEATURE_MODEL_REGISTRY
+                                and has_permission(user, Permission.VIEW_MODELS)
+                            )
+                        ):
+                            return False
 
                     # Exposure link requires VIEW_STRATEGY_EXPOSURE
                     if path == "/risk/exposure" and not has_permission(

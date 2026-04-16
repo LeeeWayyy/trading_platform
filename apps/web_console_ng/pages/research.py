@@ -62,6 +62,11 @@ def _resolve_selected_tab(*, requested_tab: str, accessible_tabs: list[str]) -> 
     return requested_tab if requested_tab in set(accessible_tabs) else accessible_tabs[0]
 
 
+def _should_load_lifecycle_rows(*, can_view_promote: bool) -> bool:
+    """Lifecycle rows are needed only for Promote-capable sessions."""
+    return can_view_promote
+
+
 def _get_requested_research_tab() -> str:
     """Resolve requested tab from query string."""
     try:
@@ -402,7 +407,7 @@ async def research_workspace_page() -> None:
         accessible_tabs=accessible_tabs,
     )
     lifecycle_rows: list[LifecycleRow] = []
-    if can_view_discover or can_view_promote:
+    if _should_load_lifecycle_rows(can_view_promote=can_view_promote):
         if async_pool is not None:
             model_service = models_page._get_model_registry_service(async_pool)  # noqa: SLF001
             try:

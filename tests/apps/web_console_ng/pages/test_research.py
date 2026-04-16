@@ -210,6 +210,11 @@ def test_resolve_selected_tab_falls_back_to_first_accessible() -> None:
     assert selected == research_module.TAB_DISCOVER
 
 
+def test_should_load_lifecycle_rows_only_for_promote() -> None:
+    assert research_module._should_load_lifecycle_rows(can_view_promote=True) is True
+    assert research_module._should_load_lifecycle_rows(can_view_promote=False) is False
+
+
 def test_validate_tab_embeds_backtest_sections() -> None:
     """Validate tab should render embedded backtest workflows."""
     source = inspect.getsource(research_module._render_validate_tab)

@@ -308,6 +308,14 @@ def _get_user_jobs_sync(
                 row = probe_cur.fetchone()
                 _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
                 _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
+            except pg_errors.AdminShutdown as exc:
+                _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
+                _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
+                logger.warning(
+                    "backtest_jobs_schema_probe_admin_shutdown",
+                    extra={"created_by": created_by, "error": str(exc)},
+                )
+                return False
             except Exception as exc:  # pragma: no cover - connectivity/pathology path
                 logger.warning(
                     "backtest_jobs_schema_probe_failed",
@@ -324,6 +332,14 @@ def _get_user_jobs_sync(
             cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
             jobs = cur.fetchall()
         except Exception as exc:
+            if isinstance(exc, pg_errors.AdminShutdown):
+                if hasattr(conn, "rollback"):
+                    conn.rollback()
+                logger.warning(
+                    "backtest_jobs_query_admin_shutdown",
+                    extra={"created_by": created_by, "error": str(exc)},
+                )
+                return []
             if isinstance(exc, pg_errors.UndefinedTable):
                 if hasattr(conn, "rollback"):
                     conn.rollback()

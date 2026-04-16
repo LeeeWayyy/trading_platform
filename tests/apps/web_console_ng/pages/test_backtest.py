@@ -838,6 +838,142 @@ def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:
         backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
 
 
+def test_get_user_jobs_sync_returns_empty_when_schema_probe_admin_shutdown() -> None:
+    """AdminShutdown during schema probe should fail closed with empty jobs."""
+
+    class ProbeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise pg_errors.AdminShutdown("terminating connection due to administrator command")
+
+        def __enter__(self) -> ProbeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class ProbeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> ProbeCursor:
+            return ProbeCursor()
+
+        def __enter__(self) -> ProbeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def connection(self) -> ProbeConn:
+            return ProbeConn()
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            raise AssertionError("Redis should not be touched when probe fails closed")
+
+    previous_present = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    previous_checked_at = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = None
+    try:
+        jobs = backtest_module._get_user_jobs_sync(
+            created_by="u1",
+            status=["completed"],
+            db_pool=FakePool(),  # type: ignore[arg-type]
+            redis_client=FakeRedis(),  # type: ignore[arg-type]
+        )
+        assert jobs == []
+        assert backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT is False
+        assert backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT is not None
+    finally:
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_present
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = previous_checked_at
+
+
+def test_get_user_jobs_sync_returns_empty_when_query_admin_shutdown() -> None:
+    """AdminShutdown during query execution should fail closed with empty jobs."""
+
+    class ProbeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
+        def __enter__(self) -> ProbeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class ProbeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> ProbeCursor:
+            return ProbeCursor()
+
+        def __enter__(self) -> ProbeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise pg_errors.AdminShutdown("terminating connection due to administrator command")
+
+        def __enter__(self) -> QueryCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryConn:
+        def __init__(self) -> None:
+            self.rollback_called = False
+
+        def cursor(self, *args: Any, **kwargs: Any) -> QueryCursor:
+            return QueryCursor()
+
+        def rollback(self) -> None:
+            self.rollback_called = True
+
+        def __enter__(self) -> QueryConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.query_conn = QueryConn()
+
+        def connection(self) -> ProbeConn | QueryConn:
+            self.calls += 1
+            if self.calls == 1:
+                return ProbeConn()
+            return self.query_conn
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            raise AssertionError("Redis should not be touched when query fails closed")
+
+    previous_present = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    previous_checked_at = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
+    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = None
+    try:
+        pool = FakePool()
+        jobs = backtest_module._get_user_jobs_sync(
+            created_by="u1",
+            status=["completed"],
+            db_pool=pool,  # type: ignore[arg-type]
+            redis_client=FakeRedis(),  # type: ignore[arg-type]
+        )
+        assert jobs == []
+        assert pool.query_conn.rollback_called is True
+    finally:
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_present
+        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = previous_checked_at
+
+
 def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
     """Missing backtest_jobs table should fail closed with empty result set."""
 
