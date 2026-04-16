@@ -33,8 +33,16 @@ try:
         get_alpha158_features as _imported_alpha158_features,
     )
 except ModuleNotFoundError as exc:
-    _get_alpha158_features: Any | None = None
-    _ALPHA158_IMPORT_ERROR = str(exc)
+    # Only tolerate the ``strategies`` package itself being absent (it is
+    # not shipped in the web-console Docker image).  Any other missing
+    # module (e.g. a renamed internal import) is a real regression.
+    if exc.name is not None and (
+        exc.name == "strategies" or exc.name.startswith("strategies.")
+    ):
+        _get_alpha158_features: Any | None = None
+        _ALPHA158_IMPORT_ERROR = str(exc)
+    else:
+        raise
 else:
     _get_alpha158_features = _imported_alpha158_features
     _ALPHA158_IMPORT_ERROR = None

@@ -94,7 +94,7 @@ def _is_optional_dep(exc: ModuleNotFoundError) -> bool:
 try:
     from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 except ModuleNotFoundError as _exc:
-    if _exc.name == "libs.data.data_providers.sync_manager" or _is_optional_dep(_exc):
+    if _is_optional_dep(_exc):
         _dp_logger.info(
             "sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name
         )
@@ -106,7 +106,7 @@ except ModuleNotFoundError as _exc:
 try:
     from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 except ModuleNotFoundError as _exc:
-    if _exc.name == "libs.data.data_providers.wrds_client" or _is_optional_dep(_exc):
+    if _is_optional_dep(_exc):
         _dp_logger.info(
             "wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name
         )
