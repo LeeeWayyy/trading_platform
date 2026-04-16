@@ -30,7 +30,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
 from psycopg import sql
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
@@ -1605,7 +1604,22 @@ def _build_workbook(
 
     Returns:
         Raw bytes of the ``.xlsx`` file.
+
+    Note:
+        The final bytes object is materialized in memory.  With the
+        ``_EXPORT_ROW_LIMIT`` (10 000 rows) this is typically a few MB.
+        If concurrent export volume grows, consider streaming the
+        response directly via ``StreamingResponse`` instead.
+
+    Raises:
+        NotImplementedError: If openpyxl is not installed.
     """
+    try:
+        from openpyxl import Workbook
+    except ImportError as exc:
+        raise NotImplementedError(
+            "Excel export requires openpyxl: pip install openpyxl"
+        ) from exc
     wb = Workbook(write_only=True)
     ws = wb.create_sheet(grid_name.title())
 
