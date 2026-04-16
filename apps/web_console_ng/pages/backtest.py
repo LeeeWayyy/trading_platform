@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 import plotly.graph_objects as go
 import polars as pl
 from nicegui import run, ui
-from psycopg.errors import UndefinedColumn
+from psycopg.errors import UndefinedColumn, UndefinedTable
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -165,6 +165,12 @@ def _get_user_jobs_sync(
         try:
             cur.execute(sql_with_cost_summary, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
         except Exception as exc:
+            if isinstance(exc, UndefinedTable):
+                logger.warning(
+                    "backtest_jobs_table_missing",
+                    extra={"created_by": created_by, "error": str(exc)},
+                )
+                return []
             if not _is_missing_column_error(exc, "cost_summary"):
                 raise
             logger.warning(
