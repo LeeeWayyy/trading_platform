@@ -173,9 +173,13 @@ class GridExportToolbar:
 
             # Merge extra_filters into the AG Grid filter model so that
             # tab-scoped predicates are included in the export query.
-            # User-specified filters take precedence over extra_filters
-            # to preserve narrower selections (e.g. user filters to only
-            # "accepted" within the working-status set).
+            # Page-level scope constraints (extra_filters) are used as
+            # defaults; grid-level filters override on matching keys to
+            # preserve the user's narrower selections (e.g. user filters
+            # to only "accepted" within the working-status set).  This is
+            # safe because the page-level pre-filtering removes rows
+            # before setRowData, so in-grid filters for the same column
+            # are necessarily subsets of the page-level scope.
             filter_model = dict(self.extra_filters)
             filter_model.update(grid_state.get("filterModel") or {})
 

@@ -953,21 +953,16 @@ def _build_single_condition(
             params.append(value)
 
     elif filter_type == "number":
+        _NUM_OPS: dict[str, str] = {
+            "equals": "=",
+            "greaterThan": ">",
+            "lessThan": "<",
+            "greaterThanOrEqual": ">=",
+            "lessThanOrEqual": "<=",
+        }
         value = spec.get("filter")
-        if ftype == "equals" and value is not None:
-            clauses.append(f"{qcol} = %s")
-            params.append(value)
-        elif ftype == "greaterThan" and value is not None:
-            clauses.append(f"{qcol} > %s")
-            params.append(value)
-        elif ftype == "lessThan" and value is not None:
-            clauses.append(f"{qcol} < %s")
-            params.append(value)
-        elif ftype == "greaterThanOrEqual" and value is not None:
-            clauses.append(f"{qcol} >= %s")
-            params.append(value)
-        elif ftype == "lessThanOrEqual" and value is not None:
-            clauses.append(f"{qcol} <= %s")
+        if ftype in _NUM_OPS and value is not None:
+            clauses.append(f"{qcol} {_NUM_OPS[ftype]} %s")
             params.append(value)
         elif ftype == "inRange":
             lo = spec.get("filter")
@@ -1128,10 +1123,13 @@ def _fetch_positions_data(
     full_allowed = _GRID_COLUMNS["positions"]
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
-        qualified_sort = [
-            {**item, "colId": f"p.{item.get('colId', '')}"} if item.get("colId") in full_allowed else item
-            for item in sort_model
-        ]
+        qualified_sort = []
+        for item in sort_model:
+            col_id = item.get("colId", "")
+            if col_id in full_allowed:
+                qualified_sort.append({**item, "colId": f"p.{col_id}"})
+            else:
+                qualified_sort.append(item)
     qualified_allowed = [f"p.{c}" for c in full_allowed]
     order_clause = _build_order_clause(
         qualified_sort, qualified_allowed, "p.symbol ASC",
@@ -1236,10 +1234,13 @@ def _fetch_fills_data(
     full_allowed = _GRID_COLUMNS["fills"]
     qualified_sort: list[dict[str, Any]] | None = None
     if sort_model:
-        qualified_sort = [
-            {**item, "colId": f"t.{item.get('colId', '')}"} if item.get("colId") in full_allowed else item
-            for item in sort_model
-        ]
+        qualified_sort = []
+        for item in sort_model:
+            col_id = item.get("colId", "")
+            if col_id in full_allowed:
+                qualified_sort.append({**item, "colId": f"t.{col_id}"})
+            else:
+                qualified_sort.append(item)
     qualified_allowed = [f"t.{c}" for c in full_allowed]
     order_clause = _build_order_clause(qualified_sort, qualified_allowed, "t.executed_at DESC")
     select_cols = sql.SQL(", ").join(
@@ -1376,9 +1377,11 @@ def _fetch_tca_data(
             for item in sort_model
             if item.get("colId", "") in _TCA_COL_MAP
         ]
-    qualified_tca_columns = [_TCA_COL_MAP[c] for c in mapped_columns]
+    # Use the full _TCA_COL_MAP for sort qualification (not just the
+    # export projection) so that sorts on hidden columns are preserved.
+    all_tca_qualified = list(_TCA_COL_MAP.values())
     order_clause = _build_order_clause(
-        qualified_sort, qualified_tca_columns, "t.executed_at DESC",
+        qualified_sort, all_tca_qualified, "t.executed_at DESC",
     )
     query_params: list[Any] = [strategy_ids]
     if filter_params_list:
