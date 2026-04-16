@@ -969,11 +969,21 @@ def _build_text_condition(
     clauses: list[str], params: list[Any],
 ) -> None:
     """Append SQL for an AG Grid text filter condition."""
+    ftype = spec.get("type", "")
+    text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+
+    # Handle NULL-check types first (no filter value needed).
+    if ftype == "blank":
+        clauses.append(f"{text_col} IS NULL")
+        return
+    if ftype == "notBlank":
+        clauses.append(f"{text_col} IS NOT NULL")
+        return
+
     value = spec.get("filter")
     if value is None:
         return
     value = str(value)
-    text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
     esc = f" ESCAPE '{_LIKE_ESCAPE}'"
     escaped = _escape_like(value)
     # Map AG Grid text types to (SQL operator, param pattern).
@@ -981,12 +991,12 @@ def _build_text_condition(
     # use ILIKE to match the grid's behaviour.
     _TEXT_OPS: dict[str, tuple[str, str]] = {
         "contains": ("ILIKE", f"%{escaped}%"),
+        "notContains": ("NOT ILIKE", f"%{escaped}%"),
         "equals": ("ILIKE", escaped),
         "startsWith": ("ILIKE", f"{escaped}%"),
         "endsWith": ("ILIKE", f"%{escaped}"),
         "notEqual": ("NOT ILIKE", escaped),
     }
-    ftype = spec.get("type", "")
     if ftype in _TEXT_OPS:
         op, param = _TEXT_OPS[ftype]
         clauses.append(f"{text_col} {op} %s{esc}")
@@ -1114,6 +1124,36 @@ def _build_single_condition(
         builder(col, qcol, spec, clauses, params)
 
 
+def _build_compound_recursive(
+    col: str,
+    qcol: str,
+    spec: dict[str, Any],
+    clauses: list[str],
+    params: list[Any],
+) -> None:
+    """Recursively build SQL for an AG Grid compound or simple condition.
+
+    If *spec* contains ``conditions`` (a compound filter), the children
+    are joined with the spec's ``operator`` (AND / OR).  Each child is
+    processed recursively so any nesting depth is supported.  Leaf
+    conditions are dispatched to ``_build_single_condition``.
+    """
+    conditions = spec.get("conditions")
+    if isinstance(conditions, list) and conditions:
+        operator = spec.get("operator", "AND").upper()
+        sql_op = " OR " if operator == "OR" else " AND "
+        sub_clauses: list[str] = []
+        sub_params: list[Any] = []
+        for cond in conditions:
+            if isinstance(cond, dict):
+                _build_compound_recursive(col, qcol, cond, sub_clauses, sub_params)
+        if sub_clauses:
+            clauses.append(f"({sql_op.join(sub_clauses)})")
+            params.extend(sub_params)
+    else:
+        _build_single_condition(col, qcol, spec, clauses, params)
+
+
 def _build_filter_clause(
     filter_params: dict[str, Any] | None,
     allowed_columns: list[str],
@@ -1175,40 +1215,10 @@ def _build_filter_clause(
             qcol = _quote_identifier(f"{col_prefix}{col}")
 
         # AG Grid compound filter: ``operator`` + ``conditions`` list.
-        # Example: {"operator": "AND", "conditions": [{...}, {...}]}
         # Conditions may themselves be compound (nested) when the
-        # toolbar merges overlapping filters, so we recurse.
-        conditions = spec.get("conditions")
-        if isinstance(conditions, list) and conditions:
-            operator = spec.get("operator", "AND").upper()
-            sql_op = " OR " if operator == "OR" else " AND "
-            sub_clauses: list[str] = []
-            sub_params: list[Any] = []
-            for cond in conditions:
-                if not isinstance(cond, dict):
-                    continue
-                # Recurse if the condition is itself compound
-                nested_conditions = cond.get("conditions")
-                if isinstance(nested_conditions, list) and nested_conditions:
-                    nested_op = cond.get("operator", "AND").upper()
-                    nested_sql_op = " OR " if nested_op == "OR" else " AND "
-                    nested_clauses: list[str] = []
-                    nested_params: list[Any] = []
-                    for nested_cond in nested_conditions:
-                        if isinstance(nested_cond, dict):
-                            _build_single_condition(col, qcol, nested_cond, nested_clauses, nested_params)
-                    if nested_clauses:
-                        sub_clauses.append(f"({nested_sql_op.join(nested_clauses)})")
-                        sub_params.extend(nested_params)
-                else:
-                    _build_single_condition(col, qcol, cond, sub_clauses, sub_params)
-            if sub_clauses:
-                # Wrap in parentheses to preserve operator precedence
-                clauses.append(f"({sql_op.join(sub_clauses)})")
-                params.extend(sub_params)
-        else:
-            # Simple (non-compound) filter
-            _build_single_condition(col, qcol, spec, clauses, params)
+        # toolbar merges overlapping filters.  Use a recursive helper
+        # so any depth of nesting is handled correctly.
+        _build_compound_recursive(col, qcol, spec, clauses, params)
 
     result_sql = " AND ".join(clauses)
     if result_sql:
