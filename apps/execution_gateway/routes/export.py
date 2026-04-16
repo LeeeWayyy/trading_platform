@@ -807,12 +807,13 @@ def _validate_columns(
     kept (in the requested order).  Unknown columns are silently dropped
     to prevent SQL injection or data leakage.
 
-    When the majority of requested columns are not in the allowlist (i.e.
-    fewer than half survive validation), the full allowlist is returned
-    instead of a misleadingly small subset.  This handles grids like TCA
-    whose frontend sends computed display columns (``fill_rate_pct``,
-    ``is_bps``, etc.) alongside a few raw DB columns -- returning only
-    ``symbol`` and ``side`` would be incomplete and confusing.
+    For the **TCA** grid only, when the majority of requested columns
+    are not in the allowlist (fewer than half survive validation), the
+    full allowlist is returned instead of a misleadingly small subset.
+    The TCA frontend sends computed display columns (``fill_rate_pct``,
+    ``is_bps``, etc.) that have no DB counterpart, so this fallback
+    ensures a useful export.  Other grids do NOT widen — they return
+    only the validated intersection.
     """
     allowed = _GRID_COLUMNS[grid_name]
     if not visible_columns:
@@ -822,9 +823,11 @@ def _validate_columns(
     valid = [c for c in resolved if c in allowed]
     if not valid:
         return allowed
-    # Fall back to full schema when most requested columns were
-    # computed/frontend-only (fewer than half survived validation).
-    if len(valid) < len(resolved) / 2:
+    # TCA-only fallback: when most requested columns were computed/
+    # frontend-only (fewer than half survived validation), return the
+    # full raw-data allowlist.  Other grids return only the validated
+    # intersection to avoid silently widening the export scope.
+    if grid_name == "tca" and len(valid) < len(resolved) / 2:
         return allowed
     return valid
 
@@ -1147,6 +1150,8 @@ def _build_filter_clause(
 
         # AG Grid compound filter: ``operator`` + ``conditions`` list.
         # Example: {"operator": "AND", "conditions": [{...}, {...}]}
+        # Conditions may themselves be compound (nested) when the
+        # toolbar merges overlapping filters, so we recurse.
         conditions = spec.get("conditions")
         if isinstance(conditions, list) and conditions:
             operator = spec.get("operator", "AND").upper()
@@ -1154,7 +1159,22 @@ def _build_filter_clause(
             sub_clauses: list[str] = []
             sub_params: list[Any] = []
             for cond in conditions:
-                if isinstance(cond, dict):
+                if not isinstance(cond, dict):
+                    continue
+                # Recurse if the condition is itself compound
+                nested_conditions = cond.get("conditions")
+                if isinstance(nested_conditions, list) and nested_conditions:
+                    nested_op = cond.get("operator", "AND").upper()
+                    nested_sql_op = " OR " if nested_op == "OR" else " AND "
+                    nested_clauses: list[str] = []
+                    nested_params: list[Any] = []
+                    for nested_cond in nested_conditions:
+                        if isinstance(nested_cond, dict):
+                            _build_single_condition(col, qcol, nested_cond, nested_clauses, nested_params)
+                    if nested_clauses:
+                        sub_clauses.append(f"({nested_sql_op.join(nested_clauses)})")
+                        sub_params.extend(nested_params)
+                else:
                     _build_single_condition(col, qcol, cond, sub_clauses, sub_params)
             if sub_clauses:
                 # Wrap in parentheses to preserve operator precedence

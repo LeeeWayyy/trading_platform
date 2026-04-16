@@ -205,11 +205,21 @@ class GridExportToolbar:
                 else:
                     # Non-set overlap -- combine as an AND compound
                     # filter so both constraints must be satisfied.
-                    # This ensures the export cannot widen beyond
-                    # what the page scope and grid filter allow.
+                    # Flatten any already-compound conditions to avoid
+                    # nesting that the server-side parser must recurse.
+                    conditions: list[dict[str, Any]] = []
+                    for s in (extra_spec, grid_spec):
+                        if (
+                            isinstance(s, dict)
+                            and isinstance(s.get("conditions"), list)
+                            and s.get("operator", "").upper() == "AND"
+                        ):
+                            conditions.extend(s["conditions"])
+                        else:
+                            conditions.append(s)
                     filter_model[key] = {
                         "operator": "AND",
-                        "conditions": [extra_spec, grid_spec],
+                        "conditions": conditions,
                     }
 
             headers = self._get_auth_headers()
