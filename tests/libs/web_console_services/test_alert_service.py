@@ -124,9 +124,9 @@ class TestAlertServiceInitialization:
         assert alert_service._channel_handlers is None
 
         with (
-            patch("libs.web_console_services.alert_service.EmailChannel") as mock_email,
-            patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
-            patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.EmailChannel") as mock_email,
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
         ):
             handlers = alert_service._get_channel_handlers()
 
@@ -143,9 +143,9 @@ class TestAlertServiceInitialization:
     ) -> None:
         """Test channel handlers are cached after first initialization."""
         with (
-            patch("libs.web_console_services.alert_service.EmailChannel") as mock_email,
-            patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
-            patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.EmailChannel") as mock_email,
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
         ):
             handlers1 = alert_service._get_channel_handlers()
             handlers2 = alert_service._get_channel_handlers()
@@ -161,34 +161,27 @@ class TestAlertServiceInitialization:
     ) -> None:
         """Test SMS channel is skipped if Twilio credentials not configured."""
         with (
-            patch("libs.web_console_services.alert_service.EmailChannel"),
-            patch("libs.web_console_services.alert_service.SlackChannel"),
+            patch("libs.platform.alerts.channels.EmailChannel"),
+            patch("libs.platform.alerts.channels.SlackChannel"),
             patch(
-                "libs.web_console_services.alert_service.SMSChannel",
+                "libs.platform.alerts.channels.SMSChannel",
                 side_effect=ConfigurationError("Missing Twilio credentials"),
             ),
-            patch("libs.web_console_services.alert_service.logger") as mock_logger,
         ):
             handlers = alert_service._get_channel_handlers()
 
             assert ChannelType.EMAIL in handlers
             assert ChannelType.SLACK in handlers
             assert ChannelType.SMS not in handlers
-            mock_logger.warning.assert_called_once()
 
     def test_email_channel_disabled_when_dependency_missing(
         self, alert_service: AlertConfigService
     ) -> None:
         """Test email channel is skipped if SMTP dependency is unavailable."""
         with (
-            patch("libs.web_console_services.alert_service.EmailChannel", None),
-            patch(
-                "libs.web_console_services.alert_service._EMAIL_CHANNEL_IMPORT_ERROR",
-                "No module named 'aiosmtplib'",
-            ),
-            patch("libs.web_console_services.alert_service.SlackChannel") as mock_slack,
-            patch("libs.web_console_services.alert_service.SMSChannel") as mock_sms,
-            patch("libs.web_console_services.alert_service.logger") as mock_logger,
+            patch("libs.platform.alerts.channels.EmailChannel", None),
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
         ):
 
             handlers = alert_service._get_channel_handlers()
@@ -198,7 +191,6 @@ class TestAlertServiceInitialization:
             assert ChannelType.SMS in handlers
             mock_slack.assert_called_once()
             mock_sms.assert_called_once()
-            mock_logger.warning.assert_called_once()
 
 
 class TestGetRules:

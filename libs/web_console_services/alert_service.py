@@ -12,10 +12,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict
 
 from libs.core.common.db import acquire_connection
-from libs.core.common.exceptions import ConfigurationError
-from libs.platform.alerts.channels.base import BaseChannel
-from libs.platform.alerts.channels.pagerduty import PagerDutyChannel
-from libs.platform.alerts.channels.slack import SlackChannel
+from libs.platform.alerts.channels import BaseChannel, build_channel_handlers
 from libs.platform.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
 from libs.platform.alerts.pii import mask_for_logs
 from libs.platform.alerts.poison_queue import _sanitize_error_for_log
@@ -23,41 +20,6 @@ from libs.platform.web_console_auth.audit_log import AuditLogger
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
-
-# Only suppress the specific optional third-party packages (aiosmtplib / twilio).
-# Any other missing module is a genuine regression and must fail fast.
-_EMAIL_CHANNEL_IMPORT_ERROR: str | None
-try:
-    from libs.platform.alerts.channels.email import EmailChannel as _ImportedEmailChannel
-except ModuleNotFoundError as exc:
-    if exc.name is not None and (
-        exc.name == "aiosmtplib" or exc.name.startswith("aiosmtplib.")
-    ):
-        _EmailChannel: type[BaseChannel] | None = None
-        _EMAIL_CHANNEL_IMPORT_ERROR = str(exc)
-    else:
-        raise
-else:
-    _EmailChannel = _ImportedEmailChannel
-    _EMAIL_CHANNEL_IMPORT_ERROR = None
-
-_SMS_CHANNEL_IMPORT_ERROR: str | None
-try:
-    from libs.platform.alerts.channels.sms import SMSChannel as _ImportedSMSChannel
-except ModuleNotFoundError as exc:
-    if exc.name is not None and (
-        exc.name == "twilio" or exc.name.startswith("twilio.")
-    ):
-        _SMSChannel: type[BaseChannel] | None = None
-        _SMS_CHANNEL_IMPORT_ERROR = str(exc)
-    else:
-        raise
-else:
-    _SMSChannel = _ImportedSMSChannel
-    _SMS_CHANNEL_IMPORT_ERROR = None
-
-EmailChannel: type[BaseChannel] | None = _EmailChannel
-SMSChannel: type[BaseChannel] | None = _SMSChannel
 
 # Default limit for alert event queries
 DEFAULT_ALERT_EVENT_LIMIT = 20
@@ -108,56 +70,12 @@ class AlertConfigService:
     def _get_channel_handlers(self) -> dict[ChannelType, BaseChannel]:
         """Build channel handlers, lazily skipping unconfigured channels.
 
-        Email requires aiosmtplib; SMS requires Twilio credentials.
-        If the dependency is missing or credentials are absent, the channel
-        is skipped and a warning is logged. Slack and PagerDuty are always enabled.
+        Delegates to the shared ``build_channel_handlers`` factory so that
+        channel initialization logic is not duplicated across services.
         """
         if self._channel_handlers is None:
-            self._channel_handlers = {
-                ChannelType.SLACK: SlackChannel(),
-            }
-            if EmailChannel is None:
-                logger.warning(
-                    "email_channel_disabled",
-                    extra={
-                        "reason": _EMAIL_CHANNEL_IMPORT_ERROR or "email dependencies unavailable",
-                        "hint": "Install aiosmtplib to enable SMTP email notifications",
-                    },
-                )
-            else:
-                self._channel_handlers[ChannelType.EMAIL] = EmailChannel()
-
-            # SMS requires Twilio credentials - skip if not configured
-            self._add_sms_channel_handler(self._channel_handlers)
-            # PagerDuty uses routing key per-recipient, no global credentials needed
-            self._channel_handlers[ChannelType.PAGERDUTY] = PagerDutyChannel()
+            self._channel_handlers = build_channel_handlers(logger=logger)
         return self._channel_handlers
-
-    def _add_sms_channel_handler(self, handlers: dict[ChannelType, BaseChannel]) -> None:
-        """Attach SMS handler when dependencies and credentials are available."""
-        if SMSChannel is None:
-            logger.warning(
-                "sms_channel_disabled",
-                extra={
-                    "reason": _SMS_CHANNEL_IMPORT_ERROR or "sms dependencies unavailable",
-                    "hint": (
-                        "Install twilio and set TWILIO_ACCOUNT_SID, "
-                        "TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"
-                    ),
-                },
-            )
-            return
-
-        try:
-            handlers[ChannelType.SMS] = SMSChannel()
-        except ConfigurationError as exc:
-            logger.warning(
-                "sms_channel_disabled",
-                extra={
-                    "reason": str(exc),
-                    "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
-                },
-            )
 
     async def get_rules(self) -> list[AlertRule]:
         """Fetch all alert rules."""

@@ -82,7 +82,7 @@ def _patch_nicegui_request_tracking_middleware() -> None:
             raise
 
     _dispatch_with_no_response_guard._no_response_patch_applied = True  # type: ignore[attr-defined]
-    middleware_cls.dispatch = _dispatch_with_no_response_guard  # type: ignore[method-assign]
+    middleware_cls.dispatch = _dispatch_with_no_response_guard
 
 
 class SuppressNoResponseReturnedMiddleware:

@@ -72,13 +72,29 @@ from libs.data.data_providers.yfinance_provider import (
 
 _dp_logger = _logging.getLogger(__name__)
 
+# Known optional third-party packages that data-provider submodules may
+# depend on.  If these are absent we degrade gracefully; any *other*
+# missing module is a genuine regression and must fail fast.
+_OPTIONAL_PACKAGES = frozenset({
+    "wrds",       # WRDS database driver
+    "sas7bdat",   # SAS file reader
+    "saspy",      # SAS scripting
+    "paramiko",   # SSH transport for WRDS
+})
+
+
+def _is_optional_dep(exc: ModuleNotFoundError) -> bool:
+    """Return True when *exc* is caused by a known optional package."""
+    return exc.name is not None and any(
+        exc.name == pkg or exc.name.startswith(f"{pkg}.")
+        for pkg in _OPTIONAL_PACKAGES
+    )
+
+
 try:
     from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 except ModuleNotFoundError as _exc:
-    if _exc.name is not None and (
-        _exc.name == "libs.data.data_providers.sync_manager"
-        or not _exc.name.startswith("libs.")
-    ):
+    if _exc.name == "libs.data.data_providers.sync_manager" or _is_optional_dep(_exc):
         _dp_logger.info(
             "sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name
         )
@@ -90,10 +106,7 @@ except ModuleNotFoundError as _exc:
 try:
     from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 except ModuleNotFoundError as _exc:
-    if _exc.name is not None and (
-        _exc.name == "libs.data.data_providers.wrds_client"
-        or not _exc.name.startswith("libs.")
-    ):
+    if _exc.name == "libs.data.data_providers.wrds_client" or _is_optional_dep(_exc):
         _dp_logger.info(
             "wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name
         )

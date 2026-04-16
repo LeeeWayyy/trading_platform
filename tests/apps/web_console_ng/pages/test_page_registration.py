@@ -42,7 +42,11 @@ class TestPageRegistrationSkipBehavior:
 
         def _mock_import(name: str) -> ModuleType:
             if name == "apps.web_console_ng.pages.dashboard":
-                raise ModuleNotFoundError(name="apps.web_console_ng.core.something")
+                exc = ModuleNotFoundError(
+                    "No module named 'apps.web_console_ng.core.something'"
+                )
+                exc.name = "apps.web_console_ng.core.something"
+                raise exc
             return original_import(name)
 
         with (

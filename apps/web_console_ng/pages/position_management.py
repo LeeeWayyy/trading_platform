@@ -93,11 +93,16 @@ async def check_kill_switch_safety(
 
 
 def _coerce_numeric(value: Any) -> float:
-    """Convert API payload values to float for safe summary calculations."""
+    """Convert API payload values to float for safe summary calculations.
+
+    Handles None, bool, int, float, and string inputs. Returns 0.0 for
+    values that cannot be converted, logging a warning for unexpected types
+    per the project's "never swallow exceptions" standard.
+    """
     if value is None:
         return 0.0
     if isinstance(value, bool):
-        return 0.0
+        return 1.0 if value else 0.0
     if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
@@ -107,10 +112,18 @@ def _coerce_numeric(value: Any) -> float:
         try:
             return float(normalized)
         except ValueError:
+            logger.warning(
+                "coerce_numeric_failed",
+                extra={"value_type": "str", "value_repr": repr(value[:50])},
+            )
             return 0.0
     try:
         return float(value)
     except (TypeError, ValueError):
+        logger.warning(
+            "coerce_numeric_failed",
+            extra={"value_type": type(value).__name__},
+        )
         return 0.0
 
 
