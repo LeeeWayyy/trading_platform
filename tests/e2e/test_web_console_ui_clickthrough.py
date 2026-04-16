@@ -270,7 +270,6 @@ def _should_ignore_click_error(exc: PlaywrightError) -> bool:
         "element is not enabled",
         "element is not stable",
         "another element would receive the click",
-        "timeout",
     )
     return any(token in text for token in ignorable)
 
@@ -288,12 +287,16 @@ def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -
     if "net::err_aborted" not in normalized_failure:
         return False
 
-    if url.startswith(BASE_URL):
-        return True
+    parsed_url = urlparse(url)
+    parsed_base_url = urlparse(BASE_URL)
+    if (
+        parsed_url.scheme == parsed_base_url.scheme
+        and parsed_url.netloc == parsed_base_url.netloc
+    ):
+        return False
 
     # Third-party static assets can be aborted during rapid route transitions.
-    parsed = urlparse(url)
-    return bool(parsed.scheme and parsed.netloc)
+    return bool(parsed_url.scheme and parsed_url.netloc)
 
 
 def _default_input_value(input_type: str) -> str:
