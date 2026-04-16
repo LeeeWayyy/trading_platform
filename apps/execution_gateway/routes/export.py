@@ -1015,6 +1015,7 @@ def _build_single_condition(
     elif filter_type == "number":
         _NUM_OPS: dict[str, str] = {
             "equals": "=",
+            "notEqual": "!=",
             "greaterThan": ">",
             "lessThan": "<",
             "greaterThanOrEqual": ">=",
@@ -1040,7 +1041,11 @@ def _build_single_condition(
         # as timestamps to enable index scans.
         if ftype == "equals" and date_from is not None:
             # "equals day" means >= start of day AND < next day
-            clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
+            clauses.append(f"{qcol} >= %s::date AND {qcol} < %s::date + interval '1 day'")
+            params.extend([date_from, date_from])
+        elif ftype == "notEqual" and date_from is not None:
+            # "not equals day" means outside the given day
+            clauses.append(f"({qcol} < %s::date OR {qcol} >= %s::date + interval '1 day')")
             params.extend([date_from, date_from])
         elif ftype == "greaterThan" and date_from is not None:
             # After the end of the given day
@@ -1057,8 +1062,12 @@ def _build_single_condition(
             clauses.append(f"{qcol} < %s::date + interval '1 day'")
             params.append(date_from)
         elif ftype == "inRange" and date_from is not None and date_to is not None:
-            clauses.append(f"{qcol} >= %s AND {qcol} < %s::date + interval '1 day'")
+            clauses.append(f"{qcol} >= %s::date AND {qcol} < %s::date + interval '1 day'")
             params.extend([date_from, date_to])
+        elif ftype == "blank":
+            clauses.append(f"{qcol} IS NULL")
+        elif ftype == "notBlank":
+            clauses.append(f"{qcol} IS NOT NULL")
 
     elif filter_type == "set":
         values = spec.get("values")
