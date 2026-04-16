@@ -173,6 +173,24 @@ class TestGetCurrentPriceEdgeCases:
             await orch._get_current_price("AAPL")
 
     @pytest.mark.asyncio()
+    async def test_null_mid_treated_as_unavailable(self) -> None:
+        """Null mid price from Redis is treated as unavailable."""
+        redis = MagicMock()
+        redis.get.return_value = json.dumps(
+            {
+                "symbol": "AAPL",
+                "bid": "149.00",
+                "ask": "151.00",
+                "mid": None,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        orch = _make_orchestrator(redis_client=redis)
+
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+
+    @pytest.mark.asyncio()
     async def test_negative_mid_treated_as_unavailable(self) -> None:
         """Negative mid price from Redis is treated as unavailable."""
         redis = MagicMock()

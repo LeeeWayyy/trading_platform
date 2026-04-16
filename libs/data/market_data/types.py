@@ -75,7 +75,7 @@ class PriceData(BaseModel):
     exchange: str | None = Field(None, description="Exchange code")
 
     @classmethod
-    def from_quote(cls, quote: QuoteData) -> "PriceData":
+    def from_quote(cls, quote: QuoteData) -> PriceData:
         """Create PriceData from QuoteData."""
         return cls(
             symbol=quote.symbol,
@@ -244,7 +244,18 @@ def parse_redis_price_json(
             return None
 
         # Mid price validation
-        mid = Decimal(str(price_data["mid"]))
+        mid_raw = price_data.get("mid")
+        if mid_raw is None:
+            logger.warning(
+                "Redis price has null mid for %s",
+                expected_symbol or "unknown",
+                extra={
+                    **_extra,
+                    "symbol": expected_symbol or "unknown",
+                },
+            )
+            return None
+        mid = Decimal(str(mid_raw))
         if mid <= 0 or not mid.is_finite():
             logger.warning(
                 "Redis price has invalid mid for %s",

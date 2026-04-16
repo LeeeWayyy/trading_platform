@@ -207,7 +207,9 @@ async def resolve_fat_finger_context(
         elif order.stop_price is not None:
             price = order.stop_price
         else:
-            realtime_prices = batch_fetch_realtime_prices_from_redis([order.symbol], redis_client)
+            realtime_prices = await asyncio.to_thread(
+                batch_fetch_realtime_prices_from_redis, [order.symbol], redis_client
+            )
             price, price_timestamp = realtime_prices.get(order.symbol, (None, None))
             if price is not None:
                 if price_timestamp is None:
@@ -337,11 +339,17 @@ def batch_fetch_realtime_prices_from_redis(
             )
             if parsed is not None:
                 result[symbol] = (parsed.mid, parsed.timestamp)
-                logger.debug(f"Batch fetched price for {symbol}: ${parsed.mid}")
+                logger.debug(
+                    "Batch fetched price for symbol",
+                    extra={"symbol": symbol, "mid_price": str(parsed.mid)},
+                )
 
         return result
 
     except RedisError as e:
         # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
-        logger.warning(f"Failed to batch fetch prices for {len(symbols)} symbols: {e}")
+        logger.warning(
+            "Failed to batch fetch prices from Redis",
+            extra={"symbol_count": len(symbols), "error": str(e)},
+        )
         return dict.fromkeys(symbols, (None, None))
