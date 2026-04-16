@@ -53,7 +53,6 @@ flowchart TB
   lib_web_console_services -.-> lib_platform
   lib_web_console_services -.-> lib_trading
   lib_web_console_services -.-> lib_web_console_data
-  svc_alert_worker -.-> lib_core
   svc_alert_worker -.-> lib_platform
   svc_auth_service -.-> lib_core
   svc_auth_service -.-> lib_platform
