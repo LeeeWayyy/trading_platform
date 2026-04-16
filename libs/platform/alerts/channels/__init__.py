@@ -39,6 +39,7 @@ except ModuleNotFoundError as _exc:
 def build_channel_handlers(
     *,
     logger: _logging.Logger | None = None,
+    strict: bool = False,
 ) -> dict[ChannelType, BaseChannel]:
     """Build available channel handlers, skipping unconfigured channels.
 
@@ -47,16 +48,31 @@ def build_channel_handlers(
 
     Email requires ``aiosmtplib``; SMS requires ``twilio`` credentials.
     If either dependency is missing or credentials are absent, the channel
-    is skipped and a warning is logged.  Slack and PagerDuty are always
-    enabled.
+    is skipped and an error is logged so operators are alerted that email
+    or SMS deliveries will fail at delivery time.  Set *strict=True* to
+    raise immediately instead of degrading (useful for startup validation).
+
+    Args:
+        logger: Logger instance; defaults to module logger.
+        strict: When True, raise ``RuntimeError`` if any channel
+            dependency is missing instead of degrading gracefully.
 
     Returns:
         Mapping of ``ChannelType`` to instantiated handler.
     """
+    import os
+
     from libs.core.common.exceptions import ConfigurationError
     from libs.platform.alerts.models import ChannelType
 
     _log = logger or _logging.getLogger(__name__)
+
+    # Honour ALERT_CHANNELS_STRICT env var as a deploy-time knob
+    _strict = strict or os.environ.get("ALERT_CHANNELS_STRICT", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     handlers: dict[ChannelType, BaseChannel] = {
         ChannelType.SLACK: SlackChannel(),
@@ -64,10 +80,18 @@ def build_channel_handlers(
 
     # Email — requires aiosmtplib
     if EmailChannel is None:
-        _log.warning(
+        msg = (
+            "email_channel_disabled: aiosmtplib is not installed. "
+            "Any email alert rules will fail at delivery time. "
+            "Install aiosmtplib to enable SMTP email notifications."
+        )
+        if _strict:
+            raise RuntimeError(msg)
+        _log.error(
             "email_channel_disabled",
             extra={
-                "reason": "email dependencies unavailable",
+                "reason": "aiosmtplib not installed",
+                "impact": "email deliveries will fail",
                 "hint": "Install aiosmtplib to enable SMTP email notifications",
             },
         )
@@ -76,10 +100,17 @@ def build_channel_handlers(
 
     # SMS — requires twilio + credentials
     if SMSChannel is None:
-        _log.warning(
+        msg = (
+            "sms_channel_disabled: twilio is not installed. "
+            "Any SMS alert rules will fail at delivery time."
+        )
+        if _strict:
+            raise RuntimeError(msg)
+        _log.error(
             "sms_channel_disabled",
             extra={
-                "reason": "SMS dependencies unavailable",
+                "reason": "twilio not installed",
+                "impact": "SMS deliveries will fail",
                 "hint": (
                     "Install twilio and set TWILIO_ACCOUNT_SID, "
                     "TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"
