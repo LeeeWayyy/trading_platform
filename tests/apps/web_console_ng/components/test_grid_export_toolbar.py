@@ -17,6 +17,7 @@ import pytest
 
 from apps.web_console_ng.components.grid_export_toolbar import (
     GridExportToolbar,
+    merge_filter_models,
     sanitize_for_export,
 )
 
@@ -256,43 +257,13 @@ class TestGridExportToolbarWithUI:
 
 
 class TestFilterMerge:
-    """Tests for filter merge logic in _create_audit_record."""
-
-    def _merge_filters(
-        self,
-        extra_filters: dict,
-        grid_filters: dict,
-    ) -> dict:
-        """Replicate the merge logic from _create_audit_record."""
-        filter_model = dict(grid_filters)
-        for key, extra_spec in extra_filters.items():
-            grid_spec = grid_filters.get(key)
-            if grid_spec is None:
-                filter_model[key] = extra_spec
-            elif (
-                isinstance(extra_spec, dict)
-                and isinstance(grid_spec, dict)
-                and extra_spec.get("filterType") == "set"
-                and grid_spec.get("filterType") == "set"
-            ):
-                extra_vals = set(extra_spec.get("values") or [])
-                grid_vals = set(grid_spec.get("values") or [])
-                filter_model[key] = {
-                    "filterType": "set",
-                    "values": sorted(extra_vals & grid_vals),
-                }
-            else:
-                filter_model[key] = {
-                    "operator": "AND",
-                    "conditions": [extra_spec, grid_spec],
-                }
-        return filter_model
+    """Tests for merge_filter_models utility."""
 
     def test_no_overlap_includes_both(self) -> None:
         """Non-overlapping filters are both included."""
         extra = {"status": {"filterType": "set", "values": ["new", "pending_new"]}}
         grid = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
-        result = self._merge_filters(extra, grid)
+        result = merge_filter_models(grid, extra)
         assert "status" in result
         assert "symbol" in result
 
@@ -310,20 +281,20 @@ class TestFilterMerge:
                 "values": ["accepted"],
             }
         }
-        result = self._merge_filters(extra, grid)
+        result = merge_filter_models(grid, extra)
         assert result["status"]["values"] == ["accepted"]
 
     def test_set_filter_empty_intersection_produces_empty(self) -> None:
         """Empty intersection is kept to preserve view/export parity."""
         extra = {"status": {"filterType": "set", "values": ["new", "pending_new"]}}
         grid = {"status": {"filterType": "set", "values": ["filled"]}}
-        result = self._merge_filters(extra, grid)
+        result = merge_filter_models(grid, extra)
         assert result["status"]["values"] == []
 
     def test_text_filter_overlap_combined_as_and(self) -> None:
         """Non-set overlapping filters: combined as AND compound filter."""
         extra = {"symbol": {"filterType": "text", "type": "equals", "filter": "AAPL"}}
         grid = {"symbol": {"filterType": "text", "type": "equals", "filter": "MSFT"}}
-        result = self._merge_filters(extra, grid)
+        result = merge_filter_models(grid, extra)
         assert result["symbol"]["operator"] == "AND"
         assert len(result["symbol"]["conditions"]) == 2

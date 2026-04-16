@@ -23,6 +23,7 @@ import asyncio
 import io
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -963,6 +964,133 @@ def _escape_like(value: str) -> str:
     return value.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("%", f"{_LIKE_ESCAPE}%").replace("_", f"{_LIKE_ESCAPE}_")
 
 
+def _build_text_condition(
+    col: str, qcol: str, spec: dict[str, Any],
+    clauses: list[str], params: list[Any],
+) -> None:
+    """Append SQL for an AG Grid text filter condition."""
+    value = spec.get("filter")
+    if value is None:
+        return
+    value = str(value)
+    text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+    esc = f" ESCAPE '{_LIKE_ESCAPE}'"
+    escaped = _escape_like(value)
+    # Map AG Grid text types to (SQL operator, param pattern).
+    # AG Grid text filtering is case-insensitive by default so we
+    # use ILIKE to match the grid's behaviour.
+    _TEXT_OPS: dict[str, tuple[str, str]] = {
+        "contains": ("ILIKE", f"%{escaped}%"),
+        "equals": ("ILIKE", escaped),
+        "startsWith": ("ILIKE", f"{escaped}%"),
+        "endsWith": ("ILIKE", f"%{escaped}"),
+        "notEqual": ("NOT ILIKE", escaped),
+    }
+    ftype = spec.get("type", "")
+    if ftype in _TEXT_OPS:
+        op, param = _TEXT_OPS[ftype]
+        clauses.append(f"{text_col} {op} %s{esc}")
+        params.append(param)
+
+
+def _build_number_condition(
+    _col: str, qcol: str, spec: dict[str, Any],
+    clauses: list[str], params: list[Any],
+) -> None:
+    """Append SQL for an AG Grid number filter condition."""
+    _NUM_OPS: dict[str, str] = {
+        "equals": "=",
+        "notEqual": "!=",
+        "greaterThan": ">",
+        "lessThan": "<",
+        "greaterThanOrEqual": ">=",
+        "lessThanOrEqual": "<=",
+    }
+    ftype = spec.get("type", "")
+    value = spec.get("filter")
+    if ftype in _NUM_OPS and value is not None:
+        clauses.append(f"{qcol} {_NUM_OPS[ftype]} %s")
+        params.append(value)
+    elif ftype == "inRange":
+        lo = spec.get("filter")
+        hi = spec.get("filterTo")
+        if lo is not None and hi is not None:
+            clauses.append(f"{qcol} >= %s AND {qcol} <= %s")
+            params.extend([lo, hi])
+
+
+def _build_date_condition(
+    _col: str, qcol: str, spec: dict[str, Any],
+    clauses: list[str], params: list[Any],
+) -> None:
+    """Append SQL for an AG Grid date filter condition.
+
+    Uses range comparisons on the raw timestamp column instead of
+    ``::date`` casts on the column, which would prevent B-tree index
+    usage.  AG Grid sends dates as ``'YYYY-MM-DD'`` strings; we cast
+    the *parameter* to ``::date`` to enable index scans.
+    """
+    ftype = spec.get("type", "")
+    date_from = spec.get("dateFrom")
+    date_to = spec.get("dateTo")
+    if ftype == "equals" and date_from is not None:
+        clauses.append(f"{qcol} >= %s::date AND {qcol} < %s::date + interval '1 day'")
+        params.extend([date_from, date_from])
+    elif ftype == "notEqual" and date_from is not None:
+        clauses.append(f"({qcol} < %s::date OR {qcol} >= %s::date + interval '1 day')")
+        params.extend([date_from, date_from])
+    elif ftype == "greaterThan" and date_from is not None:
+        clauses.append(f"{qcol} >= %s::date + interval '1 day'")
+        params.append(date_from)
+    elif ftype == "lessThan" and date_from is not None:
+        clauses.append(f"{qcol} < %s::date")
+        params.append(date_from)
+    elif ftype == "greaterThanOrEqual" and date_from is not None:
+        clauses.append(f"{qcol} >= %s::date")
+        params.append(date_from)
+    elif ftype == "lessThanOrEqual" and date_from is not None:
+        clauses.append(f"{qcol} < %s::date + interval '1 day'")
+        params.append(date_from)
+    elif ftype == "inRange" and date_from is not None and date_to is not None:
+        clauses.append(f"{qcol} >= %s::date AND {qcol} < %s::date + interval '1 day'")
+        params.extend([date_from, date_to])
+    elif ftype == "blank":
+        clauses.append(f"{qcol} IS NULL")
+    elif ftype == "notBlank":
+        clauses.append(f"{qcol} IS NOT NULL")
+
+
+def _build_set_condition(
+    col: str, qcol: str, spec: dict[str, Any],
+    clauses: list[str], params: list[Any],
+) -> None:
+    """Append SQL for an AG Grid set filter condition."""
+    values = spec.get("values")
+    if isinstance(values, list):
+        if values:
+            text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+            clauses.append(f"{text_col} = ANY(%s)")
+            params.append(values)
+        else:
+            # Empty values list: no rows should match.
+            clauses.append("FALSE")
+
+
+# Dispatch table mapping AG Grid filterType to handler.
+_FILTER_TYPE_BUILDERS: dict[
+    str,
+    Callable[
+        [str, str, dict[str, Any], list[str], list[Any]],
+        None,
+    ],
+] = {
+    "text": _build_text_condition,
+    "number": _build_number_condition,
+    "date": _build_date_condition,
+    "set": _build_set_condition,
+}
+
+
 def _build_single_condition(
     col: str,
     qcol: str,
@@ -972,120 +1100,18 @@ def _build_single_condition(
 ) -> None:
     """Append SQL for a single AG Grid filter condition.
 
-    This handles one atomic condition (``type`` + ``filter``).  Compound
-    filters (``operator`` + ``conditions``) are decomposed by
+    Dispatches to per-type handlers (``_build_text_condition``, etc.).
+    Compound filters (``operator`` + ``conditions``) are decomposed by
     ``_build_filter_clause`` before calling this helper.
 
     **Safety:** ``qcol`` is produced by ``_quote_identifier()`` which
     delegates to ``psycopg.sql.Identifier(...).as_string(None)`` --
     all identifiers are properly double-quoted before interpolation.
-    The resulting clause strings are assembled with parameterized
-    ``%s`` placeholders and the final query is built via
-    ``psycopg.sql.SQL`` composition.
     """
     filter_type = spec.get("filterType", "text")
-    ftype = spec.get("type", "")
-
-    if filter_type == "text":
-        value = spec.get("filter")
-        if value is None:
-            return
-        value = str(value)
-        # JSONB columns need an explicit ::text cast for text
-        # operators; for text/varchar columns the cast is omitted
-        # to allow B-tree index usage.
-        text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
-        _ESC_SUFFIX = f" ESCAPE '{_LIKE_ESCAPE}'"
-        if ftype == "contains":
-            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
-            params.append(f"%{_escape_like(value)}%")
-        elif ftype == "equals":
-            # AG Grid text filtering is case-insensitive by default,
-            # so use ILIKE to match the grid's behaviour.
-            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
-            params.append(_escape_like(value))
-        elif ftype == "startsWith":
-            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
-            params.append(f"{_escape_like(value)}%")
-        elif ftype == "endsWith":
-            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
-            params.append(f"%{_escape_like(value)}")
-        elif ftype == "notEqual":
-            # Case-insensitive to match AG Grid behaviour.
-            clauses.append(f"{text_col} NOT ILIKE %s{_ESC_SUFFIX}")
-            params.append(_escape_like(value))
-
-    elif filter_type == "number":
-        _NUM_OPS: dict[str, str] = {
-            "equals": "=",
-            "notEqual": "!=",
-            "greaterThan": ">",
-            "lessThan": "<",
-            "greaterThanOrEqual": ">=",
-            "lessThanOrEqual": "<=",
-        }
-        value = spec.get("filter")
-        if ftype in _NUM_OPS and value is not None:
-            clauses.append(f"{qcol} {_NUM_OPS[ftype]} %s")
-            params.append(value)
-        elif ftype == "inRange":
-            lo = spec.get("filter")
-            hi = spec.get("filterTo")
-            if lo is not None and hi is not None:
-                clauses.append(f"{qcol} >= %s AND {qcol} <= %s")
-                params.extend([lo, hi])
-
-    elif filter_type == "date":
-        date_from = spec.get("dateFrom")
-        date_to = spec.get("dateTo")
-        # Use range comparisons on the raw timestamp column instead of
-        # ::date casts, which prevent B-tree index usage on large tables.
-        # AG Grid sends dates as 'YYYY-MM-DD' strings; we compare them
-        # as timestamps to enable index scans.
-        if ftype == "equals" and date_from is not None:
-            # "equals day" means >= start of day AND < next day
-            clauses.append(f"{qcol} >= %s::date AND {qcol} < %s::date + interval '1 day'")
-            params.extend([date_from, date_from])
-        elif ftype == "notEqual" and date_from is not None:
-            # "not equals day" means outside the given day
-            clauses.append(f"({qcol} < %s::date OR {qcol} >= %s::date + interval '1 day')")
-            params.extend([date_from, date_from])
-        elif ftype == "greaterThan" and date_from is not None:
-            # After the end of the given day
-            clauses.append(f"{qcol} >= %s::date + interval '1 day'")
-            params.append(date_from)
-        elif ftype == "lessThan" and date_from is not None:
-            clauses.append(f"{qcol} < %s::date")
-            params.append(date_from)
-        elif ftype == "greaterThanOrEqual" and date_from is not None:
-            clauses.append(f"{qcol} >= %s::date")
-            params.append(date_from)
-        elif ftype == "lessThanOrEqual" and date_from is not None:
-            # Include all of the given day
-            clauses.append(f"{qcol} < %s::date + interval '1 day'")
-            params.append(date_from)
-        elif ftype == "inRange" and date_from is not None and date_to is not None:
-            clauses.append(f"{qcol} >= %s::date AND {qcol} < %s::date + interval '1 day'")
-            params.extend([date_from, date_to])
-        elif ftype == "blank":
-            clauses.append(f"{qcol} IS NULL")
-        elif ftype == "notBlank":
-            clauses.append(f"{qcol} IS NOT NULL")
-
-    elif filter_type == "set":
-        values = spec.get("values")
-        if isinstance(values, list):
-            if values:
-                # Use ANY(%s) with a list parameter for set membership
-                text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
-                clauses.append(f"{text_col} = ANY(%s)")
-                params.append(values)
-            else:
-                # Empty values list: no rows should match.
-                # This occurs when page-level and grid set filters have
-                # no common values (empty intersection).  Emit a
-                # false-constant predicate to produce zero results.
-                clauses.append("FALSE")
+    builder = _FILTER_TYPE_BUILDERS.get(filter_type)
+    if builder is not None:
+        builder(col, qcol, spec, clauses, params)
 
 
 def _build_filter_clause(

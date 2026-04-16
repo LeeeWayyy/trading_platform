@@ -34,6 +34,57 @@ EXPORT_STRICT_AUDIT_MODE = os.getenv("EXPORT_STRICT_AUDIT_MODE", "false").lower(
 # See libs/platform/security/sanitization.py for the canonical implementation.
 
 
+def merge_filter_models(
+    grid_filters: dict[str, Any],
+    extra_filters: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge extra (tab/page-scoped) filters into an AG Grid filter model.
+
+    For non-overlapping keys both filters are simply included.  For
+    overlapping keys:
+    - **set** filters: values are intersected so the user's narrower
+      selection within the page scope is honoured.  An empty intersection
+      is kept (produces zero results) to preserve view/export parity.
+    - **other** filters: combined into an AND compound filter.  Any
+      already-compound AND conditions are flattened to avoid nesting.
+
+    Returns a new dict — neither input is mutated.
+    """
+    merged = dict(grid_filters)
+    for key, extra_spec in extra_filters.items():
+        grid_spec = grid_filters.get(key)
+        if grid_spec is None:
+            merged[key] = extra_spec
+        elif (
+            isinstance(extra_spec, dict)
+            and isinstance(grid_spec, dict)
+            and extra_spec.get("filterType") == "set"
+            and grid_spec.get("filterType") == "set"
+        ):
+            extra_vals = set(extra_spec.get("values") or [])
+            grid_vals = set(grid_spec.get("values") or [])
+            merged[key] = {
+                "filterType": "set",
+                "values": sorted(extra_vals & grid_vals),
+            }
+        else:
+            conditions: list[dict[str, Any]] = []
+            for s in (extra_spec, grid_spec):
+                if (
+                    isinstance(s, dict)
+                    and isinstance(s.get("conditions"), list)
+                    and s.get("operator", "").upper() == "AND"
+                ):
+                    conditions.extend(s["conditions"])
+                else:
+                    conditions.append(s)
+            merged[key] = {
+                "operator": "AND",
+                "conditions": conditions,
+            }
+    return merged
+
+
 class GridExportToolbar:
     """Export toolbar component for AG Grids.
 
@@ -171,56 +222,8 @@ class GridExportToolbar:
         try:
             import httpx
 
-            # Merge extra_filters into the AG Grid filter model.
-            # For non-overlapping keys, both are simply included.
-            # For overlapping keys, intersect set-filter values (so the
-            # user's narrower selection within the page scope is honoured)
-            # and let extra_filters win for other filter types (page-level
-            # scope constraints like the symbol dropdown cannot be widened
-            # by a conflicting in-grid filter).
             grid_filters = grid_state.get("filterModel") or {}
-            filter_model = dict(grid_filters)
-            for key, extra_spec in self.extra_filters.items():
-                grid_spec = grid_filters.get(key)
-                if grid_spec is None:
-                    # No overlap -- add the extra filter.
-                    filter_model[key] = extra_spec
-                elif (
-                    isinstance(extra_spec, dict)
-                    and isinstance(grid_spec, dict)
-                    and extra_spec.get("filterType") == "set"
-                    and grid_spec.get("filterType") == "set"
-                ):
-                    # Both are set filters on the same column -- intersect
-                    # values so the user's selection is honoured within
-                    # the page scope.  An empty intersection is kept
-                    # (produces zero results) to preserve view/export
-                    # parity rather than silently widening the export.
-                    extra_vals = set(extra_spec.get("values") or [])
-                    grid_vals = set(grid_spec.get("values") or [])
-                    filter_model[key] = {
-                        "filterType": "set",
-                        "values": sorted(extra_vals & grid_vals),
-                    }
-                else:
-                    # Non-set overlap -- combine as an AND compound
-                    # filter so both constraints must be satisfied.
-                    # Flatten any already-compound conditions to avoid
-                    # nesting that the server-side parser must recurse.
-                    conditions: list[dict[str, Any]] = []
-                    for s in (extra_spec, grid_spec):
-                        if (
-                            isinstance(s, dict)
-                            and isinstance(s.get("conditions"), list)
-                            and s.get("operator", "").upper() == "AND"
-                        ):
-                            conditions.extend(s["conditions"])
-                        else:
-                            conditions.append(s)
-                    filter_model[key] = {
-                        "operator": "AND",
-                        "conditions": conditions,
-                    }
+            filter_model = merge_filter_models(grid_filters, self.extra_filters)
 
             headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:
@@ -473,6 +476,7 @@ class GridExportToolbar:
 
 __all__ = [
     "GridExportToolbar",
+    "merge_filter_models",
     "sanitize_for_export",
     "EXPORT_STRICT_AUDIT_MODE",
 ]
