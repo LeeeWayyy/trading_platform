@@ -128,6 +128,7 @@ class TestBuildFilterClause:
         filt = {"symbol": {"filterType": "text", "type": "contains", "filter": "AAPL"}}
         sql, params = _build_filter_clause(filt, ["symbol"])
         assert "ILIKE" in sql
+        assert "ESCAPE" in sql
         assert "%AAPL%" in params
 
     def test_text_equals_filter(self) -> None:
@@ -135,8 +136,16 @@ class TestBuildFilterClause:
         sql, params = _build_filter_clause(filt, ["status"])
         # AG Grid text filtering is case-insensitive by default,
         # so equals uses ILIKE to match grid behaviour.
-        assert "ILIKE %s" in sql
+        assert "ILIKE" in sql
+        assert "ESCAPE" in sql
         assert "filled" in params
+
+    def test_text_equals_escapes_like_wildcards(self) -> None:
+        """LIKE metacharacters (% and _) are escaped for literal matching."""
+        filt = {"symbol": {"filterType": "text", "type": "equals", "filter": "ops_team"}}
+        sql, params = _build_filter_clause(filt, ["symbol"])
+        # The _ should be escaped so it matches literally
+        assert r"ops\_team" in params
 
     def test_number_greater_than_filter(self) -> None:
         filt = {"qty": {"filterType": "number", "type": "greaterThan", "filter": 10}}
@@ -623,8 +632,9 @@ class TestGenerateExcelContent:
         # psycopg.sql.Composed objects are passed to execute(); convert
         # to string representation for assertion.
         executed_sql = str(cursor.execute.call_args[0][0])
-        # Text equals uses ILIKE for case-insensitive matching
+        # Text equals uses ILIKE for case-insensitive matching with ESCAPE
         assert '"symbol" ILIKE %s' in executed_sql
+        assert "ESCAPE" in executed_sql
         # The bind parameters should include the filter value
         executed_params = cursor.execute.call_args[0][1]
         assert "AAPL" in executed_params

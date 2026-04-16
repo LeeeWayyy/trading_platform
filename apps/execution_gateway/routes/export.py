@@ -946,6 +946,19 @@ def _build_order_clause(
 # cast when used in text filter operations (ILIKE, =, !=).
 _JSONB_COLUMNS: frozenset[str] = frozenset({"details"})
 
+# Character used as the ESCAPE character in LIKE/ILIKE patterns.
+_LIKE_ESCAPE = "\\"
+
+
+def _escape_like(value: str) -> str:
+    """Escape SQL LIKE metacharacters (``%`` and ``_``) in *value*.
+
+    Returns the escaped string suitable for use with ``ILIKE %s ESCAPE '\\``'.
+    This ensures user-supplied filter values like ``ops_team`` are matched
+    literally rather than treating ``_`` as a single-character wildcard.
+    """
+    return value.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("%", f"{_LIKE_ESCAPE}%").replace("_", f"{_LIKE_ESCAPE}_")
+
 
 def _build_single_condition(
     col: str,
@@ -979,24 +992,25 @@ def _build_single_condition(
         # operators; for text/varchar columns the cast is omitted
         # to allow B-tree index usage.
         text_col = f"{qcol}::text" if col in _JSONB_COLUMNS else qcol
+        _ESC_SUFFIX = f" ESCAPE '{_LIKE_ESCAPE}'"
         if ftype == "contains":
-            clauses.append(f"{text_col} ILIKE %s")
-            params.append(f"%{value}%")
+            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
+            params.append(f"%{_escape_like(value)}%")
         elif ftype == "equals":
             # AG Grid text filtering is case-insensitive by default,
             # so use ILIKE to match the grid's behaviour.
-            clauses.append(f"{text_col} ILIKE %s")
-            params.append(value)
+            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
+            params.append(_escape_like(value))
         elif ftype == "startsWith":
-            clauses.append(f"{text_col} ILIKE %s")
-            params.append(f"{value}%")
+            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
+            params.append(f"{_escape_like(value)}%")
         elif ftype == "endsWith":
-            clauses.append(f"{text_col} ILIKE %s")
-            params.append(f"%{value}")
+            clauses.append(f"{text_col} ILIKE %s{_ESC_SUFFIX}")
+            params.append(f"%{_escape_like(value)}")
         elif ftype == "notEqual":
             # Case-insensitive to match AG Grid behaviour.
-            clauses.append(f"{text_col} NOT ILIKE %s")
-            params.append(value)
+            clauses.append(f"{text_col} NOT ILIKE %s{_ESC_SUFFIX}")
+            params.append(_escape_like(value))
 
     elif filter_type == "number":
         _NUM_OPS: dict[str, str] = {
