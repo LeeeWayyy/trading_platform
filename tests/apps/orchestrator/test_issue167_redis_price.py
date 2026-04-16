@@ -127,6 +127,10 @@ class TestGetCurrentPriceRedis:
         with pytest.raises(PriceUnavailableError):
             await orch._get_current_price("AAPL")
 
+        # Individual GET failure should also mark Redis unavailable
+        # to prevent retry amplification on subsequent symbols
+        assert orch._redis_unavailable is True
+
     @pytest.mark.asyncio()
     async def test_zero_mid_price_treated_as_unavailable(self) -> None:
         """Zero mid price from Redis is treated as unavailable."""
@@ -388,6 +392,26 @@ class TestBatchPrefetch:
         with pytest.raises(PriceUnavailableError):
             await orch._get_current_price("AAPL")
         redis.get.assert_not_called()
+
+
+    @pytest.mark.asyncio()
+    async def test_individual_get_failure_prevents_subsequent_retries(self) -> None:
+        """When per-symbol GET fails, subsequent symbols skip Redis."""
+        redis = MagicMock()
+        redis.get.side_effect = ConnectionError("Redis down")
+        orch = _make_orchestrator(redis_client=redis)
+
+        # First call fails and marks Redis unavailable
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("AAPL")
+        assert orch._redis_unavailable is True
+        assert redis.get.call_count == 1
+
+        # Second call should skip Redis entirely
+        with pytest.raises(PriceUnavailableError):
+            await orch._get_current_price("MSFT")
+        # get() should NOT have been called again
+        assert redis.get.call_count == 1
 
 
 class TestSymbolMismatchAndFutureTimestamp:

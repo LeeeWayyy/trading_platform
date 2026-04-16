@@ -1268,8 +1268,13 @@ class TradingOrchestrator:
                     if mid is not None:
                         return mid
             except Exception as e:
+                # Mark Redis as unavailable for this run to prevent
+                # retry amplification on subsequent symbols (each GET
+                # has its own retry/backoff).
+                self._redis_unavailable = True
                 logger.warning(
-                    "Failed to fetch price from Redis",
+                    "Failed to fetch price from Redis; "
+                    "disabling per-symbol Redis lookups for this run",
                     extra=self._log_extra(
                         symbol=symbol,
                         error=str(e),
@@ -1279,7 +1284,10 @@ class TradingOrchestrator:
                 )
 
         # C2 Fix: Raise error instead of using dangerous $100 default
-        logger.error(f"Price unavailable for {symbol} - no cache or Redis data")
+        logger.error(
+            "Price unavailable - no cache or Redis data",
+            extra=self._log_extra(symbol=symbol),
+        )
         raise PriceUnavailableError(symbol)
 
 

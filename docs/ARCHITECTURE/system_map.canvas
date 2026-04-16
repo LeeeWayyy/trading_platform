@@ -230,72 +230,79 @@
       "toSide": "top"
     },
     {
-      "fromNode": "svc_signal_service",
+      "fromNode": "svc_orchestrator",
       "fromSide": "bottom",
       "id": "edge_29",
-      "toNode": "lib_core",
+      "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_signal_service",
       "fromSide": "bottom",
       "id": "edge_30",
+      "toNode": "lib_core",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_signal_service",
+      "fromSide": "bottom",
+      "id": "edge_31",
       "toNode": "strat_alpha_baseline",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_31",
+      "id": "edge_32",
       "toNode": "lib_analytics",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_32",
+      "id": "edge_33",
       "toNode": "lib_common",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_33",
+      "id": "edge_34",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_34",
+      "id": "edge_35",
       "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_35",
+      "id": "edge_36",
       "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_36",
+      "id": "edge_37",
       "toNode": "lib_web_console_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_37",
+      "id": "edge_38",
       "toNode": "lib_web_console_services",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_38",
+      "id": "edge_39",
       "toNode": "strat_alpha_baseline",
       "toSide": "top"
     }
