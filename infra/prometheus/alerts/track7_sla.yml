@@ -66,6 +66,7 @@ groups:
         labels:
           severity: page
           team: platform
+          component: alerting
           sla: track7
         annotations:
           summary: "Alert poison queue size exceeds threshold"

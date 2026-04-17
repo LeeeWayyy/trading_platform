@@ -41,6 +41,7 @@ groups:
           severity: warning
           team: platform
           component: alerting
+          sla: track7
         annotations:
           summary: "Alert delivery P95 latency exceeds 60s SLA"
           description: |
