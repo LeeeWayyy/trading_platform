@@ -17,7 +17,9 @@ import logging
 import math
 import os
 import re
+import time
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode
@@ -64,6 +66,7 @@ MAX_COMPARISON_SELECTIONS = 5
 DEFAULT_END_DATE_OFFSET_DAYS = 1
 DEFAULT_BACKTEST_PERIOD_DAYS = 730  # ~2 years
 MIN_BACKTEST_PERIOD_DAYS = 30
+BACKTEST_SCHEMA_CACHE_TTL_S = 300.0
 
 # Polling intervals (progressive backoff) in seconds
 POLL_INTERVALS = {
@@ -92,6 +95,43 @@ SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _rq_redis_client: Redis | None = None
 
 
+def _schema_cache_bucket(*, ttl_s: float = BACKTEST_SCHEMA_CACHE_TTL_S) -> int:
+    """Return monotonic TTL bucket for schema probe caching."""
+    return int(time.monotonic() // ttl_s)
+
+
+def _probe_cost_summary_column_uncached(db_pool: ConnectionPool) -> bool:
+    """Probe backtest_jobs schema for cost_summary column."""
+    probe_sql = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'backtest_jobs'
+              AND column_name = 'cost_summary'
+        ) AS has_column
+    """
+    conn_ctx = db_pool.connection()
+    if not hasattr(conn_ctx, "__enter__"):
+        raise TypeError(
+            "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
+        )
+    with conn_ctx as probe_conn, probe_conn.cursor() as probe_cur:
+        probe_cur.execute(probe_sql)
+        row = probe_cur.fetchone()
+        return bool(row[0]) if row else False
+
+
+@lru_cache(maxsize=64)
+def _probe_cost_summary_column_cached(
+    db_pool: ConnectionPool,
+    cache_bucket: int,
+) -> bool:
+    """Cached wrapper for schema probe keyed by pool + TTL bucket."""
+    _ = cache_bucket  # part of cache key only
+    return _probe_cost_summary_column_uncached(db_pool)
+
+
 def _get_backtest_prefill_from_request() -> dict[str, str | None]:
     """Extract non-blocking prefill hints from query params."""
     try:
@@ -104,18 +144,23 @@ def _get_backtest_prefill_from_request() -> dict[str, str | None]:
         return {"signal_id": None, "source": None}
     if request is None:
         return {"signal_id": None, "source": None}
-    raw_query = request.scope.get("query_string", b"")
-    query_string = (
-        raw_query.decode("utf-8")
-        if isinstance(raw_query, bytes)
-        else str(raw_query)
-    )
-    params = parse_qs(query_string)
-    signal_id = params.get("signal_id", [None])[0]
-    source = params.get("source", [None])[0]
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        raw_query = request.scope.get("query_string", b"")
+        query_string = (
+            raw_query.decode("utf-8")
+            if isinstance(raw_query, bytes)
+            else str(raw_query)
+        )
+        params = parse_qs(query_string)
+        signal_id = params.get("signal_id", [None])[0]
+        source = params.get("source", [None])[0]
+    else:
+        signal_id = query_params.get("signal_id")
+        source = query_params.get("source")
     return {
-        "signal_id": str(signal_id).strip() if signal_id else None,
-        "source": str(source).strip() if source else None,
+        "signal_id": signal_id.strip() or None if signal_id else None,
+        "source": source.strip() or None if source else None,
     }
 
 
@@ -162,14 +207,18 @@ def _get_requested_backtest_tab(*, query_param: str = "tab") -> str:
         return BACKTEST_TAB_NEW
     if request is None:
         return BACKTEST_TAB_NEW
-    raw_query = request.scope.get("query_string", b"")
-    query_string = (
-        raw_query.decode("utf-8")
-        if isinstance(raw_query, bytes)
-        else str(raw_query)
-    )
-    params = parse_qs(query_string)
-    raw_tab = params.get(query_param, [BACKTEST_TAB_NEW])[0]
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        raw_query = request.scope.get("query_string", b"")
+        query_string = (
+            raw_query.decode("utf-8")
+            if isinstance(raw_query, bytes)
+            else str(raw_query)
+        )
+        params = parse_qs(query_string)
+        raw_tab = params.get(query_param, [BACKTEST_TAB_NEW])[0]
+    else:
+        raw_tab = query_params.get(query_param, BACKTEST_TAB_NEW)
     normalized = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
     return normalized if normalized in VALID_BACKTEST_TABS else BACKTEST_TAB_NEW
 
@@ -296,32 +345,27 @@ def _get_user_jobs_sync(
 
     def _has_cost_summary_column() -> bool:
         """Return whether backtest_jobs has cost_summary column."""
-        probe_sql = """
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'backtest_jobs'
-                  AND column_name = 'cost_summary'
-            ) AS has_column
-        """
-        with _sync_connection() as probe_conn, probe_conn.cursor() as probe_cur:
+        try:
+            cache_bucket = _schema_cache_bucket()
             try:
-                probe_cur.execute(probe_sql)
-                row = probe_cur.fetchone()
-                return bool(row[0]) if row else False
-            except pg_errors.AdminShutdown as exc:
-                logger.warning(
-                    "backtest_jobs_schema_probe_admin_shutdown",
-                    extra={"created_by": created_by, "error": str(exc)},
-                )
-                raise _SchemaProbeUnavailableError from exc
-            except Exception as exc:  # pragma: no cover - connectivity/pathology path
-                logger.warning(
-                    "backtest_jobs_schema_probe_failed",
-                    extra={"created_by": created_by, "error": str(exc)},
-                )
-                raise
+                return _probe_cost_summary_column_cached(db_pool, cache_bucket)
+            except TypeError as exc:
+                # Fallback for uncommon unhashable pool wrappers.
+                if "unhashable type" not in str(exc):
+                    raise
+                return _probe_cost_summary_column_uncached(db_pool)
+        except pg_errors.AdminShutdown as exc:
+            logger.warning(
+                "backtest_jobs_schema_probe_admin_shutdown",
+                extra={"created_by": created_by, "error": str(exc)},
+            )
+            raise _SchemaProbeUnavailableError from exc
+        except Exception as exc:  # pragma: no cover - connectivity/pathology path
+            logger.warning(
+                "backtest_jobs_schema_probe_failed",
+                extra={"created_by": created_by, "error": str(exc)},
+            )
+            raise
 
     try:
         use_cost_summary_sql = _has_cost_summary_column()

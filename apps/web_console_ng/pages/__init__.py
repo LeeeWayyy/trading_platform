@@ -61,6 +61,7 @@ _OPTIONAL_PACKAGES = frozenset(
         "plotly",  # charting in some pages
         "pandas",  # data frames
         "polars",  # data frames
+        "duckdb",  # research workspace registry adapter
         "strategies",  # strategy helpers (not present in web-console image)
     }
 )

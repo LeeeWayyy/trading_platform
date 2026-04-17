@@ -6,8 +6,9 @@ resolution into order-entry components.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
+
+from pydantic import BaseModel, ConfigDict
 
 from apps.web_console_ng.components.execution_gate import (
     is_model_execution_safe,
@@ -20,9 +21,10 @@ EXECUTION_CONTEXT_BLOCKED = "BLOCKED"
 EXECUTION_CONTEXT_STALE = "STALE"
 
 
-@dataclass(slots=True)
-class ExecutionContextSnapshot:
+class ExecutionContextSnapshot(BaseModel):
     """UI-level strategy/model context for the currently selected symbol."""
+
+    model_config = ConfigDict(extra="forbid")
 
     symbol: str | None
     strategy_id: str | None
@@ -128,4 +130,3 @@ def format_execution_context_ribbon(snapshot: ExecutionContextSnapshot | None) -
     if snapshot.gate_reason:
         text = f"{text} · {snapshot.gate_reason}"
     return (text, tone)
-

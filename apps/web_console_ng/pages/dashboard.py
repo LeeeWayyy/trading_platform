@@ -2032,22 +2032,49 @@ async def dashboard(client: Client) -> None:
             _fetch_model_registry_context(strategy_id)
         )
 
-        strategy_payload: dict[str, Any] | None = None
+        strategy_payload_result: dict[str, Any] | Exception
+        db_model_context_result: tuple[str, str | None] | Exception
         try:
-            strategy_payload = await strategy_payload_task
-        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
-            reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
+            (
+                strategy_payload_result,
+                db_model_context_result,
+            ) = await asyncio.gather(
+                strategy_payload_task,
+                db_model_context_task,
+                return_exceptions=True,
+            )
+        except asyncio.CancelledError:
+            strategy_payload_task.cancel()
+            db_model_context_task.cancel()
+            await asyncio.gather(
+                strategy_payload_task,
+                db_model_context_task,
+                return_exceptions=True,
+            )
+            raise
+
+        strategy_payload: dict[str, Any] | None = None
+        if isinstance(strategy_payload_result, Exception):
+            if isinstance(strategy_payload_result, asyncio.CancelledError):
+                raise strategy_payload_result
+            reason_parts.append(
+                "strategy status unavailable "
+                f"({type(strategy_payload_result).__name__})"
+            )
+        else:
+            strategy_payload = strategy_payload_result
 
         db_model_status: str = "unknown"
         db_model_version: str | None = None
-        try:
-            db_model_status, db_model_version = await db_model_context_task
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
+        if isinstance(db_model_context_result, Exception):
+            if isinstance(db_model_context_result, asyncio.CancelledError):
+                raise db_model_context_result
             reason_parts.append(
-                f"model registry context unavailable ({type(exc).__name__})"
+                "model registry context unavailable "
+                f"({type(db_model_context_result).__name__})"
             )
+        else:
+            db_model_status, db_model_version = db_model_context_result
 
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
             return

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode
 
 from nicegui import ui
@@ -17,15 +17,12 @@ from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_red
 from apps.web_console_ng.pages import models as models_page
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission, is_admin
-from libs.web_console_services.research_workspace_service import (
-    LIFECYCLE_ARCHIVED,
-    LIFECYCLE_CANDIDATE,
-    LIFECYCLE_FAILED,
-    LIFECYCLE_LIVE,
-    LIFECYCLE_SHADOW,
-    LifecycleRow,
-    ResearchWorkspaceService,
-)
+
+if TYPE_CHECKING:
+    from libs.web_console_services.research_workspace_service import (
+        LifecycleRow,
+        ResearchWorkspaceService,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +31,11 @@ TAB_VALIDATE = "validate"
 TAB_PROMOTE = "promote"
 VALID_TABS = {TAB_DISCOVER, TAB_VALIDATE, TAB_PROMOTE}
 VALID_VALIDATE_BACKTEST_TABS = {"new", "running", "results"}
+LIFECYCLE_FAILED = "FAILED"
+LIFECYCLE_LIVE = "LIVE"
+LIFECYCLE_SHADOW = "SHADOW"
+LIFECYCLE_CANDIDATE = "CANDIDATE"
+LIFECYCLE_ARCHIVED = "ARCHIVED"
 _research_workspace_service_cache: ResearchWorkspaceService | None = None
 _research_workspace_service_registry_dir: Path | None = None
 
@@ -91,6 +93,7 @@ def _get_research_workspace_service() -> ResearchWorkspaceService:
     """Get process-local workspace adapter service."""
     global _research_workspace_service_cache
     global _research_workspace_service_registry_dir
+    from libs.web_console_services.research_workspace_service import ResearchWorkspaceService
 
     registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
     if (

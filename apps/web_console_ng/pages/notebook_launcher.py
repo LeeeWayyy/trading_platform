@@ -126,7 +126,15 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
                 if created_at_raw
                 else datetime.now(UTC)
             )
-        except ValueError:
+        except ValueError as exc:
+            logger.warning(
+                "notebook_session_created_at_parse_failed",
+                extra={
+                    "session_key": str(key),
+                    "created_at": str(created_at_raw),
+                    "error": str(exc),
+                },
+            )
             created_at = datetime.now(UTC)
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
@@ -138,7 +146,15 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
                 if updated_at_raw
                 else datetime.now(UTC)
             )
-        except ValueError:
+        except ValueError as exc:
+            logger.warning(
+                "notebook_session_updated_at_parse_failed",
+                extra={
+                    "session_key": str(key),
+                    "updated_at": str(updated_at_raw),
+                    "error": str(exc),
+                },
+            )
             updated_at = datetime.now(UTC)
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=UTC)

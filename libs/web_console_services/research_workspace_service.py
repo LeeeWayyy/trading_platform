@@ -9,9 +9,10 @@ No storage merge occurs; this is a UI-only adapter.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from libs.models.models.registry import ModelRegistry
 from libs.models.models.types import ModelType
@@ -29,8 +30,9 @@ LIFECYCLE_ARCHIVED = "ARCHIVED"
 LIFECYCLE_UNLINKED = "UNLINKED"
 
 
-@dataclass(slots=True)
-class ResearchSignalRow:
+class ResearchSignalRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     signal_id: str
     display_name: str
     strategy_name: str
@@ -38,14 +40,15 @@ class ResearchSignalRow:
     research_status: str
     backtest_job_id: str | None
     snapshot_id: str | None
-    dataset_version_ids: dict[str, str]
+    dataset_version_ids: dict[str, str] = Field(default_factory=dict)
     config_hash: str
     mean_ic: float | None
     icir: float | None
 
 
-@dataclass(slots=True)
-class OpsModelRow:
+class OpsModelRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     strategy_name: str
     version: str
     ops_status: str
@@ -54,8 +57,9 @@ class OpsModelRow:
     backtest_job_id: str | None
 
 
-@dataclass(slots=True)
-class LifecycleRow:
+class LifecycleRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     strategy_name: str
     version: str
     ops_status: str | None
@@ -66,7 +70,7 @@ class LifecycleRow:
     signal_id: str | None
     backtest_job_id: str | None
     snapshot_id: str | None
-    dataset_version_ids: dict[str, str]
+    dataset_version_ids: dict[str, str] = Field(default_factory=dict)
     config_hash: str | None
 
 
