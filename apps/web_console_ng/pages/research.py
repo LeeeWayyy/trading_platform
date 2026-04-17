@@ -68,8 +68,8 @@ def _resolve_selected_tab(*, requested_tab: str, accessible_tabs: list[str]) -> 
 
 
 def _should_load_lifecycle_rows(*, can_view_promote: bool, selected_tab_id: str) -> bool:
-    """Lifecycle rows are needed only when Promote tab is actively rendered."""
-    return can_view_promote and selected_tab_id == TAB_PROMOTE
+    """Lifecycle rows are needed for Discover candidate rows and Promote actions."""
+    return can_view_promote and selected_tab_id in {TAB_DISCOVER, TAB_PROMOTE}
 
 
 def _should_render_validate_panel(*, selected_tab_id: str) -> bool:

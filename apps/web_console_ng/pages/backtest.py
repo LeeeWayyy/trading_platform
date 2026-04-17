@@ -569,12 +569,6 @@ async def backtest_page() -> None:
 
     # Page title
     ui.label("Backtest Manager").classes("text-2xl font-bold mb-4")
-    with ui.card().classes("w-full p-2 mb-3 border border-slate-800 bg-slate-900/35"):
-        with ui.row().classes("items-center justify-between gap-2"):
-            ui.label("Legacy page: use Research Workspace → Validate for consolidated flow.").classes(
-                "text-xs text-slate-300"
-            )
-            ui.link("Open /research", "/research?tab=validate").classes("text-xs")
 
     # Tabs
     with ui.tabs().classes("w-full") as tabs:

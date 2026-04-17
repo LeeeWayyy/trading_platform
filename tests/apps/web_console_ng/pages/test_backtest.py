@@ -16,6 +16,7 @@ Target: 85%+ branch coverage
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -381,6 +382,12 @@ def test_build_research_validate_redirect_url_defaults_on_invalid_tab() -> None:
     result = backtest_module._build_research_validate_redirect_url(b"tab=unknown")
 
     assert result == "/research?tab=validate"
+
+
+def test_legacy_backtest_page_omits_research_workspace_banner_when_feature_disabled() -> None:
+    """Legacy backtest view should not advertise /research when workspace is disabled."""
+    source = inspect.getsource(backtest_module.backtest_page)
+    assert "Legacy page: use Research Workspace" not in source
 
 
 def test_get_backtest_prefill_from_request_handles_missing_request(

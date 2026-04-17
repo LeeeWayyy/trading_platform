@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -93,39 +93,43 @@ async def check_kill_switch_safety(
         )
 
 
-def _coerce_numeric(value: Any) -> float:
-    """Convert API payload values to float for safe summary calculations.
+def _coerce_numeric(value: Any) -> Decimal:
+    """Convert API payload values to Decimal for summary calculations.
 
-    Handles None, bool, int, float, and string inputs. Returns 0.0 for
+    Handles None, bool, int, float, Decimal, and string inputs. Returns Decimal(0) for
     values that cannot be converted, logging a warning for unexpected types
     per the project's "never swallow exceptions" standard.
     """
     if value is None:
-        return 0.0
+        return Decimal("0")
     if isinstance(value, bool):
-        return 1.0 if value else 0.0
-    if isinstance(value, int | float):
-        return float(value)
+        return Decimal("1") if value else Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        return Decimal(str(value))
     if isinstance(value, str):
         normalized = value.strip().replace(",", "")
         if not normalized:
-            return 0.0
+            return Decimal("0")
         try:
-            return float(normalized)
-        except ValueError:
+            return Decimal(normalized)
+        except InvalidOperation:
             logger.warning(
                 "coerce_numeric_failed",
                 extra={"value_type": "str", "value_repr": repr(value[:50])},
             )
-            return 0.0
+            return Decimal("0")
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
         logger.warning(
             "coerce_numeric_failed",
             extra={"value_type": type(value).__name__},
         )
-        return 0.0
+        return Decimal("0")
 
 
 @ui.page("/position-management")
@@ -227,25 +231,16 @@ async def position_management_page(client: Client) -> None:
             )
 
     def update_summary() -> None:
-        def _as_float(value: Any) -> float:
-            if value is None:
-                return 0.0
-            if isinstance(value, int | float | Decimal):
-                return float(value)
-            if isinstance(value, str):
-                cleaned = value.replace(",", "").strip()
-                if not cleaned:
-                    return 0.0
-                try:
-                    return float(cleaned)
-                except ValueError:
-                    return 0.0
-            return 0.0
-
         position_count_label.set_text(f"Positions: {len(positions_data)}")
-        total_value = sum(_as_float(p.get("market_value")) for p in positions_data)
+        total_value = sum(
+            (_coerce_numeric(p.get("market_value")) for p in positions_data),
+            start=Decimal("0"),
+        )
         total_value_label.set_text(f"Total Value: ${total_value:,.2f}")
-        unrealized = sum(_as_float(p.get("unrealized_pl")) for p in positions_data)
+        unrealized = sum(
+            (_coerce_numeric(p.get("unrealized_pl")) for p in positions_data),
+            start=Decimal("0"),
+        )
         color = "text-green-600" if unrealized >= 0 else "text-red-600"
         unrealized_pnl_label.classes(remove="text-green-600 text-red-600", add=color)
         unrealized_pnl_label.set_text(f"Unrealized P&L: ${unrealized:,.2f}")

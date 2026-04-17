@@ -199,20 +199,13 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=UTC)
 
-        deserialized[str(key)] = NotebookSession(
-            session_id=payload.session_id.strip() or str(key),
-            template_id=payload.template_id.strip() or "unknown",
-            parameters=payload.parameters,
-            status=status,
-            created_at=created_at,
-            updated_at=updated_at,
-            process_id=payload.process_id,
-            port=payload.port,
-            token=payload.token,
-            access_url=payload.access_url,
-            error_message=payload.error_message,
-            command=payload.command,
-        )
+        session_kwargs: dict[str, Any] = payload.model_dump()
+        session_kwargs["session_id"] = payload.session_id.strip() or str(key)
+        session_kwargs["template_id"] = payload.template_id.strip() or "unknown"
+        session_kwargs["status"] = status
+        session_kwargs["created_at"] = created_at
+        session_kwargs["updated_at"] = updated_at
+        deserialized[str(key)] = NotebookSession(**session_kwargs)
     return deserialized
 
 

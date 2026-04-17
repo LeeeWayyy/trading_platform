@@ -230,6 +230,13 @@ def test_should_load_lifecycle_rows_only_for_selected_promote() -> None:
             can_view_promote=True,
             selected_tab_id=research_module.TAB_DISCOVER,
         )
+        is True
+    )
+    assert (
+        research_module._should_load_lifecycle_rows(
+            can_view_promote=True,
+            selected_tab_id=research_module.TAB_VALIDATE,
+        )
         is False
     )
     assert (
