@@ -17,7 +17,6 @@ import logging
 import math
 import os
 import re
-import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -57,8 +56,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _LEGACY_SCHEMA_WARNING_EMITTED = False
-_BACKTEST_COST_SUMMARY_COLUMN_PRESENT: bool | None = None
-_BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT: float | None = None
 _MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
 
 # Constants
@@ -67,7 +64,6 @@ MAX_COMPARISON_SELECTIONS = 5
 DEFAULT_END_DATE_OFFSET_DAYS = 1
 DEFAULT_BACKTEST_PERIOD_DAYS = 730  # ~2 years
 MIN_BACKTEST_PERIOD_DAYS = 30
-BACKTEST_SCHEMA_CACHE_TTL_S = 300.0
 
 # Polling intervals (progressive backoff) in seconds
 POLL_INTERVALS = {
@@ -100,7 +96,11 @@ def _get_backtest_prefill_from_request() -> dict[str, str | None]:
     """Extract non-blocking prefill hints from query params."""
     try:
         request = ui.context.client.request
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "backtest_prefill_request_context_unavailable",
+            extra={"error": type(exc).__name__},
+        )
         return {"signal_id": None, "source": None}
     if request is None:
         return {"signal_id": None, "source": None}
@@ -117,6 +117,11 @@ def _get_backtest_prefill_from_request() -> dict[str, str | None]:
         "signal_id": str(signal_id).strip() if signal_id else None,
         "source": str(source).strip() if source else None,
     }
+
+
+def get_backtest_prefill_from_request() -> dict[str, str | None]:
+    """Public wrapper for query-param prefill extraction used by /research."""
+    return _get_backtest_prefill_from_request()
 
 
 def _build_research_validate_redirect_url(query_string: bytes | str | None) -> str:
@@ -149,7 +154,11 @@ def _get_requested_backtest_tab(*, query_param: str = "tab") -> str:
     """Resolve requested Backtest Manager tab from query string."""
     try:
         request = ui.context.client.request
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "backtest_tab_request_context_unavailable",
+            extra={"error": type(exc).__name__},
+        )
         return BACKTEST_TAB_NEW
     if request is None:
         return BACKTEST_TAB_NEW
@@ -282,18 +291,11 @@ def _get_user_jobs_sync(
         LIMIT %s
     """
 
-    def _has_cost_summary_column() -> bool:
-        """Return whether backtest_jobs has cost_summary column (cached per process)."""
-        global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-        global _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
-        if (
-            _BACKTEST_COST_SUMMARY_COLUMN_PRESENT is not None
-            and _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT is not None
-            and (time.monotonic() - _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT)
-            < BACKTEST_SCHEMA_CACHE_TTL_S
-        ):
-            return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
+    class _SchemaProbeUnavailableError(Exception):
+        """Internal sentinel for fail-closed schema probe failures."""
 
+    def _has_cost_summary_column() -> bool:
+        """Return whether backtest_jobs has cost_summary column."""
         probe_sql = """
             SELECT EXISTS (
                 SELECT 1
@@ -307,25 +309,24 @@ def _get_user_jobs_sync(
             try:
                 probe_cur.execute(probe_sql)
                 row = probe_cur.fetchone()
-                _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = bool(row[0]) if row else False
-                _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
+                return bool(row[0]) if row else False
             except pg_errors.AdminShutdown as exc:
-                _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
-                _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
                 logger.warning(
                     "backtest_jobs_schema_probe_admin_shutdown",
                     extra={"created_by": created_by, "error": str(exc)},
                 )
-                return False
+                raise _SchemaProbeUnavailableError from exc
             except Exception as exc:  # pragma: no cover - connectivity/pathology path
                 logger.warning(
                     "backtest_jobs_schema_probe_failed",
                     extra={"created_by": created_by, "error": str(exc)},
                 )
                 raise
-        return _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
 
-    use_cost_summary_sql = _has_cost_summary_column()
+    try:
+        use_cost_summary_sql = _has_cost_summary_column()
+    except _SchemaProbeUnavailableError:
+        return []
 
     with _sync_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         try:
@@ -334,16 +335,14 @@ def _get_user_jobs_sync(
             jobs = cur.fetchall()
         except Exception as exc:
             if isinstance(exc, pg_errors.AdminShutdown):
-                if hasattr(conn, "rollback"):
-                    conn.rollback()
+                conn.rollback()
                 logger.warning(
                     "backtest_jobs_query_admin_shutdown",
                     extra={"created_by": created_by, "error": str(exc)},
                 )
                 return []
             if isinstance(exc, pg_errors.UndefinedTable):
-                if hasattr(conn, "rollback"):
-                    conn.rollback()
+                conn.rollback()
                 global _MISSING_BACKTEST_TABLE_WARNING_EMITTED
                 if not _MISSING_BACKTEST_TABLE_WARNING_EMITTED:
                     logger.warning(
@@ -360,10 +359,6 @@ def _get_user_jobs_sync(
             if not isinstance(exc, pg_errors.UndefinedColumn):
                 raise
             # Defensive fallback for schema drift/race where probe cache is stale.
-            global _BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-            _BACKTEST_COST_SUMMARY_COLUMN_PRESENT = False
-            global _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
-            _BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = time.monotonic()
             global _LEGACY_SCHEMA_WARNING_EMITTED
             if not _LEGACY_SCHEMA_WARNING_EMITTED:
                 logger.warning(
@@ -377,8 +372,7 @@ def _get_user_jobs_sync(
                     extra={"created_by": created_by},
                 )
             # UndefinedColumn aborts the current transaction; clear it before retry.
-            if hasattr(conn, "rollback"):
-                conn.rollback()
+            conn.rollback()
             cur.execute(legacy_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
             jobs = cur.fetchall()
 
@@ -2365,4 +2359,37 @@ async def _render_live_overlay_section(
         ).classes("mt-2")
 
 
-__all__ = ["backtest_page"]
+async def render_new_backtest_form(
+    user: dict[str, Any],
+    *,
+    prefill: dict[str, str | None] | None = None,
+) -> None:
+    """Public wrapper for embedding New Backtest form in /research."""
+    await _render_new_backtest_form(user, prefill=prefill)
+
+
+async def render_running_jobs(
+    user: dict[str, Any],
+    db_pool: ConnectionPool,
+    redis_client: Redis,
+) -> None:
+    """Public wrapper for embedding running jobs section in /research."""
+    await _render_running_jobs(user, db_pool, redis_client)
+
+
+async def render_backtest_results(
+    user: dict[str, Any],
+    db_pool: ConnectionPool,
+    redis_client: Redis,
+) -> None:
+    """Public wrapper for embedding result section in /research."""
+    await _render_backtest_results(user, db_pool, redis_client)
+
+
+__all__ = [
+    "backtest_page",
+    "get_backtest_prefill_from_request",
+    "render_new_backtest_form",
+    "render_running_jobs",
+    "render_backtest_results",
+]

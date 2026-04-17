@@ -120,6 +120,112 @@ def test_list_research_signals_respects_zero_limit(monkeypatch: pytest.MonkeyPat
     assert service.list_research_signals(limit=0) == []
 
 
+def test_list_research_signals_applies_limit_before_bulk_info_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bulk info lookup should only include versions inside the requested limit."""
+    service = ResearchWorkspaceService(registry_dir=Path("data/models"))
+    metadata_rows = [
+        SimpleNamespace(
+            model_id="alpha-1",
+            version="v1",
+            parameters={},
+            metrics={},
+            snapshot_id=None,
+            dataset_version_ids={},
+            config_hash="cfg-1",
+        ),
+        SimpleNamespace(
+            model_id="alpha-2",
+            version="v2",
+            parameters={},
+            metrics={},
+            snapshot_id=None,
+            dataset_version_ids={},
+            config_hash="cfg-2",
+        ),
+    ]
+
+    queried_versions: list[str] = []
+
+    class _StubRegistry:
+        def list_models(self, *, model_type: str) -> list[Any]:
+            assert model_type == "alpha_weights"
+            return metadata_rows
+
+        def get_model_info_bulk(
+            self,
+            model_type: str,
+            versions: list[str],
+        ) -> dict[str, dict[str, str]]:
+            assert model_type == "alpha_weights"
+            queried_versions.extend(versions)
+            return {version: {"status": "staged"} for version in versions}
+
+    monkeypatch.setattr(service, "_registry", _StubRegistry())
+
+    rows = service.list_research_signals(limit=1)
+
+    assert len(rows) == 1
+    assert rows[0].version == "v1"
+    assert queried_versions == ["v1"]
+
+
+@pytest.mark.asyncio()
+async def test_list_ops_models_prefers_bulk_fetch_when_available() -> None:
+    """Service should use bulk model fetch to avoid per-strategy N+1 queries."""
+    service = ResearchWorkspaceService(registry_dir=Path("data/models"))
+
+    class _BulkModelService:
+        def __init__(self) -> None:
+            self.bulk_called = False
+            self.strategy_list_called = False
+            self.per_strategy_called = False
+
+        async def list_models_for_strategies(
+            self,
+            user: dict[str, Any],
+            *,
+            strategy_names: list[str] | None = None,
+        ) -> dict[str, list[dict[str, Any]]]:
+            self.bulk_called = True
+            assert strategy_names is None
+            return {
+                "alpha_main": [
+                    {
+                        "strategy_name": "alpha_main",
+                        "version": "v1",
+                        "status": "active",
+                        "model_path": "/tmp/model",
+                        "performance_metrics": {"ic": 0.1},
+                        "config": {"backtest_job_id": "bt-1"},
+                    }
+                ]
+            }
+
+        async def list_strategies_with_models(self, user: dict[str, Any]) -> list[dict[str, Any]]:
+            self.strategy_list_called = True
+            return []
+
+        async def get_models_for_strategy(
+            self,
+            strategy_name: str,
+            user: dict[str, Any],
+        ) -> list[dict[str, Any]]:
+            self.per_strategy_called = True
+            return []
+
+    model_service = _BulkModelService()
+    rows = await service.list_ops_models(user={"user_id": "u-1"}, model_service=model_service)  # type: ignore[arg-type]
+
+    assert model_service.bulk_called is True
+    assert model_service.strategy_list_called is False
+    assert model_service.per_strategy_called is False
+    assert len(rows) == 1
+    assert rows[0].strategy_name == "alpha_main"
+    assert rows[0].backtest_job_id == "bt-1"
+
+
 @pytest.mark.asyncio()
 async def test_list_lifecycle_rows_links_by_primary_key(
     monkeypatch: pytest.MonkeyPatch,

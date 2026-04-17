@@ -144,10 +144,11 @@ class ResearchWorkspaceService:
         if not models:
             return []
 
-        versions = [metadata.version for metadata in models]
+        limited_models = models[:normalized_limit]
+        versions = [metadata.version for metadata in limited_models]
         info_map = self._registry.get_model_info_bulk(ModelType.alpha_weights.value, versions)
         result: list[ResearchSignalRow] = []
-        for metadata in models[:normalized_limit]:
+        for metadata in limited_models:
             params = metadata.parameters if isinstance(metadata.parameters, dict) else {}
             metrics = metadata.metrics if isinstance(metadata.metrics, dict) else {}
             info = info_map.get(metadata.version, {})
@@ -180,13 +181,26 @@ class ResearchWorkspaceService:
         model_service: ModelRegistryBrowserService,
     ) -> list[OpsModelRow]:
         """List ops registry model rows visible to the user."""
-        strategy_rows = await model_service.list_strategies_with_models(user)
+        bulk_fetch = getattr(model_service, "list_models_for_strategies", None)
+        if callable(bulk_fetch):
+            models_by_strategy = await bulk_fetch(user)
+        else:
+            strategy_rows = await model_service.list_strategies_with_models(user)
+            models_by_strategy = {}
+            for strategy in strategy_rows:
+                strategy_name = str(strategy.get("strategy_name") or "").strip()
+                if not strategy_name:
+                    continue
+                models_by_strategy[strategy_name] = await model_service.get_models_for_strategy(
+                    strategy_name,
+                    user,
+                )
+
         result: list[OpsModelRow] = []
-        for strategy in strategy_rows:
-            strategy_name = str(strategy.get("strategy_name") or "").strip()
+        for strategy_name, models in models_by_strategy.items():
+            strategy_name = str(strategy_name).strip()
             if not strategy_name:
                 continue
-            models = await model_service.get_models_for_strategy(strategy_name, user)
             for model in models:
                 config_payload = model.get("config")
                 backtest_job_id: str | None = None

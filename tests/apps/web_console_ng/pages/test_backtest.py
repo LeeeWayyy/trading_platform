@@ -679,9 +679,7 @@ def test_get_user_jobs_sync_no_jobs_returns_empty() -> None:
     assert jobs == []
 
 
-def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
     """Test legacy schema fallback when backtest_jobs lacks cost_summary column."""
 
     class ProbeCursor:
@@ -775,8 +773,6 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column(
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
             return [None]
 
-    monkeypatch.setattr(backtest_module, "_BACKTEST_COST_SUMMARY_COLUMN_PRESENT", None)
-
     pool = FakePool()
     jobs = backtest_module._get_user_jobs_sync(
         created_by="u1",
@@ -824,18 +820,13 @@ def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
             raise AssertionError("Redis should not be touched when probe fails")
 
-    previous_cache = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
-    try:
-        with pytest.raises(RuntimeError, match="db unavailable"):
-            backtest_module._get_user_jobs_sync(
-                created_by="u1",
-                status=["completed"],
-                db_pool=FakePool(),  # type: ignore[arg-type]
-                redis_client=FakeRedis(),  # type: ignore[arg-type]
-            )
-    finally:
-        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
+    with pytest.raises(RuntimeError, match="db unavailable"):
+        backtest_module._get_user_jobs_sync(
+            created_by="u1",
+            status=["completed"],
+            db_pool=FakePool(),  # type: ignore[arg-type]
+            redis_client=FakeRedis(),  # type: ignore[arg-type]
+        )
 
 
 def test_get_user_jobs_sync_returns_empty_when_schema_probe_admin_shutdown() -> None:
@@ -869,23 +860,13 @@ def test_get_user_jobs_sync_returns_empty_when_schema_probe_admin_shutdown() -> 
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
             raise AssertionError("Redis should not be touched when probe fails closed")
 
-    previous_present = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-    previous_checked_at = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
-    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
-    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = None
-    try:
-        jobs = backtest_module._get_user_jobs_sync(
-            created_by="u1",
-            status=["completed"],
-            db_pool=FakePool(),  # type: ignore[arg-type]
-            redis_client=FakeRedis(),  # type: ignore[arg-type]
-        )
-        assert jobs == []
-        assert backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT is False
-        assert backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT is not None
-    finally:
-        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_present
-        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = previous_checked_at
+    jobs = backtest_module._get_user_jobs_sync(
+        created_by="u1",
+        status=["completed"],
+        db_pool=FakePool(),  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+    assert jobs == []
 
 
 def test_get_user_jobs_sync_returns_empty_when_query_admin_shutdown() -> None:
@@ -955,49 +936,64 @@ def test_get_user_jobs_sync_returns_empty_when_query_admin_shutdown() -> None:
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
             raise AssertionError("Redis should not be touched when query fails closed")
 
-    previous_present = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
-    previous_checked_at = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT
-    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = None
-    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = None
-    try:
-        pool = FakePool()
-        jobs = backtest_module._get_user_jobs_sync(
-            created_by="u1",
-            status=["completed"],
-            db_pool=pool,  # type: ignore[arg-type]
-            redis_client=FakeRedis(),  # type: ignore[arg-type]
-        )
-        assert jobs == []
-        assert pool.query_conn.rollback_called is True
-    finally:
-        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_present
-        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_CHECKED_AT = previous_checked_at
+    pool = FakePool()
+    jobs = backtest_module._get_user_jobs_sync(
+        created_by="u1",
+        status=["completed"],
+        db_pool=pool,  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+    assert jobs == []
+    assert pool.query_conn.rollback_called is True
 
 
 def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
     """Missing backtest_jobs table should fail closed with empty result set."""
 
-    class FakeCursor:
+    class ProbeCursor:
         def execute(self, *_: Any, **__: Any) -> None:
-            raise pg_errors.UndefinedTable("relation \"backtest_jobs\" does not exist")
+            return None
 
-        def __enter__(self) -> FakeCursor:
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
+        def __enter__(self) -> ProbeCursor:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
             return False
 
-    class FakeConn:
+    class ProbeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> ProbeCursor:
+            return ProbeCursor()
+
+        def __enter__(self) -> ProbeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            raise pg_errors.UndefinedTable("relation \"backtest_jobs\" does not exist")
+
+        def __enter__(self) -> QueryCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryConn:
         def __init__(self) -> None:
             self.rollback_called = False
 
-        def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
-            return FakeCursor()
+        def cursor(self, *args: Any, **kwargs: Any) -> QueryCursor:
+            return QueryCursor()
 
         def rollback(self) -> None:
             self.rollback_called = True
 
-        def __enter__(self) -> FakeConn:
+        def __enter__(self) -> QueryConn:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
@@ -1005,18 +1001,20 @@ def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
 
     class FakePool:
         def __init__(self) -> None:
-            self.conn = FakeConn()
+            self.calls = 0
+            self.query_conn = QueryConn()
 
-        def connection(self) -> FakeConn:
-            return self.conn
+        def connection(self) -> ProbeConn | QueryConn:
+            self.calls += 1
+            if self.calls == 1:
+                return ProbeConn()
+            return self.query_conn
 
     class FakeRedis:
         def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
             raise AssertionError("Redis should not be queried when table is missing")
 
-    previous_cache = backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT
     previous_missing_warning = backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED
-    backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = True
     backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
     pool = FakePool()
     try:
@@ -1027,11 +1025,10 @@ def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
             redis_client=FakeRedis(),  # type: ignore[arg-type]
         )
     finally:
-        backtest_module._BACKTEST_COST_SUMMARY_COLUMN_PRESENT = previous_cache
         backtest_module._MISSING_BACKTEST_TABLE_WARNING_EMITTED = previous_missing_warning
 
     assert jobs == []
-    assert pool.conn.rollback_called is True
+    assert pool.query_conn.rollback_called is True
 
 
 def test_verify_job_ownership_returns_true_for_owner() -> None:

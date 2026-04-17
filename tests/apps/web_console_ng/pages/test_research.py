@@ -219,6 +219,14 @@ def test_validate_tab_embeds_backtest_sections() -> None:
     """Validate tab should render embedded backtest workflows."""
     source = inspect.getsource(research_module._render_validate_tab)
 
-    assert "_render_new_backtest_form" in source
-    assert "_render_running_jobs" in source
-    assert "_render_backtest_results" in source
+    assert "get_backtest_prefill_from_request" in source
+    assert "render_new_backtest_form" in source
+    assert "render_running_jobs" in source
+    assert "render_backtest_results" in source
+
+
+def test_discover_access_requires_alpha_feature_flag() -> None:
+    """Discover tab gating must honor FEATURE_ALPHA_EXPLORER kill switch."""
+    source = inspect.getsource(research_module.research_workspace_page)
+
+    assert "FEATURE_ALPHA_EXPLORER" in source

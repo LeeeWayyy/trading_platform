@@ -180,7 +180,7 @@ def _resolve_promote_action(row: LifecycleRow, *, can_manage: bool) -> str | Non
 async def _render_validate_tab(user: dict[str, Any]) -> None:
     from apps.web_console_ng.pages import backtest as backtest_page
 
-    prefill = backtest_page._get_backtest_prefill_from_request()
+    prefill = backtest_page.get_backtest_prefill_from_request()
     requested_backtest_tab = _get_requested_validate_backtest_tab()
 
     with ui.card().classes("w-full p-4 border border-slate-800 bg-slate-900/35"):
@@ -216,15 +216,15 @@ async def _render_validate_tab(user: dict[str, Any]) -> None:
 
         with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
             with ui.tab_panel(tab_new):
-                await backtest_page._render_new_backtest_form(user, prefill=prefill)  # noqa: SLF001
+                await backtest_page.render_new_backtest_form(user, prefill=prefill)
             with ui.tab_panel(tab_running):
-                await backtest_page._render_running_jobs(  # noqa: SLF001
+                await backtest_page.render_running_jobs(
                     user,
                     db_pool,
                     redis_client,
                 )
             with ui.tab_panel(tab_results):
-                await backtest_page._render_backtest_results(  # noqa: SLF001
+                await backtest_page.render_backtest_results(
                     user,
                     db_pool,
                     redis_client,
@@ -379,7 +379,10 @@ async def research_workspace_page() -> None:
         ui.label("Set FEATURE_RESEARCH_WORKSPACE=true to enable.").classes("text-gray-500")
         return
 
-    can_view_discover = has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+    can_view_discover = (
+        config.FEATURE_ALPHA_EXPLORER
+        and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+    )
     can_view_validate = has_permission(user, Permission.VIEW_PNL)
     can_view_promote = (
         config.FEATURE_MODEL_REGISTRY
