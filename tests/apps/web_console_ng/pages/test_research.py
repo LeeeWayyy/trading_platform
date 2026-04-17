@@ -232,6 +232,21 @@ def test_validate_tab_embeds_backtest_sections() -> None:
     assert "render_backtest_results" in source
 
 
+def test_validate_tab_checks_feature_flag_before_backtest_import() -> None:
+    """Validate should fail open on disabled feature before importing backtest module."""
+    source = inspect.getsource(research_module._render_validate_tab)
+    assert source.index("if not config.FEATURE_BACKTEST_MANAGER") < source.index(
+        "from apps.web_console_ng.pages import backtest as backtest_page"
+    )
+
+
+def test_optional_backtest_dependency_detection() -> None:
+    """Optional dependency matcher should only allow known backtest extras."""
+    assert research_module._is_optional_backtest_dependency("plotly") is True
+    assert research_module._is_optional_backtest_dependency("plotly.graph_objects") is True
+    assert research_module._is_optional_backtest_dependency("apps.web_console_ng.pages") is False
+
+
 def test_discover_access_requires_alpha_feature_flag() -> None:
     """Discover tab gating must honor FEATURE_ALPHA_EXPLORER kill switch."""
     source = inspect.getsource(research_module.research_workspace_page)

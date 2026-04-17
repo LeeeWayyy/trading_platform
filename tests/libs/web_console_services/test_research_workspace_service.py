@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from libs.web_console_services import research_workspace_service as workspace_module
 from libs.web_console_services.research_workspace_service import (
     LIFECYCLE_ARCHIVED,
     LIFECYCLE_CANDIDATE,
@@ -85,6 +86,26 @@ def test_derive_lifecycle_label_unlinked() -> None:
             linked=False,
         )
         == LIFECYCLE_UNLINKED
+    )
+
+
+def test_resolve_research_strategy_name_uses_defined_key_precedence() -> None:
+    parameters = {
+        "alpha_name": "alpha_fallback",
+        "strategy_id": "strategy_from_id",
+        "name": "name_fallback",
+    }
+    assert (
+        workspace_module._resolve_research_strategy_name(parameters, default="unassigned")
+        == "strategy_from_id"
+    )
+
+
+def test_resolve_research_strategy_name_uses_alpha_names_list() -> None:
+    parameters = {"alpha_names": [" ", "alpha_from_list"]}
+    assert (
+        workspace_module._resolve_research_strategy_name(parameters, default="unassigned")
+        == "alpha_from_list"
     )
 
 

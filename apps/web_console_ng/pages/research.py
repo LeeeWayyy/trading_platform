@@ -35,6 +35,7 @@ LIFECYCLE_LIVE = "LIVE"
 LIFECYCLE_SHADOW = "SHADOW"
 LIFECYCLE_CANDIDATE = "CANDIDATE"
 LIFECYCLE_ARCHIVED = "ARCHIVED"
+_BACKTEST_OPTIONAL_PACKAGES = frozenset({"rq", "plotly", "pandas", "polars"})
 _research_workspace_service_cache: ResearchWorkspaceService | None = None
 _research_workspace_service_registry_dir: Path | None = None
 _research_workspace_service_import_error: str | None = None
@@ -188,12 +189,16 @@ def _resolve_promote_action(row: LifecycleRow, *, can_manage: bool) -> str | Non
     return None
 
 
+def _is_optional_backtest_dependency(module_name: str | None) -> bool:
+    if module_name is None:
+        return False
+    return any(
+        module_name == package or module_name.startswith(f"{package}.")
+        for package in _BACKTEST_OPTIONAL_PACKAGES
+    )
+
+
 async def _render_validate_tab(user: dict[str, Any]) -> None:
-    from apps.web_console_ng.pages import backtest as backtest_page
-
-    prefill = backtest_page.get_backtest_prefill_from_request()
-    requested_backtest_tab = _get_requested_validate_backtest_tab()
-
     with ui.card().classes("w-full p-4 border border-slate-800 bg-slate-900/35"):
         ui.label("Validate").classes("text-lg font-semibold text-slate-100")
         ui.label(
@@ -206,6 +211,26 @@ async def _render_validate_tab(user: dict[str, Any]) -> None:
                 "text-xs text-slate-500"
             )
             return
+
+        try:
+            from apps.web_console_ng.pages import backtest as backtest_page
+        except ModuleNotFoundError as exc:
+            if not _is_optional_backtest_dependency(exc.name):
+                raise
+            logger.warning(
+                "research_validate_backtest_module_unavailable",
+                extra={"missing_dependency": exc.name or "unknown"},
+            )
+            ui.label("Backtest workspace dependencies are unavailable.").classes(
+                "text-slate-300"
+            )
+            ui.label(
+                "Install optional backtest dependencies to enable Validate workflows."
+            ).classes("text-xs text-slate-500")
+            return
+
+        prefill = backtest_page.get_backtest_prefill_from_request()
+        requested_backtest_tab = _get_requested_validate_backtest_tab()
 
         try:
             db_pool = get_sync_db_pool()

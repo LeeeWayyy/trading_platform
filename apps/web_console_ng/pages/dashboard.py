@@ -2082,8 +2082,8 @@ async def dashboard(client: Client) -> None:
             _fetch_model_registry_context(strategy_id)
         )
 
-        strategy_payload_result: dict[str, Any] | Exception
-        db_model_context_result: tuple[str, str | None] | Exception
+        strategy_payload_result: dict[str, Any] | BaseException
+        db_model_context_result: tuple[str, str | None] | BaseException
         try:
             (
                 strategy_payload_result,
@@ -2104,7 +2104,7 @@ async def dashboard(client: Client) -> None:
             raise
 
         strategy_payload: dict[str, Any] | None = None
-        if isinstance(strategy_payload_result, Exception):
+        if isinstance(strategy_payload_result, BaseException):
             if isinstance(strategy_payload_result, asyncio.CancelledError):
                 raise strategy_payload_result
             reason_parts.append(
@@ -2116,7 +2116,7 @@ async def dashboard(client: Client) -> None:
 
         db_model_status: str = "unknown"
         db_model_version: str | None = None
-        if isinstance(db_model_context_result, Exception):
+        if isinstance(db_model_context_result, BaseException):
             if isinstance(db_model_context_result, asyncio.CancelledError):
                 raise db_model_context_result
             db_model_context_reason = (

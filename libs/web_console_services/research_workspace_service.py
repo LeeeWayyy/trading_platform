@@ -29,6 +29,13 @@ LIFECYCLE_SHADOW = "SHADOW"
 LIFECYCLE_CANDIDATE = "CANDIDATE"
 LIFECYCLE_ARCHIVED = "ARCHIVED"
 LIFECYCLE_UNLINKED = "UNLINKED"
+_RESEARCH_STRATEGY_NAME_KEYS: tuple[str, ...] = (
+    "strategy_name",
+    "strategy_id",
+    "alpha_name",
+    "name",
+)
+_RESEARCH_STRATEGY_LIST_KEYS: tuple[str, ...] = ("alpha_names",)
 
 
 class ResearchSignalRow(BaseModel):
@@ -112,23 +119,23 @@ def derive_lifecycle_label(
 
 def _resolve_research_strategy_name(parameters: dict[str, Any], default: str) -> str:
     """Derive strategy name from research metadata parameters."""
-    strategy_like = parameters.get("strategy_name") or parameters.get("strategy_id")
-    if isinstance(strategy_like, str) and strategy_like.strip():
-        return strategy_like.strip()
+    # Registry metadata evolved over time; keep explicit key precedence centralized.
+    for key in _RESEARCH_STRATEGY_NAME_KEYS:
+        value = parameters.get(key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
 
-    alpha_name = parameters.get("alpha_name")
-    if isinstance(alpha_name, str) and alpha_name.strip():
-        return alpha_name.strip()
-
-    alpha_names = parameters.get("alpha_names")
-    if isinstance(alpha_names, list) and alpha_names:
-        first = alpha_names[0]
-        if isinstance(first, str) and first.strip():
-            return first.strip()
-
-    name = parameters.get("name")
-    if isinstance(name, str) and name.strip():
-        return name.strip()
+    for key in _RESEARCH_STRATEGY_LIST_KEYS:
+        value = parameters.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, str):
+                normalized = item.strip()
+                if normalized:
+                    return normalized
 
     return default
 

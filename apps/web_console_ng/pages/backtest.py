@@ -21,7 +21,8 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import urlencode
+from weakref import WeakKeyDictionary
 
 import plotly.graph_objects as go
 import polars as pl
@@ -45,7 +46,10 @@ from apps.web_console_ng.components.config_editor import (
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.core.redis_ha import get_redis_store
-from apps.web_console_ng.core.request_query import get_request_query_param
+from apps.web_console_ng.core.request_query import (
+    get_query_param_from_raw_query,
+    get_request_query_param,
+)
 from apps.web_console_ng.ui.helpers import safe_classes
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
@@ -59,7 +63,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 _LEGACY_SCHEMA_WARNING_EMITTED = False
 _MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
-_schema_probe_cache: dict[int, tuple[int, bool]] = {}
+_schema_probe_cache: WeakKeyDictionary[Any, tuple[int, bool]] = WeakKeyDictionary()
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -129,7 +133,11 @@ def _get_cached_cost_summary_column_value(
     cache_bucket: int,
 ) -> bool | None:
     """Return cached schema probe value for pool identity + cache bucket."""
-    cached = _schema_probe_cache.get(id(db_pool))
+    try:
+        cached = _schema_probe_cache.get(db_pool)
+    except TypeError:
+        # Some non-standard pool doubles may not support weak refs; skip caching safely.
+        return None
     if cached is None:
         return None
     cached_bucket, cached_value = cached
@@ -145,7 +153,11 @@ def _set_cached_cost_summary_column_value(
     has_column: bool,
 ) -> None:
     """Persist latest schema probe value keyed by pool identity."""
-    _schema_probe_cache[id(db_pool)] = (cache_bucket, has_column)
+    try:
+        _schema_probe_cache[db_pool] = (cache_bucket, has_column)
+    except TypeError:
+        # If pool object is not weak-referenceable, avoid unsafe id()-keyed caches.
+        return
 
 
 def _get_backtest_prefill_from_request() -> dict[str, str | None]:
@@ -175,22 +187,18 @@ def get_backtest_prefill_from_request() -> dict[str, str | None]:
 
 def _build_research_validate_redirect_url(query_string: bytes | str | None) -> str:
     """Build redirect URL from legacy /backtest query params."""
-    raw_query = query_string or b""
-    normalized_query = (
-        raw_query.decode("utf-8")
-        if isinstance(raw_query, bytes)
-        else str(raw_query)
-    )
-    params = parse_qs(normalized_query)
-
     target: dict[str, str] = {"tab": "validate"}
-    raw_tab = params.get("tab", [BACKTEST_TAB_NEW])[0]
+    raw_tab = get_query_param_from_raw_query(
+        raw_query=query_string,
+        key="tab",
+        default=BACKTEST_TAB_NEW,
+    )
     normalized_tab = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
     if normalized_tab in VALID_BACKTEST_TABS:
         target["backtest_tab"] = normalized_tab
 
-    signal_id = params.get("signal_id", [None])[0]
-    source = params.get("source", [None])[0]
+    signal_id = get_query_param_from_raw_query(raw_query=query_string, key="signal_id")
+    source = get_query_param_from_raw_query(raw_query=query_string, key="source")
     if signal_id:
         target["signal_id"] = str(signal_id).strip()
     if source:
