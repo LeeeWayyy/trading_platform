@@ -65,6 +65,10 @@ _LEGACY_SCHEMA_WARNING_EMITTED = False
 _MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
 _schema_probe_cache: WeakKeyDictionary[Any, tuple[int, bool]] = WeakKeyDictionary()
 
+
+class _SchemaProbeUnavailableError(Exception):
+    """Internal sentinel for fail-closed schema probe failures."""
+
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
 MAX_COMPARISON_SELECTIONS = 5
@@ -348,9 +352,6 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
-
-    class _SchemaProbeUnavailableError(Exception):
-        """Internal sentinel for fail-closed schema probe failures."""
 
     def _has_cost_summary_column() -> bool:
         """Return whether backtest_jobs has cost_summary column."""

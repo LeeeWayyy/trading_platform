@@ -377,6 +377,26 @@ async def test_data_and_attribution_hidden_without_permissions(
     assert "/data/sql-explorer" not in targets
 
 
+@pytest.mark.asyncio()
+async def test_research_nav_hidden_when_discover_feature_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research nav should not show for alpha-only users when discover feature is off."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALPHA_EXPLORER", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
+
+    fake_ui = await _run_layout(
+        monkeypatch,
+        user_role="viewer",
+        current_path="/",
+        denied_permissions={Permission.VIEW_PNL, Permission.VIEW_MODELS},
+    )
+    targets = {link.target for link in fake_ui.links}
+
+    assert "/research" not in targets
+
+
 # === Exception Handling Tests ===
 
 

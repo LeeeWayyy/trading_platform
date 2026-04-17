@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
@@ -39,6 +40,7 @@ _BACKTEST_OPTIONAL_PACKAGES = frozenset({"rq", "plotly", "pandas", "polars"})
 _research_workspace_service_cache: ResearchWorkspaceService | None = None
 _research_workspace_service_registry_dir: Path | None = None
 _research_workspace_service_import_error: str | None = None
+_research_workspace_service_lock = threading.Lock()
 
 
 def _resolve_accessible_tabs(
@@ -93,31 +95,36 @@ def _get_research_workspace_service() -> ResearchWorkspaceService | None:
     global _research_workspace_service_registry_dir
     global _research_workspace_service_import_error
 
-    if _research_workspace_service_import_error is not None:
+    with _research_workspace_service_lock:
+        import_error = _research_workspace_service_import_error
+    if import_error is not None:
         return None
     try:
         from libs.web_console_services.research_workspace_service import (
             ResearchWorkspaceService,
         )
     except ModuleNotFoundError as exc:
-        _research_workspace_service_import_error = exc.name or "unknown"
+        missing_dependency = exc.name or "unknown"
+        with _research_workspace_service_lock:
+            _research_workspace_service_import_error = missing_dependency
         logger.warning(
             "research_workspace_service_import_failed",
-            extra={"missing_dependency": _research_workspace_service_import_error},
+            extra={"missing_dependency": missing_dependency},
         )
         return None
 
     registry_dir = Path(config.MODEL_REGISTRY_DIR)
-    if (
-        _research_workspace_service_cache is None
-        or _research_workspace_service_registry_dir != registry_dir
-    ):
-        _research_workspace_service_cache = ResearchWorkspaceService(
-            registry_dir=registry_dir
-        )
-        _research_workspace_service_registry_dir = registry_dir
+    with _research_workspace_service_lock:
+        if (
+            _research_workspace_service_cache is None
+            or _research_workspace_service_registry_dir != registry_dir
+        ):
+            _research_workspace_service_cache = ResearchWorkspaceService(
+                registry_dir=registry_dir
+            )
+            _research_workspace_service_registry_dir = registry_dir
 
-    return _research_workspace_service_cache
+        return _research_workspace_service_cache
 
 
 def _build_validate_backtest_link(*, signal_id: str, source: str = "alpha_explorer") -> str:

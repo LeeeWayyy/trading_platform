@@ -282,13 +282,19 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path == "/research":
                         if not config.FEATURE_RESEARCH_WORKSPACE:
                             return False
+                        can_view_discover = (
+                            config.FEATURE_ALPHA_EXPLORER
+                            and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+                        )
+                        can_view_validate = has_permission(user, Permission.VIEW_PNL)
+                        can_view_promote = (
+                            config.FEATURE_MODEL_REGISTRY
+                            and has_permission(user, Permission.VIEW_MODELS)
+                        )
                         if not (
-                            has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
-                            or has_permission(user, Permission.VIEW_PNL)
-                            or (
-                                config.FEATURE_MODEL_REGISTRY
-                                and has_permission(user, Permission.VIEW_MODELS)
-                            )
+                            can_view_discover
+                            or can_view_validate
+                            or can_view_promote
                         ):
                             return False
 
