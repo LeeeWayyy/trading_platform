@@ -190,7 +190,9 @@ class TestAlertmanagerConfig:
                 r
                 for r in routes
                 if r.get("match", {}).get("severity") == "page"
-                or "page" in r.get("match_re", {}).get("severity", "")
+                or all(
+                    s in r.get("match_re", {}).get("severity", "") for s in ["page", "critical"]
+                )
             ),
             None,
         )
@@ -231,7 +233,9 @@ class TestAlertmanagerConfig:
                 r
                 for r in child_routes
                 if r.get("receiver") == "pagerduty-platform"
-                and "page" in r.get("match_re", {}).get("severity", "")
+                and all(
+                    s in r.get("match_re", {}).get("severity", "") for s in ["page", "critical"]
+                )
             ),
             None,
         )
