@@ -18,7 +18,6 @@ from nicegui import Client, events, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
-from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.data_health_widget import render_data_health
 from apps.web_console_ng.components.execution_context import (
     build_execution_context_snapshot,
@@ -1033,7 +1032,7 @@ async def dashboard(client: Client) -> None:
         asyncio.create_task(_locked_refresh_tab(tab_name))
 
     last_sync_label: ui.label
-    activity_feed: ActivityFeed | LogTailPanel
+    activity_feed: LogTailPanel
 
     if use_workspace_v2 and tabs_host is not None and log_tail_host is not None:
         with tabs_host:
@@ -1067,9 +1066,10 @@ async def dashboard(client: Client) -> None:
                     on_tab_change=_handle_tab_change,
                 )
 
-            with compact_card("Activity").classes("w-full"):
+            with compact_card("Tail Logs").classes("w-full"):
                 last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
-                activity_feed = ActivityFeed()
+                activity_feed = LogTailPanel(max_items=180)
+                activity_feed.create(title="Tail Logs")
 
     notified_missing_ids: set[str] = set()
     notified_malformed: set[int] = set()  # Dedupe malformed position notifications
