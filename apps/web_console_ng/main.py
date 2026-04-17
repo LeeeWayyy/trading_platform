@@ -236,6 +236,11 @@ async def shutdown() -> None:
     except (OSError, ConnectionError) as e:
         logger.warning("Failed to close Redis connection during shutdown: %s", e)
 
+    # Close shared httpx client used by TCA dashboard
+    from apps.web_console_ng.pages.execution_quality import close_shared_client
+
+    await close_shared_client()
+
 
 app.on_startup(startup)
 app.on_shutdown(shutdown)
