@@ -231,6 +231,33 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Governance", ["/admin"]),
                 ]
 
+                if not config.FEATURE_RESEARCH_WORKSPACE:
+                    nav_items[:] = [item for item in nav_items if item[1] != "/research"]
+                    nav_items[2:2] = [
+                        ("Alpha Explorer", "/alpha-explorer", "hub", None),
+                        ("Backtest", "/backtest", "query_stats", None),
+                        ("Models", "/models", "precision_manufacturing", None),
+                    ]
+                    nav_groups = [
+                        (
+                            group_label,
+                            (
+                                [
+                                    "/alpha-explorer",
+                                    "/backtest",
+                                    "/models",
+                                    "/research/universes",
+                                    "/compare",
+                                    "/notebooks",
+                                    "/strategies",
+                                ]
+                                if group_label == "Research"
+                                else group_paths
+                            ),
+                        )
+                        for group_label, group_paths in nav_groups
+                    ]
+
                 nav_lookup = {path: (label, path, icon, role) for label, path, icon, role in nav_items}
 
                 def is_nav_item_visible(path: str) -> bool:
@@ -264,6 +291,20 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             )
                         ):
                             return False
+
+                    if path == "/alpha-explorer" and not has_permission(
+                        user, Permission.VIEW_ALPHA_SIGNALS
+                    ):
+                        return False
+
+                    if path == "/backtest" and not has_permission(user, Permission.VIEW_PNL):
+                        return False
+
+                    if path == "/models" and not (
+                        config.FEATURE_MODEL_REGISTRY
+                        and has_permission(user, Permission.VIEW_MODELS)
+                    ):
+                        return False
 
                     # Exposure link requires VIEW_STRATEGY_EXPOSURE
                     if path == "/risk/exposure" and not has_permission(

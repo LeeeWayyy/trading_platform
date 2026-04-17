@@ -351,6 +351,7 @@ def resolve_workspace_quick_links(
     can_view_data_quality: bool,
     feature_strategy_management_enabled: bool,
     can_manage_strategies: bool,
+    feature_research_workspace_enabled: bool,
     feature_model_registry_enabled: bool,
     can_view_models: bool,
 ) -> list[tuple[str, str]]:
@@ -377,7 +378,9 @@ def resolve_workspace_quick_links(
         ):
             continue
         if path == "/research?tab=promote" and (
-            not feature_model_registry_enabled or not can_view_models
+            not feature_research_workspace_enabled
+            or not feature_model_registry_enabled
+            or not can_view_models
         ):
             continue
         if path == "/data/inspector" and not can_view_data_quality:
@@ -702,6 +705,7 @@ async def dashboard(client: Client) -> None:
         can_view_data_quality=can_view_data_quality,
         feature_strategy_management_enabled=config.FEATURE_STRATEGY_MANAGEMENT,
         can_manage_strategies=can_manage_strategies,
+        feature_research_workspace_enabled=config.FEATURE_RESEARCH_WORKSPACE,
         feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
         can_view_models=can_view_models,
     )
