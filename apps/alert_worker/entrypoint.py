@@ -15,7 +15,7 @@ import redis
 import redis.asyncio as redis_async
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 from redis import Redis
-from rq import Queue, Worker
+from rq import Queue, Worker, get_current_job
 
 from libs.platform.alerts.channels import BaseChannel, build_channel_handlers
 from libs.platform.alerts.delivery_service import DeliveryExecutor, QueueDepthManager
@@ -28,7 +28,40 @@ logger = logging.getLogger(__name__)
 # Sync singletons are safe to share across jobs because RQ invokes the job
 # function in the worker process without reusing asyncio event loops.
 _CHANNELS: dict[ChannelType, BaseChannel] | None = None
-_RQ_QUEUE: Queue | None = None
+_RQ_QUEUES: dict[str, Queue] = {}
+_RQ_REDIS: Redis | None = None
+_ALLOWED_QUEUES: tuple[str, ...] | None = None
+
+
+def _get_allowed_queues() -> tuple[str, ...]:
+    """Return queue names this worker is configured to process, in priority order.
+
+    Parsed from ``RQ_QUEUES`` env var (comma-separated).  The first queue
+    listed has the highest polling priority in RQ.  Falls back to
+    ``("alerts",)`` when the variable is unset or empty.  The result is
+    cached in ``_ALLOWED_QUEUES`` for the lifetime of the process.
+
+    Call ``_reset_queue_state()`` to invalidate the cache (useful in tests).
+    """
+    global _ALLOWED_QUEUES
+    if _ALLOWED_QUEUES is None:
+        queues_env = os.getenv("RQ_QUEUES")
+        # Use dict.fromkeys to deduplicate while preserving insertion order
+        parsed = (
+            tuple(dict.fromkeys(q.strip() for q in queues_env.split(",") if q.strip()))
+            if queues_env
+            else ("alerts",)
+        )
+        _ALLOWED_QUEUES = parsed if parsed else ("alerts",)
+    return _ALLOWED_QUEUES
+
+
+def _reset_queue_state() -> None:
+    """Reset all queue-related caches.  Intended for test teardown only."""
+    global _ALLOWED_QUEUES, _RQ_REDIS
+    _ALLOWED_QUEUES = None
+    _RQ_REDIS = None
+    _RQ_QUEUES.clear()
 
 
 @dataclass
@@ -49,13 +82,58 @@ def _require_env(name: str) -> str:
     return value
 
 
-def _get_rq_queue() -> Queue:
-    global _RQ_QUEUE
-    if _RQ_QUEUE is None:
+def _get_rq_redis() -> Redis:
+    """Return a shared sync Redis client for RQ queue operations.
+
+    A single connection is reused across all cached queues to avoid
+    creating unnecessary connection pools in multi-queue setups.
+    """
+    global _RQ_REDIS
+    if _RQ_REDIS is None:
         redis_url = _require_env("REDIS_URL")
-        redis_sync = Redis.from_url(redis_url)
-        _RQ_QUEUE = Queue("alerts", connection=redis_sync)
-    return _RQ_QUEUE
+        _RQ_REDIS = Redis.from_url(redis_url)
+    return _RQ_REDIS
+
+
+def _get_rq_queue(queue_name: str | None = None) -> Queue:
+    """Return (and cache) an RQ ``Queue`` for the given *queue_name*.
+
+    When *queue_name* is ``None`` the function infers the name from the
+    current RQ job's ``origin`` attribute, falling back to the first
+    (highest-priority) queue in the allowed tuple.
+
+    The resolved name is validated against the set of queues this worker
+    is allowed to process (``_get_allowed_queues``).  Unrecognised names
+    are replaced with the first allowed queue and an error is logged so
+    that a rogue ``origin`` value cannot cause unbounded cache growth.
+    """
+    allowed = _get_allowed_queues()
+    default_queue = allowed[0]
+
+    current_job = get_current_job()
+
+    if queue_name is None:
+        queue_name = (current_job.origin if current_job else None) or default_queue
+
+    if queue_name not in allowed:
+        job_id = getattr(current_job, "id", None)
+        logger.error(
+            "queue_name_not_allowed",
+            extra={
+                "requested_queue": queue_name,
+                "fallback_queue": default_queue,
+                "allowed_queues": list(allowed),
+                "rq_job_id": job_id,
+            },
+        )
+        queue_name = default_queue
+
+    queue = _RQ_QUEUES.get(queue_name)
+    if queue is None:
+        redis_sync = _get_rq_redis()
+        queue = Queue(queue_name, connection=redis_sync)
+        _RQ_QUEUES[queue_name] = queue
+    return queue
 
 
 async def _create_async_resources() -> AsyncResources:
@@ -236,8 +314,7 @@ def main() -> None:
 
     asyncio.run(_sync_startup_metrics())
 
-    queues_env = os.getenv("RQ_QUEUES")
-    queues = [q.strip() for q in queues_env.split(",") if q.strip()] if queues_env else ["alerts"]
+    queues = list(_get_allowed_queues())
 
     worker = Worker(queues, connection=redis_client)
     logger.info("alert_worker_starting", extra={"queues": queues, "pid": os.getpid()})
