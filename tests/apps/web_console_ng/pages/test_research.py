@@ -217,9 +217,43 @@ def test_resolve_selected_tab_falls_back_to_first_accessible() -> None:
     assert selected == research_module.TAB_DISCOVER
 
 
-def test_should_load_lifecycle_rows_only_for_promote() -> None:
-    assert research_module._should_load_lifecycle_rows(can_view_promote=True) is True
-    assert research_module._should_load_lifecycle_rows(can_view_promote=False) is False
+def test_should_load_lifecycle_rows_only_for_selected_promote() -> None:
+    assert (
+        research_module._should_load_lifecycle_rows(
+            can_view_promote=True,
+            selected_tab_id=research_module.TAB_PROMOTE,
+        )
+        is True
+    )
+    assert (
+        research_module._should_load_lifecycle_rows(
+            can_view_promote=True,
+            selected_tab_id=research_module.TAB_DISCOVER,
+        )
+        is False
+    )
+    assert (
+        research_module._should_load_lifecycle_rows(
+            can_view_promote=False,
+            selected_tab_id=research_module.TAB_PROMOTE,
+        )
+        is False
+    )
+
+
+def test_should_render_validate_panel_only_when_selected() -> None:
+    assert (
+        research_module._should_render_validate_panel(
+            selected_tab_id=research_module.TAB_VALIDATE
+        )
+        is True
+    )
+    assert (
+        research_module._should_render_validate_panel(
+            selected_tab_id=research_module.TAB_DISCOVER
+        )
+        is False
+    )
 
 
 def test_validate_tab_embeds_backtest_sections() -> None:

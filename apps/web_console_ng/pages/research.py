@@ -67,9 +67,19 @@ def _resolve_selected_tab(*, requested_tab: str, accessible_tabs: list[str]) -> 
     return requested_tab if requested_tab in set(accessible_tabs) else accessible_tabs[0]
 
 
-def _should_load_lifecycle_rows(*, can_view_promote: bool) -> bool:
-    """Lifecycle rows are needed only for Promote-capable sessions."""
-    return can_view_promote
+def _should_load_lifecycle_rows(*, can_view_promote: bool, selected_tab_id: str) -> bool:
+    """Lifecycle rows are needed only when Promote tab is actively rendered."""
+    return can_view_promote and selected_tab_id == TAB_PROMOTE
+
+
+def _should_render_validate_panel(*, selected_tab_id: str) -> bool:
+    """Validate subtree should render only when Validate tab is active."""
+    return selected_tab_id == TAB_VALIDATE
+
+
+def _build_research_tab_link(*, tab_id: str) -> str:
+    """Build canonical route for switching research workspace tabs."""
+    return "/research?" + urlencode({"tab": tab_id})
 
 
 def _get_requested_research_tab() -> str:
@@ -456,8 +466,12 @@ async def research_workspace_page() -> None:
         requested_tab=requested_tab,
         accessible_tabs=accessible_tabs,
     )
+    should_load_lifecycle_rows = _should_load_lifecycle_rows(
+        can_view_promote=can_view_promote,
+        selected_tab_id=selected_tab_id,
+    )
     lifecycle_rows: list[LifecycleRow] = []
-    if _should_load_lifecycle_rows(can_view_promote=can_view_promote):
+    if should_load_lifecycle_rows:
         if workspace_service is None:
             ui.notify(
                 "Model lifecycle unavailable: research registry dependency missing",
@@ -484,13 +498,29 @@ async def research_workspace_page() -> None:
     ).classes("text-xs text-slate-400 mb-3")
 
     tab_map: dict[str, Any] = {}
+    tab_id_by_value: dict[Any, str] = {}
     with ui.tabs().classes("w-full") as tabs:
         if TAB_DISCOVER in accessible_tabs:
-            tab_map[TAB_DISCOVER] = ui.tab("Discover")
+            discover_tab = ui.tab("Discover")
+            tab_map[TAB_DISCOVER] = discover_tab
+            tab_id_by_value[discover_tab] = TAB_DISCOVER
         if TAB_VALIDATE in accessible_tabs:
-            tab_map[TAB_VALIDATE] = ui.tab("Validate")
+            validate_tab = ui.tab("Validate")
+            tab_map[TAB_VALIDATE] = validate_tab
+            tab_id_by_value[validate_tab] = TAB_VALIDATE
         if TAB_PROMOTE in accessible_tabs:
-            tab_map[TAB_PROMOTE] = ui.tab("Promote")
+            promote_tab = ui.tab("Promote")
+            tab_map[TAB_PROMOTE] = promote_tab
+            tab_id_by_value[promote_tab] = TAB_PROMOTE
+
+    def _on_tab_change(event: Any) -> None:
+        target_tab_id = tab_id_by_value.get(getattr(event, "value", None))
+        if target_tab_id is None or target_tab_id == selected_tab_id:
+            return
+        ui.navigate.to(_build_research_tab_link(tab_id=target_tab_id))
+
+    tabs.on_value_change(_on_tab_change)
+
     selected_tab = tab_map[selected_tab_id]
 
     with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
@@ -512,22 +542,32 @@ async def research_workspace_page() -> None:
 
         if TAB_VALIDATE in tab_map:
             with ui.tab_panel(tab_map[TAB_VALIDATE]):
-                await _render_validate_tab(user)
+                if _should_render_validate_panel(selected_tab_id=selected_tab_id):
+                    await _render_validate_tab(user)
+                else:
+                    ui.label("Select Validate to load backtest workflows.").classes(
+                        "text-xs text-slate-500"
+                    )
 
         if TAB_PROMOTE in tab_map:
             with ui.tab_panel(tab_map[TAB_PROMOTE]):
-                if workspace_service is None:
-                    ui.label("Research registry unavailable. Contact administrator.").classes(
-                        "text-slate-400"
-                    )
-                elif model_service is None:
-                    ui.label("Model registry unavailable. Contact administrator.").classes(
-                        "text-slate-400"
+                if selected_tab_id != TAB_PROMOTE:
+                    ui.label("Select Promote to load lifecycle rows.").classes(
+                        "text-xs text-slate-500"
                     )
                 else:
-                    await _render_promote_rows(
-                        rows=lifecycle_rows,
-                        model_service=model_service,
-                        user=user,
-                        can_manage=can_manage,
-                    )
+                    if workspace_service is None:
+                        ui.label("Research registry unavailable. Contact administrator.").classes(
+                            "text-slate-400"
+                        )
+                    elif model_service is None:
+                        ui.label("Model registry unavailable. Contact administrator.").classes(
+                            "text-slate-400"
+                        )
+                    else:
+                        await _render_promote_rows(
+                            rows=lifecycle_rows,
+                            model_service=model_service,
+                            user=user,
+                            can_manage=can_manage,
+                        )

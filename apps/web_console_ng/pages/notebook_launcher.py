@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from nicegui import run, ui
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.dependencies import get_sync_redis_client
@@ -32,6 +33,56 @@ logger = logging.getLogger(__name__)
 # Redis key prefix for notebook sessions
 _NOTEBOOK_SESSION_PREFIX = "notebook_session:"
 _NOTEBOOK_SESSION_TTL = 86400  # 24 hours
+
+
+class _NotebookSessionRedisModel(BaseModel):
+    """Pydantic model for Redis-backed notebook session payloads."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    session_id: str
+    template_id: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    status: str = "error"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    process_id: int | None = None
+    port: int | None = None
+    token: str | None = None
+    access_url: str | None = None
+    error_message: str | None = None
+    command: list[str] | None = None
+
+    @field_validator("parameters", mode="before")
+    @classmethod
+    def _normalize_parameters(cls, value: Any) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    @field_validator("command", mode="before")
+    @classmethod
+    def _normalize_command(cls, value: Any) -> list[str] | None:
+        if isinstance(value, list):
+            return [str(part) for part in value]
+        return None
+
+    @field_validator("process_id", "port", mode="before")
+    @classmethod
+    def _normalize_optional_int(cls, value: Any) -> int | None:
+        return _coerce_optional_int(value)
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _normalize_datetime(cls, value: Any) -> datetime:
+        if isinstance(value, datetime):
+            parsed = value
+        elif value is None or value == "":
+            parsed = datetime.now(UTC)
+        else:
+            try:
+                parsed = datetime.fromisoformat(str(value))
+            except ValueError:
+                parsed = datetime.now(UTC)
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _serialize_notebook_session(session: Any) -> dict[str, Any]:
@@ -113,7 +164,20 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
             deserialized[str(key)] = value
             continue
 
-        status_raw = value.get("status")
+        try:
+            payload = _NotebookSessionRedisModel.model_validate(value)
+        except ValidationError as exc:
+            logger.warning(
+                "notebook_session_payload_parse_failed",
+                extra={
+                    "session_key": str(key),
+                    "error": str(exc),
+                },
+            )
+            deserialized[str(key)] = value
+            continue
+
+        status_raw = payload.status
         try:
             status = SessionStatus(str(status_raw))
         except ValueError as exc:
@@ -127,84 +191,27 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
             )
             status = SessionStatus.ERROR
 
-        created_at_raw = value.get("created_at")
-        try:
-            created_at = (
-                datetime.fromisoformat(str(created_at_raw))
-                if created_at_raw
-                else datetime.now(UTC)
-            )
-        except ValueError as exc:
-            logger.warning(
-                "notebook_session_created_at_parse_failed",
-                extra={
-                    "session_key": str(key),
-                    "created_at": str(created_at_raw),
-                    "error": str(exc),
-                },
-            )
-            created_at = datetime.now(UTC)
+        created_at = payload.created_at
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
 
-        updated_at_raw = value.get("updated_at")
-        try:
-            updated_at = (
-                datetime.fromisoformat(str(updated_at_raw))
-                if updated_at_raw
-                else datetime.now(UTC)
-            )
-        except ValueError as exc:
-            logger.warning(
-                "notebook_session_updated_at_parse_failed",
-                extra={
-                    "session_key": str(key),
-                    "updated_at": str(updated_at_raw),
-                    "error": str(exc),
-                },
-            )
-            updated_at = datetime.now(UTC)
+        updated_at = payload.updated_at
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=UTC)
 
-        process_id_raw = value.get("process_id")
-        process_id = _coerce_optional_int(process_id_raw)
-        port_raw = value.get("port")
-        port = _coerce_optional_int(port_raw)
-
-        parameters_raw = value.get("parameters")
-        command_raw = value.get("command")
-        command: list[str] | None
-        if isinstance(command_raw, list):
-            command = [str(part) for part in command_raw]
-        else:
-            command = None
-
         deserialized[str(key)] = NotebookSession(
-            session_id=str(value.get("session_id") or key),
-            template_id=str(value.get("template_id") or "unknown"),
-            parameters=dict(parameters_raw) if isinstance(parameters_raw, dict) else {},
+            session_id=payload.session_id.strip() or str(key),
+            template_id=payload.template_id.strip() or "unknown",
+            parameters=payload.parameters,
             status=status,
             created_at=created_at,
             updated_at=updated_at,
-            process_id=process_id,
-            port=port,
-            token=(
-                str(value.get("token"))
-                if isinstance(value.get("token"), str)
-                else None
-            ),
-            access_url=(
-                str(value.get("access_url"))
-                if isinstance(value.get("access_url"), str)
-                else None
-            ),
-            error_message=(
-                str(value.get("error_message"))
-                if isinstance(value.get("error_message"), str)
-                else None
-            ),
-            command=command,
+            process_id=payload.process_id,
+            port=payload.port,
+            token=payload.token,
+            access_url=payload.access_url,
+            error_message=payload.error_message,
+            command=payload.command,
         )
     return deserialized
 

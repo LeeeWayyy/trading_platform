@@ -267,6 +267,34 @@ def test_get_redis_session_store_falls_back_when_deserializer_deps_missing(
     assert result == raw
 
 
+def test_deserialize_session_store_uses_pydantic_normalization() -> None:
+    payload = {
+        "sess-1": {
+            "session_id": " sess-1 ",
+            "template_id": " tmpl-1 ",
+            "parameters": None,
+            "status": "running",
+            "created_at": "2026-01-01T01:02:03",
+            "updated_at": "2026-01-01T01:02:04+00:00",
+            "process_id": "1234",
+            "port": "8901",
+            "command": ["jupyter", 1],
+        }
+    }
+
+    result = notebook_module._deserialize_session_store_from_redis(payload)
+    session = result["sess-1"]
+    assert isinstance(session, NotebookSession)
+    assert session.session_id == "sess-1"
+    assert session.template_id == "tmpl-1"
+    assert session.parameters == {}
+    assert session.process_id == 1234
+    assert session.port == 8901
+    assert session.command == ["jupyter", "1"]
+    assert session.created_at.tzinfo is not None
+    assert session.updated_at.tzinfo is not None
+
+
 @pytest.mark.asyncio()
 async def test_render_notebook_launcher_launches_session(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
