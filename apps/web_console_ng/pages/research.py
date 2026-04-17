@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import urlencode
 
 from nicegui import run, ui
 
@@ -13,6 +13,7 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
+from apps.web_console_ng.core.request_query import get_request_query_param
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission, is_admin
 
@@ -76,18 +77,11 @@ def _get_requested_research_tab() -> str:
         return TAB_DISCOVER
     if request is None:
         return TAB_DISCOVER
-    query_params = getattr(request, "query_params", None)
-    if query_params is None:
-        raw_query = request.scope.get("query_string", b"")
-        query_string = (
-            raw_query.decode("utf-8")
-            if isinstance(raw_query, bytes)
-            else str(raw_query)
-        )
-        params = parse_qs(query_string)
-        raw_tab = params.get("tab", [TAB_DISCOVER])[0]
-    else:
-        raw_tab = query_params.get("tab", TAB_DISCOVER)
+    raw_tab = get_request_query_param(
+        request=request,
+        key="tab",
+        default=TAB_DISCOVER,
+    )
     normalized = str(raw_tab or TAB_DISCOVER).strip().lower()
     return normalized if normalized in VALID_TABS else TAB_DISCOVER
 
@@ -145,18 +139,11 @@ def _get_requested_validate_backtest_tab() -> str:
         return "new"
     if request is None:
         return "new"
-    query_params = getattr(request, "query_params", None)
-    if query_params is None:
-        raw_query = request.scope.get("query_string", b"")
-        query_string = (
-            raw_query.decode("utf-8")
-            if isinstance(raw_query, bytes)
-            else str(raw_query)
-        )
-        params = parse_qs(query_string)
-        raw_tab = params.get("backtest_tab", ["new"])[0]
-    else:
-        raw_tab = query_params.get("backtest_tab", "new")
+    raw_tab = get_request_query_param(
+        request=request,
+        key="backtest_tab",
+        default="new",
+    )
     normalized = str(raw_tab or "new").strip().lower()
     return normalized if normalized in VALID_VALIDATE_BACKTEST_TABS else "new"
 

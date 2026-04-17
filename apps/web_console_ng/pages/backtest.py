@@ -45,6 +45,7 @@ from apps.web_console_ng.components.config_editor import (
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.request_query import get_request_query_param
 from apps.web_console_ng.ui.helpers import safe_classes
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
@@ -58,7 +59,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 _LEGACY_SCHEMA_WARNING_EMITTED = False
 _MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
-_schema_probe_cache: dict[tuple[int, int], bool] = {}
+_schema_probe_cache: dict[int, tuple[int, bool]] = {}
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -128,7 +129,13 @@ def _get_cached_cost_summary_column_value(
     cache_bucket: int,
 ) -> bool | None:
     """Return cached schema probe value for pool identity + cache bucket."""
-    return _schema_probe_cache.get((id(db_pool), cache_bucket))
+    cached = _schema_probe_cache.get(id(db_pool))
+    if cached is None:
+        return None
+    cached_bucket, cached_value = cached
+    if cached_bucket != cache_bucket:
+        return None
+    return cached_value
 
 
 def _set_cached_cost_summary_column_value(
@@ -137,13 +144,8 @@ def _set_cached_cost_summary_column_value(
     cache_bucket: int,
     has_column: bool,
 ) -> None:
-    """Persist schema probe value and evict stale buckets opportunistically."""
-    cache_key = (id(db_pool), cache_bucket)
-    _schema_probe_cache[cache_key] = has_column
-
-    stale_keys = [key for key in _schema_probe_cache if key[1] != cache_bucket]
-    for key in stale_keys:
-        _schema_probe_cache.pop(key, None)
+    """Persist latest schema probe value keyed by pool identity."""
+    _schema_probe_cache[id(db_pool)] = (cache_bucket, has_column)
 
 
 def _get_backtest_prefill_from_request() -> dict[str, str | None]:
@@ -158,20 +160,8 @@ def _get_backtest_prefill_from_request() -> dict[str, str | None]:
         return {"signal_id": None, "source": None}
     if request is None:
         return {"signal_id": None, "source": None}
-    query_params = getattr(request, "query_params", None)
-    if query_params is None:
-        raw_query = request.scope.get("query_string", b"")
-        query_string = (
-            raw_query.decode("utf-8")
-            if isinstance(raw_query, bytes)
-            else str(raw_query)
-        )
-        params = parse_qs(query_string)
-        signal_id = params.get("signal_id", [None])[0]
-        source = params.get("source", [None])[0]
-    else:
-        signal_id = query_params.get("signal_id")
-        source = query_params.get("source")
+    signal_id = get_request_query_param(request=request, key="signal_id")
+    source = get_request_query_param(request=request, key="source")
     return {
         "signal_id": signal_id.strip() or None if signal_id else None,
         "source": source.strip() or None if source else None,
@@ -221,18 +211,11 @@ def _get_requested_backtest_tab(*, query_param: str = "tab") -> str:
         return BACKTEST_TAB_NEW
     if request is None:
         return BACKTEST_TAB_NEW
-    query_params = getattr(request, "query_params", None)
-    if query_params is None:
-        raw_query = request.scope.get("query_string", b"")
-        query_string = (
-            raw_query.decode("utf-8")
-            if isinstance(raw_query, bytes)
-            else str(raw_query)
-        )
-        params = parse_qs(query_string)
-        raw_tab = params.get(query_param, [BACKTEST_TAB_NEW])[0]
-    else:
-        raw_tab = query_params.get(query_param, BACKTEST_TAB_NEW)
+    raw_tab = get_request_query_param(
+        request=request,
+        key=query_param,
+        default=BACKTEST_TAB_NEW,
+    )
     normalized = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
     return normalized if normalized in VALID_BACKTEST_TABS else BACKTEST_TAB_NEW
 

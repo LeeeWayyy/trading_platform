@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -1776,7 +1777,9 @@ async def dashboard(client: Client) -> None:
         has_strategy_widget=strategy_context_widget is not None,
     )
     STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
-    strategy_resolution_cache: dict[str, tuple[str | None, str, float]] = {}
+    strategy_resolution_cache: OrderedDict[str, tuple[str | None, str, float]] = (
+        OrderedDict()
+    )
 
     def _get_strategy_resolution_from_cache(
         normalized_symbol: str,
@@ -1788,6 +1791,7 @@ async def dashboard(client: Client) -> None:
         if (time.monotonic() - cached_at) > STRATEGY_RESOLUTION_CACHE_TTL_S:
             strategy_resolution_cache.pop(normalized_symbol, None)
             return None
+        strategy_resolution_cache.move_to_end(normalized_symbol)
         return (strategy_id, reason)
 
     def _set_strategy_resolution_cache(
@@ -1795,17 +1799,14 @@ async def dashboard(client: Client) -> None:
         normalized_symbol: str,
         resolution: tuple[str | None, str],
     ) -> tuple[str | None, str]:
+        strategy_resolution_cache.pop(normalized_symbol, None)
         strategy_resolution_cache[normalized_symbol] = (
             resolution[0],
             resolution[1],
             time.monotonic(),
         )
         if len(strategy_resolution_cache) > 128:
-            oldest_symbol = min(
-                strategy_resolution_cache,
-                key=lambda symbol_key: strategy_resolution_cache[symbol_key][2],
-            )
-            strategy_resolution_cache.pop(oldest_symbol, None)
+            strategy_resolution_cache.popitem(last=False)
         return resolution
 
     def _on_order_context_symbol_changed(selected_symbol: str | None) -> None:
