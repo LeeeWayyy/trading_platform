@@ -230,7 +230,7 @@ def test_should_load_lifecycle_rows_only_for_selected_promote() -> None:
             can_view_promote=True,
             selected_tab_id=research_module.TAB_DISCOVER,
         )
-        is True
+        is False
     )
     assert (
         research_module._should_load_lifecycle_rows(
@@ -309,3 +309,10 @@ def test_lifecycle_row_load_catches_specific_exceptions() -> None:
     """Lifecycle fetch should use targeted exception handling, not blanket catch."""
     source = inspect.getsource(research_module.research_workspace_page)
     assert "except (RuntimeError, ValueError, TypeError, LookupError):" in source
+
+
+def test_workspace_tab_change_maps_by_string_value() -> None:
+    """Tab-change handler should map event values by tab-name strings."""
+    source = inspect.getsource(research_module.research_workspace_page)
+    assert 'tab_id_by_value["discover"] = TAB_DISCOVER' in source
+    assert 'target_value = str(getattr(event, "value", "")).strip().lower()' in source

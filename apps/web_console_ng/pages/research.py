@@ -69,8 +69,8 @@ def _resolve_selected_tab(*, requested_tab: str, accessible_tabs: list[str]) -> 
 
 
 def _should_load_lifecycle_rows(*, can_view_promote: bool, selected_tab_id: str) -> bool:
-    """Lifecycle rows are needed for Discover candidate rows and Promote actions."""
-    return can_view_promote and selected_tab_id in {TAB_DISCOVER, TAB_PROMOTE}
+    """Lifecycle rows are loaded only when Promote tab is actively rendered."""
+    return can_view_promote and selected_tab_id == TAB_PROMOTE
 
 
 def _should_render_validate_panel(*, selected_tab_id: str) -> bool:
@@ -510,23 +510,24 @@ async def research_workspace_page() -> None:
     ).classes("text-xs text-slate-400 mb-3")
 
     tab_map: dict[str, Any] = {}
-    tab_id_by_value: dict[Any, str] = {}
+    tab_id_by_value: dict[str, str] = {}
     with ui.tabs().classes("w-full") as tabs:
         if TAB_DISCOVER in accessible_tabs:
             discover_tab = ui.tab("Discover")
             tab_map[TAB_DISCOVER] = discover_tab
-            tab_id_by_value[discover_tab] = TAB_DISCOVER
+            tab_id_by_value["discover"] = TAB_DISCOVER
         if TAB_VALIDATE in accessible_tabs:
             validate_tab = ui.tab("Validate")
             tab_map[TAB_VALIDATE] = validate_tab
-            tab_id_by_value[validate_tab] = TAB_VALIDATE
+            tab_id_by_value["validate"] = TAB_VALIDATE
         if TAB_PROMOTE in accessible_tabs:
             promote_tab = ui.tab("Promote")
             tab_map[TAB_PROMOTE] = promote_tab
-            tab_id_by_value[promote_tab] = TAB_PROMOTE
+            tab_id_by_value["promote"] = TAB_PROMOTE
 
     def _on_tab_change(event: Any) -> None:
-        target_tab_id = tab_id_by_value.get(getattr(event, "value", None))
+        target_value = str(getattr(event, "value", "")).strip().lower()
+        target_tab_id = tab_id_by_value.get(target_value)
         if target_tab_id is None or target_tab_id == selected_tab_id:
             return
         ui.navigate.to(_build_research_tab_link(tab_id=target_tab_id))
@@ -549,8 +550,11 @@ async def research_workspace_page() -> None:
                     ).classes("text-slate-400")
                 else:
                     await _render_discover_rows(workspace_service)
-                if workspace_service is not None and lifecycle_rows:
-                    _render_discover_candidate_rows(lifecycle_rows)
+                if TAB_PROMOTE in tab_map:
+                    ui.link(
+                        "Linked lifecycle candidates are available in Promote tab.",
+                        _build_research_tab_link(tab_id=TAB_PROMOTE),
+                    ).classes("text-xs text-slate-500 mt-2")
 
         if TAB_VALIDATE in tab_map:
             with ui.tab_panel(tab_map[TAB_VALIDATE]):
