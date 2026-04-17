@@ -140,28 +140,42 @@ def _resolve_research_strategy_name(parameters: dict[str, Any], default: str) ->
     return default
 
 
+def _normalize_research_metadata_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Return normalized metadata with canonical strategy_name projection."""
+    normalized = dict(parameters)
+    normalized["strategy_name"] = _resolve_research_strategy_name(
+        parameters,
+        default="unassigned",
+    )
+    return normalized
+
+
 class ResearchWorkspaceService:
     """Aggregates research + ops rows for /research workspace."""
 
     def __init__(self, *, registry_dir: Path) -> None:
         self._registry = ModelRegistry(registry_dir=registry_dir)
 
-    def list_research_signals(self, *, limit: int = 500) -> list[ResearchSignalRow]:
+    def list_research_signals(self, *, limit: int | None = 500) -> list[ResearchSignalRow]:
         """List research registry alpha rows with status/provenance details."""
-        normalized_limit = max(0, limit)
-        if normalized_limit == 0:
-            return []
+        if limit is None:
+            normalized_limit = None
+        else:
+            normalized_limit = max(0, limit)
+            if normalized_limit == 0:
+                return []
 
         models = self._registry.list_models(model_type=ModelType.alpha_weights.value)
         if not models:
             return []
 
-        limited_models = models[:normalized_limit]
+        limited_models = models if normalized_limit is None else models[:normalized_limit]
         versions = [metadata.version for metadata in limited_models]
         info_map = self._registry.get_model_info_bulk(ModelType.alpha_weights.value, versions)
         result: list[ResearchSignalRow] = []
         for metadata in limited_models:
-            params = metadata.parameters if isinstance(metadata.parameters, dict) else {}
+            params_raw = metadata.parameters if isinstance(metadata.parameters, dict) else {}
+            params = _normalize_research_metadata_parameters(params_raw)
             metrics = metadata.metrics if isinstance(metadata.metrics, dict) else {}
             info = info_map.get(metadata.version, {})
             research_status = str(info.get("status") or "unknown")
@@ -173,7 +187,7 @@ class ResearchWorkspaceService:
                 ResearchSignalRow(
                     signal_id=metadata.model_id,
                     display_name=str(params.get("name") or metadata.model_id),
-                    strategy_name=_resolve_research_strategy_name(params, default="unassigned"),
+                    strategy_name=str(params.get("strategy_name") or "unassigned"),
                     version=metadata.version,
                     research_status=research_status,
                     backtest_job_id=backtest_job_id,
@@ -247,7 +261,7 @@ class ResearchWorkspaceService:
         model_service: ModelRegistryBrowserService,
     ) -> list[LifecycleRow]:
         """Join ops + research rows with deterministic linkage and derived lifecycle."""
-        research_task = asyncio.to_thread(self.list_research_signals)
+        research_task = asyncio.to_thread(self.list_research_signals, limit=None)
         ops_task = self.list_ops_models(user=user, model_service=model_service)
         research_rows, ops_rows = await asyncio.gather(research_task, ops_task)
 

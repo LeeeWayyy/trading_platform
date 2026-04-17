@@ -230,7 +230,17 @@ def _get_redis_session_store(user_id: str) -> dict[str, Any]:
         try:
             parsed = json.loads(data)  # type: ignore[arg-type]
             if isinstance(parsed, dict):
-                return _deserialize_session_store_from_redis(parsed)
+                try:
+                    return _deserialize_session_store_from_redis(parsed)
+                except ImportError as exc:
+                    logger.warning(
+                        "notebook_session_deserialize_dependency_missing",
+                        extra={
+                            "user_id": user_id,
+                            "error": str(exc),
+                        },
+                    )
+                    return parsed
             return {}
         except (json.JSONDecodeError, TypeError):
             return {}

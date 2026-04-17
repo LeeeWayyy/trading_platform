@@ -192,6 +192,52 @@ def test_list_research_signals_applies_limit_before_bulk_info_query(
     assert queried_versions == ["v1"]
 
 
+def test_list_research_signals_none_limit_returns_all_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """limit=None should disable row-capping for lifecycle linkage correctness."""
+    service = ResearchWorkspaceService(registry_dir=Path("data/models"))
+    metadata_rows = [
+        SimpleNamespace(
+            model_id="alpha-1",
+            version="v1",
+            parameters={},
+            metrics={},
+            snapshot_id=None,
+            dataset_version_ids={},
+            config_hash="cfg-1",
+        ),
+        SimpleNamespace(
+            model_id="alpha-2",
+            version="v2",
+            parameters={},
+            metrics={},
+            snapshot_id=None,
+            dataset_version_ids={},
+            config_hash="cfg-2",
+        ),
+    ]
+
+    class _StubRegistry:
+        def list_models(self, *, model_type: str) -> list[Any]:
+            assert model_type == "alpha_weights"
+            return metadata_rows
+
+        def get_model_info_bulk(
+            self,
+            model_type: str,
+            versions: list[str],
+        ) -> dict[str, dict[str, str]]:
+            assert model_type == "alpha_weights"
+            return {version: {"status": "staged"} for version in versions}
+
+    monkeypatch.setattr(service, "_registry", _StubRegistry())
+
+    rows = service.list_research_signals(limit=None)
+    assert len(rows) == 2
+    assert [row.version for row in rows] == ["v1", "v2"]
+
+
 @pytest.mark.asyncio()
 async def test_list_ops_models_prefers_bulk_fetch_when_available() -> None:
     """Service should use bulk model fetch to avoid per-strategy N+1 queries."""

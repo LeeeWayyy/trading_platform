@@ -238,6 +238,35 @@ async def test_get_redis_session_store_deserializes_notebook_session(
     assert session.template_id == "tmpl-1"
 
 
+def test_get_redis_session_store_falls_back_when_deserializer_deps_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = {
+        "sess-1": {
+            "session_id": "sess-1",
+            "template_id": "tmpl-1",
+        }
+    }
+
+    class DummyRedis:
+        def get(self, key: str):
+            return json.dumps(raw).encode("utf-8")
+
+    monkeypatch.setattr(notebook_module, "get_sync_redis_client", lambda: DummyRedis())
+
+    def _raise_import_error(session_store: dict[str, Any]) -> dict[str, Any]:
+        raise ImportError("missing optional notebook dependency")
+
+    monkeypatch.setattr(
+        notebook_module,
+        "_deserialize_session_store_from_redis",
+        _raise_import_error,
+    )
+
+    result = notebook_module._get_redis_session_store("user-1")
+    assert result == raw
+
+
 @pytest.mark.asyncio()
 async def test_render_notebook_launcher_launches_session(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch

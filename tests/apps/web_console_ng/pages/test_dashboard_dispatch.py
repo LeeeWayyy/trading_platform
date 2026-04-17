@@ -124,6 +124,46 @@ def test_should_apply_strategy_context_result_false_when_stale() -> None:
     )
 
 
+def test_strategy_resolution_scope_key_normalizes_values() -> None:
+    key = dashboard_module._build_strategy_resolution_scope_key(
+        [" beta ", "alpha", "alpha", ""]
+    )
+    assert key == ("alpha", "beta")
+
+
+def test_strategy_resolution_shared_cache_is_scope_aware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with dashboard_module._strategy_resolution_cache_lock:
+        dashboard_module._strategy_resolution_cache.clear()
+
+    monkeypatch.setattr(dashboard_module.time, "monotonic", lambda: 100.0)
+    dashboard_module._set_strategy_resolution_in_shared_cache(
+        scope_key=("alpha_scope",),
+        normalized_symbol="AAPL",
+        resolution=("alpha_strategy", "resolved"),
+    )
+
+    monkeypatch.setattr(dashboard_module.time, "monotonic", lambda: 101.0)
+    dashboard_module._set_strategy_resolution_in_shared_cache(
+        scope_key=("beta_scope",),
+        normalized_symbol="AAPL",
+        resolution=("beta_strategy", "resolved"),
+    )
+
+    alpha_result = dashboard_module._get_strategy_resolution_from_shared_cache(
+        scope_key=("alpha_scope",),
+        normalized_symbol="AAPL",
+    )
+    beta_result = dashboard_module._get_strategy_resolution_from_shared_cache(
+        scope_key=("beta_scope",),
+        normalized_symbol="AAPL",
+    )
+
+    assert alpha_result == ("alpha_strategy", "resolved")
+    assert beta_result == ("beta_strategy", "resolved")
+
+
 def test_plan_strategy_context_refresh_request_starts_when_idle() -> None:
     generation, mark_pending, start_generation = (
         dashboard_module.plan_strategy_context_refresh_request(

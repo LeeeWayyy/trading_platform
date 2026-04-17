@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Coroutine
@@ -104,8 +105,68 @@ MAX_FILLS_ITEMS = 100
 WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
 # Strategy resolution query lookback to keep orders scan bounded
 STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
+STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
+STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES = 1024
 
 ScopeKey = tuple[str, frozenset[str]]
+StrategyResolutionScopeKey = tuple[str, ...]
+StrategyResolutionCacheKey = tuple[StrategyResolutionScopeKey, str]
+
+_strategy_resolution_cache: OrderedDict[
+    StrategyResolutionCacheKey, tuple[str | None, str, float]
+] = OrderedDict()
+_strategy_resolution_cache_lock = threading.Lock()
+
+
+def _build_strategy_resolution_scope_key(
+    authorized_strategy_scope: list[str],
+) -> StrategyResolutionScopeKey:
+    """Normalize strategy authorization scope into a deterministic cache key."""
+    normalized = sorted(
+        {
+            strategy_id.strip()
+            for strategy_id in authorized_strategy_scope
+            if isinstance(strategy_id, str) and strategy_id.strip()
+        }
+    )
+    return tuple(normalized)
+
+
+def _get_strategy_resolution_from_shared_cache(
+    *,
+    scope_key: StrategyResolutionScopeKey,
+    normalized_symbol: str,
+) -> tuple[str | None, str] | None:
+    cache_key = (scope_key, normalized_symbol)
+    with _strategy_resolution_cache_lock:
+        cached = _strategy_resolution_cache.get(cache_key)
+        if cached is None:
+            return None
+        strategy_id, reason, cached_at = cached
+        if (time.monotonic() - cached_at) > STRATEGY_RESOLUTION_CACHE_TTL_S:
+            _strategy_resolution_cache.pop(cache_key, None)
+            return None
+        _strategy_resolution_cache.move_to_end(cache_key)
+        return (strategy_id, reason)
+
+
+def _set_strategy_resolution_in_shared_cache(
+    *,
+    scope_key: StrategyResolutionScopeKey,
+    normalized_symbol: str,
+    resolution: tuple[str | None, str],
+) -> tuple[str | None, str]:
+    cache_key = (scope_key, normalized_symbol)
+    with _strategy_resolution_cache_lock:
+        _strategy_resolution_cache.pop(cache_key, None)
+        _strategy_resolution_cache[cache_key] = (
+            resolution[0],
+            resolution[1],
+            time.monotonic(),
+        )
+        if len(_strategy_resolution_cache) > STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES:
+            _strategy_resolution_cache.popitem(last=False)
+    return resolution
 
 
 class _MetricStripValue:
@@ -1776,38 +1837,9 @@ async def dashboard(client: Client) -> None:
         gate_enabled=config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING,
         has_strategy_widget=strategy_context_widget is not None,
     )
-    STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
-    strategy_resolution_cache: OrderedDict[str, tuple[str | None, str, float]] = (
-        OrderedDict()
+    strategy_resolution_scope_key = _build_strategy_resolution_scope_key(
+        authorized_strategy_scope
     )
-
-    def _get_strategy_resolution_from_cache(
-        normalized_symbol: str,
-    ) -> tuple[str | None, str] | None:
-        cached = strategy_resolution_cache.get(normalized_symbol)
-        if cached is None:
-            return None
-        strategy_id, reason, cached_at = cached
-        if (time.monotonic() - cached_at) > STRATEGY_RESOLUTION_CACHE_TTL_S:
-            strategy_resolution_cache.pop(normalized_symbol, None)
-            return None
-        strategy_resolution_cache.move_to_end(normalized_symbol)
-        return (strategy_id, reason)
-
-    def _set_strategy_resolution_cache(
-        *,
-        normalized_symbol: str,
-        resolution: tuple[str | None, str],
-    ) -> tuple[str | None, str]:
-        strategy_resolution_cache.pop(normalized_symbol, None)
-        strategy_resolution_cache[normalized_symbol] = (
-            resolution[0],
-            resolution[1],
-            time.monotonic(),
-        )
-        if len(strategy_resolution_cache) > 128:
-            strategy_resolution_cache.popitem(last=False)
-        return resolution
 
     def _on_order_context_symbol_changed(selected_symbol: str | None) -> None:
         nonlocal last_strategy_context_symbol
@@ -1833,7 +1865,10 @@ async def dashboard(client: Client) -> None:
             normalized_symbol = validate_and_normalize_symbol(symbol)
         except ValueError:
             return (None, "invalid_symbol")
-        cached_resolution = _get_strategy_resolution_from_cache(normalized_symbol)
+        cached_resolution = _get_strategy_resolution_from_shared_cache(
+            scope_key=strategy_resolution_scope_key,
+            normalized_symbol=normalized_symbol,
+        )
         if cached_resolution is not None:
             return cached_resolution
 
@@ -1877,12 +1912,14 @@ async def dashboard(client: Client) -> None:
             return (None, "query_failed")
 
         if not rows:
-            return _set_strategy_resolution_cache(
+            return _set_strategy_resolution_in_shared_cache(
+                scope_key=strategy_resolution_scope_key,
                 normalized_symbol=normalized_symbol,
                 resolution=(None, "no_history"),
             )
         if len(rows) != 1:
-            return _set_strategy_resolution_cache(
+            return _set_strategy_resolution_in_shared_cache(
+                scope_key=strategy_resolution_scope_key,
                 normalized_symbol=normalized_symbol,
                 resolution=(None, "ambiguous"),
             )
@@ -1890,11 +1927,13 @@ async def dashboard(client: Client) -> None:
         first = rows[0]
         strategy_id = first.get("strategy_id") if isinstance(first, dict) else first[0]
         if not strategy_id:
-            return _set_strategy_resolution_cache(
+            return _set_strategy_resolution_in_shared_cache(
+                scope_key=strategy_resolution_scope_key,
                 normalized_symbol=normalized_symbol,
                 resolution=(None, "missing_strategy"),
             )
-        return _set_strategy_resolution_cache(
+        return _set_strategy_resolution_in_shared_cache(
+            scope_key=strategy_resolution_scope_key,
             normalized_symbol=normalized_symbol,
             resolution=(str(strategy_id), "resolved"),
         )
