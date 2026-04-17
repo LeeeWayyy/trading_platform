@@ -115,6 +115,8 @@ StrategyResolutionCacheKey = tuple[StrategyResolutionScopeKey, str]
 _strategy_resolution_cache: OrderedDict[
     StrategyResolutionCacheKey, tuple[str | None, str, float]
 ] = OrderedDict()
+# Process-local cache is intentional: short TTL smooths per-worker query bursts without
+# introducing cross-worker consistency requirements for deterministic DB lookups.
 _strategy_resolution_cache_lock = threading.Lock()
 
 

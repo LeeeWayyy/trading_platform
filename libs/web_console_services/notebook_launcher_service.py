@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -59,13 +61,14 @@ class NotebookTemplate:
     parameters: tuple[NotebookParameter, ...] = ()
 
 
-@dataclass
-class NotebookSession:
+class NotebookSession(BaseModel):
     """Notebook session metadata for UI rendering and control."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     session_id: str
     template_id: str
-    parameters: dict[str, Any]
+    parameters: dict[str, Any] = Field(default_factory=dict)
     status: SessionStatus
     created_at: datetime
     updated_at: datetime

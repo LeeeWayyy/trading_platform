@@ -109,7 +109,7 @@ class _NotebookSessionRedisModel(BaseModel):
         session_kwargs["session_id"] = self.session_id.strip() or fallback_session_id
         session_kwargs["template_id"] = self.template_id.strip() or "unknown"
         session_kwargs["status"] = status
-        return NotebookSession(**session_kwargs)
+        return NotebookSession.model_validate(session_kwargs)
 
 
 def _serialize_notebook_session(session: Any) -> dict[str, Any]:
