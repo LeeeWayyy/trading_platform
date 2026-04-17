@@ -44,13 +44,17 @@ def resolve_context_links(
     *,
     show_strategy_link: bool,
     show_model_link: bool,
+    feature_research_workspace_enabled: bool = True,
 ) -> list[tuple[str, str]]:
     """Return compact context links for strategy/model management surfaces."""
     links: list[tuple[str, str]] = []
     if show_strategy_link:
         links.append(("Strategies", "/strategies"))
     if show_model_link:
-        links.append(("Models", "/models"))
+        if feature_research_workspace_enabled:
+            links.append(("Research Promote", "/research?tab=promote"))
+        else:
+            links.append(("Models", "/models"))
     return links
 
 
@@ -63,11 +67,13 @@ class StrategyContextWidget:
         *,
         show_strategy_link: bool = True,
         show_model_link: bool = True,
+        feature_research_workspace_enabled: bool = True,
     ) -> None:
         self._strategies = [str(item) for item in (strategies or []) if str(item).strip()]
         self._symbol: str | None = None
         self._show_strategy_link = show_strategy_link
         self._show_model_link = show_model_link
+        self._feature_research_workspace_enabled = feature_research_workspace_enabled
 
         self._symbol_label: ui.label | None = None
         self._strategy_label: ui.label | None = None
@@ -112,6 +118,7 @@ class StrategyContextWidget:
             context_links = resolve_context_links(
                 show_strategy_link=self._show_strategy_link,
                 show_model_link=self._show_model_link,
+                feature_research_workspace_enabled=self._feature_research_workspace_enabled,
             )
             if context_links:
                 with ui.row().classes("w-full items-center gap-2 mt-2"):

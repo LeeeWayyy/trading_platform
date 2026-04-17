@@ -59,6 +59,13 @@ def _get_model_registry_service(
     return service
 
 
+def get_model_registry_service(
+    db_pool: AsyncConnectionPool,
+) -> ModelRegistryBrowserService:
+    """Public wrapper for model registry service resolution."""
+    return _get_model_registry_service(db_pool)
+
+
 def _format_model_timestamp(value: Any) -> str:
     """Format model datetime values for compact dense-grid rows."""
     if isinstance(value, datetime):
@@ -102,6 +109,10 @@ def _summarize_metrics(metrics: Any) -> str:
 @main_layout
 async def models_page() -> None:
     """Model Registry Browser page."""
+    if config.FEATURE_RESEARCH_WORKSPACE:
+        ui.navigate.to("/research?tab=promote")
+        return
+
     user = get_current_user()
 
     # Feature flag check
@@ -125,6 +136,12 @@ async def models_page() -> None:
     can_manage = is_admin(user)
 
     ui.label("Model Registry Browser").classes("text-2xl font-bold mb-2")
+    with ui.card().classes("w-full p-2 mb-2 border border-slate-800 bg-slate-900/35"):
+        with ui.row().classes("items-center justify-between gap-2"):
+            ui.label("Legacy page: use Research Workspace → Promote for consolidated flow.").classes(
+                "text-xs text-slate-300"
+            )
+            ui.link("Open /research", "/research?tab=promote").classes("text-xs")
     ui.label(
         "Dense model registry surface grouped by strategy with scoped promote/demote actions."
     ).classes("text-xs text-slate-400 mb-3")
@@ -350,3 +367,14 @@ async def _show_model_action_dialog(
             ui.button("Cancel", on_click=dialog.close)
 
     dialog.open()
+
+
+async def show_model_action_dialog(
+    service: ModelRegistryBrowserService,
+    strategy_name: str,
+    version: str,
+    action: str,
+    user: dict[str, Any],
+) -> None:
+    """Public wrapper for model lifecycle action confirmation dialog."""
+    await _show_model_action_dialog(service, strategy_name, version, action, user)

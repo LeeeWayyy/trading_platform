@@ -270,13 +270,33 @@ def _should_ignore_click_error(exc: PlaywrightError) -> bool:
         "element is not enabled",
         "element is not stable",
         "another element would receive the click",
-        "timeout",
     )
     return any(token in text for token in ignorable)
 
 
 def _is_ignorable_console_error(message: str) -> bool:
     return any(pattern.search(message) for pattern in IGNORABLE_CONSOLE_PATTERNS)
+
+
+def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -> bool:
+    """Ignore expected browser-aborted navigations during rapid click-through."""
+    if method.upper() != "GET":
+        return False
+
+    normalized_failure = failure_message.lower()
+    if "net::err_aborted" not in normalized_failure:
+        return False
+
+    parsed_url = urlparse(url)
+    parsed_base_url = urlparse(BASE_URL)
+    if (
+        parsed_url.scheme == parsed_base_url.scheme
+        and parsed_url.netloc == parsed_base_url.netloc
+    ):
+        return False
+
+    # Third-party static assets can be aborted during rapid route transitions.
+    return bool(parsed_url.scheme and parsed_url.netloc)
 
 
 def _default_input_value(input_type: str) -> str:
@@ -444,6 +464,20 @@ def _collect_docker_errors(since_token: str) -> list[str]:
     return [line for line in lines if DOCKER_ERROR_PATTERN.search(line)]
 
 
+def _login_with_retry(page: Any, *, attempts: int = 3) -> bool:
+    """Login with bounded retries to handle transient auth/bootstrap delays."""
+    for _ in range(attempts):
+        page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+        page.get_by_label("Username").fill(LOGIN_USER)
+        page.get_by_label("Password").fill(LOGIN_PASSWORD)
+        page.get_by_role("button", name="Sign In").click(timeout=ACTION_TIMEOUT_MS * 2)
+        page.wait_for_timeout(1000)
+        if "/login" not in page.url:
+            return True
+        page.wait_for_timeout(1500)
+    return False
+
+
 @pytest.mark.e2e()
 def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None:
     """Run authenticated live click-through and verify no runtime errors."""
@@ -464,6 +498,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
     ignored_console_errors: list[str] = []
     response_5xx: list[str] = []
     request_failures: list[str] = []
+    ignored_request_failures: list[str] = []
     results: list[PageResult] = []
     total_interactions = 0
 
@@ -487,18 +522,17 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
             "response",
             lambda resp: response_5xx.append(f"{resp.status} {resp.url}") if resp.status >= 500 else None,
         )
-        page.on(
-            "requestfailed",
-            lambda req: request_failures.append(f"{req.method} {req.url} {req.failure}"),
-        )
+        def _on_request_failed(req: Any) -> None:
+            failure_message = str(req.failure or "")
+            entry = f"{req.method} {req.url} {failure_message}"
+            if _is_ignorable_request_failure(str(req.method), str(req.url), failure_message):
+                ignored_request_failures.append(entry)
+                return
+            request_failures.append(entry)
 
-        page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
-        page.get_by_label("Username").fill(LOGIN_USER)
-        page.get_by_label("Password").fill(LOGIN_PASSWORD)
-        page.get_by_role("button", name="Sign In").click(timeout=ACTION_TIMEOUT_MS * 2)
-        page.wait_for_timeout(1000)
+        page.on("requestfailed", _on_request_failed)
 
-        if "/login" in page.url:
+        if not _login_with_retry(page):
             screenshot = Path("artifacts/ui_clickthrough_login_failed.png")
             screenshot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(screenshot), full_page=True)
@@ -643,6 +677,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
         "ignored_console_errors": ignored_console_errors,
         "response_5xx": response_5xx,
         "request_failures": request_failures,
+        "ignored_request_failures": ignored_request_failures,
         "docker_errors": docker_errors,
     }
     report_path = Path("artifacts/ui_clickthrough_report.json")

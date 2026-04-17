@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -18,6 +20,9 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.activity_feed import ActivityFeed
 from apps.web_console_ng.components.data_health_widget import render_data_health
+from apps.web_console_ng.components.execution_context import (
+    build_execution_context_snapshot,
+)
 from apps.web_console_ng.components.execution_gate import (
     is_model_execution_safe,
     is_strategy_execution_safe,
@@ -100,8 +105,70 @@ MAX_FILLS_ITEMS = 100
 WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
 # Strategy resolution query lookback to keep orders scan bounded
 STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
+STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
+STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES = 1024
 
 ScopeKey = tuple[str, frozenset[str]]
+StrategyResolutionScopeKey = tuple[str, ...]
+StrategyResolutionCacheKey = tuple[StrategyResolutionScopeKey, str]
+
+_strategy_resolution_cache: OrderedDict[
+    StrategyResolutionCacheKey, tuple[str | None, str, float]
+] = OrderedDict()
+# Process-local cache is intentional: short TTL smooths per-worker query bursts without
+# introducing cross-worker consistency requirements for deterministic DB lookups.
+_strategy_resolution_cache_lock = threading.Lock()
+
+
+def _build_strategy_resolution_scope_key(
+    authorized_strategy_scope: list[str],
+) -> StrategyResolutionScopeKey:
+    """Normalize strategy authorization scope into a deterministic cache key."""
+    normalized = sorted(
+        {
+            strategy_id.strip()
+            for strategy_id in authorized_strategy_scope
+            if isinstance(strategy_id, str) and strategy_id.strip()
+        }
+    )
+    return tuple(normalized)
+
+
+def _get_strategy_resolution_from_shared_cache(
+    *,
+    scope_key: StrategyResolutionScopeKey,
+    normalized_symbol: str,
+) -> tuple[str | None, str] | None:
+    cache_key = (scope_key, normalized_symbol)
+    with _strategy_resolution_cache_lock:
+        cached = _strategy_resolution_cache.get(cache_key)
+        if cached is None:
+            return None
+        strategy_id, reason, cached_at = cached
+        if (time.monotonic() - cached_at) > STRATEGY_RESOLUTION_CACHE_TTL_S:
+            _strategy_resolution_cache.pop(cache_key, None)
+            return None
+        _strategy_resolution_cache.move_to_end(cache_key)
+        return (strategy_id, reason)
+
+
+def _set_strategy_resolution_in_shared_cache(
+    *,
+    scope_key: StrategyResolutionScopeKey,
+    normalized_symbol: str,
+    resolution: tuple[str | None, str],
+) -> tuple[str | None, str]:
+    cache_key = (scope_key, normalized_symbol)
+    with _strategy_resolution_cache_lock:
+        _strategy_resolution_cache.pop(cache_key, None)
+        _strategy_resolution_cache[cache_key] = (
+            resolution[0],
+            resolution[1],
+            time.monotonic(),
+        )
+        if len(_strategy_resolution_cache) > STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES:
+            _strategy_resolution_cache.popitem(last=False)
+    return resolution
 
 
 class _MetricStripValue:
@@ -348,23 +415,23 @@ def resolve_workspace_quick_links(
     can_view_data_quality: bool,
     feature_strategy_management_enabled: bool,
     can_manage_strategies: bool,
+    feature_research_workspace_enabled: bool,
     feature_model_registry_enabled: bool,
     can_view_models: bool,
 ) -> list[tuple[str, str]]:
     """Return workspace quick-link routes visible for the current user context."""
-    links = [
+    base_links = [
         ("Manual", "/manual-order"),
         ("Positions", "/position-management"),
         ("Circuit", "/circuit-breaker"),
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
         ("Strategies", "/strategies"),
-        ("Models", "/models"),
         ("Compare", "/compare"),
         ("Inspector", "/data/inspector"),
     ]
     visible_links: list[tuple[str, str]] = []
-    for label, path in links:
+    for label, path in base_links:
         if path == "/position-management" and user_role == "viewer":
             continue
         if path == "/alerts" and (not feature_alerts_enabled or not can_view_alerts):
@@ -373,11 +440,15 @@ def resolve_workspace_quick_links(
             not feature_strategy_management_enabled or not can_manage_strategies
         ):
             continue
-        if path == "/models" and (not feature_model_registry_enabled or not can_view_models):
-            continue
         if path == "/data/inspector" and not can_view_data_quality:
             continue
         visible_links.append((label, path))
+
+    if feature_model_registry_enabled and can_view_models:
+        if feature_research_workspace_enabled:
+            visible_links.append(("Promote", "/research?tab=promote"))
+        else:
+            visible_links.append(("Models", "/models"))
     return visible_links
 
 
@@ -546,6 +617,7 @@ class MarketPriceCache:
 
 
 @ui.page("/")
+@ui.page("/trade")
 @requires_auth
 @main_layout
 async def dashboard(client: Client) -> None:
@@ -696,6 +768,7 @@ async def dashboard(client: Client) -> None:
         can_view_data_quality=can_view_data_quality,
         feature_strategy_management_enabled=config.FEATURE_STRATEGY_MANAGEMENT,
         can_manage_strategies=can_manage_strategies,
+        feature_research_workspace_enabled=config.FEATURE_RESEARCH_WORKSPACE,
         feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
         can_view_models=can_view_models,
     )
@@ -763,6 +836,7 @@ async def dashboard(client: Client) -> None:
                             config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
                         ),
                         show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
+                        feature_research_workspace_enabled=config.FEATURE_RESEARCH_WORKSPACE,
                     )
                     strategy_context_widget.create()
                     order_context.set_strategy_context_widget(strategy_context_widget)
@@ -1765,6 +1839,9 @@ async def dashboard(client: Client) -> None:
         gate_enabled=config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING,
         has_strategy_widget=strategy_context_widget is not None,
     )
+    strategy_resolution_scope_key = _build_strategy_resolution_scope_key(
+        authorized_strategy_scope
+    )
 
     def _on_order_context_symbol_changed(selected_symbol: str | None) -> None:
         nonlocal last_strategy_context_symbol
@@ -1790,24 +1867,36 @@ async def dashboard(client: Client) -> None:
             normalized_symbol = validate_and_normalize_symbol(symbol)
         except ValueError:
             return (None, "invalid_symbol")
+        cached_resolution = _get_strategy_resolution_from_shared_cache(
+            scope_key=strategy_resolution_scope_key,
+            normalized_symbol=normalized_symbol,
+        )
+        if cached_resolution is not None:
+            return cached_resolution
 
         strategy_lookback_start = datetime.now(UTC) - timedelta(
             days=STRATEGY_RESOLUTION_LOOKBACK_DAYS
         )
 
         sql = (
-            "SELECT strategy_id, MAX(created_at) AS last_order_at "
-            "FROM orders "
-            "WHERE symbol = %s AND strategy_id IS NOT NULL "
-            "AND strategy_id = ANY(%s) "
-            "AND created_at >= %s "
+            "WITH latest_strategy_orders AS ( "
+            "    SELECT DISTINCT ON (strategy_id) strategy_id, created_at "
+            "    FROM orders "
+            "    WHERE symbol = %s AND strategy_id IS NOT NULL "
+            "    AND strategy_id = ANY(%s) "
+            "    AND created_at >= %s "
+            "    ORDER BY strategy_id, created_at DESC "
+            ") "
+            "SELECT strategy_id "
+            "FROM latest_strategy_orders "
+            "ORDER BY created_at DESC, strategy_id ASC "
+            "LIMIT 2"
         )
         params: tuple[Any, ...] = (
             normalized_symbol,
             authorized_strategy_scope,
             strategy_lookback_start,
         )
-        sql += "GROUP BY strategy_id ORDER BY last_order_at DESC, strategy_id ASC LIMIT 2"
 
         try:
             async with acquire_connection(async_pool) as conn:
@@ -1825,15 +1914,31 @@ async def dashboard(client: Client) -> None:
             return (None, "query_failed")
 
         if not rows:
-            return (None, "no_history")
+            return _set_strategy_resolution_in_shared_cache(
+                scope_key=strategy_resolution_scope_key,
+                normalized_symbol=normalized_symbol,
+                resolution=(None, "no_history"),
+            )
         if len(rows) != 1:
-            return (None, "ambiguous")
+            return _set_strategy_resolution_in_shared_cache(
+                scope_key=strategy_resolution_scope_key,
+                normalized_symbol=normalized_symbol,
+                resolution=(None, "ambiguous"),
+            )
 
         first = rows[0]
         strategy_id = first.get("strategy_id") if isinstance(first, dict) else first[0]
         if not strategy_id:
-            return (None, "missing_strategy")
-        return (str(strategy_id), "resolved")
+            return _set_strategy_resolution_in_shared_cache(
+                scope_key=strategy_resolution_scope_key,
+                normalized_symbol=normalized_symbol,
+                resolution=(None, "missing_strategy"),
+            )
+        return _set_strategy_resolution_in_shared_cache(
+            scope_key=strategy_resolution_scope_key,
+            normalized_symbol=normalized_symbol,
+            resolution=(str(strategy_id), "resolved"),
+        )
 
     async def _fetch_model_registry_context(strategy_id: str) -> tuple[str, str | None]:
         """Fetch model status/version for a strategy from model_registry."""
@@ -1912,6 +2017,7 @@ async def dashboard(client: Client) -> None:
 
     async def _refresh_strategy_model_context(refresh_generation: int) -> None:
         selected_symbol = order_context.get_selected_symbol()
+        _stale, data_age_s = _is_workspace_data_stale()
         if strategy_context_widget is not None:
             strategy_context_widget.set_symbol(selected_symbol)
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
@@ -1929,6 +2035,17 @@ async def dashboard(client: Client) -> None:
                 strategy_label="Strategy: --",
                 model_label="Model: --",
                 banner="Select a symbol to resolve strategy/model execution context.",
+                snapshot=build_execution_context_snapshot(
+                    symbol=None,
+                    strategy_id=None,
+                    strategy_status="unknown",
+                    model_status="unknown",
+                    model_version=None,
+                    signal_id=None,
+                    data_freshness_s=data_age_s,
+                    gate_reason="Select a symbol to resolve execution context",
+                    freshness_threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+                ),
             )
             return
 
@@ -1969,21 +2086,91 @@ async def dashboard(client: Client) -> None:
                 strategy_label="Strategy: unresolved",
                 model_label="Model: unresolved",
                 banner=unresolved_banner,
+                snapshot=build_execution_context_snapshot(
+                    symbol=selected_symbol,
+                    strategy_id=None,
+                    strategy_status="unknown",
+                    model_status="unknown",
+                    model_version=None,
+                    signal_id=None,
+                    data_freshness_s=data_age_s,
+                    gate_reason=unresolved_gate_reason,
+                    freshness_threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+                ),
             )
             return
 
         strategy_status = "unknown"
         model_status = "unknown"
         model_version: str | None = None
+        signal_id: str | None = None
         reason_parts: list[str] = []
+        db_model_context_reason: str | None = None
+        payload_has_model_context = False
 
-        try:
-            strategy_payload = await trading_client.fetch_strategy_status(
+        async def _fetch_strategy_payload() -> dict[str, Any]:
+            return await trading_client.fetch_strategy_status(
                 strategy_id,
                 user_id=user_id,
                 role=user_role,
                 strategies=user_strategies,
             )
+
+        strategy_payload_task: asyncio.Task[dict[str, Any]] = asyncio.create_task(
+            _fetch_strategy_payload()
+        )
+        db_model_context_task: asyncio.Task[tuple[str, str | None]] = asyncio.create_task(
+            _fetch_model_registry_context(strategy_id)
+        )
+
+        strategy_payload_result: dict[str, Any] | BaseException
+        db_model_context_result: tuple[str, str | None] | BaseException
+        try:
+            (
+                strategy_payload_result,
+                db_model_context_result,
+            ) = await asyncio.gather(
+                strategy_payload_task,
+                db_model_context_task,
+                return_exceptions=True,
+            )
+        except asyncio.CancelledError:
+            strategy_payload_task.cancel()
+            db_model_context_task.cancel()
+            await asyncio.gather(
+                strategy_payload_task,
+                db_model_context_task,
+                return_exceptions=True,
+            )
+            raise
+
+        strategy_payload: dict[str, Any] | None = None
+        if isinstance(strategy_payload_result, BaseException):
+            if isinstance(strategy_payload_result, asyncio.CancelledError):
+                raise strategy_payload_result
+            reason_parts.append(
+                "strategy status unavailable "
+                f"({type(strategy_payload_result).__name__})"
+            )
+        else:
+            strategy_payload = strategy_payload_result
+
+        db_model_status: str = "unknown"
+        db_model_version: str | None = None
+        if isinstance(db_model_context_result, BaseException):
+            if isinstance(db_model_context_result, asyncio.CancelledError):
+                raise db_model_context_result
+            db_model_context_reason = (
+                "model registry context unavailable "
+                f"({type(db_model_context_result).__name__})"
+            )
+        else:
+            db_model_status, db_model_version = db_model_context_result
+
+        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
+            return
+
+        if strategy_payload is not None:
             strategy_status = normalize_execution_status(strategy_payload.get("status"))
             payload_model_status = strategy_payload.get("model_status")
             if payload_model_status:
@@ -1991,25 +2178,27 @@ async def dashboard(client: Client) -> None:
             payload_model_version = strategy_payload.get("model_version")
             if payload_model_version:
                 model_version = str(payload_model_version).strip()
-        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
-            reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
-        if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-            return
+            payload_has_model_context = bool(payload_model_status or payload_model_version)
+            payload_signal_id = strategy_payload.get("signal_id")
+            if payload_signal_id:
+                signal_id = str(payload_signal_id).strip()
 
-        if model_status == "unknown" or model_version is None:
-            db_model_status, db_model_version = await _fetch_model_registry_context(strategy_id)
-            if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
-                return
-            if model_status == "unknown":
-                model_status = db_model_status
-            if model_version is None:
-                model_version = db_model_version
+        if model_status == "unknown":
+            model_status = db_model_status
+        if model_version is None:
+            model_version = db_model_version
 
         model_status, model_version, enforce_model_gate = resolve_model_gate_inputs(
             model_status=model_status,
             model_version=model_version,
             feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
         )
+        if db_model_context_reason:
+            model_context_required = strategy_payload is None or (
+                enforce_model_gate and not payload_has_model_context
+            )
+            if model_context_required:
+                reason_parts.append(db_model_context_reason)
         strategy_safe = is_strategy_execution_safe(strategy_status)
         model_safe = is_model_execution_safe(model_status)
 
@@ -2040,6 +2229,17 @@ async def dashboard(client: Client) -> None:
             strategy_label=strategy_label,
             model_label=model_label,
             banner=banner,
+            snapshot=build_execution_context_snapshot(
+                symbol=selected_symbol,
+                strategy_id=strategy_id,
+                strategy_status=strategy_status,
+                model_status=model_status,
+                model_version=model_version,
+                signal_id=signal_id,
+                data_freshness_s=data_age_s,
+                gate_reason=gate_reason,
+                freshness_threshold_s=WORKSPACE_DATA_STALE_THRESHOLD_S,
+            ),
         )
 
     async def _run_strategy_model_context_refresh(refresh_generation: int) -> None:

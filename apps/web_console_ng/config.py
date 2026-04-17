@@ -81,6 +81,7 @@ WS_SESSION_VALIDATION_TIMEOUT = float(os.getenv("WS_SESSION_VALIDATION_TIMEOUT",
 # =============================================================================
 
 EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+MODEL_REGISTRY_DIR = os.getenv("MODEL_REGISTRY_DIR", "data/models")
 
 # =============================================================================
 # Dashboard polling intervals (seconds)
@@ -459,6 +460,10 @@ FEATURE_TCA_DASHBOARD = _get_bool_env("FEATURE_TCA_DASHBOARD")
 # P6T17: Strategy & Model Management
 FEATURE_STRATEGY_MANAGEMENT = _get_bool_env("FEATURE_STRATEGY_MANAGEMENT")
 FEATURE_MODEL_REGISTRY = _get_bool_env("FEATURE_MODEL_REGISTRY")
+FEATURE_RESEARCH_WORKSPACE = _get_bool_env(
+    "FEATURE_RESEARCH_WORKSPACE",
+    "true",
+)
 FEATURE_STRATEGY_MODEL_EXECUTION_GATING = _get_bool_env(
     "FEATURE_STRATEGY_MODEL_EXECUTION_GATING"
 )

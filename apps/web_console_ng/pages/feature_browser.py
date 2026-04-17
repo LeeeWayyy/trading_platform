@@ -51,12 +51,8 @@ def _get_alpha158_features(
             get_alpha158_features as _get_alpha158_features_impl,
         )
     except ModuleNotFoundError as exc:
-        # Only tolerate the ``strategies`` package itself being absent (it is
-        # not shipped in the web-console Docker image).  Any other missing
-        # module (e.g. a renamed internal import) is a real regression.
-        if exc.name is not None and (
-            exc.name == "strategies" or exc.name.startswith("strategies.")
-        ):
+        missing_module = exc.name or ""
+        if missing_module == "strategies" or missing_module.startswith("strategies."):
             raise RuntimeError("alpha158 feature dependencies are unavailable") from exc
         raise
 

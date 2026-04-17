@@ -157,6 +157,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                 nav_items = [
                     ("Dashboard", "/", "dashboard", None),
+                    ("Trade", "/trade", "candlestick_chart", None),
+                    ("Research Workspace", "/research", "hub", None),
                     ("Manual Controls", "/manual-order", "edit", None),
                     ("Position Mgmt", "/position-management", "swap_vert", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
@@ -166,7 +168,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
                     ("Attribution", "/attribution", "pie_chart", None),  # P6T16
                     ("Universes", "/research/universes", "category", None),  # P6T15
-                    ("Alpha Explorer", "/alpha-explorer", "insights", None),  # P5T8
                     ("Compare", "/compare", "compare_arrows", None),  # P5T8
                     ("Journal", "/journal", "book", None),  # P5T8
                     ("Notebooks", "/notebooks", "article", None),  # P5T8
@@ -178,9 +179,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
                     ("Features", "/data/features", "auto_awesome", None),  # P6T13
                     ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
-                    ("Backtest", "/backtest", "science", None),
                     ("Strategies", "/strategies", "model_training", None),  # P6T17
-                    ("Models", "/models", "hub", None),  # P6T17
                     ("Tax Lots", "/tax-lots", "receipt_long", None),  # P6T16
                     # P6T19: User management removed (single-admin model)
                     ("Alerts", "/alerts", "notifications", None),  # P5T7
@@ -193,7 +192,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 ]
 
                 nav_groups: list[tuple[str, list[str]]] = [
-                    ("Execute", ["/", "/manual-order", "/position-management", "/circuit-breaker"]),
+                    (
+                        "Execute",
+                        ["/", "/trade", "/manual-order", "/position-management", "/circuit-breaker"],
+                    ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
                         "Analysis",
@@ -208,13 +210,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     (
                         "Research",
                         [
+                            "/research",
                             "/research/universes",
-                            "/alpha-explorer",
                             "/compare",
                             "/notebooks",
-                            "/backtest",
                             "/strategies",
-                            "/models",
                         ],
                     ),
                     (
@@ -230,6 +230,33 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ),
                     ("Governance", ["/admin"]),
                 ]
+
+                if not config.FEATURE_RESEARCH_WORKSPACE:
+                    nav_items[:] = [item for item in nav_items if item[1] != "/research"]
+                    nav_items[2:2] = [
+                        ("Alpha Explorer", "/alpha-explorer", "hub", None),
+                        ("Backtest", "/backtest", "query_stats", None),
+                        ("Models", "/models", "precision_manufacturing", None),
+                    ]
+                    nav_groups = [
+                        (
+                            group_label,
+                            (
+                                [
+                                    "/alpha-explorer",
+                                    "/backtest",
+                                    "/models",
+                                    "/research/universes",
+                                    "/compare",
+                                    "/notebooks",
+                                    "/strategies",
+                                ]
+                                if group_label == "Research"
+                                else group_paths
+                            ),
+                        )
+                        for group_label, group_paths in nav_groups
+                    ]
 
                 nav_lookup = {path: (label, path, icon, role) for label, path, icon, role in nav_items}
 
@@ -248,6 +275,40 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # Tax Lots link requires VIEW_TAX_LOTS
                     if path == "/tax-lots" and not has_permission(
                         user, Permission.VIEW_TAX_LOTS
+                    ):
+                        return False
+
+                    # Research workspace is visible when any consolidated tab permission exists.
+                    if path == "/research":
+                        if not config.FEATURE_RESEARCH_WORKSPACE:
+                            return False
+                        can_view_discover = (
+                            config.FEATURE_ALPHA_EXPLORER
+                            and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+                        )
+                        can_view_validate = has_permission(user, Permission.VIEW_PNL)
+                        can_view_promote = (
+                            config.FEATURE_MODEL_REGISTRY
+                            and has_permission(user, Permission.VIEW_MODELS)
+                        )
+                        if not (
+                            can_view_discover
+                            or can_view_validate
+                            or can_view_promote
+                        ):
+                            return False
+
+                    if path == "/alpha-explorer" and not has_permission(
+                        user, Permission.VIEW_ALPHA_SIGNALS
+                    ):
+                        return False
+
+                    if path == "/backtest" and not has_permission(user, Permission.VIEW_PNL):
+                        return False
+
+                    if path == "/models" and not (
+                        config.FEATURE_MODEL_REGISTRY
+                        and has_permission(user, Permission.VIEW_MODELS)
                     ):
                         return False
 
@@ -296,13 +357,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path == "/strategies" and (
                         not config.FEATURE_STRATEGY_MANAGEMENT
                         or not has_permission(user, Permission.MANAGE_STRATEGIES)
-                    ):
-                        return False
-
-                    # Models link requires feature flag + VIEW_MODELS
-                    if path == "/models" and (
-                        not config.FEATURE_MODEL_REGISTRY
-                        or not has_permission(user, Permission.VIEW_MODELS)
                     ):
                         return False
 
@@ -415,6 +469,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
             log_drawer = LogDrawer(notification_router)
 
+            def _show_kill_switch_not_ready(_action: str) -> None:
+                ui.notify("Kill switch controls are initializing. Please retry.", type="warning")
+
+            kill_switch_dialog_handler: Callable[[str], None] = _show_kill_switch_not_ready
+
             with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
                 kill_switch_button = (
                     ui.button(
@@ -429,7 +488,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ui.button(
                         "Engage",
                         icon="power_settings_new",
-                        on_click=lambda: open_kill_switch_dialog("ENGAGE"),
+                        on_click=lambda: kill_switch_dialog_handler("ENGAGE"),
                     )
                     .classes("h-8 px-2 py-1 rounded text-xs bg-slate-700 text-slate-100 shrink-0")
                     .props("id=kill-switch-engage")
@@ -438,7 +497,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ui.button(
                         "Disengage",
                         icon="power_off",
-                        on_click=lambda: open_kill_switch_dialog("DISENGAGE"),
+                        on_click=lambda: kill_switch_dialog_handler("DISENGAGE"),
                     )
                     .classes("h-8 px-2 py-1 rounded text-xs bg-slate-700 text-slate-100 shrink-0")
                     .props("id=kill-switch-disengage")
@@ -582,7 +641,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 kill_switch_action_in_progress = False
                 set_kill_switch_controls(kill_switch_state)
 
-        def open_kill_switch_dialog(action: str) -> None:
+        def _open_kill_switch_dialog(action: str) -> None:
             title = "Engage Kill Switch" if action == "ENGAGE" else "Disengage Kill Switch"
             with ui.dialog() as dialog, ui.card().classes("p-6 min-w-[420px]"):
                 ui.label(title).classes("text-lg font-semibold")
@@ -618,6 +677,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         on_click=confirm,
                     ).props("color=negative" if action == "ENGAGE" else "color=positive")
             dialog.open()
+
+        kill_switch_dialog_handler = _open_kill_switch_dialog
 
         def dispatch_trading_state(update: dict[str, Any]) -> None:
             try:

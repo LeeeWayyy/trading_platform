@@ -5,7 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from psycopg.errors import UndefinedTable
+from psycopg import errors as pg_errors
 
 from apps.web_console_ng.core import workspace_persistence
 from apps.web_console_ng.core.workspace_persistence import (
@@ -93,7 +93,7 @@ async def test_save_grid_state_missing_table_raises_schema_unavailable(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
     cursor = AsyncMock()
-    cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
+    cursor.execute.side_effect = pg_errors.UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
@@ -135,7 +135,7 @@ async def test_load_grid_state_missing_table_raises_schema_unavailable(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
     cursor = AsyncMock()
-    cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
+    cursor.execute.side_effect = pg_errors.UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
@@ -239,6 +239,32 @@ async def test_load_grid_state_invalid_dict_type(
 
 
 @pytest.mark.asyncio()
+async def test_load_grid_state_missing_table_raises_schema_unavailable_legacy_case(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable("relation \"workspace_state\" does not exist")
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.load_grid_state("user", "grid")
+
+
+@pytest.mark.asyncio()
+async def test_save_grid_state_missing_table_raises_schema_unavailable_legacy_case(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable("relation \"workspace_state\" does not exist")
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.save_grid_state("user", "grid", {"a": 1})
+
+
+@pytest.mark.asyncio()
 async def test_reset_workspace_specific(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()
     pool = _make_pool(cursor)
@@ -271,7 +297,7 @@ async def test_reset_workspace_missing_table_raises_schema_unavailable(
     service: WorkspacePersistenceService, monkeypatch
 ) -> None:
     cursor = AsyncMock()
-    cursor.execute.side_effect = UndefinedTable('relation "workspace_state" does not exist')
+    cursor.execute.side_effect = pg_errors.UndefinedTable('relation "workspace_state" does not exist')
     pool = _make_pool(cursor)
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
