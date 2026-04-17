@@ -260,8 +260,8 @@ class TestAlertmanagerConfig:
         pagerduty_config = pagerduty_receiver["pagerduty_configs"][0]
         severity_template = pagerduty_config["severity"]
         expected_template = (
-            '{{ if eq (index .Alerts 0).Labels.severity "page" }}critical'
-            "{{ else }}{{ (index .Alerts 0).Labels.severity }}{{ end }}"
+            '{{ if eq .CommonLabels.severity "page" }}critical'
+            "{{ else }}{{ .CommonLabels.severity }}{{ end }}"
         )
         assert severity_template == expected_template
 
