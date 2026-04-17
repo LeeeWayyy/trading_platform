@@ -26,8 +26,8 @@ from nicegui import ui
 from apps.web_console_ng import config
 from apps.web_console_ng.components.action_button import ActionButton
 from apps.web_console_ng.components.execution_context import (
-    EXECUTION_CONTEXT_BLOCKED,
     EXECUTION_CONTEXT_READY,
+    EXECUTION_CONTEXT_STALE,
     ExecutionContextSnapshot,
     format_execution_context_ribbon,
 )
@@ -874,7 +874,7 @@ class OrderTicketComponent:
                 model_version=None,
                 signal_id=None,
                 data_freshness_s=None,
-                risk_gate_state=EXECUTION_CONTEXT_BLOCKED,
+                risk_gate_state=EXECUTION_CONTEXT_STALE,
                 updated_at=datetime.now(UTC),
                 gate_reason=self._execution_gate_reason,
             )

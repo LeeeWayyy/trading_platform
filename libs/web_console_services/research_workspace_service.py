@@ -240,8 +240,9 @@ class ResearchWorkspaceService:
         model_service: ModelRegistryBrowserService,
     ) -> list[LifecycleRow]:
         """Join ops + research rows with deterministic linkage and derived lifecycle."""
-        research_rows = await asyncio.to_thread(self.list_research_signals)
-        ops_rows = await self.list_ops_models(user=user, model_service=model_service)
+        research_task = asyncio.to_thread(self.list_research_signals)
+        ops_task = self.list_ops_models(user=user, model_service=model_service)
+        research_rows, ops_rows = await asyncio.gather(research_task, ops_task)
 
         research_by_primary: dict[tuple[str, str], ResearchSignalRow] = {}
         research_by_secondary: dict[str, ResearchSignalRow] = {}

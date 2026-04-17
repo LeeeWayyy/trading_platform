@@ -51,7 +51,10 @@ def _get_alpha158_features(
             get_alpha158_features as _get_alpha158_features_impl,
         )
     except ModuleNotFoundError as exc:
-        raise RuntimeError("alpha158 feature dependencies are unavailable") from exc
+        missing_module = exc.name or ""
+        if missing_module == "strategies" or missing_module.startswith("strategies."):
+            raise RuntimeError("alpha158 feature dependencies are unavailable") from exc
+        raise
 
     return _get_alpha158_features_impl(
         symbols=symbols,

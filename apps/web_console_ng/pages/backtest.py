@@ -19,7 +19,6 @@ import os
 import re
 import time
 from datetime import date, timedelta
-from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode
@@ -59,6 +58,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 _LEGACY_SCHEMA_WARNING_EMITTED = False
 _MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
+_schema_probe_cache: dict[tuple[int, int], bool] = {}
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -122,14 +122,28 @@ def _probe_cost_summary_column_uncached(db_pool: ConnectionPool) -> bool:
         return bool(row[0]) if row else False
 
 
-@lru_cache(maxsize=64)
-def _probe_cost_summary_column_cached(
+def _get_cached_cost_summary_column_value(
+    *,
     db_pool: ConnectionPool,
     cache_bucket: int,
-) -> bool:
-    """Cached wrapper for schema probe keyed by pool + TTL bucket."""
-    _ = cache_bucket  # part of cache key only
-    return _probe_cost_summary_column_uncached(db_pool)
+) -> bool | None:
+    """Return cached schema probe value for pool identity + cache bucket."""
+    return _schema_probe_cache.get((id(db_pool), cache_bucket))
+
+
+def _set_cached_cost_summary_column_value(
+    *,
+    db_pool: ConnectionPool,
+    cache_bucket: int,
+    has_column: bool,
+) -> None:
+    """Persist schema probe value and evict stale buckets opportunistically."""
+    cache_key = (id(db_pool), cache_bucket)
+    _schema_probe_cache[cache_key] = has_column
+
+    stale_keys = [key for key in _schema_probe_cache if key[1] != cache_bucket]
+    for key in stale_keys:
+        _schema_probe_cache.pop(key, None)
 
 
 def _get_backtest_prefill_from_request() -> dict[str, str | None]:
@@ -241,7 +255,11 @@ async def _resolve_prefill_alpha_name(
         if service is None:
             return (None, "Prefill unavailable: alpha explorer service is not ready")
         metrics = await run.io_bound(service.get_signal_metrics, signal_id)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "backtest_prefill_signal_lookup_failed",
+            extra={"signal_id": signal_id, "error": type(exc).__name__},
+        )
         return (None, f"Prefill unavailable: unknown signal_id '{signal_id}'")
 
     alpha_name = str(getattr(metrics, "name", "") or "").strip()
@@ -347,12 +365,19 @@ def _get_user_jobs_sync(
         """Return whether backtest_jobs has cost_summary column."""
         try:
             cache_bucket = _schema_cache_bucket()
-            try:
-                hash(db_pool)
-            except TypeError:
-                # Fallback for uncommon unhashable pool wrappers.
-                return _probe_cost_summary_column_uncached(db_pool)
-            return _probe_cost_summary_column_cached(db_pool, cache_bucket)
+            cached_value = _get_cached_cost_summary_column_value(
+                db_pool=db_pool,
+                cache_bucket=cache_bucket,
+            )
+            if cached_value is not None:
+                return cached_value
+            has_column = _probe_cost_summary_column_uncached(db_pool)
+            _set_cached_cost_summary_column_value(
+                db_pool=db_pool,
+                cache_bucket=cache_bucket,
+                has_column=has_column,
+            )
+            return has_column
         except pg_errors.AdminShutdown as exc:
             logger.warning(
                 "backtest_jobs_schema_probe_admin_shutdown",

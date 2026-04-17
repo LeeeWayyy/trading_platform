@@ -1775,6 +1775,38 @@ async def dashboard(client: Client) -> None:
         gate_enabled=config.FEATURE_STRATEGY_MODEL_EXECUTION_GATING,
         has_strategy_widget=strategy_context_widget is not None,
     )
+    STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
+    strategy_resolution_cache: dict[str, tuple[str | None, str, float]] = {}
+
+    def _get_strategy_resolution_from_cache(
+        normalized_symbol: str,
+    ) -> tuple[str | None, str] | None:
+        cached = strategy_resolution_cache.get(normalized_symbol)
+        if cached is None:
+            return None
+        strategy_id, reason, cached_at = cached
+        if (time.monotonic() - cached_at) > STRATEGY_RESOLUTION_CACHE_TTL_S:
+            strategy_resolution_cache.pop(normalized_symbol, None)
+            return None
+        return (strategy_id, reason)
+
+    def _set_strategy_resolution_cache(
+        *,
+        normalized_symbol: str,
+        resolution: tuple[str | None, str],
+    ) -> tuple[str | None, str]:
+        strategy_resolution_cache[normalized_symbol] = (
+            resolution[0],
+            resolution[1],
+            time.monotonic(),
+        )
+        if len(strategy_resolution_cache) > 128:
+            oldest_symbol = min(
+                strategy_resolution_cache,
+                key=lambda symbol_key: strategy_resolution_cache[symbol_key][2],
+            )
+            strategy_resolution_cache.pop(oldest_symbol, None)
+        return resolution
 
     def _on_order_context_symbol_changed(selected_symbol: str | None) -> None:
         nonlocal last_strategy_context_symbol
@@ -1800,6 +1832,9 @@ async def dashboard(client: Client) -> None:
             normalized_symbol = validate_and_normalize_symbol(symbol)
         except ValueError:
             return (None, "invalid_symbol")
+        cached_resolution = _get_strategy_resolution_from_cache(normalized_symbol)
+        if cached_resolution is not None:
+            return cached_resolution
 
         strategy_lookback_start = datetime.now(UTC) - timedelta(
             days=STRATEGY_RESOLUTION_LOOKBACK_DAYS
@@ -1841,15 +1876,27 @@ async def dashboard(client: Client) -> None:
             return (None, "query_failed")
 
         if not rows:
-            return (None, "no_history")
+            return _set_strategy_resolution_cache(
+                normalized_symbol=normalized_symbol,
+                resolution=(None, "no_history"),
+            )
         if len(rows) != 1:
-            return (None, "ambiguous")
+            return _set_strategy_resolution_cache(
+                normalized_symbol=normalized_symbol,
+                resolution=(None, "ambiguous"),
+            )
 
         first = rows[0]
         strategy_id = first.get("strategy_id") if isinstance(first, dict) else first[0]
         if not strategy_id:
-            return (None, "missing_strategy")
-        return (str(strategy_id), "resolved")
+            return _set_strategy_resolution_cache(
+                normalized_symbol=normalized_symbol,
+                resolution=(None, "missing_strategy"),
+            )
+        return _set_strategy_resolution_cache(
+            normalized_symbol=normalized_symbol,
+            resolution=(str(strategy_id), "resolved"),
+        )
 
     async def _fetch_model_registry_context(strategy_id: str) -> tuple[str, str | None]:
         """Fetch model status/version for a strategy from model_registry."""
