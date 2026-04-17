@@ -217,7 +217,7 @@ def test_resolve_selected_tab_falls_back_to_first_accessible() -> None:
     assert selected == research_module.TAB_DISCOVER
 
 
-def test_should_load_lifecycle_rows_only_for_selected_promote() -> None:
+def test_should_load_lifecycle_rows_for_selected_discover_or_promote() -> None:
     assert (
         research_module._should_load_lifecycle_rows(
             can_view_promote=True,
@@ -230,7 +230,7 @@ def test_should_load_lifecycle_rows_only_for_selected_promote() -> None:
             can_view_promote=True,
             selected_tab_id=research_module.TAB_DISCOVER,
         )
-        is False
+        is True
     )
     assert (
         research_module._should_load_lifecycle_rows(
@@ -316,3 +316,11 @@ def test_workspace_tab_change_maps_by_string_value() -> None:
     source = inspect.getsource(research_module.research_workspace_page)
     assert 'tab_id_by_value["discover"] = TAB_DISCOVER' in source
     assert 'target_value = str(getattr(event, "value", "")).strip().lower()' in source
+
+
+def test_discover_panel_lazy_renders_and_shows_candidate_rows() -> None:
+    """Discover subtree should load only when selected and render lifecycle candidates."""
+    source = inspect.getsource(research_module.research_workspace_page)
+    assert "if selected_tab_id != TAB_DISCOVER:" in source
+    assert "await _render_discover_rows(workspace_service)" in source
+    assert "_render_discover_candidate_rows(lifecycle_rows)" in source

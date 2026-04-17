@@ -69,8 +69,8 @@ def _resolve_selected_tab(*, requested_tab: str, accessible_tabs: list[str]) -> 
 
 
 def _should_load_lifecycle_rows(*, can_view_promote: bool, selected_tab_id: str) -> bool:
-    """Lifecycle rows are loaded only when Promote tab is actively rendered."""
-    return can_view_promote and selected_tab_id == TAB_PROMOTE
+    """Lifecycle rows are loaded only for active Discover/Promote views."""
+    return can_view_promote and selected_tab_id in {TAB_DISCOVER, TAB_PROMOTE}
 
 
 def _should_render_validate_panel(*, selected_tab_id: str) -> bool:
@@ -108,8 +108,15 @@ def _get_research_workspace_service() -> ResearchWorkspaceService | None:
 
     with _research_workspace_service_lock:
         import_error = _research_workspace_service_import_error
+        cached_service = _research_workspace_service_cache
+        cached_registry_dir = _research_workspace_service_registry_dir
     if import_error is not None:
         return None
+
+    registry_dir = Path(config.MODEL_REGISTRY_DIR)
+    if cached_service is not None and cached_registry_dir == registry_dir:
+        return cached_service
+
     try:
         from libs.web_console_services.research_workspace_service import (
             ResearchWorkspaceService,
@@ -126,18 +133,20 @@ def _get_research_workspace_service() -> ResearchWorkspaceService | None:
         )
         return None
 
-    registry_dir = Path(config.MODEL_REGISTRY_DIR)
+    fresh_service = ResearchWorkspaceService(registry_dir=registry_dir)
     with _research_workspace_service_lock:
+        if _research_workspace_service_import_error is not None:
+            return None
         if (
-            _research_workspace_service_cache is None
-            or _research_workspace_service_registry_dir != registry_dir
+            _research_workspace_service_cache is not None
+            and _research_workspace_service_registry_dir == registry_dir
         ):
-            _research_workspace_service_cache = ResearchWorkspaceService(
-                registry_dir=registry_dir
-            )
-            _research_workspace_service_registry_dir = registry_dir
+            return _research_workspace_service_cache
 
-        return _research_workspace_service_cache
+        _research_workspace_service_cache = fresh_service
+        _research_workspace_service_registry_dir = registry_dir
+
+        return fresh_service
 
 
 def _build_validate_backtest_link(*, signal_id: str, source: str = "alpha_explorer") -> str:
@@ -539,22 +548,31 @@ async def research_workspace_page() -> None:
     with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
         if TAB_DISCOVER in tab_map:
             with ui.tab_panel(tab_map[TAB_DISCOVER]):
-                with ui.card().classes("w-full p-4 border border-slate-800 bg-slate-900/35 mb-3"):
-                    ui.label("Discover").classes("text-lg font-semibold text-slate-100")
-                    ui.label(
-                        "Alpha inventory and candidate model rows with readiness hints."
-                    ).classes("text-xs text-slate-400")
-                if workspace_service is None:
-                    ui.label(
-                        "Discover unavailable: research registry dependency missing."
-                    ).classes("text-slate-400")
+                if selected_tab_id != TAB_DISCOVER:
+                    ui.label("Select Discover to load alpha inventory and candidates.").classes(
+                        "text-xs text-slate-500"
+                    )
                 else:
-                    await _render_discover_rows(workspace_service)
-                if TAB_PROMOTE in tab_map:
-                    ui.link(
-                        "Linked lifecycle candidates are available in Promote tab.",
-                        _build_research_tab_link(tab_id=TAB_PROMOTE),
-                    ).classes("text-xs text-slate-500 mt-2")
+                    with ui.card().classes(
+                        "w-full p-4 border border-slate-800 bg-slate-900/35 mb-3"
+                    ):
+                        ui.label("Discover").classes("text-lg font-semibold text-slate-100")
+                        ui.label(
+                            "Alpha inventory and candidate model rows with readiness hints."
+                        ).classes("text-xs text-slate-400")
+                    if workspace_service is None:
+                        ui.label(
+                            "Discover unavailable: research registry dependency missing."
+                        ).classes("text-slate-400")
+                    else:
+                        await _render_discover_rows(workspace_service)
+                    if lifecycle_rows:
+                        _render_discover_candidate_rows(lifecycle_rows)
+                    elif TAB_PROMOTE in tab_map:
+                        ui.link(
+                            "Linked lifecycle candidates are available in Promote tab.",
+                            _build_research_tab_link(tab_id=TAB_PROMOTE),
+                        ).classes("text-xs text-slate-500 mt-2")
 
         if TAB_VALIDATE in tab_map:
             with ui.tab_panel(tab_map[TAB_VALIDATE]):

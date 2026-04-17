@@ -277,11 +277,6 @@ def _get_rq_redis_client() -> Redis:
     return _rq_redis_client
 
 
-def _is_missing_column_error(exc: Exception, column_name: str) -> bool:
-    """Return True when a DB error indicates a missing column."""
-    return isinstance(exc, pg_errors.UndefinedColumn) and f'column "{column_name}"' in str(exc).lower()
-
-
 def _get_user_id(user: dict[str, Any]) -> str:
     """Get user identifier with fail-closed behavior.
 

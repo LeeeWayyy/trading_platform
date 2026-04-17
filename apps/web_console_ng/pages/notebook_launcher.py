@@ -84,6 +84,33 @@ class _NotebookSessionRedisModel(BaseModel):
                 parsed = datetime.now(UTC)
         return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
+    def to_notebook_session(self, *, fallback_session_id: str) -> Any:
+        """Convert validated Redis payload into NotebookSession."""
+        from libs.web_console_services.notebook_launcher_service import (
+            NotebookSession,
+            SessionStatus,
+        )
+
+        status_raw = str(self.status)
+        try:
+            status = SessionStatus(status_raw)
+        except ValueError as exc:
+            logger.warning(
+                "notebook_session_status_parse_failed",
+                extra={
+                    "session_key": fallback_session_id,
+                    "status": status_raw,
+                    "error": str(exc),
+                },
+            )
+            status = SessionStatus.ERROR
+
+        session_kwargs: dict[str, Any] = self.model_dump()
+        session_kwargs["session_id"] = self.session_id.strip() or fallback_session_id
+        session_kwargs["template_id"] = self.template_id.strip() or "unknown"
+        session_kwargs["status"] = status
+        return NotebookSession(**session_kwargs)
+
 
 def _serialize_notebook_session(session: Any) -> dict[str, Any]:
     """Convert NotebookSession-like objects to JSON-safe payloads."""
@@ -150,11 +177,6 @@ def _serialize_session_store_for_redis(session_store: dict[str, Any]) -> dict[st
 
 def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict[str, Any]:
     """Convert Redis payload into NotebookSession-backed store."""
-    from libs.web_console_services.notebook_launcher_service import (
-        NotebookSession,
-        SessionStatus,
-    )
-
     deserialized: dict[str, Any] = {}
     for key, value in session_store.items():
         if not isinstance(value, dict):
@@ -177,35 +199,7 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
             deserialized[str(key)] = value
             continue
 
-        status_raw = payload.status
-        try:
-            status = SessionStatus(str(status_raw))
-        except ValueError as exc:
-            logger.warning(
-                "notebook_session_status_parse_failed",
-                extra={
-                    "session_key": str(key),
-                    "status": str(status_raw),
-                    "error": str(exc),
-                },
-            )
-            status = SessionStatus.ERROR
-
-        created_at = payload.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-
-        updated_at = payload.updated_at
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
-
-        session_kwargs: dict[str, Any] = payload.model_dump()
-        session_kwargs["session_id"] = payload.session_id.strip() or str(key)
-        session_kwargs["template_id"] = payload.template_id.strip() or "unknown"
-        session_kwargs["status"] = status
-        session_kwargs["created_at"] = created_at
-        session_kwargs["updated_at"] = updated_at
-        deserialized[str(key)] = NotebookSession(**session_kwargs)
+        deserialized[str(key)] = payload.to_notebook_session(fallback_session_id=str(key))
     return deserialized
 
 
