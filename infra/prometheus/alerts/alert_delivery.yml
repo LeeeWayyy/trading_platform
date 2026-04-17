@@ -44,6 +44,7 @@ groups:
           sla: track7
         annotations:
           summary: "Alert delivery P95 latency exceeds 60s SLA"
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md#alert-troubleshooting"
           description: |
             P95 alert delivery latency is {{ $value | printf "%.1f" }}s.
 
