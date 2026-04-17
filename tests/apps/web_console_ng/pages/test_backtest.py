@@ -384,6 +384,26 @@ def test_build_research_validate_redirect_url_defaults_on_invalid_tab() -> None:
     assert result == "/research?tab=validate"
 
 
+def test_probe_cost_summary_column_uses_search_path_schemas() -> None:
+    """Schema probe should cover schemas visible in the current search_path."""
+    source = inspect.getsource(backtest_module._probe_cost_summary_column_uncached)
+    assert "current_schemas(false)" in source
+
+
+def test_probe_cost_summary_column_requires_context_manager_protocol() -> None:
+    """Schema probe should fail fast when connection object is not context-manageable."""
+
+    class _BrokenPool:
+        def connection(self):
+            return object()
+
+    with pytest.raises(
+        TypeError,
+        match="Backtest job queries require sync ConnectionPool from get_sync_db_pool\\(\\)",
+    ):
+        backtest_module._probe_cost_summary_column_uncached(_BrokenPool())  # type: ignore[arg-type]
+
+
 def test_legacy_backtest_page_omits_research_workspace_banner_when_feature_disabled() -> None:
     """Legacy backtest view should not advertise /research when workspace is disabled."""
     source = inspect.getsource(backtest_module.backtest_page)

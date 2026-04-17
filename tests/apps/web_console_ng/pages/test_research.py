@@ -288,8 +288,24 @@ def test_optional_backtest_dependency_detection() -> None:
     assert research_module._is_optional_backtest_dependency("apps.web_console_ng.pages") is False
 
 
+def test_optional_research_workspace_dependency_detection() -> None:
+    """Research workspace import fallback should apply only to optional deps."""
+    assert research_module._is_optional_research_workspace_dependency("duckdb") is True
+    assert research_module._is_optional_research_workspace_dependency("duckdb.core") is True
+    assert (
+        research_module._is_optional_research_workspace_dependency("apps.web_console_ng")
+        is False
+    )
+
+
 def test_discover_access_requires_alpha_feature_flag() -> None:
     """Discover tab gating must honor FEATURE_ALPHA_EXPLORER kill switch."""
     source = inspect.getsource(research_module.research_workspace_page)
 
     assert "FEATURE_ALPHA_EXPLORER" in source
+
+
+def test_lifecycle_row_load_catches_specific_exceptions() -> None:
+    """Lifecycle fetch should use targeted exception handling, not blanket catch."""
+    source = inspect.getsource(research_module.research_workspace_page)
+    assert "except (RuntimeError, ValueError, TypeError, LookupError):" in source

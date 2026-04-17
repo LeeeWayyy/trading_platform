@@ -115,13 +115,13 @@ def _probe_cost_summary_column_uncached(db_pool: ConnectionPool) -> bool:
         SELECT EXISTS (
             SELECT 1
             FROM information_schema.columns
-            WHERE table_schema = current_schema()
+            WHERE table_schema = ANY (current_schemas(false))
               AND table_name = 'backtest_jobs'
               AND column_name = 'cost_summary'
         ) AS has_column
     """
     conn_ctx = db_pool.connection()
-    if not hasattr(conn_ctx, "__enter__"):
+    if not hasattr(conn_ctx, "__enter__") or not hasattr(conn_ctx, "__exit__"):
         raise TypeError(
             "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
         )

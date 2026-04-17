@@ -37,6 +37,7 @@ LIFECYCLE_SHADOW = "SHADOW"
 LIFECYCLE_CANDIDATE = "CANDIDATE"
 LIFECYCLE_ARCHIVED = "ARCHIVED"
 _BACKTEST_OPTIONAL_PACKAGES = frozenset({"rq", "plotly", "pandas", "polars"})
+_RESEARCH_WORKSPACE_OPTIONAL_PACKAGES = frozenset({"duckdb"})
 _research_workspace_service_cache: ResearchWorkspaceService | None = None
 _research_workspace_service_registry_dir: Path | None = None
 _research_workspace_service_import_error: str | None = None
@@ -115,6 +116,8 @@ def _get_research_workspace_service() -> ResearchWorkspaceService | None:
         )
     except ModuleNotFoundError as exc:
         missing_dependency = exc.name or "unknown"
+        if not _is_optional_research_workspace_dependency(missing_dependency):
+            raise
         with _research_workspace_service_lock:
             _research_workspace_service_import_error = missing_dependency
         logger.warning(
@@ -212,6 +215,15 @@ def _is_optional_backtest_dependency(module_name: str | None) -> bool:
     return any(
         module_name == package or module_name.startswith(f"{package}.")
         for package in _BACKTEST_OPTIONAL_PACKAGES
+    )
+
+
+def _is_optional_research_workspace_dependency(module_name: str | None) -> bool:
+    if module_name is None:
+        return False
+    return any(
+        module_name == package or module_name.startswith(f"{package}.")
+        for package in _RESEARCH_WORKSPACE_OPTIONAL_PACKAGES
     )
 
 
@@ -486,7 +498,7 @@ async def research_workspace_page() -> None:
                     user=user,
                     model_service=model_service,
                 )
-            except Exception:
+            except (RuntimeError, ValueError, TypeError, LookupError):
                 logger.exception("research_workspace_lifecycle_rows_failed")
                 ui.notify("Failed to load model lifecycle rows", type="warning")
         elif can_view_promote:
