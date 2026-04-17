@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from apps.web_console_ng.components.execution_context import (
     EXECUTION_CONTEXT_BLOCKED,
     EXECUTION_CONTEXT_READY,
@@ -103,3 +105,21 @@ def test_order_ticket_allows_risk_reducing_when_context_missing() -> None:
     reason = ticket._get_execution_gate_block_reason()  # noqa: SLF001
 
     assert reason is None
+
+
+@pytest.mark.asyncio()
+async def test_order_ticket_symbol_change_seeds_pending_context_snapshot() -> None:
+    """Symbol handoff should expose explicit blocked context while refresh is pending."""
+    ticket = _build_order_ticket_for_gate_tests()
+    ticket._execution_gate_enabled = True  # noqa: SLF001
+
+    await ticket.on_symbol_changed("MSFT")
+
+    snapshot = ticket._execution_context_snapshot  # noqa: SLF001
+    assert snapshot is not None
+    assert snapshot.symbol == "MSFT"
+    assert snapshot.gate_reason == "Refreshing strategy/model execution context for selected symbol"
+    assert (
+        ticket._get_execution_gate_block_reason()  # noqa: SLF001
+        == "Execution context blocked: Refreshing strategy/model execution context for selected symbol"
+    )

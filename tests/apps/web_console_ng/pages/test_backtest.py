@@ -789,6 +789,84 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
     assert pool.query_conn.rollback_called is True
 
 
+def test_get_user_jobs_sync_handles_unhashable_pool_wrapper() -> None:
+    """Schema probe should bypass LRU cache when pool wrapper is unhashable."""
+
+    class ProbeCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
+
+        def __enter__(self) -> ProbeCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryCursor:
+        def execute(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def __enter__(self) -> QueryCursor:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def fetchall(self) -> list[dict[str, Any]]:
+            return []
+
+    class ProbeConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> ProbeCursor:
+            return ProbeCursor()
+
+        def __enter__(self) -> ProbeConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class QueryConn:
+        def cursor(self, *args: Any, **kwargs: Any) -> QueryCursor:
+            return QueryCursor()
+
+        def rollback(self) -> None:
+            return None
+
+        def __enter__(self) -> QueryConn:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class UnhashablePool:
+        __hash__ = None
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def connection(self) -> ProbeConn | QueryConn:
+            self.calls += 1
+            if self.calls == 1:
+                return ProbeConn()
+            return QueryConn()
+
+    class FakeRedis:
+        def mget(self, *_: Any, **__: Any) -> list[bytes | None]:
+            return []
+
+    jobs = backtest_module._get_user_jobs_sync(
+        created_by="u1",
+        status=["completed"],
+        db_pool=UnhashablePool(),  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+
+    assert jobs == []
+
+
 def test_get_user_jobs_sync_raises_when_schema_probe_fails() -> None:
     """Non-schema probe failures should bubble up as connectivity/runtime errors."""
 

@@ -92,6 +92,7 @@ def test_get_research_workspace_service_process_cache(monkeypatch) -> None:
     """Workspace service should cache per process and refresh on dir change."""
     monkeypatch.setattr(research_module, "_research_workspace_service_cache", None)
     monkeypatch.setattr(research_module, "_research_workspace_service_registry_dir", None)
+    monkeypatch.setattr(research_module, "_research_workspace_service_import_error", None)
     monkeypatch.setenv("MODEL_REGISTRY_DIR", "/tmp/research-cache-a")
 
     first = research_module._get_research_workspace_service()
@@ -103,6 +104,12 @@ def test_get_research_workspace_service_process_cache(monkeypatch) -> None:
     third = research_module._get_research_workspace_service()
 
     assert third is not first
+
+
+def test_get_research_workspace_service_skips_after_import_error(monkeypatch) -> None:
+    """Missing optional dependency should short-circuit service initialization."""
+    monkeypatch.setattr(research_module, "_research_workspace_service_import_error", "duckdb")
+    assert research_module._get_research_workspace_service() is None
 
 
 def _row(

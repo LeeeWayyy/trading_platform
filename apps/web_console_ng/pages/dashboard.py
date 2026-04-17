@@ -356,19 +356,18 @@ def resolve_workspace_quick_links(
     can_view_models: bool,
 ) -> list[tuple[str, str]]:
     """Return workspace quick-link routes visible for the current user context."""
-    links = [
+    base_links = [
         ("Manual", "/manual-order"),
         ("Positions", "/position-management"),
         ("Circuit", "/circuit-breaker"),
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
         ("Strategies", "/strategies"),
-        ("Promote", "/research?tab=promote"),
         ("Compare", "/compare"),
         ("Inspector", "/data/inspector"),
     ]
     visible_links: list[tuple[str, str]] = []
-    for label, path in links:
+    for label, path in base_links:
         if path == "/position-management" and user_role == "viewer":
             continue
         if path == "/alerts" and (not feature_alerts_enabled or not can_view_alerts):
@@ -377,15 +376,15 @@ def resolve_workspace_quick_links(
             not feature_strategy_management_enabled or not can_manage_strategies
         ):
             continue
-        if path == "/research?tab=promote" and (
-            not feature_research_workspace_enabled
-            or not feature_model_registry_enabled
-            or not can_view_models
-        ):
-            continue
         if path == "/data/inspector" and not can_view_data_quality:
             continue
         visible_links.append((label, path))
+
+    if feature_model_registry_enabled and can_view_models:
+        if feature_research_workspace_enabled:
+            visible_links.append(("Promote", "/research?tab=promote"))
+        else:
+            visible_links.append(("Models", "/models"))
     return visible_links
 
 
@@ -773,6 +772,7 @@ async def dashboard(client: Client) -> None:
                             config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
                         ),
                         show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
+                        feature_research_workspace_enabled=config.FEATURE_RESEARCH_WORKSPACE,
                     )
                     strategy_context_widget.create()
                     order_context.set_strategy_context_widget(strategy_context_widget)

@@ -358,6 +358,7 @@ def test_resolve_workspace_quick_links_hides_promote_when_workspace_disabled() -
     )
     paths = {path for _, path in links}
     assert "/research?tab=promote" not in paths
+    assert "/models" in paths
 
 
 def test_resolve_strategy_context_banner_healthy_for_ready_states() -> None:

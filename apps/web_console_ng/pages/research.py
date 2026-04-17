@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode
 
-from nicegui import ui
+from nicegui import run, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -38,6 +38,7 @@ LIFECYCLE_CANDIDATE = "CANDIDATE"
 LIFECYCLE_ARCHIVED = "ARCHIVED"
 _research_workspace_service_cache: ResearchWorkspaceService | None = None
 _research_workspace_service_registry_dir: Path | None = None
+_research_workspace_service_import_error: str | None = None
 
 
 def _resolve_accessible_tabs(
@@ -77,23 +78,41 @@ def _get_requested_research_tab() -> str:
         return TAB_DISCOVER
     if request is None:
         return TAB_DISCOVER
-    raw_query = request.scope.get("query_string", b"")
-    query_string = (
-        raw_query.decode("utf-8")
-        if isinstance(raw_query, bytes)
-        else str(raw_query)
-    )
-    params = parse_qs(query_string)
-    raw_tab = params.get("tab", [TAB_DISCOVER])[0]
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        raw_query = request.scope.get("query_string", b"")
+        query_string = (
+            raw_query.decode("utf-8")
+            if isinstance(raw_query, bytes)
+            else str(raw_query)
+        )
+        params = parse_qs(query_string)
+        raw_tab = params.get("tab", [TAB_DISCOVER])[0]
+    else:
+        raw_tab = query_params.get("tab", TAB_DISCOVER)
     normalized = str(raw_tab or TAB_DISCOVER).strip().lower()
     return normalized if normalized in VALID_TABS else TAB_DISCOVER
 
 
-def _get_research_workspace_service() -> ResearchWorkspaceService:
+def _get_research_workspace_service() -> ResearchWorkspaceService | None:
     """Get process-local workspace adapter service."""
     global _research_workspace_service_cache
     global _research_workspace_service_registry_dir
-    from libs.web_console_services.research_workspace_service import ResearchWorkspaceService
+    global _research_workspace_service_import_error
+
+    if _research_workspace_service_import_error is not None:
+        return None
+    try:
+        from libs.web_console_services.research_workspace_service import (
+            ResearchWorkspaceService,
+        )
+    except ModuleNotFoundError as exc:
+        _research_workspace_service_import_error = exc.name or "unknown"
+        logger.warning(
+            "research_workspace_service_import_failed",
+            extra={"missing_dependency": _research_workspace_service_import_error},
+        )
+        return None
 
     registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
     if (
@@ -128,14 +147,18 @@ def _get_requested_validate_backtest_tab() -> str:
         return "new"
     if request is None:
         return "new"
-    raw_query = request.scope.get("query_string", b"")
-    query_string = (
-        raw_query.decode("utf-8")
-        if isinstance(raw_query, bytes)
-        else str(raw_query)
-    )
-    params = parse_qs(query_string)
-    raw_tab = params.get("backtest_tab", ["new"])[0]
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        raw_query = request.scope.get("query_string", b"")
+        query_string = (
+            raw_query.decode("utf-8")
+            if isinstance(raw_query, bytes)
+            else str(raw_query)
+        )
+        params = parse_qs(query_string)
+        raw_tab = params.get("backtest_tab", ["new"])[0]
+    else:
+        raw_tab = query_params.get("backtest_tab", "new")
     normalized = str(raw_tab or "new").strip().lower()
     return normalized if normalized in VALID_VALIDATE_BACKTEST_TABS else "new"
 
@@ -234,8 +257,8 @@ async def _render_validate_tab(user: dict[str, Any]) -> None:
                 )
 
 
-def _render_discover_rows(service: ResearchWorkspaceService) -> None:
-    rows = service.list_research_signals(limit=300)
+async def _render_discover_rows(service: ResearchWorkspaceService) -> None:
+    rows = await run.io_bound(service.list_research_signals, limit=300)
     if not rows:
         ui.label("No research signals found.").classes("text-slate-400")
         return
@@ -405,7 +428,9 @@ async def research_workspace_page() -> None:
 
     async_pool = get_db_pool()
     model_service: Any | None = None
-    workspace_service = _get_research_workspace_service()
+    workspace_service: ResearchWorkspaceService | None = None
+    if can_view_discover or can_view_promote:
+        workspace_service = _get_research_workspace_service()
     can_manage = is_admin(user)
     requested_tab = _get_requested_research_tab()
     selected_tab_id = _resolve_selected_tab(
@@ -414,7 +439,12 @@ async def research_workspace_page() -> None:
     )
     lifecycle_rows: list[LifecycleRow] = []
     if _should_load_lifecycle_rows(can_view_promote=can_view_promote):
-        if async_pool is not None:
+        if workspace_service is None:
+            ui.notify(
+                "Model lifecycle unavailable: research registry dependency missing",
+                type="warning",
+            )
+        elif async_pool is not None:
             model_service = models_page._get_model_registry_service(async_pool)  # noqa: SLF001
             try:
                 lifecycle_rows = await workspace_service.list_lifecycle_rows(
@@ -450,8 +480,13 @@ async def research_workspace_page() -> None:
                     ui.label(
                         "Alpha inventory and candidate model rows with readiness hints."
                     ).classes("text-xs text-slate-400")
-                _render_discover_rows(workspace_service)
-                if lifecycle_rows:
+                if workspace_service is None:
+                    ui.label(
+                        "Discover unavailable: research registry dependency missing."
+                    ).classes("text-slate-400")
+                else:
+                    await _render_discover_rows(workspace_service)
+                if workspace_service is not None and lifecycle_rows:
                     _render_discover_candidate_rows(lifecycle_rows)
 
         if TAB_VALIDATE in tab_map:
@@ -460,7 +495,11 @@ async def research_workspace_page() -> None:
 
         if TAB_PROMOTE in tab_map:
             with ui.tab_panel(tab_map[TAB_PROMOTE]):
-                if model_service is None:
+                if workspace_service is None:
+                    ui.label("Research registry unavailable. Contact administrator.").classes(
+                        "text-slate-400"
+                    )
+                elif model_service is None:
                     ui.label("Model registry unavailable. Contact administrator.").classes(
                         "text-slate-400"
                     )

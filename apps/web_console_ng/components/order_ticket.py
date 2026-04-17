@@ -26,6 +26,7 @@ from nicegui import ui
 from apps.web_console_ng import config
 from apps.web_console_ng.components.action_button import ActionButton
 from apps.web_console_ng.components.execution_context import (
+    EXECUTION_CONTEXT_BLOCKED,
     EXECUTION_CONTEXT_READY,
     ExecutionContextSnapshot,
     format_execution_context_ribbon,
@@ -864,7 +865,22 @@ class OrderTicketComponent:
             if should_fail_closed_gate
             else None
         )
-        self._execution_context_snapshot = None
+        self._execution_context_snapshot = (
+            ExecutionContextSnapshot(
+                symbol=symbol.strip().upper() if symbol else None,
+                strategy_id=None,
+                strategy_status=self._strategy_status,
+                model_status=self._model_status,
+                model_version=None,
+                signal_id=None,
+                data_freshness_s=None,
+                risk_gate_state=EXECUTION_CONTEXT_BLOCKED,
+                updated_at=datetime.now(UTC),
+                gate_reason=self._execution_gate_reason,
+            )
+            if should_fail_closed_gate
+            else None
+        )
         # DO NOT reset _limits_loaded/_limits_last_updated - limits are global
 
         if self._symbol_input and self._symbol_input.value != symbol:

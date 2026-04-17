@@ -348,12 +348,11 @@ def _get_user_jobs_sync(
         try:
             cache_bucket = _schema_cache_bucket()
             try:
-                return _probe_cost_summary_column_cached(db_pool, cache_bucket)
-            except TypeError as exc:
+                hash(db_pool)
+            except TypeError:
                 # Fallback for uncommon unhashable pool wrappers.
-                if "unhashable type" not in str(exc):
-                    raise
                 return _probe_cost_summary_column_uncached(db_pool)
+            return _probe_cost_summary_column_cached(db_pool, cache_bucket)
         except pg_errors.AdminShutdown as exc:
             logger.warning(
                 "backtest_jobs_schema_probe_admin_shutdown",
