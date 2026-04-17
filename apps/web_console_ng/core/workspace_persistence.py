@@ -11,8 +11,6 @@ from typing import Any, NoReturn
 
 from psycopg.errors import UndefinedColumn, UndefinedObject, UndefinedTable
 
-from psycopg import errors as pg_errors
-
 from apps.web_console_ng.core.database import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -32,17 +30,79 @@ class DatabaseUnavailableError(Exception):
     pass
 
 
-def _log_missing_workspace_table(action: str, user_id: str, workspace_key: str) -> None:
-    """Log missing workspace_state table and degrade gracefully in dev environments."""
+class WorkspaceSchemaUnavailableError(DatabaseUnavailableError):
+    """Raised when workspace_state schema elements are missing."""
+
+    def __init__(
+        self,
+        operation: str,
+        workspace_key: str,
+        *,
+        cause: Exception | None = None,
+    ) -> None:
+        message = (
+            f"workspace_state schema unavailable during {operation} for key={workspace_key}"
+        )
+        if cause is not None:
+            message = f"{message} ({type(cause).__name__})"
+        super().__init__(message)
+        self.operation = operation
+        self.workspace_key = workspace_key
+
+
+def _is_workspace_schema_missing_error(exc: Exception) -> bool:
+    """Return True for workspace_state schema drift/missing-table errors.
+
+    All ``UndefinedTable``, ``UndefinedColumn``, and ``UndefinedObject``
+    exceptions that arise within workspace operations are treated as schema
+    unavailability.  Postgres ``UndefinedColumn`` messages do not always
+    include the table name (e.g. ``column "schema_version" does not exist``),
+    so a string-only check is insufficient.  Because the ``_workspace_schema_guard``
+    context manager is scoped to workspace operations, any such error is
+    inherently workspace-related.
+    """
+    return isinstance(exc, UndefinedTable | UndefinedColumn | UndefinedObject)
+
+
+def _raise_workspace_schema_unavailable(
+    exc: Exception,
+    *,
+    operation: str,
+    workspace_key: str,
+) -> NoReturn:
+    """Log and re-raise schema drift errors as a typed workspace exception."""
     logger.warning(
-        "workspace_state_table_missing",
+        "workspace_state_schema_unavailable",
         extra={
-            "action": action,
-            "user_id": user_id,
+            "operation": operation,
             "workspace_key": workspace_key,
-            "table": "workspace_state",
+            "error": type(exc).__name__,
         },
     )
+    raise WorkspaceSchemaUnavailableError(
+        operation,
+        workspace_key,
+        cause=exc,
+    ) from exc
+
+
+@asynccontextmanager
+async def _workspace_schema_guard(
+    *,
+    operation: str,
+    workspace_key: str,
+) -> AsyncIterator[None]:
+    """Normalize schema-missing DB errors into a typed workspace exception."""
+    try:
+        yield
+    except Exception as exc:
+        if _is_workspace_schema_missing_error(exc):
+            _raise_workspace_schema_unavailable(
+                exc,
+                operation=operation,
+                workspace_key=workspace_key,
+            )
+        raise
 
 
 @dataclass
@@ -113,7 +173,10 @@ class WorkspacePersistenceService:
             return False
 
         pool = _require_db_pool()
-        try:
+        async with _workspace_schema_guard(
+            operation="save_grid_state",
+            workspace_key=workspace_key,
+        ):
             # Use async context managers for AsyncConnectionPool
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
@@ -127,9 +190,6 @@ class WorkspacePersistenceService:
                         (user_id, workspace_key, state_json, SCHEMA_VERSIONS["grid"]),
                     )
                 await conn.commit()
-        except pg_errors.UndefinedTable:
-            _log_missing_workspace_table("save_grid_state", user_id, workspace_key)
-            return False
 
         logger.info(
             "workspace_state_saved",
@@ -156,7 +216,11 @@ class WorkspacePersistenceService:
         workspace_key = f"grid.{grid_id}"
 
         pool = _require_db_pool()
-        try:
+        row: Any | None = None
+        async with _workspace_schema_guard(
+            operation="load_grid_state",
+            workspace_key=workspace_key,
+        ):
             # Use async context managers for AsyncConnectionPool
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
@@ -169,9 +233,6 @@ class WorkspacePersistenceService:
                         (user_id, workspace_key),
                     )
                     row = await cur.fetchone()
-        except pg_errors.UndefinedTable:
-            _log_missing_workspace_table("load_grid_state", user_id, workspace_key)
-            return None
 
         if not row:
             return None
@@ -267,7 +328,10 @@ class WorkspacePersistenceService:
             return False
 
         pool = _require_db_pool()
-        try:
+        async with _workspace_schema_guard(
+            operation="save_panel_state",
+            workspace_key=workspace_key,
+        ):
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
@@ -280,9 +344,6 @@ class WorkspacePersistenceService:
                         (user_id, workspace_key, state_json, SCHEMA_VERSIONS["panel"]),
                     )
                 await conn.commit()
-        except pg_errors.UndefinedTable:
-            _log_missing_workspace_table("save_panel_state", user_id, workspace_key)
-            return False
 
         logger.info(
             "workspace_state_saved",
@@ -309,7 +370,11 @@ class WorkspacePersistenceService:
         workspace_key = f"panel.{panel_id}"
 
         pool = _require_db_pool()
-        try:
+        row: Any | None = None
+        async with _workspace_schema_guard(
+            operation="load_panel_state",
+            workspace_key=workspace_key,
+        ):
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
@@ -321,9 +386,6 @@ class WorkspacePersistenceService:
                         (user_id, workspace_key),
                     )
                     row = await cur.fetchone()
-        except pg_errors.UndefinedTable:
-            _log_missing_workspace_table("load_panel_state", user_id, workspace_key)
-            return None
 
         if not row:
             return None
@@ -391,7 +453,10 @@ class WorkspacePersistenceService:
             DatabaseUnavailableError: If database pool is not configured
         """
         pool = _require_db_pool()
-        try:
+        async with _workspace_schema_guard(
+            operation="reset_workspace",
+            workspace_key=workspace_key or "all",
+        ):
             # Use async context managers for AsyncConnectionPool
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
@@ -406,9 +471,6 @@ class WorkspacePersistenceService:
                             (user_id,),
                         )
                 await conn.commit()
-        except pg_errors.UndefinedTable:
-            _log_missing_workspace_table("reset_workspace", user_id, workspace_key or "all")
-            return
 
         logger.info(
             "workspace_state_reset",

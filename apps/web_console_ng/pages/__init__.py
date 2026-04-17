@@ -9,56 +9,61 @@ module names needed for testing. Import directly from submodules:
 Add imports as pages are implemented.
 """
 
-# P5T4-T5 pages (already implemented)
-# P5T6 pages
-# P5T7 pages (add as implemented):
-from apps.web_console_ng.pages import (
-    admin,  # noqa: F401
-    # P6T19: admin_users removed (single-admin model)
-    alerts,  # noqa: F401
-    alpha_explorer,  # noqa: F401 - P5T8
-    attribution,  # noqa: F401 - P6T10
-    backtest,  # noqa: F401
-    circuit_breaker,  # noqa: F401
-    compare,  # noqa: F401 - P5T8
-    dashboard,  # noqa: F401
-    data_coverage,  # noqa: F401 - P6T13
-    data_inspector,  # noqa: F401 - P6T13
-    data_management,  # noqa: F401
-    data_source_status,  # noqa: F401 - P6T14
-    execution_quality,  # noqa: F401 - P6T8
-    exposure,  # noqa: F401 - P6T15
-    feature_browser,  # noqa: F401 - P6T14
-    forgot_password,  # noqa: F401 - Auth page
-    health,  # noqa: F401
-    journal,  # noqa: F401 - P5T8
-    login,  # noqa: F401 - Auth page
-    manual_order,  # noqa: F401
-    mfa_verify,  # noqa: F401 - Auth page
-    models,  # noqa: F401 - P6T17
-    notebook_launcher,  # noqa: F401 - P5T8
-    performance,  # noqa: F401 - P5T8
-    position_management,  # noqa: F401
-    research,  # noqa: F401 - Cockpit+Forge consolidation
-    risk,  # noqa: F401
-    scheduled_reports,  # noqa: F401 - P5T8
-    shadow_results,  # noqa: F401 - P6T14
-    sql_explorer,  # noqa: F401 - P6T14
-    strategies,  # noqa: F401 - P6T17
-    tax_lots,  # noqa: F401 - P6T16
-    universes,  # noqa: F401 - P6T15
+from __future__ import annotations
+
+import importlib
+import logging
+
+logger = logging.getLogger(__name__)
+
+_PAGE_MODULES = (
+    "apps.web_console_ng.pages.admin",
+    "apps.web_console_ng.pages.alerts",
+    "apps.web_console_ng.pages.alpha_explorer",
+    "apps.web_console_ng.pages.attribution",
+    "apps.web_console_ng.pages.backtest",
+    "apps.web_console_ng.pages.circuit_breaker",
+    "apps.web_console_ng.pages.compare",
+    "apps.web_console_ng.pages.dashboard",
+    "apps.web_console_ng.pages.data_coverage",
+    "apps.web_console_ng.pages.data_inspector",
+    "apps.web_console_ng.pages.data_management",
+    "apps.web_console_ng.pages.data_source_status",
+    "apps.web_console_ng.pages.execution_quality",
+    "apps.web_console_ng.pages.exposure",
+    "apps.web_console_ng.pages.feature_browser",
+    "apps.web_console_ng.pages.forgot_password",
+    "apps.web_console_ng.pages.health",
+    "apps.web_console_ng.pages.journal",
+    "apps.web_console_ng.pages.login",
+    "apps.web_console_ng.pages.manual_order",
+    "apps.web_console_ng.pages.mfa_verify",
+    "apps.web_console_ng.pages.models",
+    "apps.web_console_ng.pages.notebook_launcher",
+    "apps.web_console_ng.pages.performance",
+    "apps.web_console_ng.pages.position_management",
+    "apps.web_console_ng.pages.research",
+    "apps.web_console_ng.pages.risk",
+    "apps.web_console_ng.pages.scheduled_reports",
+    "apps.web_console_ng.pages.shadow_results",
+    "apps.web_console_ng.pages.sql_explorer",
+    "apps.web_console_ng.pages.strategies",
+    "apps.web_console_ng.pages.tax_lots",
+    "apps.web_console_ng.pages.universes",
 )
 
 # Known optional third-party packages that individual page modules may depend on.
 # If these are absent we skip the page gracefully; any other missing module is a
 # genuine regression and must fail fast.
-_OPTIONAL_PACKAGES = frozenset({
-    "rq",           # backtest job queue
-    "plotly",       # charting in some pages
-    "pandas",       # data frames
-    "polars",       # data frames
-    "strategies",   # strategy helpers (not present in web-console image)
-})
+_OPTIONAL_PACKAGES = frozenset(
+    {
+        "rq",  # backtest job queue
+        "plotly",  # charting in some pages
+        "pandas",  # data frames
+        "polars",  # data frames
+        "strategies",  # strategy helpers (not present in web-console image)
+    }
+)
 
 # Tracks which modules were skipped due to missing optional deps.
 # Exposed for health/readiness diagnostics (see ``get_skipped_page_modules``).
@@ -68,12 +73,11 @@ for module_name in _PAGE_MODULES:
     try:
         importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
-        # Only tolerate missing *optional* third-party packages.  If the page
+        # Only tolerate missing optional third-party packages. If the page
         # module itself or one of its project-level transitive deps is missing,
         # that is a real regression and should fail fast.
         if exc.name is not None and any(
-            exc.name == pkg or exc.name.startswith(f"{pkg}.")
-            for pkg in _OPTIONAL_PACKAGES
+            exc.name == pkg or exc.name.startswith(f"{pkg}.") for pkg in _OPTIONAL_PACKAGES
         ):
             _SKIPPED_MODULES.append((module_name, exc.name))
             logger.warning(

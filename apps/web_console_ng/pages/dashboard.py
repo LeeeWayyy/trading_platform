@@ -2017,15 +2017,20 @@ async def dashboard(client: Client) -> None:
         signal_id: str | None = None
         reason_parts: list[str] = []
 
-        strategy_payload_task = asyncio.create_task(
-            trading_client.fetch_strategy_status(
+        async def _fetch_strategy_payload() -> dict[str, Any]:
+            return await trading_client.fetch_strategy_status(
                 strategy_id,
                 user_id=user_id,
                 role=user_role,
                 strategies=user_strategies,
             )
+
+        strategy_payload_task: asyncio.Task[dict[str, Any]] = asyncio.create_task(
+            _fetch_strategy_payload()
         )
-        db_model_context_task = asyncio.create_task(_fetch_model_registry_context(strategy_id))
+        db_model_context_task: asyncio.Task[tuple[str, str | None]] = asyncio.create_task(
+            _fetch_model_registry_context(strategy_id)
+        )
 
         strategy_payload: dict[str, Any] | None = None
         try:
@@ -2033,7 +2038,16 @@ async def dashboard(client: Client) -> None:
         except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
             reason_parts.append(f"strategy status unavailable ({type(exc).__name__})")
 
-        db_model_status, db_model_version = await db_model_context_task
+        db_model_status: str = "unknown"
+        db_model_version: str | None = None
+        try:
+            db_model_status, db_model_version = await db_model_context_task
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            reason_parts.append(
+                f"model registry context unavailable ({type(exc).__name__})"
+            )
 
         if _is_strategy_context_refresh_stale(refresh_generation, selected_symbol):
             return
@@ -2160,20 +2174,6 @@ async def dashboard(client: Client) -> None:
         strategy_context_refresh_pending = False
         for timer in timers:
             timer.cancel()
-
-    async def cleanup_strategy_context_task() -> None:
-        if strategy_context_refresh_task and not strategy_context_refresh_task.done():
-            strategy_context_refresh_task.cancel()
-            try:
-                await strategy_context_refresh_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.debug(
-                    "strategy_context_refresh_task_cleanup_failed",
-                    extra={"client_id": client_id},
-                    exc_info=True,
-                )
 
     async def cleanup_strategy_context_task() -> None:
         if strategy_context_refresh_task and not strategy_context_refresh_task.done():
