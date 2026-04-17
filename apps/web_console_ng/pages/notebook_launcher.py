@@ -116,7 +116,15 @@ def _deserialize_session_store_from_redis(session_store: dict[str, Any]) -> dict
         status_raw = value.get("status")
         try:
             status = SessionStatus(str(status_raw))
-        except ValueError:
+        except ValueError as exc:
+            logger.warning(
+                "notebook_session_status_parse_failed",
+                extra={
+                    "session_key": str(key),
+                    "status": str(status_raw),
+                    "error": str(exc),
+                },
+            )
             status = SessionStatus.ERROR
 
         created_at_raw = value.get("created_at")

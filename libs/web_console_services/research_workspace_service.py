@@ -9,6 +9,7 @@ No storage merge occurs; this is a UI-only adapter.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -239,7 +240,7 @@ class ResearchWorkspaceService:
         model_service: ModelRegistryBrowserService,
     ) -> list[LifecycleRow]:
         """Join ops + research rows with deterministic linkage and derived lifecycle."""
-        research_rows = self.list_research_signals()
+        research_rows = await asyncio.to_thread(self.list_research_signals)
         ops_rows = await self.list_ops_models(user=user, model_service=model_service)
 
         research_by_primary: dict[tuple[str, str], ResearchSignalRow] = {}

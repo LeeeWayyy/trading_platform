@@ -235,9 +235,9 @@ async def _resolve_prefill_alpha_name(
     if not signal_id:
         return (None, None)
     try:
-        from apps.web_console_ng.pages.alpha_explorer import _get_alpha_service
+        from apps.web_console_ng.pages.alpha_explorer import get_alpha_service
 
-        service = await run.io_bound(_get_alpha_service)
+        service = await run.io_bound(get_alpha_service)
         if service is None:
             return (None, "Prefill unavailable: alpha explorer service is not ready")
         metrics = await run.io_bound(service.get_signal_metrics, signal_id)

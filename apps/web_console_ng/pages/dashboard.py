@@ -2016,6 +2016,8 @@ async def dashboard(client: Client) -> None:
         model_version: str | None = None
         signal_id: str | None = None
         reason_parts: list[str] = []
+        db_model_context_reason: str | None = None
+        payload_has_model_context = False
 
         async def _fetch_strategy_payload() -> dict[str, Any]:
             return await trading_client.fetch_strategy_status(
@@ -2069,7 +2071,7 @@ async def dashboard(client: Client) -> None:
         if isinstance(db_model_context_result, Exception):
             if isinstance(db_model_context_result, asyncio.CancelledError):
                 raise db_model_context_result
-            reason_parts.append(
+            db_model_context_reason = (
                 "model registry context unavailable "
                 f"({type(db_model_context_result).__name__})"
             )
@@ -2087,6 +2089,7 @@ async def dashboard(client: Client) -> None:
             payload_model_version = strategy_payload.get("model_version")
             if payload_model_version:
                 model_version = str(payload_model_version).strip()
+            payload_has_model_context = bool(payload_model_status or payload_model_version)
             payload_signal_id = strategy_payload.get("signal_id")
             if payload_signal_id:
                 signal_id = str(payload_signal_id).strip()
@@ -2101,6 +2104,12 @@ async def dashboard(client: Client) -> None:
             model_version=model_version,
             feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
         )
+        if db_model_context_reason:
+            model_context_required = strategy_payload is None or (
+                enforce_model_gate and not payload_has_model_context
+            )
+            if model_context_required:
+                reason_parts.append(db_model_context_reason)
         strategy_safe = is_strategy_execution_safe(strategy_status)
         model_safe = is_model_execution_safe(model_status)
 

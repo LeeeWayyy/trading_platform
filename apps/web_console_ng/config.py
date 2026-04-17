@@ -81,6 +81,7 @@ WS_SESSION_VALIDATION_TIMEOUT = float(os.getenv("WS_SESSION_VALIDATION_TIMEOUT",
 # =============================================================================
 
 EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+MODEL_REGISTRY_DIR = os.getenv("MODEL_REGISTRY_DIR", "data/models")
 
 # =============================================================================
 # Dashboard polling intervals (seconds)

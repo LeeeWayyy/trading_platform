@@ -59,6 +59,13 @@ def _get_model_registry_service(
     return service
 
 
+def get_model_registry_service(
+    db_pool: AsyncConnectionPool,
+) -> ModelRegistryBrowserService:
+    """Public wrapper for model registry service resolution."""
+    return _get_model_registry_service(db_pool)
+
+
 def _format_model_timestamp(value: Any) -> str:
     """Format model datetime values for compact dense-grid rows."""
     if isinstance(value, datetime):
@@ -360,3 +367,14 @@ async def _show_model_action_dialog(
             ui.button("Cancel", on_click=dialog.close)
 
     dialog.open()
+
+
+async def show_model_action_dialog(
+    service: ModelRegistryBrowserService,
+    strategy_name: str,
+    version: str,
+    action: str,
+    user: dict[str, Any],
+) -> None:
+    """Public wrapper for model lifecycle action confirmation dialog."""
+    await _show_model_action_dialog(service, strategy_name, version, action, user)

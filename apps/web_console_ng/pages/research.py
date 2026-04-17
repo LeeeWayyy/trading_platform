@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode
@@ -14,7 +13,6 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
-from apps.web_console_ng.pages import models as models_page
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission, is_admin
 
@@ -114,7 +112,7 @@ def _get_research_workspace_service() -> ResearchWorkspaceService | None:
         )
         return None
 
-    registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
+    registry_dir = Path(config.MODEL_REGISTRY_DIR)
     if (
         _research_workspace_service_cache is None
         or _research_workspace_service_registry_dir != registry_dir
@@ -333,6 +331,8 @@ async def _render_promote_rows(
     user: dict[str, Any],
     can_manage: bool,
 ) -> None:
+    from apps.web_console_ng.pages import models as models_page
+
     if not rows:
         ui.label("No lifecycle rows available.").classes("text-slate-400")
         return
@@ -377,7 +377,7 @@ async def _render_promote_rows(
                             ver: str = row.version,
                             action_name: str = action_name,
                         ) -> None:
-                            await models_page._show_model_action_dialog(  # noqa: SLF001
+                            await models_page.show_model_action_dialog(
                                 model_service,
                                 sn,
                                 ver,
@@ -445,7 +445,9 @@ async def research_workspace_page() -> None:
                 type="warning",
             )
         elif async_pool is not None:
-            model_service = models_page._get_model_registry_service(async_pool)  # noqa: SLF001
+            from apps.web_console_ng.pages import models as models_page
+
+            model_service = models_page.get_model_registry_service(async_pool)
             try:
                 lifecycle_rows = await workspace_service.list_lifecycle_rows(
                     user=user,
