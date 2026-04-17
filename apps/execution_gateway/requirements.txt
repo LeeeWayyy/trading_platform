@@ -62,3 +62,6 @@ pytest-asyncio>=0.21.0  # For async Redis tests
 
 # Task scheduling (P2 - TWAP Order Slicer)
 apscheduler>=3.10.0
+
+# Excel export (P6T8)
+openpyxl>=3.1.0
