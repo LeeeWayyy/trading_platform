@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -138,38 +139,38 @@ class TestAlertmanagerConfig:
     """Validate Alertmanager configuration."""
 
     @pytest.fixture()
-    def alertmanager_config(self) -> dict:
+    def alertmanager_config(self) -> dict[str, Any]:
         """Load alertmanager config.yml."""
         config_path = Path(__file__).parent.parent.parent / "infra/alertmanager/config.yml"
         with open(config_path) as f:
             return yaml.safe_load(f)
 
-    def test_alertmanager_config_valid_yaml(self, alertmanager_config):
+    def test_alertmanager_config_valid_yaml(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify config.yml is valid YAML."""
         assert alertmanager_config is not None
         assert isinstance(alertmanager_config, dict)
 
-    def test_route_defined(self, alertmanager_config):
+    def test_route_defined(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify routing tree is defined."""
         assert "route" in alertmanager_config
         assert "receiver" in alertmanager_config["route"]
 
-    def test_receivers_defined(self, alertmanager_config):
+    def test_receivers_defined(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify receivers are defined."""
         assert "receivers" in alertmanager_config
         assert len(alertmanager_config["receivers"]) > 0
 
-    def test_slack_receiver_exists(self, alertmanager_config):
+    def test_slack_receiver_exists(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify Slack receiver is configured."""
         receiver_names = [r["name"] for r in alertmanager_config["receivers"]]
         assert "slack-ops" in receiver_names, "slack-ops receiver not found"
 
-    def test_pagerduty_receiver_exists(self, alertmanager_config):
+    def test_pagerduty_receiver_exists(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify PagerDuty receiver is configured."""
         receiver_names = [r["name"] for r in alertmanager_config["receivers"]]
         assert "pagerduty-platform" in receiver_names, "pagerduty-platform receiver not found"
 
-    def test_track7_routing_exists(self, alertmanager_config):
+    def test_track7_routing_exists(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify Track 7 SLA routing is configured."""
         routes = alertmanager_config["route"].get("routes", [])
         track7_route = None
@@ -181,7 +182,93 @@ class TestAlertmanagerConfig:
 
         assert track7_route is not None, "track7 SLA route not found"
 
-    def test_inhibit_rules_defined(self, alertmanager_config):
+    def test_page_routing_exists(self, alertmanager_config: dict[str, Any]) -> None:
+        """Verify severity=page alerts route to PagerDuty and reach Slack."""
+        routes = alertmanager_config["route"].get("routes", [])
+        page_route = next(
+            (
+                r
+                for r in routes
+                if r.get("match", {}).get("severity") == "page"
+                or all(
+                    s in r.get("match_re", {}).get("severity", "") for s in ["page", "critical"]
+                )
+            ),
+            None,
+        )
+
+        assert page_route is not None, "severity=page route not found"
+        assert page_route.get("receiver") == "pagerduty-platform"
+        assert page_route.get("continue") is True
+
+        # Verify a catch-all Slack route exists after the page route so
+        # alerts with continue=true are also delivered to Slack.
+        page_idx = routes.index(page_route)
+        remaining = routes[page_idx + 1 :]
+        slack_catchall = next(
+            (
+                r
+                for r in remaining
+                if r.get("receiver") == "slack-ops" and "match" not in r and "match_re" not in r
+            ),
+            None,
+        )
+        assert (
+            slack_catchall is not None
+        ), "catch-all slack-ops route must follow page route for dual-delivery"
+
+    def test_track7_routes_page_to_pagerduty(self, alertmanager_config: dict[str, Any]) -> None:
+        """Verify track7 sub-routes send page alerts to PagerDuty and Slack."""
+        routes = alertmanager_config["route"].get("routes", [])
+        track7_route = next(
+            (r for r in routes if r.get("match", {}).get("sla") == "track7"),
+            None,
+        )
+        assert track7_route is not None, "track7 SLA route not found"
+
+        child_routes = track7_route.get("routes", [])
+        # First child should match critical|page and route to PagerDuty
+        pagerduty_child = next(
+            (
+                r
+                for r in child_routes
+                if r.get("receiver") == "pagerduty-platform"
+                and all(
+                    s in r.get("match_re", {}).get("severity", "") for s in ["page", "critical"]
+                )
+            ),
+            None,
+        )
+        assert pagerduty_child is not None, "track7 must route page alerts to pagerduty-platform"
+        assert (
+            pagerduty_child.get("continue") is True
+        ), "track7 PagerDuty child must continue to Slack catch-all"
+
+        # A catch-all Slack child must follow for dual-delivery
+        pd_idx = child_routes.index(pagerduty_child)
+        slack_child = next(
+            (r for r in child_routes[pd_idx + 1 :] if r.get("receiver") == "slack-ops"),
+            None,
+        )
+        assert slack_child is not None, "track7 must have a Slack catch-all child after PagerDuty"
+
+    def test_pagerduty_maps_page_to_critical(self, alertmanager_config: dict[str, Any]) -> None:
+        """Verify PagerDuty severity normalizes page alerts to critical."""
+        pagerduty_receiver = next(
+            (r for r in alertmanager_config["receivers"] if r.get("name") == "pagerduty-platform"),
+            None,
+        )
+
+        assert pagerduty_receiver is not None
+        pagerduty_config = pagerduty_receiver["pagerduty_configs"][0]
+        severity_template = pagerduty_config["severity"]
+        expected_template = (
+            '{{ if eq (index .Alerts 0).Labels.severity "page" }}critical'
+            "{{ else }}{{ (index .Alerts 0).Labels.severity }}{{ end }}"
+        )
+        assert severity_template == expected_template
+
+    def test_inhibit_rules_defined(self, alertmanager_config: dict[str, Any]) -> None:
         """Verify inhibit rules are defined."""
         assert "inhibit_rules" in alertmanager_config
         assert len(alertmanager_config["inhibit_rules"]) > 0

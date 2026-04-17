@@ -15,9 +15,12 @@ RUN groupadd -r appuser && useradd --no-create-home -r -g appuser appuser
 
 # Create .nicegui directory for NiceGUI persistence (user storage, etc.)
 RUN mkdir -p /app/.nicegui && chown appuser:appuser /app/.nicegui
+RUN mkdir -p /app/data/universes && chown -R appuser:appuser /app/data
 
 COPY --chown=appuser:appuser apps/web_console_ng /app/apps/web_console_ng
 COPY --chown=appuser:appuser libs /app/libs
+COPY --chown=appuser:appuser config /app/config
+COPY --chown=appuser:appuser strategies /app/strategies
 
 ENV PYTHONPATH=/app
 

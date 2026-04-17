@@ -493,7 +493,7 @@ async def _ensure_permission_with_audit(
         )
 
 
-@router.post("/orders/{order_id}/cancel", response_model=CancelOrderResponse)
+@router.post("/manual/orders/{order_id}/cancel", response_model=CancelOrderResponse)
 async def cancel_order(
     order_id: str,
     request: CancelOrderRequest,
@@ -503,7 +503,11 @@ async def cancel_order(
     audit_logger: AuditLogger = Depends(get_audit_logger),
     alpaca_executor: AlpacaExecutor | None = Depends(get_alpaca_executor),
 ) -> CancelOrderResponse:
-    """Cancel a single order with permission, strategy, and rate-limit enforcement."""
+    """Cancel a single order with permission, strategy, and rate-limit enforcement.
+
+    Mounted under /manual to avoid shadowing the legacy core cancel endpoint
+    at POST /api/v1/orders/{client_order_id}/cancel.
+    """
     sanitized_reason = _sanitize_reason(request.reason)
 
     await _ensure_permission_with_audit(user, Permission.CANCEL_ORDER, "cancel_order", audit_logger)

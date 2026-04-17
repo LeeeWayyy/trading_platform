@@ -148,6 +148,7 @@ async def _run_layout(
     current_path: str,
     *,
     has_admin_permissions: bool = True,
+    denied_permissions: set[Permission] | None = None,
 ) -> _FakeUI:
     fake_ui = _FakeUI()
     storage = SimpleNamespace(
@@ -169,8 +170,11 @@ async def _run_layout(
         Permission.MANAGE_SYSTEM_CONFIG,
         Permission.VIEW_AUDIT,
     }
+    denied = denied_permissions or set()
 
     def mock_has_permission(_user: dict[str, Any], permission: Permission) -> bool:
+        if permission in denied:
+            return False
         if permission in admin_permissions:
             return has_admin_permissions
         return True
@@ -308,16 +312,24 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
     expected_paths = [
         "/",
         "/manual-order",
+        "/position-management",
         "/circuit-breaker",
         "/health",
         "/risk",
-        "/alpha-explorer",
+        "/risk/exposure",
+        "/attribution",
+        "/research/universes",
         "/compare",
         "/journal",
         "/notebooks",
         "/performance",
         "/reports",
-        "/backtest",
+        "/data",
+        "/data/coverage",
+        "/data/sources",
+        "/data/inspector",
+        "/data/features",
+        "/data/sql-explorer",
         "/tax-lots",
         # P6T19: "/admin/users" removed (single-admin model)
         "/admin",
@@ -334,7 +346,55 @@ async def test_admin_item_hidden_for_non_admin(monkeypatch: pytest.MonkeyPatch) 
     targets = {link.target for link in fake_ui.links}
 
     assert "/admin" not in targets
+    assert "/position-management" not in targets
     assert "/" in targets
+
+
+@pytest.mark.asyncio()
+async def test_data_and_attribution_hidden_without_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_ui = await _run_layout(
+        monkeypatch,
+        user_role="viewer",
+        current_path="/",
+        denied_permissions={
+            Permission.VIEW_PNL,
+            Permission.VIEW_DATA_SYNC,
+            Permission.VIEW_DATA_QUALITY,
+            Permission.VIEW_FEATURES,
+            Permission.QUERY_DATA,
+        },
+    )
+    targets = {link.target for link in fake_ui.links}
+
+    assert "/attribution" not in targets
+    assert "/data" not in targets
+    assert "/data/coverage" not in targets
+    assert "/data/sources" not in targets
+    assert "/data/inspector" not in targets
+    assert "/data/features" not in targets
+    assert "/data/sql-explorer" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_nav_hidden_when_discover_feature_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research nav should not show for alpha-only users when discover feature is off."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_ALPHA_EXPLORER", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
+
+    fake_ui = await _run_layout(
+        monkeypatch,
+        user_role="viewer",
+        current_path="/",
+        denied_permissions={Permission.VIEW_PNL, Permission.VIEW_MODELS},
+    )
+    targets = {link.target for link in fake_ui.links}
+
+    assert "/research" not in targets
 
 
 # === Exception Handling Tests ===

@@ -323,22 +323,29 @@ def test_navigation_item_structure() -> None:
     items = _extract_nav_items()
     assert items == [
         ("Dashboard", "/", "dashboard", None),
+        ("Trade", "/trade", "candlestick_chart", None),
+        ("Research Workspace", "/research", "hub", None),
         ("Manual Controls", "/manual-order", "edit", None),
+        ("Position Mgmt", "/position-management", "swap_vert", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
         ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
         ("Strategy Exposure", "/risk/exposure", "balance", None),  # P6T15
+        ("Attribution", "/attribution", "pie_chart", None),  # P6T16
         ("Universes", "/research/universes", "category", None),  # P6T15
-        ("Alpha Explorer", "/alpha-explorer", "insights", None),
         ("Compare", "/compare", "compare_arrows", None),
         ("Journal", "/journal", "book", None),
         ("Notebooks", "/notebooks", "article", None),
         ("Performance", "/performance", "show_chart", None),
         ("Reports", "/reports", "summarize", None),
-        ("Backtest", "/backtest", "science", None),
+        ("Data Hub", "/data", "storage", None),  # P6T13
+        ("Coverage", "/data/coverage", "dataset", None),  # P6T13
+        ("Sources", "/data/sources", "cloud", None),  # P6T13
+        ("Inspector", "/data/inspector", "manage_search", None),  # P6T13
+        ("Features", "/data/features", "auto_awesome", None),  # P6T13
+        ("SQL Explorer", "/data/sql-explorer", "terminal", None),  # P6T13
         ("Strategies", "/strategies", "model_training", None),  # P6T17
-        ("Models", "/models", "hub", None),  # P6T17
         ("Tax Lots", "/tax-lots", "receipt_long", None),  # P6T16
         # P6T19: ("Users", "/admin/users") removed (single-admin model)
         ("Alerts", "/alerts", "notifications", None),  # P5T7/P6T17
@@ -666,17 +673,15 @@ async def test_universes_link_hidden_without_permission(
 async def test_p6t17_links_hidden_when_feature_flags_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Strategies, Models, and Alerts nav links are hidden when feature flags are False."""
-    # Disable all P6T17 feature flags
+    """Strategies and Alerts nav links are hidden when feature flags are False."""
+    # Disable P6T17 feature flags that drive primary nav items.
     monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", False)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", False)
 
     fake_ui = await _run_layout(monkeypatch, current_path="/")
 
     targets = {link.target for link in fake_ui.links}
     assert "/strategies" not in targets
-    assert "/models" not in targets
     assert "/alerts" not in targets
 
 
@@ -684,16 +689,14 @@ async def test_p6t17_links_hidden_when_feature_flags_disabled(
 async def test_p6t17_links_visible_when_feature_flags_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Strategies, Models, and Alerts nav links are visible when feature flags are True."""
+    """Strategies and Alerts nav links are visible when feature flags are True."""
     monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
 
     fake_ui = await _run_layout(monkeypatch, current_path="/")
 
     targets = {link.target for link in fake_ui.links}
     assert "/strategies" in targets
-    assert "/models" in targets
     assert "/alerts" in targets
 
 
@@ -703,13 +706,11 @@ async def test_p6t17_links_hidden_when_permissions_denied(
 ) -> None:
     """P6T17 links are hidden when user lacks the required permission (even with flags on)."""
     monkeypatch.setattr(layout_module.config, "FEATURE_STRATEGY_MANAGEMENT", True)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALERTS", True)
 
-    # Deny all P6T17-related permissions; allow all others (so layout renders)
+    # Deny all nav-visible P6T17-related permissions; allow all others.
     denied = {
         Permission.MANAGE_STRATEGIES,
-        Permission.VIEW_MODELS,
         Permission.VIEW_ALERTS,
     }
 
@@ -734,5 +735,131 @@ async def test_p6t17_links_hidden_when_permissions_denied(
 
     targets = {link.target for link in fake_ui2.links}
     assert "/strategies" not in targets
-    assert "/models" not in targets
     assert "/alerts" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_visible_with_models_permission_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link stays visible when only Promote-tab permission exists."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+    await _run_layout(monkeypatch, current_path="/")
+
+    fake_ui = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+
+    denied = {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_PNL,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_hidden_with_models_permission_only_when_registry_flag_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link is hidden when Promote tab is feature-disabled."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
+    await _run_layout(monkeypatch, current_path="/")
+
+    fake_ui = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+
+    denied = {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_PNL,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_hidden_without_workspace_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link is hidden when no consolidated-tab permission exists."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
+    await _run_layout(monkeypatch, current_path="/")
+
+    fake_ui = _FakeUI()
+    monkeypatch.setattr(layout_module, "ui", fake_ui)
+
+    denied = {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_PNL,
+        Permission.VIEW_MODELS,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], perm: Permission) -> bool:
+        return perm not in denied
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_research_link_hidden_when_workspace_flag_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Research workspace link is hidden when consolidated workspace is disabled."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" not in targets
+
+
+@pytest.mark.asyncio()
+async def test_legacy_research_links_visible_when_workspace_flag_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy research routes remain visible during workspace rollback."""
+    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", False)
+    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
+
+    fake_ui = await _run_layout(monkeypatch, current_path="/")
+
+    targets = {link.target for link in fake_ui.links}
+    assert "/research" not in targets
+    assert "/alpha-explorer" in targets
+    assert "/backtest" in targets
+    assert "/models" in targets

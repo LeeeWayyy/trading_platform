@@ -34,6 +34,57 @@ EXPORT_STRICT_AUDIT_MODE = os.getenv("EXPORT_STRICT_AUDIT_MODE", "false").lower(
 # See libs/platform/security/sanitization.py for the canonical implementation.
 
 
+def merge_filter_models(
+    grid_filters: dict[str, Any],
+    extra_filters: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge extra (tab/page-scoped) filters into an AG Grid filter model.
+
+    For non-overlapping keys both filters are simply included.  For
+    overlapping keys:
+    - **set** filters: values are intersected so the user's narrower
+      selection within the page scope is honoured.  An empty intersection
+      is kept (produces zero results) to preserve view/export parity.
+    - **other** filters: combined into an AND compound filter.  Any
+      already-compound AND conditions are flattened to avoid nesting.
+
+    Returns a new dict — neither input is mutated.
+    """
+    merged = dict(grid_filters)
+    for key, extra_spec in extra_filters.items():
+        grid_spec = grid_filters.get(key)
+        if grid_spec is None:
+            merged[key] = extra_spec
+        elif (
+            isinstance(extra_spec, dict)
+            and isinstance(grid_spec, dict)
+            and extra_spec.get("filterType") == "set"
+            and grid_spec.get("filterType") == "set"
+        ):
+            extra_vals = set(extra_spec.get("values") or [])
+            grid_vals = set(grid_spec.get("values") or [])
+            merged[key] = {
+                "filterType": "set",
+                "values": sorted(extra_vals & grid_vals),
+            }
+        else:
+            conditions: list[dict[str, Any]] = []
+            for s in (extra_spec, grid_spec):
+                if (
+                    isinstance(s, dict)
+                    and isinstance(s.get("conditions"), list)
+                    and s.get("operator", "").upper() == "AND"
+                ):
+                    conditions.extend(s["conditions"])
+                else:
+                    conditions.append(s)
+            merged[key] = {
+                "operator": "AND",
+                "conditions": conditions,
+            }
+    return merged
+
+
 class GridExportToolbar:
     """Export toolbar component for AG Grids.
 
@@ -50,6 +101,7 @@ class GridExportToolbar:
         on_export_start: Callable[[str], None] | None = None,
         on_export_complete: Callable[[str, int], None] | None = None,
         api_base_url: str = "/api/v1",
+        extra_filters: dict[str, Any] | None = None,
     ) -> None:
         """Initialize export toolbar.
 
@@ -62,6 +114,10 @@ class GridExportToolbar:
             on_export_start: Callback when export starts
             on_export_complete: Callback when export completes (type, row_count)
             api_base_url: Base URL for export API endpoints
+            extra_filters: Additional AG Grid filter entries to inject into
+                the filter model before creating the audit record.  Use this
+                for tab-scoped predicates that the UI applies outside the AG
+                Grid filter model (e.g. working-order status filter).
         """
         self.grid_id = grid_id
         self.grid_name = grid_name
@@ -71,6 +127,7 @@ class GridExportToolbar:
         self.on_export_start = on_export_start
         self.on_export_complete = on_export_complete
         self.api_base_url = api_base_url
+        self.extra_filters = extra_filters or {}
 
         self._csv_button: ui.button | None = None
         self._excel_button: ui.button | None = None
@@ -156,10 +213,17 @@ class GridExportToolbar:
     ) -> str | None:
         """Create export audit record via API.
 
+        Merges ``self.extra_filters`` into the AG Grid filter model so
+        that tab-scoped predicates (e.g. working-order status) are
+        included in the server-side export query.
+
         Returns audit_id or None if failed.
         """
         try:
             import httpx
+
+            grid_filters = grid_state.get("filterModel") or {}
+            filter_model = merge_filter_models(grid_filters, self.extra_filters)
 
             headers = self._get_auth_headers()
             async with httpx.AsyncClient() as client:
@@ -169,7 +233,7 @@ class GridExportToolbar:
                     json={
                         "export_type": export_type,
                         "grid_name": self.grid_name,
-                        "filter_params": grid_state.get("filterModel"),
+                        "filter_params": filter_model,
                         "visible_columns": grid_state.get("columns"),
                         "sort_model": grid_state.get("sortModel"),
                         "export_scope": "visible",
@@ -412,6 +476,7 @@ class GridExportToolbar:
 
 __all__ = [
     "GridExportToolbar",
+    "merge_filter_models",
     "sanitize_for_export",
     "EXPORT_STRICT_AUDIT_MODE",
 ]

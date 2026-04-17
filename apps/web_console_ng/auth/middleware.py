@@ -24,6 +24,29 @@ from apps.web_console_ng.auth.session_store import (
 logger = logging.getLogger(__name__)
 
 
+async def _call_next_with_disconnect_guard(
+    request: Request, call_next: Callable[[Request], Any]
+) -> Response:
+    """Call downstream middleware/route and handle disconnect race safely.
+
+    Starlette can raise RuntimeError("No response returned.") when a client disconnects
+    mid-request before downstream has emitted a response. Treat that case as benign
+    only when the request is confirmed disconnected.
+    """
+    try:
+        return cast(Response, await call_next(request))
+    except RuntimeError as exc:
+        if str(exc) != "No response returned.":
+            raise
+        if not await request.is_disconnected():
+            raise
+        logger.debug(
+            "suppressing_no_response_returned_for_disconnected_client",
+            extra={"path": request.url.path},
+        )
+        return Response(status_code=204)
+
+
 def _get_request_from_storage() -> Request:
     """Return current request from NiceGUI context or a minimal fallback for tests.
 
@@ -205,7 +228,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
         # Skip static files, health checks, and auth entrypoints
         if request.url.path.startswith(self._EXEMPT_PATH_PREFIXES):
-            return cast(Response, await call_next(request))
+            return await _call_next_with_disconnect_guard(request, call_next)
 
         # 1. mTLS Auto-Login (if enabled)
         # We check this at middleware level to allow bypass of login form
@@ -297,7 +320,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return response
             return Response(status_code=401)
 
-        return cast(Response, await call_next(request))
+        return await _call_next_with_disconnect_guard(request, call_next)
 
     # P6T19: _override_role_from_db, _apply_role_override, _update_session_payload
     # removed — single-admin model hardcodes role="admin" in dispatch above.
@@ -369,7 +392,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     )
                 # For HTML requests, proceed without user - decorators will handle error UI
 
-        return cast(Response, await call_next(request))
+        return await _call_next_with_disconnect_guard(request, call_next)
 
 
 async def _validate_and_get_user_for_decorator(

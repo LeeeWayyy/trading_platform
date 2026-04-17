@@ -17,14 +17,7 @@ from psycopg_pool import AsyncConnectionPool, ConnectionPool
 from redis import Redis
 from rq import Queue, Worker, get_current_job
 
-from libs.core.common.exceptions import ConfigurationError
-from libs.platform.alerts.channels import (
-    BaseChannel,
-    EmailChannel,
-    PagerDutyChannel,
-    SlackChannel,
-    SMSChannel,
-)
+from libs.platform.alerts.channels import BaseChannel, build_channel_handlers
 from libs.platform.alerts.delivery_service import DeliveryExecutor, QueueDepthManager
 from libs.platform.alerts.models import ChannelType, DeliveryResult
 from libs.platform.alerts.poison_queue import PoisonQueue
@@ -194,28 +187,12 @@ async def _close_async_resources(resources: AsyncResources) -> None:
 def _get_channels() -> dict[ChannelType, BaseChannel]:
     """Build channel handlers, lazily skipping unconfigured channels.
 
-    SMS channel requires Twilio credentials. If not configured, SMS is
-    skipped and a warning is logged. Email, Slack, and PagerDuty are always enabled.
+    Delegates to the shared ``build_channel_handlers`` factory so that
+    channel initialization logic is not duplicated across services.
     """
     global _CHANNELS
     if _CHANNELS is None:
-        _CHANNELS = {
-            ChannelType.EMAIL: EmailChannel(),
-            ChannelType.SLACK: SlackChannel(),
-        }
-        # SMS requires Twilio credentials - skip if not configured
-        try:
-            _CHANNELS[ChannelType.SMS] = SMSChannel()
-        except ConfigurationError as exc:
-            logger.warning(
-                "sms_channel_disabled",
-                extra={
-                    "reason": str(exc),
-                    "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
-                },
-            )
-        # PagerDuty uses routing key per-recipient, no global credentials needed
-        _CHANNELS[ChannelType.PAGERDUTY] = PagerDutyChannel()
+        _CHANNELS = build_channel_handlers(logger=logger)
     return _CHANNELS
 
 

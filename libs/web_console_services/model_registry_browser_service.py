@@ -49,6 +49,24 @@ class ModelRegistryBrowserService:
         # any other API call.
         self._validate_token = validate_token
 
+    @staticmethod
+    def _serialize_model_row(row: Any) -> dict[str, Any]:
+        """Convert a model_registry DB row tuple to API payload."""
+        return {
+            "id": row[0],
+            "strategy_name": row[1],
+            "version": row[2],
+            "model_path": row[3],
+            "status": row[4],
+            "performance_metrics": row[5],
+            "config": row[6],
+            "created_at": row[7],
+            "activated_at": row[8],
+            "deactivated_at": row[9],
+            "created_by": row[10],
+            "notes": row[11],
+        }
+
     async def list_strategies_with_models(self, user: dict[str, Any]) -> list[dict[str, Any]]:
         """List strategies that have models in the registry, scoped by RBAC."""
         if not has_permission(user, Permission.VIEW_MODELS):
@@ -81,6 +99,90 @@ class ModelRegistryBrowserService:
 
             rows = await cursor.fetchall()
             return [{"strategy_name": row[0]} for row in rows]
+
+    async def list_models_for_strategies(
+        self,
+        user: dict[str, Any],
+        *,
+        strategy_names: list[str] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Fetch model rows across strategies in a single query, scoped by RBAC."""
+        if not has_permission(user, Permission.VIEW_MODELS):
+            raise PermissionError("Permission VIEW_MODELS required")
+
+        requested: list[str] = []
+        seen: set[str] = set()
+        for raw_name in strategy_names or []:
+            name = str(raw_name).strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            requested.append(name)
+        requested_names = requested or None
+
+        authorized = get_authorized_strategies(user)
+        view_all = has_permission(user, Permission.VIEW_ALL_STRATEGIES)
+
+        scoped_names: list[str] | None = None
+        if view_all:
+            scoped_names = requested_names
+        elif requested_names is not None:
+            authorized_set = set(authorized)
+            scoped_names = [name for name in requested_names if name in authorized_set]
+            if not scoped_names:
+                return {}
+        elif authorized:
+            scoped_names = list(dict.fromkeys(authorized))
+        else:
+            return {}
+
+        async with acquire_connection(self.db_pool) as conn:
+            if scoped_names is None:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, strategy_name, version, model_path, status,
+                           performance_metrics, config, created_at, activated_at,
+                           deactivated_at, created_by, notes
+                    FROM model_registry
+                    ORDER BY
+                        strategy_name,
+                        CASE
+                            WHEN status = 'active' THEN 1
+                            WHEN activated_at IS NOT NULL THEN 2
+                            ELSE 3
+                        END,
+                        activated_at DESC NULLS LAST,
+                        created_at DESC
+                    """
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, strategy_name, version, model_path, status,
+                           performance_metrics, config, created_at, activated_at,
+                           deactivated_at, created_by, notes
+                    FROM model_registry
+                    WHERE strategy_name = ANY(%s)
+                    ORDER BY
+                        strategy_name,
+                        CASE
+                            WHEN status = 'active' THEN 1
+                            WHEN activated_at IS NOT NULL THEN 2
+                            ELSE 3
+                        END,
+                        activated_at DESC NULLS LAST,
+                        created_at DESC
+                    """,
+                    (scoped_names,),
+                )
+
+            rows = await cursor.fetchall()
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                payload = self._serialize_model_row(row)
+                strategy_name = str(payload["strategy_name"])
+                grouped.setdefault(strategy_name, []).append(payload)
+            return grouped
 
     async def get_models_for_strategy(
         self, strategy_name: str, user: dict[str, Any]
@@ -115,23 +217,7 @@ class ModelRegistryBrowserService:
                 (strategy_name,),
             )
             rows = await cursor.fetchall()
-            return [
-                {
-                    "id": row[0],
-                    "strategy_name": row[1],
-                    "version": row[2],
-                    "model_path": row[3],
-                    "status": row[4],
-                    "performance_metrics": row[5],
-                    "config": row[6],
-                    "created_at": row[7],
-                    "activated_at": row[8],
-                    "deactivated_at": row[9],
-                    "created_by": row[10],
-                    "notes": row[11],
-                }
-                for row in rows
-            ]
+            return [self._serialize_model_row(row) for row in rows]
 
     async def activate_model(
         self,

@@ -27,7 +27,14 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:8501")
 
-from apps.model_registry.main import app, get_settings, lifespan
+from apps.model_registry.main import (
+    _cors_allow_origins,
+    _resolve_cors_origins,
+    _verify_cors_middleware_uses_shared_origins,
+    app,
+    get_settings,
+    lifespan,
+)
 from libs.models.models import ManifestIntegrityError, RegistryManifest
 
 
@@ -264,34 +271,17 @@ def test_cors_with_explicit_allowed_origins(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com,https://app.example.com")
 
-    # Need to reload the module to apply new environment variables
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    # Store original app
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # The middleware should be configured with the specified origins
-        # We can't directly inspect middleware config, but we can verify no error was raised
-    finally:
-        # Restore original app
-        main_module.app = original_app
+    origins = _resolve_cors_origins()
+    assert origins == ["https://example.com", "https://app.example.com"]
 
 
 def test_cors_with_wildcard_raises_error(monkeypatch: pytest.MonkeyPatch):
     """Test CORS raises RuntimeError when wildcard is in ALLOWED_ORIGINS."""
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "*")
 
     with pytest.raises(RuntimeError, match="wildcard '\\*'.*credentials are enabled"):
-        reload(main_module)
+        _resolve_cors_origins()
 
 
 def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
@@ -299,17 +289,9 @@ def test_cors_dev_environment_defaults(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "dev")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should use dev defaults without raising error
-    finally:
-        main_module.app = original_app
+    origins = _resolve_cors_origins()
+    assert "http://localhost:8501" in origins
+    assert "http://localhost:3000" in origins
 
 
 def test_cors_test_environment_defaults(monkeypatch: pytest.MonkeyPatch):
@@ -317,30 +299,47 @@ def test_cors_test_environment_defaults(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should use test defaults without raising error
-    finally:
-        main_module.app = original_app
+    origins = _resolve_cors_origins()
+    assert "http://localhost:8501" in origins
 
 
 def test_cors_production_without_allowed_origins_raises_error(monkeypatch: pytest.MonkeyPatch):
     """Test CORS raises RuntimeError in production without ALLOWED_ORIGINS."""
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
     with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
-        reload(main_module)
+        _resolve_cors_origins()
+
+
+def test_module_importable_without_allowed_origins():
+    """Test that the module can be imported without ALLOWED_ORIGINS set (issue #156).
+
+    Uses a subprocess to guarantee a truly fresh import with no prior env
+    defaults.  If CORS validation still happens at import time, the subprocess
+    will exit non-zero.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.environ['ENVIRONMENT']='production'; "
+            "os.environ.pop('ALLOWED_ORIGINS', None); "
+            "from apps.model_registry.main import app; "
+            "print('import ok')",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"Module import failed in production without ALLOWED_ORIGINS:\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "import ok" in result.stdout
 
 
 # =============================================================================
@@ -626,17 +625,8 @@ def test_cors_with_comma_separated_origins(monkeypatch: pytest.MonkeyPatch):
         "ALLOWED_ORIGINS", "https://example.com, https://app.example.com , https://api.example.com"
     )
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should parse and strip whitespace from origins
-    finally:
-        main_module.app = original_app
+    origins = _resolve_cors_origins()
+    assert origins == ["https://example.com", "https://app.example.com", "https://api.example.com"]
 
 
 def test_cors_with_empty_origin_in_list(monkeypatch: pytest.MonkeyPatch):
@@ -644,17 +634,8 @@ def test_cors_with_empty_origin_in_list(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com,,https://app.example.com, ,")
 
-    from importlib import reload
-
-    import apps.model_registry.main as main_module
-
-    original_app = main_module.app
-
-    try:
-        reload(main_module)
-        # Should filter empty strings
-    finally:
-        main_module.app = original_app
+    origins = _resolve_cors_origins()
+    assert origins == ["https://example.com", "https://app.example.com"]
 
 
 @pytest.mark.asyncio()
@@ -675,6 +656,200 @@ async def test_lifespan_uses_settings_registry_dir(mock_registry, mock_manifest_
         async with lifespan(test_app):
             # Verify ModelRegistry was initialized with settings registry_dir
             mock_registry_class.assert_called_once_with(registry_dir=Path("/custom/registry"))
+
+
+@pytest.mark.asyncio()
+async def test_lifespan_populates_cors_origins(mock_registry, mock_manifest_manager, monkeypatch: pytest.MonkeyPatch):
+    """Test lifespan populates the shared _cors_allow_origins list."""
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
+    test_app = FastAPI()
+
+    # Clear any origins from prior test runs
+    _cors_allow_origins.clear()
+
+    try:
+        with (
+            patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+            patch(
+                "apps.model_registry.main.RegistryManifestManager",
+                return_value=mock_manifest_manager,
+            ),
+            patch("apps.model_registry.main.set_registry"),
+        ):
+            async with lifespan(test_app):
+                # Origins should be populated during startup
+                assert len(_cors_allow_origins) > 0
+                assert "http://localhost:8501" in _cors_allow_origins
+    finally:
+        _cors_allow_origins.clear()
+
+
+def _make_mock_registry_and_manager():
+    """Helper to create mock registry and manifest manager for integration tests."""
+    mock_registry = Mock()
+    mock_registry.get_manifest.return_value = _create_test_manifest(
+        artifact_count=5,
+        production_models={"risk_model": "v1.0.0"},
+    )
+    mock_manager = Mock()
+    mock_manager.exists.return_value = True
+    mock_manager.verify_integrity.return_value = True
+    return mock_registry, mock_manager
+
+
+def test_cors_lifespan_integration_with_test_client(monkeypatch: pytest.MonkeyPatch):
+    """Test that the real app starts successfully with TestClient (ASGI startup integration)."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:8501")
+
+    mock_registry, mock_manager = _make_mock_registry_and_manager()
+
+    with (
+        patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+        patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manager),
+        patch("apps.model_registry.main.set_registry"),
+    ):
+        with TestClient(app) as client:
+            # Verify basic startup works
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json()["status"] == "healthy"
+
+            # Verify CORS headers for allowed origin
+            response = client.get(
+                "/health",
+                headers={"Origin": "http://localhost:8501"},
+            )
+            assert response.status_code == 200
+            assert response.headers.get("access-control-allow-origin") == "http://localhost:8501"
+            assert response.headers.get("access-control-allow-credentials") == "true"
+
+            # Verify CORS headers are absent for disallowed origin
+            response = client.get(
+                "/health",
+                headers={"Origin": "https://evil.example.com"},
+            )
+            assert response.status_code == 200
+            assert "access-control-allow-origin" not in response.headers
+
+            # Verify OPTIONS preflight for allowed origin
+            response = client.options(
+                "/health",
+                headers={
+                    "Origin": "http://localhost:8501",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "Authorization",
+                },
+            )
+            assert response.status_code == 200
+            assert response.headers.get("access-control-allow-origin") == "http://localhost:8501"
+            assert response.headers.get("access-control-allow-credentials") == "true"
+            assert "GET" in response.headers.get("access-control-allow-methods", "")
+
+            # Verify OPTIONS preflight denied for disallowed origin
+            response = client.options(
+                "/health",
+                headers={
+                    "Origin": "https://evil.example.com",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+            assert response.status_code == 400
+
+
+def test_cors_production_startup_fails_without_allowed_origins(monkeypatch: pytest.MonkeyPatch):
+    """Test that ASGI startup fails in production when ALLOWED_ORIGINS is unset."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
+    with pytest.raises(RuntimeError, match="ALLOWED_ORIGINS must be set for production"):
+        with TestClient(app):
+            pass  # pragma: no cover — startup should fail before reaching here
+
+
+@pytest.mark.asyncio()
+async def test_cors_origins_replaced_not_accumulated_on_restart(monkeypatch: pytest.MonkeyPatch):
+    """Test that _cors_allow_origins is replaced (not accumulated) across restarts."""
+
+    mock_registry, mock_manager = _make_mock_registry_and_manager()
+    test_app = FastAPI()
+
+    # First startup with origin A
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://a.example.com")
+    _cors_allow_origins.clear()
+
+    try:
+        with (
+            patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+            patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manager),
+            patch("apps.model_registry.main.set_registry"),
+        ):
+            async with lifespan(test_app):
+                assert _cors_allow_origins == ["https://a.example.com"]
+
+        # Second startup with origin B (simulates restart with new config)
+        monkeypatch.setenv("ALLOWED_ORIGINS", "https://b.example.com")
+
+        with (
+            patch("apps.model_registry.main.ModelRegistry", return_value=mock_registry),
+            patch("apps.model_registry.main.RegistryManifestManager", return_value=mock_manager),
+            patch("apps.model_registry.main.set_registry"),
+        ):
+            async with lifespan(test_app):
+                # Should only contain origin B, not both A and B
+                assert _cors_allow_origins == ["https://b.example.com"]
+                assert "https://a.example.com" not in _cors_allow_origins
+    finally:
+        _cors_allow_origins.clear()
+
+
+def test_verify_cors_guard_reassigns_copied_origins():
+    """Test guard reassigns shared reference when allow_origins is a different object."""
+    from starlette.middleware.cors import CORSMiddleware as RealCORSMiddleware
+
+    # Create a middleware with a different list (simulates copy/freeze)
+    test_app = FastAPI()
+    copied_origins = ["http://localhost:8501"]
+    cors_mw = RealCORSMiddleware(app=test_app, allow_origins=copied_origins)
+
+    # Build a fake middleware stack: the guard walks .app attributes
+    guard_app = FastAPI()
+    guard_app.middleware_stack = cors_mw
+
+    # Should not raise — guard reassigns the shared reference
+    _verify_cors_middleware_uses_shared_origins(guard_app)
+
+    # Verify the middleware now holds the shared reference
+    assert cors_mw.allow_origins is _cors_allow_origins
+
+
+def test_verify_cors_guard_logs_error_when_middleware_missing(caplog):
+    """Test guard logs ERROR when CORSMiddleware is not in stack."""
+    import logging
+
+    caplog.set_level(logging.ERROR, logger="apps.model_registry.main")
+
+    guard_app = FastAPI()
+    # Set a non-None middleware_stack without CORSMiddleware
+    guard_app.middleware_stack = Mock()
+    guard_app.middleware_stack.app = None  # terminate the walk
+
+    # Should not raise, but should log an error
+    _verify_cors_middleware_uses_shared_origins(guard_app)
+    assert "CORSMiddleware not found" in caplog.text
+
+
+def test_verify_cors_guard_skips_when_no_middleware_stack():
+    """Test guard silently returns when middleware_stack is None (bare test app)."""
+    guard_app = FastAPI()
+    assert guard_app.middleware_stack is None
+
+    # Should not raise — bare app in tests
+    _verify_cors_middleware_uses_shared_origins(guard_app)
 
 
 def test_main_entry_point_not_executed_on_import():

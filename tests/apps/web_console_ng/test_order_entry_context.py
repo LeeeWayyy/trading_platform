@@ -94,6 +94,82 @@ class TestOrderEntryContextComponentSetters:
         context.set_price_chart(price_chart)
         assert context._price_chart is price_chart
 
+    def test_set_connection_state_callback(self, context: OrderEntryContext) -> None:
+        """set_connection_state_callback stores callback reference."""
+        callback = MagicMock()
+        context.set_connection_state_callback(callback)
+        assert context._connection_state_callback is callback
+
+    def test_set_strategy_context_widget(self, context: OrderEntryContext) -> None:
+        """set_strategy_context_widget stores component reference."""
+        strategy_widget = MagicMock()
+        context.set_strategy_context_widget(strategy_widget)
+        assert context._strategy_context_widget is strategy_widget
+
+
+class TestStrategyModelContextDispatch:
+    """Tests strategy/model context dispatching to child components."""
+
+    @pytest.fixture()
+    def context(self) -> OrderEntryContext:
+        """Create context with strategy-relevant components."""
+        ctx = OrderEntryContext(
+            realtime_updater=MagicMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=MagicMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._strategy_context_widget = MagicMock()
+        return ctx
+
+    def test_dispatch_strategy_model_context_forwards_to_ticket_and_widget(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Dispatch forwards normalized state to both consumers."""
+        context.dispatch_strategy_model_context(
+            strategy_status="active",
+            model_status="testing",
+            gate_enabled=True,
+            gate_reason="manual review",
+            strategy_label="Strategy: alpha",
+            model_label="Model: v2.1",
+            banner="Execution context healthy.",
+        )
+
+        context._order_ticket.set_strategy_model_context.assert_called_once_with(
+            strategy_status="active",
+            model_status="testing",
+            gate_enabled=True,
+            gate_reason="manual review",
+        )
+        context._strategy_context_widget.set_status.assert_called_once_with(
+            strategy_status="active",
+            model_status="testing",
+            gate_enabled=True,
+            gate_reason="manual review",
+            strategy_label="Strategy: alpha",
+            model_label="Model: v2.1",
+            banner="Execution context healthy.",
+        )
+
+    def test_dispatch_strategy_model_context_handles_missing_components(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Dispatch is a no-op when target components are absent."""
+        context._order_ticket = None
+        context._strategy_context_widget = None
+
+        context.dispatch_strategy_model_context(
+            strategy_status=None,
+            model_status=None,
+            gate_enabled=False,
+        )
+
 
 class TestFetchInitialSafetyState:
     """Tests for _fetch_initial_safety_state method."""
@@ -562,9 +638,13 @@ class TestConnectionStateCallback:
     @pytest.mark.asyncio()
     async def test_connection_connected(self, context: OrderEntryContext) -> None:
         """CONNECTED state sets is_read_only=False."""
+        callback = MagicMock()
+        context.set_connection_state_callback(callback)
+
         await context._on_connection_update({"state": "CONNECTED"})
 
         context._order_ticket.set_connection_state.assert_called_with("CONNECTED", False)
+        callback.assert_called_with("CONNECTED", False)
 
     @pytest.mark.asyncio()
     async def test_connection_disconnected(self, context: OrderEntryContext) -> None:
@@ -597,9 +677,13 @@ class TestConnectionStateCallback:
     @pytest.mark.asyncio()
     async def test_connection_invalid_payload(self, context: OrderEntryContext) -> None:
         """Invalid payload is treated as UNKNOWN."""
+        callback = MagicMock()
+        context.set_connection_state_callback(callback)
+
         await context._on_connection_update("not-a-dict")  # type: ignore[arg-type]
 
         context._order_ticket.set_connection_state.assert_called_with("UNKNOWN", True)
+        callback.assert_called_with("UNKNOWN", True)
 
 
 class TestPositionUpdateCallback:
@@ -781,6 +865,53 @@ class TestPriceUpdateCallback:
         call_args = context._order_ticket.set_price_data.call_args
         assert call_args[0][1] is None
 
+    @pytest.mark.asyncio()
+    async def test_price_update_applies_symbol_quantity_rules(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Selected-symbol price updates can carry quantity rule metadata."""
+        await context._on_price_update(
+            {
+                "symbol": "AAPL",
+                "price": "150.00",
+                "timestamp": "2024-01-01T12:00:00Z",
+                "qty_step": 100,
+                "min_qty": 100,
+                "qty_unit": "lots",
+            }
+        )
+
+        context._order_ticket.set_quantity_rules.assert_called_once_with(
+            qty_step=100,
+            min_qty=100,
+            qty_unit="lots",
+            qty_unit_size=1,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_price_update_ignores_overflow_quantity_rule_metadata(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Malformed huge metadata must not break update dispatch."""
+        await context._on_price_update(
+            {
+                "symbol": "AAPL",
+                "price": "150.00",
+                "timestamp": "2024-01-01T12:00:00Z",
+                "qty_step": "1e309",
+                "min_qty": "100",
+                "qty_unit": "lots",
+            }
+        )
+
+        context._order_ticket.set_price_data.assert_called_once()
+        context._order_ticket.set_quantity_rules.assert_called_once_with(
+            qty_step=1,
+            min_qty=100,
+            qty_unit="lots",
+            qty_unit_size=1,
+        )
+
 
 class TestSymbolSelection:
     """Tests for symbol selection."""
@@ -832,6 +963,46 @@ class TestSymbolSelection:
         context._order_ticket.on_symbol_changed.assert_called_with("AAPL")
         context._market_context.on_symbol_changed.assert_called_with("AAPL")
         context._price_chart.on_symbol_changed.assert_called_with("AAPL")
+
+    @pytest.mark.asyncio()
+    async def test_symbol_selection_notifies_registered_symbol_callbacks(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Symbol selection emits callbacks used by dashboard panels."""
+        callback = MagicMock()
+        context.register_symbol_change_callback(callback)
+
+        await context.on_symbol_selected("AAPL")
+
+        callback.assert_called_once_with("AAPL")
+
+    def test_register_symbol_change_callback_deduplicates(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Duplicate registrations keep one callback instance."""
+        callback = MagicMock()
+
+        context.register_symbol_change_callback(callback)
+        context.register_symbol_change_callback(callback)
+
+        assert context._symbol_change_callbacks == [callback]
+
+    @pytest.mark.asyncio()
+    async def test_symbol_selection_applies_cached_quantity_rules(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Selecting a symbol applies previously cached quantity rules."""
+        context._order_ticket.set_quantity_rules = MagicMock()
+        context._symbol_quantity_rules["AAPL"] = (100, 100, "lots", 1)
+
+        await context.on_symbol_selected("AAPL")
+
+        context._order_ticket.set_quantity_rules.assert_called_once_with(
+            qty_step=100,
+            min_qty=100,
+            qty_unit="lots",
+            qty_unit_size=1,
+        )
 
     @pytest.mark.asyncio()
     async def test_symbol_selection_none_clears_state(self, context: OrderEntryContext) -> None:

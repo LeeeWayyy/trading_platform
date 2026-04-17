@@ -52,6 +52,7 @@ async def _get_validated_paths() -> tuple[dict[str, set[str]], list[str]]:
         return result
 
 
+@ui.page("/sql-explorer")
 @ui.page("/data/sql-explorer")
 @requires_auth
 @main_layout

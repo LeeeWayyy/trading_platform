@@ -6,5 +6,5 @@ This module provides REST API endpoints for:
 - Model validation
 - Model listing and status
 
-Authentication is via JWT bearer tokens with scopes.
+Authentication is via bearer tokens with scope-based authorization.
 """

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import PlainTextResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from apps.web_console_ng import config
 
@@ -34,7 +37,92 @@ from apps.web_console_ng.ui.disconnect_overlay import inject_disconnect_overlay
 logger = logging.getLogger(__name__)
 
 
+def _patch_nicegui_request_tracking_middleware() -> None:
+    """Patch NiceGUI request tracking middleware to ignore disconnect sentinel.
+
+    This patches a NiceGUI internal (``RequestTrackingMiddleware.dispatch``).
+    If the internal changes across NiceGUI versions, we fall through
+    gracefully: the ASGI-level ``SuppressNoResponseReturnedMiddleware``
+    provides a second line of defence for the same class of error.
+    """
+    try:
+        from nicegui import storage as nicegui_storage
+    except (ImportError, AttributeError):
+        return
+
+    # Guard: ensure the internal class and attribute still exist.
+    middleware_cls = getattr(nicegui_storage, "RequestTrackingMiddleware", None)
+    if middleware_cls is None:
+        logger.debug("nicegui_patch_skipped: RequestTrackingMiddleware not found")
+        return
+
+    dispatch = getattr(middleware_cls, "dispatch", None)
+    if dispatch is None or not callable(dispatch):
+        logger.debug("nicegui_patch_skipped: dispatch attribute missing or not callable")
+        return
+
+    if getattr(dispatch, "_no_response_patch_applied", False):
+        return
+
+    dispatch = cast(
+        Callable[[Any, Request, Callable[[Request], Awaitable[Response]]], Awaitable[Response]],
+        dispatch,
+    )
+
+    async def _dispatch_with_no_response_guard(
+        self: Any, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        try:
+            return await dispatch(self, request, call_next)
+        except RuntimeError as exc:
+            if str(exc) == "No response returned.":
+                if await request.is_disconnected():
+                    logger.debug("suppressing_no_response_returned_in_nicegui_storage")
+                    return Response(status_code=204)
+            raise
+
+    _dispatch_with_no_response_guard._no_response_patch_applied = True  # type: ignore[attr-defined]
+    middleware_cls.dispatch = _dispatch_with_no_response_guard
+
+
+class SuppressNoResponseReturnedMiddleware:
+    """Swallow Starlette disconnect sentinel RuntimeError for HTTP requests."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    @staticmethod
+    def _is_no_response_returned(exc: BaseException) -> bool:
+        if isinstance(exc, RuntimeError):
+            return str(exc) == "No response returned."
+        if isinstance(exc, BaseExceptionGroup):
+            return all(
+                SuppressNoResponseReturnedMiddleware._is_no_response_returned(sub_exc)
+                for sub_exc in exc.exceptions
+            )
+        return False
+
+    @staticmethod
+    async def _is_client_disconnected(scope: Scope, receive: Receive) -> bool:
+        if scope.get("type") != "http":
+            return False
+        request = Request(scope, receive)
+        return await request.is_disconnected()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except Exception as exc:
+            if self._is_no_response_returned(exc) and await self._is_client_disconnected(
+                scope, receive
+            ):
+                logger.debug("suppressing_no_response_returned_runtime_error_at_asgi")
+                return
+            raise
+
+
 # Initialize async DB pool via core.database (centralizes pool config and provides get_db_pool())
+_patch_nicegui_request_tracking_middleware()
 db_pool = init_db_pool()
 
 audit_logger = AuthAuditLogger.get(
@@ -58,7 +146,10 @@ app.include_router(workspace_router)
 # Import pages to trigger @ui.page decorator registration (including /login, /dashboard, etc.)
 from apps.web_console_ng import pages  # noqa: E402,F401
 
-# Middleware added in LIFO order: TrustedHost -> Admission -> Session -> Auth.
+# Middleware added in LIFO order (outermost first):
+# SuppressNoResponse -> TrustedHost -> Admission -> Session -> Auth.
+# SuppressNoResponseReturnedMiddleware wraps the entire stack to catch
+# Starlette disconnect sentinels at the ASGI level.
 # AdmissionControlMiddleware MUST run before Session/Auth to enforce capacity limits
 # at the ASGI level before WebSocket upgrade completes.
 app.add_middleware(AuthMiddleware)
@@ -69,6 +160,7 @@ app.add_middleware(
 )
 app.add_middleware(AdmissionControlMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
+app.add_middleware(SuppressNoResponseReturnedMiddleware)
 
 
 @app.exception_handler(Exception)
@@ -143,6 +235,11 @@ async def shutdown() -> None:
         await redis.close()
     except (OSError, ConnectionError) as e:
         logger.warning("Failed to close Redis connection during shutdown: %s", e)
+
+    # Close shared httpx client used by TCA dashboard
+    from apps.web_console_ng.pages.execution_quality import close_shared_client
+
+    await close_shared_client()
 
 
 app.on_startup(startup)

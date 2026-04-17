@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from libs.platform.web_console_auth.permissions import Permission
 from libs.web_console_services.model_registry_browser_service import (
     ModelRegistryBrowserService,
 )
@@ -204,6 +205,105 @@ class TestGetModelsForStrategy:
         assert len(result) == 1
         assert result[0]["version"] == "v1.0.0"
         assert result[0]["status"] == "active"
+
+
+class TestListModelsForStrategies:
+    @pytest.mark.asyncio()
+    async def test_groups_rows_via_single_bulk_query(
+        self, service: ModelRegistryBrowserService, admin_user: dict[str, Any]
+    ) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(
+            return_value=[
+                (
+                    1,
+                    "alpha_baseline",
+                    "v2.0.0",
+                    "/path/model-v2.txt",
+                    "active",
+                    {"ic": 0.10},
+                    {"backtest_job_id": "bt-1"},
+                    None,
+                    None,
+                    None,
+                    "system",
+                    "notes",
+                ),
+                (
+                    2,
+                    "alpha_v2",
+                    "v1.0.0",
+                    "/path/alpha-v2.txt",
+                    "testing",
+                    {"ic": 0.08},
+                    {"backtest_job_id": "bt-2"},
+                    None,
+                    None,
+                    None,
+                    "system",
+                    "notes",
+                ),
+            ]
+        )
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch(
+            "libs.web_console_services.model_registry_browser_service.acquire_connection"
+        ) as mock_acquire:
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            grouped = await service.list_models_for_strategies(admin_user)
+
+        assert sorted(grouped.keys()) == ["alpha_baseline", "alpha_v2"]
+        assert grouped["alpha_baseline"][0]["version"] == "v2.0.0"
+        assert grouped["alpha_v2"][0]["status"] == "testing"
+        assert mock_conn.execute.await_count == 1
+
+    @pytest.mark.asyncio()
+    async def test_intersects_requested_strategies_with_rbac_scope(
+        self,
+        service: ModelRegistryBrowserService,
+    ) -> None:
+        mock_conn = AsyncMock()
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        fake_user = {"user_id": "op-1"}
+
+        def _fake_has_permission(user: dict[str, Any], permission: Permission) -> bool:
+            if permission == Permission.VIEW_MODELS:
+                return True
+            if permission == Permission.VIEW_ALL_STRATEGIES:
+                return False
+            return False
+
+        with (
+            patch(
+                "libs.web_console_services.model_registry_browser_service.has_permission",
+                side_effect=_fake_has_permission,
+            ),
+            patch(
+                "libs.web_console_services.model_registry_browser_service.get_authorized_strategies",
+                return_value=["alpha_allowed"],
+            ),
+            patch(
+                "libs.web_console_services.model_registry_browser_service.acquire_connection"
+            ) as mock_acquire,
+        ):
+            mock_acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await service.list_models_for_strategies(
+                fake_user,
+                strategy_names=["alpha_allowed", "alpha_blocked"],
+            )
+
+        query_args = mock_conn.execute.await_args.args
+        assert "WHERE strategy_name = ANY(%s)" in query_args[0]
+        assert query_args[1] == (["alpha_allowed"],)
 
 
 class TestActivateModel:

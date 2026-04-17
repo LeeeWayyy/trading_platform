@@ -17,13 +17,17 @@ import logging
 import math
 import os
 import re
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
+from weakref import WeakKeyDictionary
 
 import plotly.graph_objects as go
 import polars as pl
 from nicegui import run, ui
+from psycopg import errors as pg_errors
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -42,6 +46,10 @@ from apps.web_console_ng.components.config_editor import (
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.request_query import (
+    get_query_param_from_raw_query,
+    get_request_query_param,
+)
 from apps.web_console_ng.ui.helpers import safe_classes
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
@@ -53,6 +61,13 @@ if TYPE_CHECKING:
     from libs.trading.backtest.job_queue import BacktestJobQueue
 
 logger = logging.getLogger(__name__)
+_LEGACY_SCHEMA_WARNING_EMITTED = False
+_MISSING_BACKTEST_TABLE_WARNING_EMITTED = False
+_schema_probe_cache: WeakKeyDictionary[Any, tuple[int, bool]] = WeakKeyDictionary()
+
+
+class _SchemaProbeUnavailableError(Exception):
+    """Internal sentinel for fail-closed schema probe failures."""
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -60,6 +75,7 @@ MAX_COMPARISON_SELECTIONS = 5
 DEFAULT_END_DATE_OFFSET_DAYS = 1
 DEFAULT_BACKTEST_PERIOD_DAYS = 730  # ~2 years
 MIN_BACKTEST_PERIOD_DAYS = 30
+BACKTEST_SCHEMA_CACHE_TTL_S = 300.0
 
 # Polling intervals (progressive backoff) in seconds
 POLL_INTERVALS = {
@@ -71,6 +87,14 @@ POLL_INTERVALS = {
 
 # Valid job statuses
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
+BACKTEST_TAB_NEW = "new"
+BACKTEST_TAB_RUNNING = "running"
+BACKTEST_TAB_RESULTS = "results"
+VALID_BACKTEST_TABS = {
+    BACKTEST_TAB_NEW,
+    BACKTEST_TAB_RUNNING,
+    BACKTEST_TAB_RESULTS,
+}
 
 # Symbol validation pattern: must start with letter, then alphanumeric/dots/hyphens (e.g., BRK.A, KHC)
 # Prevents injection via malicious symbol names and enforces exchange naming conventions
@@ -78,6 +102,165 @@ SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
 # Cached Redis client for RQ (decode_responses=False for binary payloads)
 _rq_redis_client: Redis | None = None
+
+
+def _schema_cache_bucket(*, ttl_s: float = BACKTEST_SCHEMA_CACHE_TTL_S) -> int:
+    """Return monotonic TTL bucket for schema probe caching."""
+    return int(time.monotonic() // ttl_s)
+
+
+def _probe_cost_summary_column_uncached(db_pool: ConnectionPool) -> bool:
+    """Probe backtest_jobs schema for cost_summary column."""
+    probe_sql = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = ANY (current_schemas(false))
+              AND table_name = 'backtest_jobs'
+              AND column_name = 'cost_summary'
+        ) AS has_column
+    """
+    conn_ctx = db_pool.connection()
+    if not hasattr(conn_ctx, "__enter__") or not hasattr(conn_ctx, "__exit__"):
+        raise TypeError(
+            "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
+        )
+    with conn_ctx as probe_conn, probe_conn.cursor() as probe_cur:
+        probe_cur.execute(probe_sql)
+        row = probe_cur.fetchone()
+        return bool(row[0]) if row else False
+
+
+def _get_cached_cost_summary_column_value(
+    *,
+    db_pool: ConnectionPool,
+    cache_bucket: int,
+) -> bool | None:
+    """Return cached schema probe value for pool identity + cache bucket."""
+    try:
+        cached = _schema_probe_cache.get(db_pool)
+    except TypeError:
+        # Some non-standard pool doubles may not support weak refs; skip caching safely.
+        return None
+    if cached is None:
+        return None
+    cached_bucket, cached_value = cached
+    if cached_bucket != cache_bucket:
+        return None
+    return cached_value
+
+
+def _set_cached_cost_summary_column_value(
+    *,
+    db_pool: ConnectionPool,
+    cache_bucket: int,
+    has_column: bool,
+) -> None:
+    """Persist latest schema probe value keyed by pool identity."""
+    try:
+        _schema_probe_cache[db_pool] = (cache_bucket, has_column)
+    except TypeError:
+        # If pool object is not weak-referenceable, avoid unsafe id()-keyed caches.
+        return
+
+
+def _get_backtest_prefill_from_request() -> dict[str, str | None]:
+    """Extract non-blocking prefill hints from query params."""
+    try:
+        request = ui.context.client.request
+    except Exception as exc:
+        logger.warning(
+            "backtest_prefill_request_context_unavailable",
+            extra={"error": type(exc).__name__},
+        )
+        return {"signal_id": None, "source": None}
+    if request is None:
+        return {"signal_id": None, "source": None}
+    signal_id = get_request_query_param(request=request, key="signal_id")
+    source = get_request_query_param(request=request, key="source")
+    return {
+        "signal_id": signal_id.strip() or None if signal_id else None,
+        "source": source.strip() or None if source else None,
+    }
+
+
+def get_backtest_prefill_from_request() -> dict[str, str | None]:
+    """Public wrapper for query-param prefill extraction used by /research."""
+    return _get_backtest_prefill_from_request()
+
+
+def _build_research_validate_redirect_url(query_string: bytes | str | None) -> str:
+    """Build redirect URL from legacy /backtest query params."""
+    target: dict[str, str] = {"tab": "validate"}
+    raw_tab = get_query_param_from_raw_query(
+        raw_query=query_string,
+        key="tab",
+        default=BACKTEST_TAB_NEW,
+    )
+    normalized_tab = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
+    if normalized_tab in VALID_BACKTEST_TABS:
+        target["backtest_tab"] = normalized_tab
+
+    signal_id = get_query_param_from_raw_query(raw_query=query_string, key="signal_id")
+    source = get_query_param_from_raw_query(raw_query=query_string, key="source")
+    if signal_id:
+        target["signal_id"] = str(signal_id).strip()
+    if source:
+        target["source"] = str(source).strip()
+
+    return f"/research?{urlencode(target)}"
+
+
+def _get_requested_backtest_tab(*, query_param: str = "tab") -> str:
+    """Resolve requested Backtest Manager tab from query string."""
+    try:
+        request = ui.context.client.request
+    except Exception as exc:
+        logger.warning(
+            "backtest_tab_request_context_unavailable",
+            extra={"error": type(exc).__name__},
+        )
+        return BACKTEST_TAB_NEW
+    if request is None:
+        return BACKTEST_TAB_NEW
+    raw_tab = get_request_query_param(
+        request=request,
+        key=query_param,
+        default=BACKTEST_TAB_NEW,
+    )
+    normalized = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
+    return normalized if normalized in VALID_BACKTEST_TABS else BACKTEST_TAB_NEW
+
+
+async def _resolve_prefill_alpha_name(
+    *,
+    signal_id: str | None,
+) -> tuple[str | None, str | None]:
+    """Resolve alpha select value from signal_id deep-link.
+
+    Returns:
+        (alpha_name, warning_message)
+    """
+    if not signal_id:
+        return (None, None)
+    try:
+        from apps.web_console_ng.pages.alpha_explorer import get_alpha_service
+
+        service = await run.io_bound(get_alpha_service)
+        if service is None:
+            return (None, "Prefill unavailable: alpha explorer service is not ready")
+        metrics = await run.io_bound(service.get_signal_metrics, signal_id)
+    except Exception as exc:
+        logger.warning(
+            "backtest_prefill_signal_lookup_failed",
+            extra={"signal_id": signal_id, "error": type(exc).__name__},
+        )
+        return (None, f"Prefill unavailable: unknown signal_id '{signal_id}'")
+
+    alpha_name = str(getattr(metrics, "name", "") or "").strip()
+    if not alpha_name:
+        return (None, f"Prefill unavailable: signal '{signal_id}' has no alpha name mapping")
+    return (alpha_name, None)
 
 
 def _get_rq_redis_client() -> Redis:
@@ -135,6 +318,15 @@ def _get_user_jobs_sync(
     if invalid:
         raise ValueError(f"Invalid statuses: {invalid}. Valid: {VALID_STATUSES}")
 
+    def _sync_connection() -> Any:
+        """Return a sync DB connection context manager or fail with clear guidance."""
+        conn_ctx = db_pool.connection()
+        if not hasattr(conn_ctx, "__enter__"):
+            raise TypeError(
+                "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
+            )
+        return conn_ctx
+
     sql = """
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
@@ -145,9 +337,99 @@ def _get_user_jobs_sync(
         ORDER BY created_at DESC
         LIMIT %s
     """
-    with db_pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
-        jobs = cur.fetchall()
+    legacy_sql = """
+        SELECT job_id, alpha_name, start_date, end_date, status, created_at,
+               error_message, mean_ic, icir, hit_rate, coverage, average_turnover,
+               result_path, NULL::jsonb AS cost_summary,
+               COALESCE(config_json->>'provider', 'crsp') AS provider
+        FROM backtest_jobs
+        WHERE created_by = %s AND status = ANY(%s)
+        ORDER BY created_at DESC
+        LIMIT %s
+    """
+
+    def _has_cost_summary_column() -> bool:
+        """Return whether backtest_jobs has cost_summary column."""
+        try:
+            cache_bucket = _schema_cache_bucket()
+            cached_value = _get_cached_cost_summary_column_value(
+                db_pool=db_pool,
+                cache_bucket=cache_bucket,
+            )
+            if cached_value is not None:
+                return cached_value
+            has_column = _probe_cost_summary_column_uncached(db_pool)
+            _set_cached_cost_summary_column_value(
+                db_pool=db_pool,
+                cache_bucket=cache_bucket,
+                has_column=has_column,
+            )
+            return has_column
+        except pg_errors.AdminShutdown as exc:
+            logger.warning(
+                "backtest_jobs_schema_probe_admin_shutdown",
+                extra={"created_by": created_by, "error": str(exc)},
+            )
+            raise _SchemaProbeUnavailableError from exc
+        except Exception as exc:  # pragma: no cover - connectivity/pathology path
+            logger.warning(
+                "backtest_jobs_schema_probe_failed",
+                extra={"created_by": created_by, "error": str(exc)},
+            )
+            raise
+
+    try:
+        use_cost_summary_sql = _has_cost_summary_column()
+    except _SchemaProbeUnavailableError:
+        return []
+
+    with _sync_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        try:
+            selected_sql = sql if use_cost_summary_sql else legacy_sql
+            cur.execute(selected_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            jobs = cur.fetchall()
+        except Exception as exc:
+            if isinstance(exc, pg_errors.AdminShutdown):
+                conn.rollback()
+                logger.warning(
+                    "backtest_jobs_query_admin_shutdown",
+                    extra={"created_by": created_by, "error": str(exc)},
+                )
+                return []
+            if isinstance(exc, pg_errors.UndefinedTable):
+                conn.rollback()
+                global _MISSING_BACKTEST_TABLE_WARNING_EMITTED
+                if not _MISSING_BACKTEST_TABLE_WARNING_EMITTED:
+                    logger.warning(
+                        "backtest_jobs_table_missing",
+                        extra={"created_by": created_by, "error": str(exc)},
+                    )
+                    _MISSING_BACKTEST_TABLE_WARNING_EMITTED = True
+                else:
+                    logger.debug(
+                        "backtest_jobs_table_missing",
+                        extra={"created_by": created_by},
+                    )
+                return []
+            if not isinstance(exc, pg_errors.UndefinedColumn):
+                raise
+            # Defensive fallback for schema drift/race where probe cache is stale.
+            global _LEGACY_SCHEMA_WARNING_EMITTED
+            if not _LEGACY_SCHEMA_WARNING_EMITTED:
+                logger.warning(
+                    "backtest_jobs_legacy_schema_missing_columns",
+                    extra={"created_by": created_by, "error": str(exc)},
+                )
+                _LEGACY_SCHEMA_WARNING_EMITTED = True
+            else:
+                logger.debug(
+                    "backtest_jobs_legacy_schema_missing_columns",
+                    extra={"created_by": created_by},
+                )
+            # UndefinedColumn aborts the current transaction; clear it before retry.
+            conn.rollback()
+            cur.execute(legacy_sql, (created_by, status, BACKTEST_JOB_QUERY_LIMIT))
+            jobs = cur.fetchall()
 
     if not jobs:
         return []
@@ -246,7 +528,20 @@ def _verify_job_ownership(job_id: str, user_id: str, db_pool: ConnectionPool) ->
 @main_layout
 async def backtest_page() -> None:
     """Backtest Manager page."""
+    if config.FEATURE_RESEARCH_WORKSPACE:
+        try:
+            request = ui.context.client.request
+        except Exception:
+            request = None
+        raw_query = b""
+        if request is not None:
+            raw_query = request.scope.get("query_string", b"")
+        ui.navigate.to(_build_research_validate_redirect_url(raw_query))
+        return
+
     user = get_current_user()
+    prefill = _get_backtest_prefill_from_request()
+    requested_tab = _get_requested_backtest_tab()
 
     # Feature flag check
     if not config.FEATURE_BACKTEST_MANAGER:
@@ -275,11 +570,17 @@ async def backtest_page() -> None:
         tab_new = ui.tab("New Backtest")
         tab_running = ui.tab("Running Jobs")
         tab_results = ui.tab("Results")
+    tab_map = {
+        BACKTEST_TAB_NEW: tab_new,
+        BACKTEST_TAB_RUNNING: tab_running,
+        BACKTEST_TAB_RESULTS: tab_results,
+    }
+    selected_tab = tab_map.get(requested_tab, tab_new)
 
-    with ui.tab_panels(tabs, value=tab_new).classes("w-full"):
+    with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
         # === NEW BACKTEST TAB ===
         with ui.tab_panel(tab_new):
-            await _render_new_backtest_form(user)
+            await _render_new_backtest_form(user, prefill=prefill)
 
         # === RUNNING JOBS TAB ===
         with ui.tab_panel(tab_running):
@@ -290,7 +591,11 @@ async def backtest_page() -> None:
             await _render_backtest_results(user, db_pool, redis_client)
 
 
-async def _render_new_backtest_form(user: dict[str, Any]) -> None:
+async def _render_new_backtest_form(
+    user: dict[str, Any],
+    *,
+    prefill: dict[str, str | None] | None = None,
+) -> None:
     """Render the new backtest submission form."""
     from libs.trading.backtest.job_queue import (
         BacktestJobConfig,
@@ -370,11 +675,28 @@ async def _render_new_backtest_form(user: dict[str, Any]) -> None:
                     )
                     return  # Cannot submit without alphas
 
+                prefill_alpha_name: str | None = None
+                prefill_warning: str | None = None
+                if prefill and prefill.get("source") == "alpha_explorer":
+                    prefill_alpha_name, prefill_warning = await _resolve_prefill_alpha_name(
+                        signal_id=prefill.get("signal_id")
+                    )
+                default_alpha = alpha_options[0]
+                if prefill_alpha_name:
+                    if prefill_alpha_name in alpha_options:
+                        default_alpha = prefill_alpha_name
+                    else:
+                        prefill_warning = (
+                            f"Prefill hint '{prefill_alpha_name}' not in registered alpha catalog"
+                        )
+
                 alpha_select = ui.select(
                     label="Alpha Signal",
                     options=alpha_options,
-                    value=alpha_options[0],
+                    value=default_alpha,
                 ).classes("w-full")
+                if prefill_warning:
+                    ui.notify(prefill_warning, type="warning")
 
                 # Default dates
                 default_end = date.today() - timedelta(days=DEFAULT_END_DATE_OFFSET_DAYS)
@@ -2086,4 +2408,37 @@ async def _render_live_overlay_section(
         ).classes("mt-2")
 
 
-__all__ = ["backtest_page"]
+async def render_new_backtest_form(
+    user: dict[str, Any],
+    *,
+    prefill: dict[str, str | None] | None = None,
+) -> None:
+    """Public wrapper for embedding New Backtest form in /research."""
+    await _render_new_backtest_form(user, prefill=prefill)
+
+
+async def render_running_jobs(
+    user: dict[str, Any],
+    db_pool: ConnectionPool,
+    redis_client: Redis,
+) -> None:
+    """Public wrapper for embedding running jobs section in /research."""
+    await _render_running_jobs(user, db_pool, redis_client)
+
+
+async def render_backtest_results(
+    user: dict[str, Any],
+    db_pool: ConnectionPool,
+    redis_client: Redis,
+) -> None:
+    """Public wrapper for embedding result section in /research."""
+    await _render_backtest_results(user, db_pool, redis_client)
+
+
+__all__ = [
+    "backtest_page",
+    "get_backtest_prefill_from_request",
+    "render_new_backtest_form",
+    "render_running_jobs",
+    "render_backtest_results",
+]

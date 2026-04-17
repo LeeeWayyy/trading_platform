@@ -72,6 +72,10 @@ class PriceChartComponent:
     def __init__(
         self,
         trading_client: AsyncTradingClient,
+        *,
+        user_id: str | None = None,
+        role: str | None = None,
+        strategies: list[str] | None = None,
     ) -> None:
         """Initialize PriceChart.
 
@@ -79,6 +83,9 @@ class PriceChartComponent:
             trading_client: HTTP client for API calls.
         """
         self._client = trading_client
+        self._user_id = user_id
+        self._role = role
+        self._strategies = strategies
         self._current_symbol: str | None = None
         self._chart_id: str = f"chart_{id(self)}"
         self._container_id: str = f"container_{id(self)}"
@@ -119,7 +126,8 @@ class PriceChartComponent:
                         chart_id=self._chart_id,
                         width=self._width,
                         height=self._height,
-                    )
+                    ),
+                    timeout=10.0,
                 )
             except Exception as exc:
                 logger.warning(f"Failed to initialize chart: {exc}")
@@ -297,7 +305,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.update({json.dumps(updated_candle)});
                 }}
@@ -342,9 +350,22 @@ class PriceChartComponent:
             if not hasattr(self._client, "fetch_recent_fills"):
                 logger.debug("fetch_recent_fills not available, skipping markers")
                 return []
+            if not self._user_id:
+                logger.debug("PriceChart marker fetch skipped: user_id unavailable")
+                return []
 
-            # Use existing fetch_recent_fills (GET /api/v1/orders/recent-fills)
-            fills_resp = await self._client.fetch_recent_fills(limit=100)
+            # Use authenticated signature first, then fall back to legacy
+            # limit-only clients/mocks for compatibility.
+            fetch_recent_fills = self._client.fetch_recent_fills
+            try:
+                fills_resp = await fetch_recent_fills(
+                    user_id=self._user_id,
+                    role=self._role,
+                    strategies=self._strategies,
+                    limit=100,
+                )
+            except TypeError:
+                fills_resp = await fetch_recent_fills(limit=100)
             fills = fills_resp.get("fills", [])
 
             markers: list[ExecutionMarker] = []
@@ -404,7 +425,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.setData({json.dumps(candle_data)});
                     chartRef.candlestickSeries.setMarkers({json.dumps(marker_data)});
@@ -425,7 +446,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     chartRef.candlestickSeries.setData([]);
                     chartRef.candlestickSeries.setMarkers([]);
@@ -451,7 +472,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     // Remove existing VWAP if present
                     if (chartRef.vwapSeries) {{
@@ -485,7 +506,7 @@ class PriceChartComponent:
         try:
             await ui.run_javascript(
                 f"""
-                const chartRef = window.__charts['{self._chart_id}'];
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
                     // Remove existing TWAP if present
                     if (chartRef.twapSeries) {{

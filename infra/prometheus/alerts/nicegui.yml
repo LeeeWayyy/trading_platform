@@ -3,9 +3,10 @@ groups:
     rules:
       - alert: HighWSDisconnectRate
         expr: |
-          sum by (pod) (rate(nicegui_ws_disconnects_total[5m]))
+          sum by (instance) (increase(nicegui_ws_disconnects_total[5m]))
           >
-          (avg_over_time(nicegui_ws_connections[5m]) * 0.05)
+          sum by (instance) (avg_over_time(nicegui_ws_connections[5m])) * 0.05
+          and sum by (instance) (avg_over_time(nicegui_ws_connections[5m])) > 10
         for: 2m
         labels:
           severity: warning
@@ -14,7 +15,7 @@ groups:
           description: "Disconnect rate exceeds 5% of active connections"
 
       - alert: AuthFailureSpike
-        expr: sum by (pod) (rate(nicegui_auth_failures_total[5m])) > 0.1
+        expr: sum by (instance) (rate(nicegui_auth_failures_total[1m])) > (10 / 60)
         for: 1m
         labels:
           severity: critical
@@ -25,7 +26,7 @@ groups:
       - alert: HighAPILatency
         expr: |
           histogram_quantile(0.95,
-            sum by (le, pod) (rate(nicegui_api_latency_seconds_bucket[5m]))
+            sum by (le, instance) (rate(nicegui_api_latency_seconds_bucket[5m]))
           ) > 0.5
         for: 5m
         labels:
@@ -37,7 +38,7 @@ groups:
       - alert: RedisLatencyHigh
         expr: |
           histogram_quantile(0.99,
-            sum by (le, pod) (rate(nicegui_redis_latency_seconds_bucket[5m]))
+            sum by (le, instance) (rate(nicegui_redis_latency_seconds_bucket[5m]))
           ) > 0.05
         for: 5m
         labels:

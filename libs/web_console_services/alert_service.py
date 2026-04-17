@@ -12,14 +12,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict
 
 from libs.core.common.db import acquire_connection
-from libs.core.common.exceptions import ConfigurationError
-from libs.platform.alerts.channels import (
-    BaseChannel,
-    EmailChannel,
-    PagerDutyChannel,
-    SlackChannel,
-    SMSChannel,
-)
+from libs.platform.alerts.channels import BaseChannel, build_channel_handlers
 from libs.platform.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
 from libs.platform.alerts.pii import mask_for_logs
 from libs.platform.alerts.poison_queue import _sanitize_error_for_log
@@ -77,27 +70,11 @@ class AlertConfigService:
     def _get_channel_handlers(self) -> dict[ChannelType, BaseChannel]:
         """Build channel handlers, lazily skipping unconfigured channels.
 
-        SMS channel requires Twilio credentials. If not configured, SMS is
-        skipped and a warning is logged. Email, Slack, and PagerDuty are always enabled.
+        Delegates to the shared ``build_channel_handlers`` factory so that
+        channel initialization logic is not duplicated across services.
         """
         if self._channel_handlers is None:
-            self._channel_handlers = {
-                ChannelType.EMAIL: EmailChannel(),
-                ChannelType.SLACK: SlackChannel(),
-            }
-            # SMS requires Twilio credentials - skip if not configured
-            try:
-                self._channel_handlers[ChannelType.SMS] = SMSChannel()
-            except ConfigurationError as exc:
-                logger.warning(
-                    "sms_channel_disabled",
-                    extra={
-                        "reason": str(exc),
-                        "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
-                    },
-                )
-            # PagerDuty uses routing key per-recipient, no global credentials needed
-            self._channel_handlers[ChannelType.PAGERDUTY] = PagerDutyChannel()
+            self._channel_handlers = build_channel_handlers(logger=logger)
         return self._channel_handlers
 
     async def get_rules(self) -> list[AlertRule]:

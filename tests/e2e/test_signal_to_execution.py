@@ -174,8 +174,9 @@ class TestExecutionGateway:
                 f"{service_urls['execution_gateway']}/api/v1/circuit-breaker/status",
                 timeout=5.0,
             )
-            # Accept 200 (with auth), 401 (without auth), or 404 (not implemented)
-            assert response.status_code in [200, 401, 404]
+            # Accept 200 (with auth), 401 (without auth), 404 (not implemented),
+            # or 503 when fail-closed circuit-breaker protections are active in CI.
+            assert response.status_code in [200, 401, 404, 503]
         except httpx.ConnectError:
             pytest.skip("Circuit breaker status endpoint not available")
 

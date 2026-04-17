@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -92,6 +93,45 @@ async def check_kill_switch_safety(
         )
 
 
+def _coerce_numeric(value: Any) -> Decimal:
+    """Convert API payload values to Decimal for summary calculations.
+
+    Handles None, bool, int, float, Decimal, and string inputs. Returns Decimal(0) for
+    values that cannot be converted, logging a warning for unexpected types
+    per the project's "never swallow exceptions" standard.
+    """
+    if value is None:
+        return Decimal("0")
+    if isinstance(value, bool):
+        return Decimal("1") if value else Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized:
+            return Decimal("0")
+        try:
+            return Decimal(normalized)
+        except InvalidOperation:
+            logger.warning(
+                "coerce_numeric_failed",
+                extra={"value_type": "str", "value_repr": repr(value[:50])},
+            )
+            return Decimal("0")
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        logger.warning(
+            "coerce_numeric_failed",
+            extra={"value_type": type(value).__name__},
+        )
+        return Decimal("0")
+
+
 @ui.page("/position-management")
 @requires_auth
 @main_layout
@@ -167,7 +207,7 @@ async def position_management_page(client: Client) -> None:
                 ],
                 "rowData": [],
                 "domLayout": "autoHeight",
-                "getRowId": "data => data.symbol",
+                ":getRowId": "params => params?.data?.symbol ?? ('row-' + String(params?.rowIndex ?? ''))",
                 "rowSelection": "single",
             }
         ).classes("w-full mb-4")
@@ -192,9 +232,15 @@ async def position_management_page(client: Client) -> None:
 
     def update_summary() -> None:
         position_count_label.set_text(f"Positions: {len(positions_data)}")
-        total_value = sum(p.get("market_value", 0) or 0 for p in positions_data)
+        total_value = sum(
+            (_coerce_numeric(p.get("market_value")) for p in positions_data),
+            start=Decimal("0"),
+        )
         total_value_label.set_text(f"Total Value: ${total_value:,.2f}")
-        unrealized = sum(p.get("unrealized_pl", 0) or 0 for p in positions_data)
+        unrealized = sum(
+            (_coerce_numeric(p.get("unrealized_pl")) for p in positions_data),
+            start=Decimal("0"),
+        )
         color = "text-green-600" if unrealized >= 0 else "text-red-600"
         unrealized_pnl_label.classes(remove="text-green-600 text-red-600", add=color)
         unrealized_pnl_label.set_text(f"Unrealized P&L: ${unrealized:,.2f}")

@@ -64,6 +64,7 @@ def _get_service(db_pool: Any, user: dict[str, Any]) -> Any:
     )
 
 
+@ui.page("/reports/scheduled")
 @ui.page("/reports")
 @requires_auth
 @main_layout
