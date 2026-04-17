@@ -42,8 +42,8 @@ groups:
           description: "CB verification has failed - staleness at sentinel value 999999. All workers unable to verify CB state."
           runbook: "https://docs.trading-platform.local/RUNBOOKS/circuit-breaker-ops.md"
 
-      # AlertDeliveryLatencyHigh is defined in alert_delivery.yml (with proper
-      # sum(...) by (le) aggregation for accurate P95 across multiple series).
+      # AlertDeliveryLatencyHigh is defined in alert_delivery.yml (with
+      # sum(...) by (le, channel) for per-channel P95 across instances).
 
       # Audit Log Write Latency (SLA: P95 < 1s)
       - alert: AuditWriteLatencyHigh
