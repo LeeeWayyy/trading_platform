@@ -1,7 +1,7 @@
 """One-click quantity preset buttons for order entry.
 
-Provides configurable presets (100, 500, 1000) and MAX button with
-buying power and position limit awareness.
+Provides configurable quick-size presets and MAX button with buying
+power and position limit awareness.
 """
 
 from __future__ import annotations
@@ -33,6 +33,9 @@ class QuantityPresetsComponent:
         self,
         on_preset_selected: Callable[[int], None],
         presets: list[int] | None = None,
+        *,
+        on_close_selected: Callable[[], None] | None = None,
+        show_close: bool = False,
     ) -> None:
         """Initialize quantity presets.
 
@@ -42,8 +45,13 @@ class QuantityPresetsComponent:
         """
         self._on_preset_selected = on_preset_selected
         self._presets = presets or self.DEFAULT_PRESETS
+        self._on_close_selected = on_close_selected
+        self._show_close = show_close
+        self._container: ui.row | None = None
         self._preset_buttons: list[ui.button] = []
         self._max_button: ui.button | None = None
+        self._close_button: ui.button | None = None
+        self._enabled: bool = True
 
         # Context for MAX calculation
         self._buying_power: Decimal | None = None
@@ -53,32 +61,42 @@ class QuantityPresetsComponent:
         self._max_notional_per_order: Decimal | None = None
         self._side: str = "buy"
         self._effective_price: Decimal | None = None  # Limit/stop price
+        self._qty_step: int = 1
+        self._min_qty: int = 1
 
     def create(self) -> ui.row:
         """Create preset buttons row."""
-        self._preset_buttons = []
-        with ui.row().classes("gap-2 items-center") as row:
-            for preset in self._presets:
-                btn = ui.button(
-                    str(preset),
-                    on_click=lambda p=preset: self._on_preset_selected(p),
-                ).classes("w-16 h-8 text-sm")
-                self._preset_buttons.append(btn)
-
-            # MAX button with dynamic calculation
-            self._max_button = ui.button(
-                "MAX",
-                on_click=self._calculate_and_select_max,
-            ).classes("w-16 h-8 text-sm bg-blue-600")
-
+        with ui.row().classes("gap-1 items-center flex-wrap") as row:
+            self._container = row
+        self._render_buttons()
         return row
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable all preset buttons."""
+        self._enabled = enabled
         for btn in self._preset_buttons:
             btn.set_enabled(enabled)
         if self._max_button:
             self._max_button.set_enabled(enabled)
+        if self._close_button:
+            self._close_button.set_enabled(enabled)
+
+    def set_presets(self, presets: list[int]) -> None:
+        """Update quick-size presets and re-render buttons."""
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for raw in presets:
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value <= 0 or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+
+        self._presets = normalized or list(self.DEFAULT_PRESETS)
+        self._render_buttons()
 
     def _calculate_and_select_max(self) -> None:
         """Calculate max affordable quantity based on buying power AND position limits.
@@ -136,9 +154,19 @@ class QuantityPresetsComponent:
             applicable_limits.append(max_by_notional)
 
         max_qty = min(applicable_limits)
+        qty_step = max(1, self._qty_step)
+        min_qty = max(qty_step, self._min_qty)
 
-        # Apply safety margin (95% to avoid edge cases)
-        safe_max = int(max_qty * self.MAX_SAFETY_MARGIN)
+        # Apply safety margin and quantize to the same min+N*step lattice used by
+        # OrderTicket quantity normalization logic.
+        # We intentionally do not re-escalate to raw max_qty after quantization,
+        # because that can bypass the safety margin at boundary conditions.
+        safe_max_qty = int(max_qty * self.MAX_SAFETY_MARGIN)
+        if safe_max_qty >= min_qty:
+            quantized_qty = min_qty + ((safe_max_qty - min_qty) // qty_step) * qty_step
+        else:
+            quantized_qty = 0
+        safe_max = quantized_qty if quantized_qty >= min_qty else 0
 
         if safe_max > 0:
             self._on_preset_selected(safe_max)
@@ -160,6 +188,8 @@ class QuantityPresetsComponent:
         max_notional_per_order: Decimal | None = None,
         side: str = "buy",
         effective_price: Decimal | None = None,
+        qty_step: int = 1,
+        min_qty: int = 1,
     ) -> None:
         """Update context for MAX calculation.
 
@@ -172,6 +202,8 @@ class QuantityPresetsComponent:
             side: Order side ('buy' or 'sell') - affects position limit calc.
             effective_price: Limit/stop price for non-market orders. If provided,
                 used for buying power and notional calculations instead of current_price.
+            qty_step: Required quantity increment for selected symbol.
+            min_qty: Minimum allowed quantity for selected symbol.
         """
         self._buying_power = buying_power
         self._current_price = current_price
@@ -180,6 +212,39 @@ class QuantityPresetsComponent:
         self._max_position_per_symbol = max_position_per_symbol
         self._max_notional_per_order = max_notional_per_order
         self._side = side
+        self._qty_step = max(1, int(qty_step))
+        self._min_qty = max(self._qty_step, int(min_qty))
+
+    def _render_buttons(self) -> None:
+        """Render quick-size controls inside the container."""
+        if self._container is None:
+            return
+        self._container.clear()
+        self._preset_buttons = []
+        self._close_button = None
+        self._max_button = None
+
+        with self._container:
+            for preset in self._presets:
+                btn = ui.button(
+                    str(preset),
+                    on_click=lambda _, p=preset: self._on_preset_selected(p),
+                ).classes("workspace-v2-preset-btn")
+                btn.set_enabled(self._enabled)
+                self._preset_buttons.append(btn)
+
+            if self._show_close and self._on_close_selected is not None:
+                self._close_button = ui.button(
+                    "CLOSE",
+                    on_click=self._on_close_selected,
+                ).classes("workspace-v2-preset-btn workspace-v2-preset-close")
+                self._close_button.set_enabled(self._enabled)
+
+            self._max_button = ui.button(
+                "MAX",
+                on_click=self._calculate_and_select_max,
+            ).classes("workspace-v2-preset-btn workspace-v2-preset-max")
+            self._max_button.set_enabled(self._enabled)
 
 
 __all__ = ["QuantityPresetsComponent"]

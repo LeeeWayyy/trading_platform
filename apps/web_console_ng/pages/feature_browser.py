@@ -24,7 +24,6 @@ from libs.data.feature_metadata import (
     get_sample_values,
 )
 from libs.platform.web_console_auth.permissions import Permission, has_permission
-from strategies.alpha_baseline.features import get_alpha158_features
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +35,32 @@ _MAX_CACHE_BYTES = 5 * 1024 * 1024
 _DEFAULT_SYMBOLS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
 _CLEANUP_OWNER_KEY = "feature_browser_cache"
 _CACHE_KEY = "feature_cache"
+
+
+def _get_alpha158_features(
+    *, symbols: list[str], start_date: str, end_date: str
+) -> pd.DataFrame | None:
+    """Load Alpha158 features via lazy import.
+
+    The lightweight web console Docker image does not always include qlib.
+    Deferring this import allows the application to boot while degrading this
+    page gracefully when qlib-backed feature computation is unavailable.
+    """
+    try:
+        from strategies.alpha_baseline.features import (
+            get_alpha158_features as _get_alpha158_features_impl,
+        )
+    except ModuleNotFoundError as exc:
+        missing_module = exc.name or ""
+        if missing_module == "strategies" or missing_module.startswith("strategies."):
+            raise RuntimeError("alpha158 feature dependencies are unavailable") from exc
+        raise
+
+    return _get_alpha158_features_impl(
+        symbols=symbols,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 def _cache_fresh(cached_at: float) -> bool:
@@ -174,7 +199,7 @@ async def feature_browser_page() -> None:
             start_dt = end_dt - timedelta(days=_MAX_CACHE_DAYS + _MAX_LOOKBACK_DAYS)
             symbols = _DEFAULT_SYMBOLS[:_MAX_CACHE_SYMBOLS]
             features_df = await asyncio.to_thread(
-                get_alpha158_features,
+                _get_alpha158_features,
                 symbols=symbols,
                 start_date=start_dt.isoformat(),
                 end_date=end_dt.isoformat(),
@@ -210,6 +235,17 @@ async def feature_browser_page() -> None:
             return features_df
         except FileNotFoundError:
             ui.notify("Feature data not available — run ETL pipeline first", type="warning")
+            return None
+        except RuntimeError as exc:
+            if "alpha158 feature dependencies are unavailable" in str(exc):
+                logger.warning(
+                    "feature_dependencies_unavailable",
+                    extra={"dependency": "qlib"},
+                )
+                ui.notify("Feature data unavailable: optional qlib dependency missing", type="warning")
+                return None
+            logger.exception("feature_data_load_failed")
+            ui.notify("Feature data unavailable", type="warning")
             return None
         except Exception:
             logger.exception("feature_data_load_failed")

@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _CLEANUP_OWNER_KEY = "exposure_timers"
 
 
+@ui.page("/exposure")
 @ui.page("/risk/exposure")
 @requires_auth
 @main_layout

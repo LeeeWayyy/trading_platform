@@ -468,7 +468,7 @@ async def test_cancel_order(
 ) -> None:
     """Test cancel_order calls the correct endpoint with audit payload."""
     monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
-    route = respx.post("http://testserver/api/v1/orders/order-123/cancel").mock(
+    route = respx.post("http://testserver/api/v1/manual/orders/order-123/cancel").mock(
         return_value=httpx.Response(200, json={"status": "cancelled"})
     )
 

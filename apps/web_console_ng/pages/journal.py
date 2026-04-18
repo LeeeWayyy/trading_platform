@@ -668,7 +668,7 @@ async def _export_excel(
     filters: dict[str, Any],
 ) -> tuple[bytes, int]:
     """Export trades to Excel using streaming write mode."""
-    from openpyxl import Workbook  # type: ignore[import-untyped]
+    from openpyxl import Workbook
 
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Trades")

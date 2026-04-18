@@ -174,14 +174,14 @@
       "toSide": "bottom"
     },
     {
-      "fromNode": "svc_alert_worker",
+      "fromNode": "svc_auth_service",
       "fromSide": "bottom",
       "id": "edge_21",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_auth_service",
+      "fromNode": "svc_execution_gateway",
       "fromSide": "bottom",
       "id": "edge_22",
       "toNode": "lib_core",
@@ -191,118 +191,104 @@
       "fromNode": "svc_execution_gateway",
       "fromSide": "bottom",
       "id": "edge_23",
-      "toNode": "lib_core",
+      "toNode": "lib_data",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_execution_gateway",
+      "fromNode": "svc_market_data_service",
       "fromSide": "bottom",
       "id": "edge_24",
-      "toNode": "lib_data",
+      "toNode": "lib_core",
       "toSide": "top"
     },
     {
       "fromNode": "svc_market_data_service",
       "fromSide": "bottom",
       "id": "edge_25",
-      "toNode": "lib_core",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_market_data_service",
-      "fromSide": "bottom",
-      "id": "edge_26",
       "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_model_registry",
       "fromSide": "bottom",
-      "id": "edge_27",
+      "id": "edge_26",
       "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_orchestrator",
+      "fromSide": "bottom",
+      "id": "edge_27",
+      "toNode": "lib_core",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_signal_service",
       "fromSide": "bottom",
       "id": "edge_28",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_orchestrator",
+      "fromNode": "svc_signal_service",
       "fromSide": "bottom",
       "id": "edge_29",
-      "toNode": "lib_data",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_signal_service",
-      "fromSide": "bottom",
-      "id": "edge_30",
-      "toNode": "lib_core",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_signal_service",
-      "fromSide": "bottom",
-      "id": "edge_31",
       "toNode": "strat_alpha_baseline",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_32",
+      "id": "edge_30",
       "toNode": "lib_analytics",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_33",
+      "id": "edge_31",
       "toNode": "lib_common",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_34",
+      "id": "edge_32",
       "toNode": "lib_core",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_35",
+      "id": "edge_33",
       "toNode": "lib_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_36",
+      "id": "edge_34",
       "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_37",
+      "id": "edge_35",
       "toNode": "lib_web_console_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_38",
+      "id": "edge_36",
       "toNode": "lib_web_console_services",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_39",
+      "id": "edge_37",
       "toNode": "strat_alpha_baseline",
       "toSide": "top"
     }

@@ -76,6 +76,18 @@ class Settings(BaseSettings):
     # Service Configuration
     # ========================================================================
 
+    environment: str = "dev"
+    """
+    Deployment environment name.
+
+    Controls environment-sensitive behavior such as mock feature fallback.
+    Mock features are only allowed in "dev" and "test" environments.
+
+    Example:
+        export ENVIRONMENT=production  # Disables mock fallback
+        export ENVIRONMENT=dev         # Allows mock fallback (default)
+    """
+
     host: str = "0.0.0.0"
     """Service bind address. 0.0.0.0 = all interfaces, 127.0.0.1 = localhost only."""
 

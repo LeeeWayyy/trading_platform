@@ -407,6 +407,24 @@ class AsyncTradingClient:
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_strategy_status(
+        self,
+        strategy_id: str,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch status for a single strategy (GET - idempotent)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        safe_strategy_id = url_quote(strategy_id, safe="")
+        resp = await self._client.get(
+            f"/api/v1/strategies/{safe_strategy_id}",
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
     async def fetch_market_prices(
         self,
         user_id: str,
@@ -434,7 +452,7 @@ class AsyncTradingClient:
         requested_by: str,
         requested_at: str,
     ) -> dict[str, Any]:
-        """Cancel an order by client_order_id (POST with CancelOrderRequest body).
+        """Cancel an order by client_order_id (manual cancel endpoint with request body).
 
         Args:
             order_id: The client_order_id to cancel
@@ -454,7 +472,7 @@ class AsyncTradingClient:
         # URL-encode order_id to prevent path traversal attacks
         safe_order_id = url_quote(order_id, safe="")
         resp = await self._client.post(
-            f"/api/v1/orders/{safe_order_id}/cancel", headers=headers, json=payload
+            f"/api/v1/manual/orders/{safe_order_id}/cancel", headers=headers, json=payload
         )
         resp.raise_for_status()
         return self._json_dict(resp)

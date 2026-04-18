@@ -43,11 +43,13 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis as AsyncRedis
 
     from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
+    from apps.web_console_ng.components.execution_context import ExecutionContextSnapshot
     from apps.web_console_ng.components.flatten_controls import FlattenControls
     from apps.web_console_ng.components.market_context import MarketContextComponent
     from apps.web_console_ng.components.one_click_handler import OneClickHandler
     from apps.web_console_ng.components.order_ticket import OrderTicketComponent
     from apps.web_console_ng.components.price_chart import PriceChartComponent
+    from apps.web_console_ng.components.strategy_context import StrategyContextWidget
     from apps.web_console_ng.components.watchlist import WatchlistComponent
     from apps.web_console_ng.core.client import AsyncTradingClient
     from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
@@ -55,6 +57,7 @@ if TYPE_CHECKING:
     from apps.web_console_ng.core.state_manager import UserStateManager
 
 logger = logging.getLogger(__name__)
+DEFAULT_LOT_SIZE = 100
 
 # Connection states that disable trading
 READ_ONLY_CONNECTION_STATES = {"DISCONNECTED", "RECONNECTING", "DEGRADED"}
@@ -142,6 +145,8 @@ class OrderEntryContext:
         self._channel_callbacks: dict[str, Callable[[dict[str, Any]], Any]] = {}
         # Failed subscriptions to retry on reconnect
         self._failed_subscriptions: dict[str, tuple[set[str], Callable[..., Any]]] = {}
+        # Optional dashboard callback for connection state masking/UX
+        self._connection_state_callback: Callable[[str, bool], None] | None = None
 
         # Track current selected channel for unsubscribe
         self._current_selected_channel: str | None = None
@@ -154,6 +159,7 @@ class OrderEntryContext:
         self._watchlist: WatchlistComponent | None = None
         self._price_chart: PriceChartComponent | None = None
         self._dom_ladder: DOMLadderComponent | None = None
+        self._strategy_context_widget: StrategyContextWidget | None = None
 
         # T7 Order Actions components
         self._flatten_controls: FlattenControls | None = None
@@ -166,9 +172,13 @@ class OrderEntryContext:
 
         # Cached prices for one-click trading (symbol -> (price, timestamp))
         self._cached_prices: dict[str, tuple[Decimal, datetime]] = {}
+        # Optional symbol-level quantity rules from market-data metadata
+        self._symbol_quantity_rules: dict[str, tuple[int, int, str, int]] = {}
 
         # Current selected symbol (shared state)
         self._selected_symbol: str | None = None
+        # Synchronous listeners used by dashboard widgets to react to symbol changes.
+        self._symbol_change_callbacks: list[Callable[[str | None], None]] = []
 
         # SYMBOL SELECTION VERSION (race prevention)
         self._selection_version: int = 0
@@ -203,6 +213,10 @@ class OrderEntryContext:
         """Set the PriceChart component reference."""
         self._price_chart = component
 
+    def set_strategy_context_widget(self, component: StrategyContextWidget) -> None:
+        """Set the StrategyContextWidget component reference."""
+        self._strategy_context_widget = component
+
     def set_flatten_controls(self, component: FlattenControls) -> None:
         """Set the FlattenControls component reference."""
         self._flatten_controls = component
@@ -212,6 +226,45 @@ class OrderEntryContext:
         self._one_click_handler = handler
         # Sync initial cached state
         self._sync_one_click_cached_state()
+
+    def set_connection_state_callback(
+        self, callback: Callable[[str, bool], None] | None
+    ) -> None:
+        """Set optional callback for connection state changes."""
+        self._connection_state_callback = callback
+
+    def dispatch_strategy_model_context(
+        self,
+        *,
+        strategy_status: str | None,
+        model_status: str | None,
+        gate_enabled: bool,
+        gate_reason: str | None = None,
+        strategy_label: str | None = None,
+        model_label: str | None = None,
+        banner: str | None = None,
+        snapshot: ExecutionContextSnapshot | None = None,
+    ) -> None:
+        """Dispatch strategy/model execution context to ticket and context widget."""
+        if self._order_ticket:
+            self._order_ticket.set_strategy_model_context(
+                strategy_status=strategy_status,
+                model_status=model_status,
+                gate_enabled=gate_enabled,
+                gate_reason=gate_reason,
+            )
+            self._order_ticket.set_execution_context_snapshot(snapshot)
+
+        if self._strategy_context_widget:
+            self._strategy_context_widget.set_status(
+                strategy_status=strategy_status or "unknown",
+                model_status=model_status or "unknown",
+                gate_enabled=gate_enabled,
+                gate_reason=gate_reason,
+                strategy_label=strategy_label,
+                model_label=model_label,
+                banner=banner,
+            )
 
     def _sync_one_click_cached_state(self) -> None:
         """Sync cached safety state to OneClickHandler."""
@@ -298,14 +351,17 @@ class OrderEntryContext:
 
         self._price_chart = PriceChartComponent(
             trading_client=self._client,
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
         )
         return self._price_chart.create(width=width, height=height)
 
-    def create_dom_ladder(self) -> Any:
+    def create_dom_ladder(self, *, levels: int = 10) -> Any:
         """Create and configure the DOM ladder component."""
         from apps.web_console_ng.components.dom_ladder import DOMLadderComponent
 
-        self._dom_ladder = DOMLadderComponent()
+        self._dom_ladder = DOMLadderComponent(levels=levels)
         return self._dom_ladder.create()
 
     def create_order_ticket(self) -> Any:
@@ -866,6 +922,11 @@ class OrderEntryContext:
             self._cached_connection_state = "UNKNOWN"
             if self._order_ticket:
                 self._order_ticket.set_connection_state("UNKNOWN", True)
+            if self._connection_state_callback:
+                try:
+                    self._connection_state_callback("UNKNOWN", True)
+                except Exception as callback_exc:
+                    logger.warning(f"Connection callback failed for UNKNOWN state: {callback_exc}")
             # Sync to T7 components so risk-increasing actions fail closed
             self._sync_one_click_cached_state()
             return
@@ -910,6 +971,11 @@ class OrderEntryContext:
 
         if self._order_ticket:
             self._order_ticket.set_connection_state(state, is_read_only)
+        if self._connection_state_callback:
+            try:
+                self._connection_state_callback(state, is_read_only)
+            except Exception as callback_exc:
+                logger.warning(f"Connection callback failed for state {state}: {callback_exc}")
 
         # Sync to T7 components
         self._sync_one_click_cached_state()
@@ -1012,6 +1078,97 @@ class OrderEntryContext:
             self._current_l2_channel = None
             self._current_l2_symbol = None
 
+    def _parse_positive_int(self, value: Any) -> int | None:
+        """Parse positive integer metadata value."""
+        try:
+            parsed = int(float(value))
+        except (OverflowError, ValueError, TypeError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def _extract_symbol_quantity_rules(
+        self, data: dict[str, Any]
+    ) -> tuple[int, int, str, int] | None:
+        """Extract optional symbol quantity rules from price payload."""
+        step_candidates = (
+            data.get("qty_step"),
+            data.get("quantity_step"),
+            data.get("lot_size"),
+            data.get("qty_increment"),
+        )
+        min_candidates = (
+            data.get("min_qty"),
+            data.get("minimum_qty"),
+            data.get("min_order_qty"),
+        )
+        unit_candidates = (
+            data.get("qty_unit"),
+            data.get("quantity_unit"),
+            data.get("unit"),
+        )
+
+        qty_step: int | None = None
+        for candidate in step_candidates:
+            parsed = self._parse_positive_int(candidate)
+            if parsed is not None:
+                qty_step = parsed
+                break
+
+        lot_size = self._parse_positive_int(data.get("lot_size"))
+
+        min_qty: int | None = None
+        for candidate in min_candidates:
+            parsed = self._parse_positive_int(candidate)
+            if parsed is not None:
+                min_qty = parsed
+                break
+
+        qty_unit: str | None = None
+        for candidate in unit_candidates:
+            if candidate is None:
+                continue
+            parsed_unit = str(candidate).strip().lower()
+            if parsed_unit in {"shares", "lots", "contracts"}:
+                qty_unit = parsed_unit
+                break
+
+        if qty_step is None and min_qty is None and qty_unit is None:
+            return None
+
+        normalized_step = qty_step or 1
+        normalized_min = max(normalized_step, min_qty or normalized_step)
+        normalized_unit = qty_unit or "shares"
+        normalized_unit_size = 1
+        if normalized_unit == "lots":
+            if lot_size is not None and (
+                normalized_step < lot_size or normalized_min < lot_size
+            ):
+                normalized_unit_size = lot_size
+            elif lot_size is None and normalized_step <= 10 and normalized_min <= 10:
+                normalized_unit_size = DEFAULT_LOT_SIZE
+        return (normalized_step, normalized_min, normalized_unit, normalized_unit_size)
+
+    def _cache_symbol_quantity_rules(self, symbol: str, data: dict[str, Any]) -> None:
+        """Cache symbol quantity rules if present in payload metadata."""
+        rules = self._extract_symbol_quantity_rules(data)
+        if rules is not None:
+            self._symbol_quantity_rules[symbol] = rules
+
+    def _apply_symbol_quantity_rules(self, symbol: str | None) -> None:
+        """Apply cached quantity rules to ticket for selected symbol."""
+        if not self._order_ticket or not symbol:
+            return
+        rules = self._symbol_quantity_rules.get(symbol)
+        if rules is None:
+            return
+        qty_step, min_qty, qty_unit, qty_unit_size = rules
+        self._order_ticket.set_quantity_rules(
+            qty_step=qty_step,
+            min_qty=min_qty,
+            qty_unit=qty_unit,
+            qty_unit_size=qty_unit_size,
+        )
+
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""
         if self._disposed:
@@ -1033,6 +1190,8 @@ class OrderEntryContext:
                 self._order_ticket.set_price_data(self._selected_symbol, None, None)
             return
 
+        self._cache_symbol_quantity_rules(symbol, data)
+
         timestamp: datetime | None = None
         if raw_timestamp:
             try:
@@ -1042,6 +1201,7 @@ class OrderEntryContext:
 
         # Dispatch to OrderTicket for selected symbol
         if self._order_ticket and self._selected_symbol and symbol == self._selected_symbol:
+            self._apply_symbol_quantity_rules(symbol)
             price: Decimal | None = None
             if raw_price is not None:
                 try:
@@ -1146,6 +1306,7 @@ class OrderEntryContext:
             return  # Stale - newer selection in progress
 
         self._selected_symbol = symbol
+        self._notify_symbol_change_callbacks(symbol)
 
         # Subscribe to new symbol's price channel (only if symbol provided)
         if symbol:
@@ -1154,6 +1315,7 @@ class OrderEntryContext:
             except Exception as exc:
                 logger.error(f"Failed to subscribe to price channel for {symbol}: {exc}")
                 self._selected_symbol = None
+                self._notify_symbol_change_callbacks(None)
                 ui.notify(f"Unable to load data for {symbol}", type="warning")
                 if self._order_ticket:
                     await self._order_ticket.on_symbol_changed(None)
@@ -1206,6 +1368,7 @@ class OrderEntryContext:
         # Notify all child components
         if self._order_ticket:
             await self._order_ticket.on_symbol_changed(symbol)
+            self._apply_symbol_quantity_rules(symbol)
             if self._selection_version != current_version:
                 return
 
@@ -1485,6 +1648,19 @@ class OrderEntryContext:
         """Get the currently selected symbol."""
         return self._selected_symbol
 
+    def register_symbol_change_callback(self, callback: Callable[[str | None], None]) -> None:
+        """Register a synchronous callback invoked whenever selected symbol changes."""
+        if callback not in self._symbol_change_callbacks:
+            self._symbol_change_callbacks.append(callback)
+
+    def _notify_symbol_change_callbacks(self, symbol: str | None) -> None:
+        """Notify best-effort symbol listeners without breaking selection flow."""
+        for callback in tuple(self._symbol_change_callbacks):
+            try:
+                callback(symbol)
+            except Exception as exc:
+                logger.warning(f"Symbol change callback failed: {exc}")
+
     # =========================================================================
     # Cleanup
     # =========================================================================
@@ -1504,6 +1680,7 @@ class OrderEntryContext:
         if self._risk_refresh_task and not self._risk_refresh_task.done():
             self._risk_refresh_task.cancel()
         self._risk_refresh_task = None
+        self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels
         async with self._subscription_lock:

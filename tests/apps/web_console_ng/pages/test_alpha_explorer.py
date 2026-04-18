@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 import sys
 from types import SimpleNamespace
@@ -45,6 +46,14 @@ class DummyService:
     def compute_correlation(self, signal_ids: list[str]):
         self.compute_calls.append(signal_ids)
         return pd.DataFrame([[1.0, 0.2], [0.2, 1.0]], columns=signal_ids, index=signal_ids)
+
+
+def test_alpha_explorer_redirects_to_research_discover() -> None:
+    """Legacy alpha page should redirect to consolidated Discover tab."""
+    source = inspect.getsource(alpha_module.alpha_explorer_page)
+
+    assert 'ui.navigate.to("/research?tab=discover")' in source
+    assert '"/research?tab=discover"' in source
 
 
 @pytest.fixture()

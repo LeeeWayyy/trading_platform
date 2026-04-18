@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -482,6 +482,54 @@ class TestPriceChartSymbolChange:
 
         assert component._current_symbol is None
         mock_clear.assert_called_once()
+
+
+class TestPriceChartExecutionMarkers:
+    """Tests for execution-marker fetch compatibility."""
+
+    @pytest.mark.asyncio()
+    async def test_fetch_execution_markers_uses_authenticated_signature(self) -> None:
+        client = MagicMock()
+        client.fetch_recent_fills = AsyncMock(return_value={"fills": []})
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        markers = await component._fetch_execution_markers("AAPL")
+
+        assert markers == []
+        client.fetch_recent_fills.assert_awaited_once_with(
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            limit=100,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_fetch_execution_markers_falls_back_to_legacy_signature(self) -> None:
+        class LegacyClient:
+            def __init__(self) -> None:
+                self.calls: list[int] = []
+
+            async def fetch_recent_fills(self, limit: int = 50) -> dict[str, list[dict[str, object]]]:
+                self.calls.append(limit)
+                return {"fills": []}
+
+        client = LegacyClient()
+        component = PriceChartComponent(
+            trading_client=client,  # type: ignore[arg-type]
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        markers = await component._fetch_execution_markers("AAPL")
+
+        assert markers == []
+        assert client.calls == [100]
 
 
 class TestPriceChartDispose:

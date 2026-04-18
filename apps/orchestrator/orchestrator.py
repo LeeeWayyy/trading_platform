@@ -373,6 +373,8 @@ class TradingOrchestrator:
 
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
+        if not strategy_ids:
+            raise ValueError("strategy_id must be a non-empty string or list of strings")
         is_multi_strategy = len(strategy_ids) > 1
 
         # Set strategy context for structured logging in downstream methods
@@ -405,7 +407,11 @@ class TradingOrchestrator:
             else:
                 # Single strategy: use signals directly (backward compatible)
                 signal_response = await self._fetch_signals(
-                    symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+                    symbols=symbols,
+                    as_of_date=as_of_date,
+                    top_n=top_n,
+                    bottom_n=bottom_n,
+                    strategy_id=strategy_ids[0],
                 )
                 final_signals = signal_response.signals
                 validated_as_of_date = signal_response.metadata.as_of_date
@@ -697,20 +703,22 @@ class TradingOrchestrator:
             httpx.HTTPError: If Signal Service request fails
 
         Notes:
-            - In single-strategy mode, strategy_id is None and default model is used
+            - In single-strategy mode, strategy_id identifies the single active strategy
             - In multi-strategy mode, strategy_id differentiates signal sources
-            - TODO: Pass strategy_id to signal_client once it supports multiple strategies
+            - strategy_id is forwarded to SignalServiceClient for S2S auth context;
+              signal service model routing by strategy is not yet implemented
         """
         logger.info(
-            f"Fetching signals for {len(symbols)} symbols"
-            + (f" (strategy: {strategy_id})" if strategy_id else "")
+            f"Fetching signals for {len(symbols)} symbols",
+            extra={"strategy_id": strategy_id} if strategy_id else {},
         )
 
-        # TODO: Once SignalServiceClient supports strategy_id parameter, pass it here
-        # For MVP, all strategies use the same signal service endpoint
-        # In production, this would route to different strategy services or pass strategy_id
         signal_response = await self.signal_client.fetch_signals(
-            symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+            symbols=symbols,
+            as_of_date=as_of_date,
+            top_n=top_n,
+            bottom_n=bottom_n,
+            strategy_id=strategy_id,
         )
 
         logger.info(

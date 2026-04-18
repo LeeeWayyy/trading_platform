@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
+
+from psycopg.errors import UndefinedColumn, UndefinedObject, UndefinedTable
 
 from apps.web_console_ng.core.database import get_db_pool
 
@@ -24,6 +28,81 @@ class DatabaseUnavailableError(Exception):
     """Raised when database pool is not configured."""
 
     pass
+
+
+class WorkspaceSchemaUnavailableError(DatabaseUnavailableError):
+    """Raised when workspace_state schema elements are missing."""
+
+    def __init__(
+        self,
+        operation: str,
+        workspace_key: str,
+        *,
+        cause: Exception | None = None,
+    ) -> None:
+        message = (
+            f"workspace_state schema unavailable during {operation} for key={workspace_key}"
+        )
+        if cause is not None:
+            message = f"{message} ({type(cause).__name__})"
+        super().__init__(message)
+        self.operation = operation
+        self.workspace_key = workspace_key
+
+
+def _is_workspace_schema_missing_error(exc: Exception) -> bool:
+    """Return True for workspace_state schema drift/missing-table errors.
+
+    All ``UndefinedTable``, ``UndefinedColumn``, and ``UndefinedObject``
+    exceptions that arise within workspace operations are treated as schema
+    unavailability.  Postgres ``UndefinedColumn`` messages do not always
+    include the table name (e.g. ``column "schema_version" does not exist``),
+    so a string-only check is insufficient.  Because the ``_workspace_schema_guard``
+    context manager is scoped to workspace operations, any such error is
+    inherently workspace-related.
+    """
+    return isinstance(exc, UndefinedTable | UndefinedColumn | UndefinedObject)
+
+
+def _raise_workspace_schema_unavailable(
+    exc: Exception,
+    *,
+    operation: str,
+    workspace_key: str,
+) -> NoReturn:
+    """Log and re-raise schema drift errors as a typed workspace exception."""
+    logger.warning(
+        "workspace_state_schema_unavailable",
+        extra={
+            "operation": operation,
+            "workspace_key": workspace_key,
+            "error": type(exc).__name__,
+        },
+    )
+    raise WorkspaceSchemaUnavailableError(
+        operation,
+        workspace_key,
+        cause=exc,
+    ) from exc
+
+
+@asynccontextmanager
+async def _workspace_schema_guard(
+    *,
+    operation: str,
+    workspace_key: str,
+) -> AsyncIterator[None]:
+    """Normalize schema-missing DB errors into a typed workspace exception."""
+    try:
+        yield
+    except Exception as exc:
+        if _is_workspace_schema_missing_error(exc):
+            _raise_workspace_schema_unavailable(
+                exc,
+                operation=operation,
+                workspace_key=workspace_key,
+            )
+        raise
 
 
 @dataclass
@@ -94,19 +173,23 @@ class WorkspacePersistenceService:
             return False
 
         pool = _require_db_pool()
-        # Use async context managers for AsyncConnectionPool
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    INSERT INTO workspace_state (user_id, workspace_key, state_json, schema_version)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (user_id, workspace_key)
-                    DO UPDATE SET state_json = EXCLUDED.state_json, schema_version = EXCLUDED.schema_version
-                    """,
-                    (user_id, workspace_key, state_json, SCHEMA_VERSIONS["grid"]),
-                )
-            await conn.commit()
+        async with _workspace_schema_guard(
+            operation="save_grid_state",
+            workspace_key=workspace_key,
+        ):
+            # Use async context managers for AsyncConnectionPool
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO workspace_state (user_id, workspace_key, state_json, schema_version)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (user_id, workspace_key)
+                        DO UPDATE SET state_json = EXCLUDED.state_json, schema_version = EXCLUDED.schema_version
+                        """,
+                        (user_id, workspace_key, state_json, SCHEMA_VERSIONS["grid"]),
+                    )
+                await conn.commit()
 
         logger.info(
             "workspace_state_saved",
@@ -133,18 +216,23 @@ class WorkspacePersistenceService:
         workspace_key = f"grid.{grid_id}"
 
         pool = _require_db_pool()
-        # Use async context managers for AsyncConnectionPool
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    SELECT state_json, schema_version
-                    FROM workspace_state
-                    WHERE user_id = %s AND workspace_key = %s
-                    """,
-                    (user_id, workspace_key),
-                )
-                row = await cur.fetchone()
+        row: Any | None = None
+        async with _workspace_schema_guard(
+            operation="load_grid_state",
+            workspace_key=workspace_key,
+        ):
+            # Use async context managers for AsyncConnectionPool
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT state_json, schema_version
+                        FROM workspace_state
+                        WHERE user_id = %s AND workspace_key = %s
+                        """,
+                        (user_id, workspace_key),
+                    )
+                    row = await cur.fetchone()
 
         if not row:
             return None
@@ -240,18 +328,22 @@ class WorkspacePersistenceService:
             return False
 
         pool = _require_db_pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    INSERT INTO workspace_state (user_id, workspace_key, state_json, schema_version)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (user_id, workspace_key)
-                    DO UPDATE SET state_json = EXCLUDED.state_json, schema_version = EXCLUDED.schema_version
-                    """,
-                    (user_id, workspace_key, state_json, SCHEMA_VERSIONS["panel"]),
-                )
-            await conn.commit()
+        async with _workspace_schema_guard(
+            operation="save_panel_state",
+            workspace_key=workspace_key,
+        ):
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO workspace_state (user_id, workspace_key, state_json, schema_version)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (user_id, workspace_key)
+                        DO UPDATE SET state_json = EXCLUDED.state_json, schema_version = EXCLUDED.schema_version
+                        """,
+                        (user_id, workspace_key, state_json, SCHEMA_VERSIONS["panel"]),
+                    )
+                await conn.commit()
 
         logger.info(
             "workspace_state_saved",
@@ -278,17 +370,22 @@ class WorkspacePersistenceService:
         workspace_key = f"panel.{panel_id}"
 
         pool = _require_db_pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    SELECT state_json, schema_version
-                    FROM workspace_state
-                    WHERE user_id = %s AND workspace_key = %s
-                    """,
-                    (user_id, workspace_key),
-                )
-                row = await cur.fetchone()
+        row: Any | None = None
+        async with _workspace_schema_guard(
+            operation="load_panel_state",
+            workspace_key=workspace_key,
+        ):
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT state_json, schema_version
+                        FROM workspace_state
+                        WHERE user_id = %s AND workspace_key = %s
+                        """,
+                        (user_id, workspace_key),
+                    )
+                    row = await cur.fetchone()
 
         if not row:
             return None
@@ -356,20 +453,24 @@ class WorkspacePersistenceService:
             DatabaseUnavailableError: If database pool is not configured
         """
         pool = _require_db_pool()
-        # Use async context managers for AsyncConnectionPool
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                if workspace_key:
-                    await cur.execute(
-                        "DELETE FROM workspace_state WHERE user_id = %s AND workspace_key = %s",
-                        (user_id, workspace_key),
-                    )
-                else:
-                    await cur.execute(
-                        "DELETE FROM workspace_state WHERE user_id = %s",
-                        (user_id,),
-                    )
-            await conn.commit()
+        async with _workspace_schema_guard(
+            operation="reset_workspace",
+            workspace_key=workspace_key or "all",
+        ):
+            # Use async context managers for AsyncConnectionPool
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    if workspace_key:
+                        await cur.execute(
+                            "DELETE FROM workspace_state WHERE user_id = %s AND workspace_key = %s",
+                            (user_id, workspace_key),
+                        )
+                    else:
+                        await cur.execute(
+                            "DELETE FROM workspace_state WHERE user_id = %s",
+                            (user_id,),
+                        )
+                await conn.commit()
 
         logger.info(
             "workspace_state_reset",
@@ -393,6 +494,7 @@ __all__ = [
     "WorkspaceState",
     "WorkspacePersistenceService",
     "DatabaseUnavailableError",
+    "WorkspaceSchemaUnavailableError",
     "get_workspace_service",
     "SCHEMA_VERSIONS",
 ]

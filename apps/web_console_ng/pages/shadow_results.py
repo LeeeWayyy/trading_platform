@@ -157,6 +157,7 @@ def _format_metric(value: Any, precision: int = 4) -> str:
     return "-"
 
 
+@ui.page("/shadow-results")
 @ui.page("/data/shadow")
 @requires_auth
 @main_layout

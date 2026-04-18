@@ -1,7 +1,8 @@
 # Alertmanager Configuration for Trading Platform
 #
 # Routes alerts from Prometheus to notification channels:
-# - Critical alerts -> PagerDuty
+# - Page alerts -> PagerDuty (mapped to critical) + Slack
+# - Critical alerts -> PagerDuty + Slack
 # - Warning alerts -> Slack #alerts-ops
 #
 # Environment variables required:
@@ -36,27 +37,30 @@ route:
   # Group alerts by these labels
   group_by: ['alertname', 'severity', 'team']
 
-  # Child routes for severity-based routing
+  # Child routes for alert routing
   routes:
-    # Critical alerts -> PagerDuty + Slack
-    - match:
-        severity: critical
-      receiver: 'pagerduty-platform'
-      continue: true  # Also send to default (Slack)
-
-    # Track 7 SLA alerts
+    # Track 7 SLA alerts — matched first to avoid duplicate PagerDuty
+    # when alerts carry both sla=track7 and severity=critical/page.
     - match:
         sla: track7
       group_by: ['alertname']
       group_wait: 15s
       group_interval: 1m
       routes:
-        - match:
-            severity: critical
+        - match_re:
+            severity: ^(critical|page)$
           receiver: 'pagerduty-platform'
-        - match:
-            severity: warning
-          receiver: 'slack-ops'
+          continue: true  # Also send critical/page to Slack below
+        - receiver: 'slack-ops'  # Catches critical/page (via continue) and warning
+
+    # Page and critical alerts -> PagerDuty + Slack
+    - match_re:
+        severity: ^(critical|page)$
+      receiver: 'pagerduty-platform'
+      continue: true  # Continue to catch-all Slack route below
+
+    # Catch-all: ensures alerts with continue=true also reach Slack
+    - receiver: 'slack-ops'
 
 # Notification receivers
 receivers:
@@ -87,7 +91,7 @@ receivers:
     pagerduty_configs:
       - service_key: '${PAGERDUTY_SERVICE_KEY}'
         send_resolved: true
-        severity: '{{ .CommonLabels.severity }}'
+        severity: '{{ if eq (index .Alerts 0).Labels.severity "page" }}critical{{ else }}{{ (index .Alerts 0).Labels.severity }}{{ end }}'
         description: '{{ .CommonAnnotations.summary }}'
         details:
           firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'

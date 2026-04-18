@@ -52,6 +52,15 @@ from redis.exceptions import RedisError
 from libs.core.redis_client import FeatureCache
 
 
+class FeatureGenerationError(Exception):
+    """Raised when real feature generation fails and mock fallback is disabled.
+
+    This is a sentinel exception used to distinguish "mock fallback refused"
+    failures from other RuntimeErrors (e.g. model prediction failures).
+    The original exception is always chained via ``raise ... from e``.
+    """
+
+
 class PrecomputeResult(TypedDict):
     """Return type for precompute_features method.
 
@@ -168,6 +177,7 @@ class SignalGenerator:
         top_n: int = 3,
         bottom_n: int = 3,
         feature_cache: FeatureCache | None = None,
+        environment: str = "dev",
     ):
         """
         Initialize signal generator.
@@ -185,6 +195,11 @@ class SignalGenerator:
             feature_cache: Optional Redis-backed feature cache (T1.2)
                 If provided, features will be cached/retrieved from Redis.
                 If None, features will be generated fresh on every request.
+            environment: Deployment environment name (e.g. "dev", "test",
+                "staging", "production"). Mock feature fallback is only
+                allowed in "dev" and "test". Callers should pass this from
+                Pydantic Settings (``Settings.environment``) rather than
+                reading ``os.getenv`` directly.
 
         Raises:
             ValueError: If top_n or bottom_n < 0
@@ -208,6 +223,8 @@ class SignalGenerator:
         self.top_n = top_n
         self.bottom_n = bottom_n
         self.feature_cache = feature_cache
+        self.environment = environment.lower()
+        self.allow_mock_feature_fallback = self.environment in {"dev", "test"}
 
         logger.info(
             "SignalGenerator initialized",
@@ -216,6 +233,8 @@ class SignalGenerator:
                 "top_n": top_n,
                 "bottom_n": bottom_n,
                 "feature_cache_enabled": feature_cache is not None,
+                "environment": self.environment,
+                "allow_mock_feature_fallback": self.allow_mock_feature_fallback,
             },
         )
 
@@ -262,6 +281,10 @@ class SignalGenerator:
                 - Date is outside T1 data range
                 - Data not yet available for recent date
                 - Symbols not in T1 data
+            FeatureGenerationError: When feature generation fails and mock
+                fallback is disabled (i.e. environment is not "dev" or
+                "test"). The original exception is chained via
+                ``__cause__`` so callers can inspect the root cause.
 
         Example:
             >>> generator = SignalGenerator(registry, Path("data/adjusted"), top_n=2, bottom_n=2)
@@ -325,7 +348,7 @@ class SignalGenerator:
         logger.info(
             f"Generating signals for {len(symbols)} symbols on {date_str}",
             extra={
-                "symbols": symbols,
+                "symbols": symbols[:10],
                 "as_of_date": date_str,
                 "model_version": self.model_registry.current_metadata.version,
             },
@@ -388,7 +411,7 @@ class SignalGenerator:
         if symbols_to_generate:
             logger.debug(
                 f"Generating features for {len(symbols_to_generate)} symbols (cache misses)",
-                extra={"symbols": symbols_to_generate, "date": date_str},
+                extra={"symbols": symbols_to_generate[:10], "date": date_str},
             )
             try:
                 fresh_features = get_alpha158_features(
@@ -449,14 +472,34 @@ class SignalGenerator:
                 FileNotFoundError,
                 OSError,
             ) as e:
+                if not self.allow_mock_feature_fallback:
+                    logger.error(
+                        "Real feature generation failed in non-dev/test environment; refusing mock fallback",
+                        extra={
+                            "strategy_id": self.model_registry.current_metadata.strategy_name
+                            if self.model_registry.current_metadata
+                            else "unknown",
+                            "date": date_str,
+                            "symbols_count": len(symbols_to_generate),
+                            "symbols": symbols_to_generate[:10],
+                            "error_type": type(e).__name__,
+                            "environment": self.environment,
+                        },
+                    )
+                    raise FeatureGenerationError(
+                        f"Feature generation failed and mock fallback is disabled "
+                        f"outside dev/test (original: {type(e).__name__}: {e})"
+                    ) from e
+
                 # FALLBACK: Use mock features if Qlib integration not available
                 # This allows P3 testing without full Qlib data setup
                 logger.warning(
                     f"Falling back to mock features due to error: {e}",
                     extra={
                         "date": date_str,
-                        "symbols": symbols_to_generate,
+                        "symbols": symbols_to_generate[:10],
                         "error_type": type(e).__name__,
+                        "environment": self.environment,
                     },
                 )
                 try:
@@ -519,7 +562,7 @@ class SignalGenerator:
                         f"Failed to generate mock features: {mock_error}",
                         extra={
                             "date": date_str,
-                            "symbols": symbols_to_generate,
+                            "symbols": symbols_to_generate[:10],
                             "error_type": type(mock_error).__name__,
                         },
                         exc_info=True,
@@ -961,7 +1004,7 @@ class SignalGenerator:
 
         logger.info(
             f"Pre-computing features for {len(symbols)} symbols on {date_str}",
-            extra={"symbols": symbols, "date": date_str},
+            extra={"symbols": symbols[:10], "date": date_str},
         )
 
         # Check which symbols are already cached using batch MGET (O(1) vs O(N))
@@ -1030,6 +1073,24 @@ class SignalGenerator:
                     )
 
         except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
+            if not self.allow_mock_feature_fallback:
+                logger.error(
+                    "Feature generation failed in non-dev/test environment; refusing mock fallback",
+                    extra={
+                        "strategy_id": self.model_registry.current_metadata.strategy_name
+                        if self.model_registry.current_metadata
+                        else "unknown",
+                        "error_type": type(e).__name__,
+                        "date": date_str,
+                        "symbols_count": len(symbols_to_generate),
+                        "environment": self.environment,
+                    },
+                )
+                raise FeatureGenerationError(
+                    f"Feature generation failed and mock fallback is disabled "
+                    f"outside dev/test (original: {type(e).__name__}: {e})"
+                ) from e
+
             # Fallback to mock features if real features fail
             logger.warning(
                 f"Feature generation failed, trying mock: {e}",
@@ -1037,6 +1098,7 @@ class SignalGenerator:
                     "error_type": type(e).__name__,
                     "date": date_str,
                     "symbols_count": len(symbols_to_generate),
+                    "environment": self.environment,
                 },
             )
             try:

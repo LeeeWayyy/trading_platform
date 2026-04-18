@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from apps.web_console_ng.pages import dashboard as dashboard_module
@@ -104,3 +106,9 @@ async def test_market_price_cache_strategy_isolation(monkeypatch: pytest.MonkeyP
         client, user_id="user3", role="operator", strategies=strategies_a
     )
     assert client.calls == 2  # No new fetch, same scope as user1
+
+
+def test_dashboard_has_trade_alias_route() -> None:
+    """Dashboard page keeps '/' canonical and exposes '/trade' alias."""
+    source = inspect.getsource(dashboard_module.dashboard)
+    assert '@ui.page("/trade")' in source

@@ -378,6 +378,10 @@ app.include_router(health_routes.router)
 app.include_router(reconciliation_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(webhooks_routes.router)  # Uses signature auth, not bearer token
+# Mount manual controls before orders to ensure static routes such as
+# /api/v1/orders/pending and /api/v1/orders/recent-fills are not shadowed by
+# /api/v1/orders/{client_order_id}.
+app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])
 app.include_router(positions_routes.router)
 app.include_router(orders_routes.router)
 app.include_router(slicing_routes.router)
@@ -392,8 +396,6 @@ TRUSTED_PROXY_HOSTS = [
 ]
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  # type: ignore[arg-type]
 app.middleware("http")(populate_user_from_headers_middleware)
-
-app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])
 
 # =============================================================================
 # Prometheus Metrics

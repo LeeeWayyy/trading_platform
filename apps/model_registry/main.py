@@ -85,6 +85,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("=" * 60)
 
     try:
+        # Validate and populate CORS origins during startup (not at import time)
+        # so validation errors go through the normal lifespan error path.
+        # Middleware is already registered at module level with _cors_allow_origins;
+        # we populate the shared list in-place here.
+        _cors_allow_origins.clear()  # clear first to avoid stale origins on failure
+        cors_origins = _resolve_cors_origins()
+        _cors_allow_origins[:] = cors_origins
+
+        # Verify CORSMiddleware kept a live reference to _cors_allow_origins.
+        # Raises RuntimeError if the reference is broken (CORS would silently
+        # fail).  Logs ERROR if middleware is missing from stack (less severe).
+        _verify_cors_middleware_uses_shared_origins(app)
+
+        logger.info(
+            "CORS configured",
+            extra={"origin_count": len(cors_origins)},
+        )
+
         if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":
             # Fail closed: auth bypass is not permitted; require proper tokens even in dev
             raise RuntimeError(
@@ -219,33 +237,115 @@ app = FastAPI(
 # =============================================================================
 
 
-# CORS configuration
-ENVIRONMENT = os.getenv("ENVIRONMENT", "production").lower()
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
+def _resolve_cors_origins() -> list[str]:
+    """Resolve and validate CORS origins from environment variables.
 
-if ALLOWED_ORIGINS:
-    cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
-    if "*" in cors_origins:
-        raise RuntimeError(
-            "ALLOWED_ORIGINS cannot contain wildcard '*' when credentials are enabled"
-        )
-elif ENVIRONMENT in ("dev", "test"):
-    cors_origins = [
-        "http://localhost:8501",
-        "http://127.0.0.1:8501",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
-else:
-    raise RuntimeError("ALLOWED_ORIGINS must be set for production environments")
+    Called during lifespan startup so validation errors go through the normal
+    startup/error path instead of crashing at import time.
+
+    Returns the resolved origin list.
+
+    Raises:
+        RuntimeError: If ALLOWED_ORIGINS contains wildcard '*' or is unset in production.
+    """
+    environment = os.getenv("ENVIRONMENT", "production").lower()
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "")
+
+    if allowed_origins:
+        cors_origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+        if "*" in cors_origins:
+            raise RuntimeError(
+                "ALLOWED_ORIGINS cannot contain wildcard '*' when credentials are enabled"
+            )
+    elif environment in ("dev", "test"):
+        cors_origins = [
+            "http://localhost:8501",
+            "http://127.0.0.1:8501",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    else:
+        raise RuntimeError("ALLOWED_ORIGINS must be set for production environments")
+
+    return cors_origins
+
+
+# Mutable list populated during lifespan startup.  Registered with the CORS
+# middleware at module level (required before ASGI startup) and filled in-place
+# by _resolve_cors_origins() during lifespan so that configuration errors go
+# through the normal startup error path instead of crashing at import time
+# (see issue #156).
+#
+# Design constraints:
+# 1. Process-global by design: this service uses a single-app-per-process
+#    architecture (one uvicorn worker = one app instance).  The slice
+#    assignment ``_cors_allow_origins[:] = cors_origins`` ensures idempotent
+#    replacement across test restarts.
+# 2. Requires ASGI lifespan: CORS origins are populated during lifespan
+#    startup.  Running with ``--lifespan off`` would leave origins empty,
+#    effectively blocking all cross-origin requests (fail-closed).
+_cors_allow_origins: list[str] = []
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=_cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
+    """Ensure CORSMiddleware holds a live reference to _cors_allow_origins.
+
+    Starlette currently stores ``allow_origins`` by reference, so mutating
+    the list in-place during lifespan works.  If a future Starlette version
+    copies or freezes the sequence at init, this function explicitly
+    reassigns the shared list reference onto the middleware instance so
+    that in-place mutations (``_cors_allow_origins[:] = ...``) are always
+    reflected at runtime.
+
+    If CORSMiddleware is not found in the stack at all (less severe -- could
+    be a test or config issue), an ERROR is logged but startup continues.
+
+    Note:
+        ``_cors_allow_origins`` is process-global by design (single-app-per-
+        process architecture).  See the module-level comment above the list
+        declaration for rationale.
+    """
+    # ``middleware_stack`` is a plain instance attribute (not a property) in
+    # Starlette <=0.36 and is ``None`` until the ASGI app is started.  When
+    # lifespan is called on a bare FastAPI instance (e.g. in unit tests that
+    # do ``async with lifespan(FastAPI())``), the stack has not been built
+    # yet, so skip the guard silently.
+    if target_app.middleware_stack is None:
+        logger.debug(
+            "CORS middleware guard skipped",
+            extra={"reason": "middleware_stack is None (bare FastAPI instance)"},
+        )
+        return
+
+    current: Any = target_app.middleware_stack
+    while current is not None:
+        if isinstance(current, CORSMiddleware):
+            if current.allow_origins is not _cors_allow_origins:
+                # Starlette copied or froze the sequence during init.
+                # Force the middleware to use our shared list reference so
+                # that in-place mutations during lifespan are reflected.
+                logger.warning(
+                    "CORSMiddleware copied allow_origins during init; "
+                    "reassigning shared reference",
+                    extra={"middleware_type": type(current).__name__},
+                )
+                current.allow_origins = _cors_allow_origins
+            return
+        current = getattr(current, "app", None)
+
+    # CORSMiddleware not found — log error but allow startup.
+    logger.error(
+        "CORSMiddleware not found in middleware stack",
+        extra={"middleware_type": type(target_app.middleware_stack).__name__},
+    )
 
 
 # =============================================================================

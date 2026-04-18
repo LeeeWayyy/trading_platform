@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import psycopg
@@ -58,11 +59,60 @@ def _get_model_registry_service(
     return service
 
 
+def get_model_registry_service(
+    db_pool: AsyncConnectionPool,
+) -> ModelRegistryBrowserService:
+    """Public wrapper for model registry service resolution."""
+    return _get_model_registry_service(db_pool)
+
+
+def _format_model_timestamp(value: Any) -> str:
+    """Format model datetime values for compact dense-grid rows."""
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if value is None:
+        return "—"
+    return str(value)
+
+
+def _model_status_badge(status: str) -> tuple[str, str]:
+    """Return normalized status text and corresponding style class."""
+    normalized = status.strip().lower()
+    if normalized == "active":
+        return "ACTIVE", "workspace-v2-pill workspace-v2-pill-positive"
+    if normalized == "testing":
+        return "TESTING", "workspace-v2-pill workspace-v2-pill-warning"
+    if normalized == "failed":
+        return "FAILED", "workspace-v2-pill workspace-v2-pill-negative"
+    return "INACTIVE", "workspace-v2-pill"
+
+
+def _summarize_metrics(metrics: Any) -> str:
+    """Create a short one-line performance summary from metrics payload."""
+    if not isinstance(metrics, dict):
+        return "—"
+    sharpe = metrics.get("sharpe") or metrics.get("sharpe_ratio")
+    cagr = metrics.get("cagr")
+    win_rate = metrics.get("win_rate")
+    snippets: list[str] = []
+    if isinstance(sharpe, int | float):
+        snippets.append(f"SR {sharpe:.2f}")
+    if isinstance(cagr, int | float):
+        snippets.append(f"CAGR {cagr:.2%}")
+    if isinstance(win_rate, int | float):
+        snippets.append(f"WR {win_rate:.1%}")
+    return " · ".join(snippets) if snippets else "Metrics"
+
+
 @ui.page("/models")
 @requires_auth
 @main_layout
 async def models_page() -> None:
     """Model Registry Browser page."""
+    if config.FEATURE_RESEARCH_WORKSPACE:
+        ui.navigate.to("/research?tab=promote")
+        return
+
     user = get_current_user()
 
     # Feature flag check
@@ -85,8 +135,16 @@ async def models_page() -> None:
     service = _get_model_registry_service(async_pool)
     can_manage = is_admin(user)
 
-    # Page title
-    ui.label("Model Registry Browser").classes("text-2xl font-bold mb-4")
+    ui.label("Model Registry Browser").classes("text-2xl font-bold mb-2")
+    with ui.card().classes("w-full p-2 mb-2 border border-slate-800 bg-slate-900/35"):
+        with ui.row().classes("items-center justify-between gap-2"):
+            ui.label("Legacy page: use Research Workspace → Promote for consolidated flow.").classes(
+                "text-xs text-slate-300"
+            )
+            ui.link("Open /research", "/research?tab=promote").classes("text-xs")
+    ui.label(
+        "Dense model registry surface grouped by strategy with scoped promote/demote actions."
+    ).classes("text-xs text-slate-400 mb-3")
 
     # Fetch strategies with models
     try:
@@ -106,16 +164,19 @@ async def models_page() -> None:
         ui.label("No models found in registry.").classes("text-gray-500")
         return
 
-    # Tabs for each strategy
-    with ui.tabs().classes("w-full") as tabs:
-        strategy_tabs = {}
-        for s in strategy_list:
-            strategy_tabs[s["strategy_name"]] = ui.tab(s["strategy_name"])
-
-    with ui.tab_panels(tabs).classes("w-full"):
-        for s in strategy_list:
-            with ui.tab_panel(strategy_tabs[s["strategy_name"]]):
-                await _render_strategy_models(service, s["strategy_name"], user, can_manage)
+    with ui.column().classes("w-full gap-3"):
+        for strategy in strategy_list:
+            strategy_name = str(strategy["strategy_name"])
+            with ui.card().classes("w-full p-0 border border-slate-800 bg-slate-900/30"):
+                with ui.row().classes("w-full items-center justify-between px-3 py-2 border-b border-slate-800"):
+                    ui.label(strategy_name).classes("text-sm font-semibold text-slate-100")
+                    model_count = strategy.get("model_count")
+                    if isinstance(model_count, int):
+                        ui.label(f"{model_count} versions").classes(
+                            "workspace-v2-pill workspace-v2-data-mono"
+                        )
+                with ui.column().classes("w-full p-3 gap-2"):
+                    await _render_strategy_models(service, strategy_name, user, can_manage)
 
 
 async def _render_strategy_models(
@@ -142,39 +203,57 @@ async def _render_strategy_models(
         ui.label(f"No models for strategy '{strategy_name}'.").classes("text-gray-500")
         return
 
+    active_count = sum(1 for model in models if str(model.get("status", "")).lower() == "active")
+    testing_count = sum(
+        1 for model in models if str(model.get("status", "")).lower() == "testing"
+    )
+    failed_count = sum(1 for model in models if str(model.get("status", "")).lower() == "failed")
+
+    with ui.row().classes("w-full gap-2 mb-1"):
+        ui.label(f"{len(models)} models").classes("workspace-v2-pill workspace-v2-data-mono")
+        ui.label(f"{active_count} active").classes(
+            "workspace-v2-pill workspace-v2-pill-positive workspace-v2-data-mono"
+        )
+        ui.label(f"{testing_count} testing").classes(
+            "workspace-v2-pill workspace-v2-pill-warning workspace-v2-data-mono"
+        )
+        ui.label(f"{failed_count} failed").classes(
+            "workspace-v2-pill workspace-v2-pill-negative workspace-v2-data-mono"
+        )
+
+    with ui.row().classes(
+        "w-full items-center gap-3 px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400"
+    ):
+        ui.label("Status").classes("w-20")
+        ui.label("Version").classes("w-24")
+        ui.label("Strategy").classes("w-36")
+        ui.label("Deployed").classes("w-40")
+        ui.label("Metrics").classes("w-40")
+        ui.label("Path").classes("flex-1")
+        ui.label("Actions").classes("w-28 text-right")
+
     for model in models:
-        with ui.card().classes("w-full p-4 mb-3"):
-            with ui.row().classes("items-center justify-between w-full"):
-                with ui.column().classes("gap-1"):
-                    with ui.row().classes("items-center gap-2"):
-                        version_str = model["version"]
-                        version_label = (
-                            version_str if version_str.startswith("v") else f"v{version_str}"
-                        )
-                        ui.label(version_label).classes("text-lg font-semibold")
-                        status = model["status"]
-                        status_colors = {
-                            "active": "green",
-                            "inactive": "gray",
-                            "testing": "orange",
-                            "failed": "red",
-                        }
-                        ui.badge(
-                            status.title(),
-                            color=status_colors.get(status, "gray"),
-                        ).classes("text-xs")
+        version = str(model["version"])
+        version_label = version if version.startswith("v") else f"v{version}"
+        status = str(model.get("status", "inactive"))
+        status_label, status_style = _model_status_badge(status)
+        deployed_at = _format_model_timestamp(model.get("activated_at") or model.get("created_at"))
+        metrics_summary = _summarize_metrics(model.get("performance_metrics"))
+        model_path = str(model.get("model_path") or "—")
 
-                    ui.label(f"Path: {model['model_path']}").classes("text-sm text-gray-500")
-                    if model.get("created_by"):
-                        ui.label(f"Created by: {model['created_by']}").classes(
-                            "text-xs text-gray-400"
-                        )
+        with ui.card().classes("w-full p-0 border border-slate-800 bg-slate-900/35"):
+            with ui.row().classes("w-full items-center gap-3 px-3 py-2 text-sm"):
+                ui.label(status_label).classes(f"w-20 {status_style}")
+                ui.label(version_label).classes("w-24 text-sm font-semibold text-slate-100")
+                ui.label(strategy_name).classes("w-36 text-xs text-slate-300 workspace-v2-data-mono")
+                ui.label(deployed_at).classes("w-40 text-xs text-slate-400 workspace-v2-data-mono")
+                ui.label(metrics_summary).classes(
+                    "w-40 text-xs text-slate-300 workspace-v2-data-mono"
+                )
+                ui.label(model_path).classes("flex-1 text-xs text-slate-400 workspace-v2-data-mono")
 
-                # Admin actions
                 if can_manage:
-                    version = model["version"]
-
-                    if status in ("inactive", "testing"):
+                    if status.lower() in ("inactive", "testing"):
 
                         async def on_activate(
                             v: str = version,
@@ -184,9 +263,9 @@ async def _render_strategy_models(
 
                         ui.button("Activate", on_click=on_activate, color="green").props(
                             "outline size=sm"
-                        )
+                        ).classes("w-24")
 
-                    elif status == "active":
+                    elif status.lower() == "active":
 
                         async def on_deactivate(
                             v: str = version,
@@ -196,28 +275,28 @@ async def _render_strategy_models(
 
                         ui.button("Deactivate", on_click=on_deactivate, color="red").props(
                             "outline size=sm"
-                        )
+                        ).classes("w-24")
+                    else:
+                        ui.label("No action").classes("w-24 text-xs text-slate-500 text-right")
+                else:
+                    ui.label("Read only").classes("w-24 text-xs text-slate-500 text-right")
 
-            # Expandable details
-            with ui.expansion("Details").classes("w-full mt-2"):
+            with ui.expansion("Details").classes("w-full px-3 pb-3 pt-1"):
                 if model.get("performance_metrics"):
-                    ui.label("Performance Metrics:").classes("font-semibold text-sm")
-                    ui.json_editor(
-                        {"content": {"json": model["performance_metrics"]}},
-                    ).classes("max-h-40")
-                if model.get("config"):
-                    ui.label("Config:").classes("font-semibold text-sm mt-2")
-                    ui.json_editor(
-                        {"content": {"json": model["config"]}},
-                    ).classes("max-h-40")
-                if model.get("notes"):
-                    ui.label(f"Notes: {model['notes']}").classes("text-sm text-gray-600 mt-2")
-                if model.get("activated_at"):
-                    ui.label(f"Activated: {model['activated_at']}").classes("text-xs text-gray-400")
-                if model.get("deactivated_at"):
-                    ui.label(f"Deactivated: {model['deactivated_at']}").classes(
-                        "text-xs text-gray-400"
+                    ui.label("Performance Metrics").classes("font-semibold text-xs text-slate-300")
+                    ui.json_editor({"content": {"json": model["performance_metrics"]}}).classes(
+                        "max-h-40 mt-1"
                     )
+                if model.get("config"):
+                    ui.label("Config").classes("font-semibold text-xs text-slate-300 mt-2")
+                    ui.json_editor({"content": {"json": model["config"]}}).classes("max-h-40 mt-1")
+                if model.get("notes"):
+                    ui.label(f"Notes: {model['notes']}").classes("text-xs text-slate-300 mt-2")
+                ui.label(
+                    f"Created by: {model.get('created_by') or 'unknown'} · "
+                    f"Activated: {_format_model_timestamp(model.get('activated_at'))} · "
+                    f"Deactivated: {_format_model_timestamp(model.get('deactivated_at'))}"
+                ).classes("text-[11px] text-slate-500 mt-1 workspace-v2-data-mono")
 
 
 async def _show_model_action_dialog(
@@ -228,16 +307,25 @@ async def _show_model_action_dialog(
     user: dict[str, Any],
 ) -> None:
     """Show confirmation dialog for model activate/deactivate."""
+    confirmation_token = f"{strategy_name}:{version}"
+    impact_summary = (
+        "Impact: this version becomes active and other active versions for this strategy are deactivated."
+        if action == "ACTIVATE"
+        else "Impact: this version is marked inactive and removed from active rotation."
+    )
+
     with ui.dialog() as dialog, ui.card().classes("p-6"):
         ui.label("Confirm Action").classes("text-xl font-bold")
         ui.label(
-            f"Type {action} to confirm {action.lower()}ing model " f"'{strategy_name}/{version}'"
+            f"Type '{confirmation_token}' to confirm {action.lower()} "
+            f"for model '{strategy_name}/{version}'."
         )
+        ui.label(impact_summary).classes("text-xs text-slate-500")
         confirm_input = ui.input(label="Confirmation").classes("w-full")
 
         async def on_confirm() -> None:
-            if confirm_input.value != action:
-                ui.notify(f"Type {action} to confirm", type="negative")
+            if confirm_input.value != confirmation_token:
+                ui.notify(f"Type {confirmation_token} to confirm", type="negative")
                 return
             try:
                 if action == "ACTIVATE":
@@ -279,3 +367,14 @@ async def _show_model_action_dialog(
             ui.button("Cancel", on_click=dialog.close)
 
     dialog.open()
+
+
+async def show_model_action_dialog(
+    service: ModelRegistryBrowserService,
+    strategy_name: str,
+    version: str,
+    action: str,
+    user: dict[str, Any],
+) -> None:
+    """Public wrapper for model lifecycle action confirmation dialog."""
+    await _show_model_action_dialog(service, strategy_name, version, action, user)

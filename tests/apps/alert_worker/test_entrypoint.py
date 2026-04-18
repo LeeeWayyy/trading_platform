@@ -14,9 +14,12 @@ from apps.alert_worker.entrypoint import (
     _close_async_resources,
     _create_async_resources,
     _execute_delivery_job,
+    _get_allowed_queues,
     _get_channels,
     _get_rq_queue,
+    _get_rq_redis,
     _require_env,
+    _reset_queue_state,
     execute_delivery_job,
     main,
 )
@@ -54,33 +57,33 @@ class TestGetRQQueue:
     def test_get_rq_queue_creates_queue(self, monkeypatch):
         """Test _get_rq_queue creates Queue with correct parameters."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
-            patch("apps.alert_worker.entrypoint._RQ_QUEUE", None),
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", ("alerts",)),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
 
             result = _get_rq_queue()
 
-            mock_redis_class.from_url.assert_called_once_with("redis://localhost:6379")
             mock_queue_class.assert_called_once_with("alerts", connection=mock_redis)
             assert result == mock_queue
 
     def test_get_rq_queue_returns_cached_instance(self, monkeypatch):
         """Test _get_rq_queue returns cached instance on subsequent calls."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
 
         with (
-            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", ("alerts",)),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
         ):
-            mock_redis = Mock()
-            mock_redis_class.from_url.return_value = mock_redis
             mock_queue = Mock()
             mock_queue_class.return_value = mock_queue
 
@@ -89,9 +92,358 @@ class TestGetRQQueue:
             # Second call
             result2 = _get_rq_queue()
 
-            # Should only create once
-            assert mock_redis_class.from_url.call_count <= 2  # May be called during import
+            assert mock_queue_class.call_count == 1
             assert result1 == result2
+
+    def test_get_rq_queue_uses_current_job_origin_when_available(self, monkeypatch):
+        """Test retries target the current job's origin queue instead of hard-coded alerts."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts", "alerts_high"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+        ):
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            mock_get_current_job.return_value = Mock(origin="alerts_high")
+
+            result = _get_rq_queue()
+
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
+            assert result == mock_queue
+
+    def test_get_rq_queue_falls_back_for_unrecognised_origin(self, monkeypatch):
+        """Test that an unrecognised origin falls back to first allowed queue and logs an error."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts",),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+            patch("apps.alert_worker.entrypoint.logger") as mock_logger,
+        ):
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            mock_get_current_job.return_value = Mock(origin="rogue_queue", id="job-123")
+
+            result = _get_rq_queue()
+
+            # Should fall back to "alerts" (first allowed queue) and log error
+            mock_queue_class.assert_called_once_with("alerts", connection=mock_redis)
+            assert result == mock_queue
+            mock_logger.error.assert_called_once()
+            error_extra = mock_logger.error.call_args[1]["extra"]
+            assert error_extra["requested_queue"] == "rogue_queue"
+            assert error_extra["fallback_queue"] == "alerts"
+            assert error_extra["rq_job_id"] == "job-123"
+
+    def test_get_rq_queue_falls_back_to_first_allowed_when_alerts_not_configured(self, monkeypatch):
+        """Test fallback uses first (highest-priority) allowed queue when 'alerts' is not in RQ_QUEUES."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            # alerts_low listed first = highest priority
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts_low", "alerts_high"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+            patch("apps.alert_worker.entrypoint.logger") as mock_logger,
+        ):
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            # Simulate rogue origin when "alerts" is not even in the allowed set
+            mock_get_current_job.return_value = Mock(origin="rogue_queue")
+
+            result = _get_rq_queue()
+
+            # Should fall back to first allowed queue ("alerts_low" - highest priority)
+            mock_queue_class.assert_called_once_with("alerts_low", connection=mock_redis)
+            assert result == mock_queue
+            mock_logger.error.assert_called_once()
+
+    def test_get_rq_queue_default_uses_first_allowed_when_no_job(self, monkeypatch):
+        """Test default queue is first allowed queue when no current job exists."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch("apps.alert_worker.entrypoint.get_current_job") as mock_get_current_job,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts_high",),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+        ):
+            mock_queue = Mock()
+            mock_queue_class.return_value = mock_queue
+            # No current job
+            mock_get_current_job.return_value = None
+
+            result = _get_rq_queue()
+
+            # Should default to "alerts_high" (only allowed queue)
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis)
+            assert result == mock_queue
+
+    def test_get_rq_queue_shares_single_redis_connection(self, monkeypatch):
+        """Test all cached queues share a single Redis connection."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts", "alerts_high"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+        ):
+            mock_queue_class.side_effect = [Mock(name="q1"), Mock(name="q2")]
+
+            _get_rq_queue("alerts")
+            _get_rq_queue("alerts_high")
+
+            # Both queues should share the same Redis connection
+            calls = mock_queue_class.call_args_list
+            assert calls[0][1]["connection"] is mock_redis
+            assert calls[1][1]["connection"] is mock_redis
+
+    def test_get_rq_queue_caches_per_origin_without_cross_contamination(self, monkeypatch):
+        """Test multiple distinct origins each get their own cached Queue."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        mock_redis = Mock()
+
+        with (
+            patch("apps.alert_worker.entrypoint.Queue") as mock_queue_class,
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts", "alerts_high"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis),
+        ):
+            queue_alerts = Mock(name="queue_alerts")
+            queue_high = Mock(name="queue_alerts_high")
+            mock_queue_class.side_effect = [queue_alerts, queue_high]
+
+            result_alerts = _get_rq_queue("alerts")
+            result_high = _get_rq_queue("alerts_high")
+            # Re-fetch to verify caching
+            result_alerts_again = _get_rq_queue("alerts")
+            result_high_again = _get_rq_queue("alerts_high")
+
+            # Each queue created exactly once
+            assert mock_queue_class.call_count == 2
+            # No cross-contamination
+            assert result_alerts is queue_alerts
+            assert result_high is queue_high
+            assert result_alerts_again is queue_alerts
+            assert result_high_again is queue_high
+
+
+class TestGetAllowedQueues:
+    """Test _get_allowed_queues function."""
+
+    def test_defaults_to_alerts_when_env_unset(self, monkeypatch):
+        """Test _get_allowed_queues returns ('alerts',) when RQ_QUEUES is unset."""
+        monkeypatch.delenv("RQ_QUEUES", raising=False)
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
+            result = _get_allowed_queues()
+            assert result == ("alerts",)
+
+    def test_parses_comma_separated_env_preserving_order(self, monkeypatch):
+        """Test _get_allowed_queues parses RQ_QUEUES preserving operator-defined priority order."""
+        monkeypatch.setenv("RQ_QUEUES", "alerts_high, alerts, alerts_low")
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
+            result = _get_allowed_queues()
+            assert result == ("alerts_high", "alerts", "alerts_low")
+
+    def test_deduplicates_preserving_first_occurrence(self, monkeypatch):
+        """Test _get_allowed_queues deduplicates while preserving first occurrence order."""
+        monkeypatch.setenv("RQ_QUEUES", "alerts_high, alerts, alerts_high, alerts_low")
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None):
+            result = _get_allowed_queues()
+            assert result == ("alerts_high", "alerts", "alerts_low")
+
+    def test_returns_cached_result(self, monkeypatch):
+        """Test _get_allowed_queues caches result."""
+        cached = ("cached_queue",)
+        with patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", cached):
+            result = _get_allowed_queues()
+            assert result is cached
+
+
+class TestResetQueueState:
+    """Test _reset_queue_state function."""
+
+    def test_reset_clears_all_queue_caches(self, monkeypatch):
+        """Test _reset_queue_state clears allowed queues, Redis client, and queue cache."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        import apps.alert_worker.entrypoint as mod
+
+        # Set some state
+        mod._ALLOWED_QUEUES = ("test",)
+        mod._RQ_REDIS = Mock()
+        mod._RQ_QUEUES["test"] = Mock()
+
+        _reset_queue_state()
+
+        assert mod._ALLOWED_QUEUES is None
+        assert mod._RQ_REDIS is None
+        assert len(mod._RQ_QUEUES) == 0
+
+
+class TestGetCurrentJobContract:
+    """Verify rq.get_current_job contract assumptions.
+
+    These tests ensure our assumptions about the RQ API remain valid
+    across library version upgrades, reducing the risk of silent
+    misrouting that would only surface in integration tests.
+    """
+
+    def test_rq_job_exposes_origin_at_runtime(self):
+        """Verify rq.Job instances expose the 'origin' attribute at runtime."""
+        from unittest.mock import MagicMock
+
+        from rq.job import Job
+
+        # Create a minimal Job instance with a mock connection to verify
+        # 'origin' is a real instance attribute set during init
+        mock_conn = MagicMock()
+        mock_conn.pipeline.return_value.__enter__ = MagicMock()
+        mock_conn.pipeline.return_value.__exit__ = MagicMock()
+        job = Job(connection=mock_conn)
+        assert hasattr(job, "origin"), (
+            "rq.Job no longer exposes 'origin' attribute; "
+            "_get_rq_queue queue routing will not work correctly"
+        )
+        # origin should be a string (empty by default for a fresh job)
+        assert isinstance(job.origin, str), (
+            f"rq.Job.origin has unexpected type {type(job.origin).__name__}; " "expected str"
+        )
+
+    def test_get_current_job_returns_none_outside_worker(self):
+        """Verify get_current_job() returns None when not inside a worker."""
+        from rq import get_current_job
+
+        assert get_current_job() is None
+
+
+class TestGetRqRedis:
+    """Test _get_rq_redis function."""
+
+    def test_creates_redis_from_env(self, monkeypatch):
+        """Test _get_rq_redis creates Redis client from REDIS_URL env var."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+
+        with (
+            patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", None),
+        ):
+            mock_redis = Mock()
+            mock_redis_class.from_url.return_value = mock_redis
+
+            result = _get_rq_redis()
+
+            mock_redis_class.from_url.assert_called_once_with("redis://localhost:6379")
+            assert result is mock_redis
+
+    def test_returns_cached_client(self):
+        """Test _get_rq_redis returns cached client on subsequent calls."""
+        mock_redis = Mock()
+
+        with patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis):
+            result = _get_rq_redis()
+            assert result is mock_redis
+
+
+class TestRetryRoutingEndToEnd:
+    """Verify the full retry scheduling path enqueues to the correct queue.
+
+    Uses the real _get_rq_queue (not mocked) to verify origin resolution
+    through _build_executor -> schedule_retry.
+    """
+
+    @pytest.mark.asyncio()
+    async def test_retry_enqueues_to_origin_queue(self):
+        """Verify schedule_retry uses the queue resolved from current job's origin."""
+        mock_db_pool = AsyncMock()
+        mock_redis_async = AsyncMock()
+        mock_poison = Mock()
+        mock_limiter = Mock()
+        mock_redis_sync = Mock()
+        mock_queue = Mock()
+
+        resources = AsyncResources(
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_async,
+            poison_queue=mock_poison,
+            rate_limiter=mock_limiter,
+        )
+
+        with (
+            # Use real _get_rq_queue, mock its dependencies
+            patch(
+                "apps.alert_worker.entrypoint.get_current_job",
+                return_value=Mock(origin="alerts_high", id="job-456"),
+            ),
+            patch("apps.alert_worker.entrypoint._RQ_REDIS", mock_redis_sync),
+            patch.dict("apps.alert_worker.entrypoint._RQ_QUEUES", {}, clear=True),
+            patch(
+                "apps.alert_worker.entrypoint._ALLOWED_QUEUES",
+                ("alerts", "alerts_high"),
+            ),
+            patch(
+                "apps.alert_worker.entrypoint.Queue", return_value=mock_queue
+            ) as mock_queue_class,
+            patch("apps.alert_worker.entrypoint._get_channels"),
+            patch("apps.alert_worker.entrypoint.DeliveryExecutor") as mock_executor_class,
+            patch("apps.alert_worker.entrypoint.asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_to_thread.return_value = None
+
+            await _build_executor(
+                resources=resources,
+                delivery_id="test-id",
+                channel="email",
+                recipient="test@example.com",
+                subject="Test Subject",
+                body="Test Body",
+            )
+
+            # _get_rq_queue should have resolved to "alerts_high" from job origin
+            mock_queue_class.assert_called_once_with("alerts_high", connection=mock_redis_sync)
+
+            # Get the retry_scheduler and invoke it
+            retry_scheduler = mock_executor_class.call_args[1]["retry_scheduler"]
+            await retry_scheduler(delay=30, next_attempt=1)
+
+            # Verify the retry was enqueued to the origin queue
+            mock_to_thread.assert_called_once()
+            enqueue_fn = mock_to_thread.call_args[0][0]
+            assert enqueue_fn == mock_queue.enqueue_in
 
 
 class TestCreateAsyncResources:
@@ -250,10 +602,10 @@ class TestGetChannels:
         """Test _get_channels creates EMAIL, SLACK, and PAGERDUTY channels."""
         with (
             patch("apps.alert_worker.entrypoint._CHANNELS", None),
-            patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
-            patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
-            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
-            patch("apps.alert_worker.entrypoint.PagerDutyChannel") as mock_pd,
+            patch("libs.platform.alerts.channels.EmailChannel") as mock_email,
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.PagerDutyChannel") as mock_pd,
         ):
             mock_email_instance = Mock()
             mock_slack_instance = Mock()
@@ -276,10 +628,10 @@ class TestGetChannels:
         """Test _get_channels skips SMS when Twilio credentials are missing."""
         with (
             patch("apps.alert_worker.entrypoint._CHANNELS", None),
-            patch("apps.alert_worker.entrypoint.EmailChannel"),
-            patch("apps.alert_worker.entrypoint.SlackChannel"),
-            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
-            patch("apps.alert_worker.entrypoint.PagerDutyChannel"),
+            patch("libs.platform.alerts.channels.EmailChannel"),
+            patch("libs.platform.alerts.channels.SlackChannel"),
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.PagerDutyChannel"),
         ):
             mock_sms.side_effect = ConfigurationError("Twilio credentials missing")
 
@@ -291,10 +643,10 @@ class TestGetChannels:
         """Test _get_channels includes SMS when Twilio credentials are present."""
         with (
             patch("apps.alert_worker.entrypoint._CHANNELS", None),
-            patch("apps.alert_worker.entrypoint.EmailChannel"),
-            patch("apps.alert_worker.entrypoint.SlackChannel"),
-            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
-            patch("apps.alert_worker.entrypoint.PagerDutyChannel"),
+            patch("libs.platform.alerts.channels.EmailChannel"),
+            patch("libs.platform.alerts.channels.SlackChannel"),
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.PagerDutyChannel"),
         ):
             mock_sms_instance = Mock()
             mock_sms.return_value = mock_sms_instance
@@ -304,13 +656,51 @@ class TestGetChannels:
             assert ChannelType.SMS in channels
             assert channels[ChannelType.SMS] == mock_sms_instance
 
+    def test_get_channels_skips_email_when_dependency_missing(self):
+        """Test _get_channels skips EMAIL when EmailChannel is None (dep missing)."""
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("libs.platform.alerts.channels.EmailChannel", None),
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.PagerDutyChannel") as mock_pd,
+        ):
+            mock_sms.side_effect = ConfigurationError("Twilio not configured")
+            mock_slack.return_value = Mock()
+            mock_pd.return_value = Mock()
+
+            channels = _get_channels()
+
+            assert ChannelType.EMAIL not in channels
+            assert ChannelType.SLACK in channels
+            assert ChannelType.PAGERDUTY in channels
+
+    def test_get_channels_skips_sms_when_dependency_missing(self):
+        """Test _get_channels skips SMS when SMSChannel is None (dep missing)."""
+        with (
+            patch("apps.alert_worker.entrypoint._CHANNELS", None),
+            patch("libs.platform.alerts.channels.EmailChannel") as mock_email,
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel", None),
+            patch("libs.platform.alerts.channels.PagerDutyChannel") as mock_pd,
+        ):
+            mock_email.return_value = Mock()
+            mock_slack.return_value = Mock()
+            mock_pd.return_value = Mock()
+
+            channels = _get_channels()
+
+            assert ChannelType.SMS not in channels
+            assert ChannelType.EMAIL in channels
+            assert ChannelType.SLACK in channels
+
     def test_get_channels_returns_cached_instance(self):
         """Test _get_channels returns cached instance on subsequent calls."""
         with (
-            patch("apps.alert_worker.entrypoint.EmailChannel") as mock_email,
-            patch("apps.alert_worker.entrypoint.SlackChannel") as mock_slack,
-            patch("apps.alert_worker.entrypoint.SMSChannel") as mock_sms,
-            patch("apps.alert_worker.entrypoint.PagerDutyChannel"),
+            patch("libs.platform.alerts.channels.EmailChannel") as mock_email,
+            patch("libs.platform.alerts.channels.SlackChannel") as mock_slack,
+            patch("libs.platform.alerts.channels.SMSChannel") as mock_sms,
+            patch("libs.platform.alerts.channels.PagerDutyChannel"),
         ):
             mock_sms.side_effect = ConfigurationError("Twilio not configured")
 
@@ -604,6 +994,7 @@ class TestMain:
             patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
             patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
             patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None),
         ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -626,17 +1017,19 @@ class TestMain:
             mock_worker_class.assert_called_once_with(["alerts"], connection=mock_redis)
             mock_worker.work.assert_called_once_with(with_scheduler=True)
 
-    def test_main_starts_worker_with_custom_queues(self, monkeypatch):
-        """Test main starts RQ worker with custom queues from RQ_QUEUES env."""
+    def test_main_starts_worker_with_custom_queues_preserving_priority_order(self, monkeypatch):
+        """Test main starts RQ worker with custom queues in operator-defined priority order."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
-        monkeypatch.setenv("RQ_QUEUES", "alerts,high_priority,low_priority")
+        # Intentionally non-alphabetical: high_priority first = highest polling priority
+        monkeypatch.setenv("RQ_QUEUES", "high_priority,alerts,low_priority")
 
         with (
             patch("apps.alert_worker.entrypoint.Redis") as mock_redis_class,
             patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
             patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
             patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None),
         ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -655,9 +1048,9 @@ class TestMain:
 
             main()
 
-            # Verify worker was created with custom queues
+            # Verify worker was created with queues in operator-defined order (not sorted)
             mock_worker_class.assert_called_once_with(
-                ["alerts", "high_priority", "low_priority"], connection=mock_redis
+                ["high_priority", "alerts", "low_priority"], connection=mock_redis
             )
             mock_worker.work.assert_called_once_with(with_scheduler=True)
 
@@ -671,6 +1064,7 @@ class TestMain:
             patch("apps.alert_worker.entrypoint.ConnectionPool") as mock_pool_class,
             patch("apps.alert_worker.entrypoint.Worker") as mock_worker_class,
             patch("apps.alert_worker.entrypoint.asyncio.run") as mock_asyncio_run,
+            patch("apps.alert_worker.entrypoint._ALLOWED_QUEUES", None),
         ):
             mock_redis = Mock()
             mock_redis.ping.return_value = True

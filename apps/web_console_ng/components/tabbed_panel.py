@@ -25,6 +25,7 @@ from apps.web_console_ng.ui.trading_layout import (
     apply_compact_grid_classes,
     apply_compact_grid_options,
 )
+from libs.trading.order_constants import WORKING_ORDER_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +51,6 @@ TAB_GRID_CONFIG = {
     TAB_HISTORY: {"grid_id": "_historyGridApi", "grid_name": "history", "prefix": "history"},
 }
 
-WORKING_ORDER_STATUSES = {
-    "new",
-    "pending_new",
-    "partially_filled",
-    "accepted",
-    "pending_cancel",
-    "pending_replace",
-}
-
 
 def format_tab_label(title: str, count: int | None) -> str:
     """Format tab label with optional count badge."""
@@ -66,6 +58,12 @@ def format_tab_label(title: str, count: int | None) -> str:
         return title
     display = "99+" if count > 99 else str(count)
     return f"{title} ({display})"
+
+
+def _quote_tab_label(label: str) -> str:
+    """Quote label for NiceGUI props assignment."""
+    escaped = label.replace("\\", "\\\\").replace('"', '\\"')
+    return f'label="{escaped}"'
 
 
 def filter_items_by_symbol(items: list[dict[str, Any]], symbol: str | None) -> list[dict[str, Any]]:
@@ -167,7 +165,20 @@ class TabbedPanel:
         title = TAB_TITLES.get(tab_name, tab_name.title())
         if tab is None:
             return
-        tab.set_label(format_tab_label(title, count))  # type: ignore[attr-defined]
+        label = format_tab_label(title, count)
+        # NiceGUI Tab API differs across versions:
+        # - some expose `set_label(...)`
+        # - newer versions only keep a `label` prop and `update()`.
+        set_label = getattr(tab, "set_label", None)
+        if callable(set_label):
+            set_label(label)
+            return
+        set_props = getattr(tab, "props", None)
+        if callable(set_props):
+            set_props(_quote_tab_label(label))
+            tab.update()
+            return
+        logger.warning("tabbed_panel_badge_update_unsupported", extra={"tab": tab_name})
 
     def get_grid(self, tab_name: str) -> ui.aggrid | None:
         """Get grid instance if created."""
@@ -200,6 +211,24 @@ class TabbedPanel:
         if self._on_tab_change is not None:
             self._on_tab_change(new_tab)
         asyncio.create_task(self._safe_save_state())
+
+    def update_symbol_filter(self, symbol: str | None) -> None:
+        """Propagate the page-level symbol filter to all export toolbars.
+
+        The dashboard symbol dropdown is applied before ``setRowData``
+        (outside the AG Grid filter model), so the export toolbar must
+        inject the corresponding ``symbol`` filter into ``extra_filters``
+        to maintain export/view parity.
+        """
+        for toolbar in self._export_toolbars.values():
+            if symbol:
+                toolbar.extra_filters["symbol"] = {
+                    "filterType": "text",
+                    "type": "equals",
+                    "filter": symbol,
+                }
+            else:
+                toolbar.extra_filters.pop("symbol", None)
 
     def _update_toolbar_visibility(self, old_tab: str, new_tab: str) -> None:
         """Show/hide export toolbars based on active tab."""
@@ -250,8 +279,14 @@ def create_tabbed_panel(
     """
     state.active_tab = state.normalize_tab(state.active_tab)
 
+    # Store panel ref so filter callback can propagate symbol to toolbars.
+    # Assigned after panel creation below.
+    panel_ref: list[TabbedPanel | None] = [None]
+
     def _on_filter_change(value: str | None) -> None:
         state.symbol_filter = value
+        if panel_ref[0] is not None:
+            panel_ref[0].update_symbol_filter(value)
         if on_filter_change is not None:
             on_filter_change(value)
 
@@ -267,14 +302,26 @@ def create_tabbed_panel(
 
             # Create export toolbars (one per tab, show/hide based on active)
             if enable_export:
+                # Working tab needs extra_filters to restrict export to
+                # working-order statuses, which the UI applies before
+                # setRowData (outside the AG Grid filter model).
+                _working_status_filter: dict[str, Any] = {
+                    "status": {
+                        "filterType": "set",
+                        "values": sorted(WORKING_ORDER_STATUSES),
+                    },
+                }
+
                 for tab_name in (TAB_POSITIONS, TAB_WORKING, TAB_FILLS, TAB_HISTORY):
                     config = TAB_GRID_CONFIG.get(tab_name, {})
+                    extra = _working_status_filter if tab_name == TAB_WORKING else None
                     with ui.element("div").classes("") as toolbar_container:
                         toolbar = GridExportToolbar(
                             grid_id=config.get("grid_id", ""),
                             grid_name=config.get("grid_name", tab_name),
                             filename_prefix=config.get("prefix", tab_name),
                             api_base_url=api_base_url,
+                            extra_filters=extra,
                         )
                         toolbar.create()
                     # Only show toolbar for active tab
@@ -321,7 +368,13 @@ def create_tabbed_panel(
         toolbar_containers=toolbar_containers,
     )
 
+    panel_ref[0] = panel
+
     tabs.on_value_change(lambda event: panel._handle_tab_change(getattr(event, "value", None)))
+
+    # Propagate any initial symbol filter to export toolbars
+    if state.symbol_filter:
+        panel.update_symbol_filter(state.symbol_filter)
 
     # Lazily create the initial tab content
     panel.ensure_tab(state.active_tab)

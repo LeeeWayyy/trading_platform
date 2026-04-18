@@ -65,6 +65,15 @@ kill_switch_auth = api_auth(
     authenticator_getter=build_gateway_authenticator,
 )
 
+circuit_breaker_auth = api_auth(
+    APIAuthConfig(
+        action="circuit_breaker",
+        require_role=None,
+        require_permission=Permission.VIEW_CIRCUIT_BREAKER,
+    ),
+    authenticator_getter=build_gateway_authenticator,
+)
+
 
 # =============================================================================
 # Helper Functions
@@ -580,6 +589,38 @@ async def get_kill_switch_status(
             detail={
                 "error": "Kill-switch unavailable",
                 "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
+
+
+@router.get("/api/v1/circuit-breaker/status", tags=["Circuit-Breaker"])
+async def get_circuit_breaker_status(
+    ctx: AppContext = Depends(get_context),
+    _auth_context: AuthContext = Depends(circuit_breaker_auth),
+) -> dict[str, Any]:
+    """Get circuit-breaker status."""
+    breaker = ctx.recovery_manager.circuit_breaker
+    if not breaker or ctx.recovery_manager.is_circuit_breaker_unavailable():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Circuit-breaker unavailable (Redis not initialized)",
+        )
+
+    try:
+        return breaker.get_status()
+    except RuntimeError as e:
+        # Fail closed when state is unavailable to avoid reporting a safe state.
+        ctx.recovery_manager.set_circuit_breaker_unavailable(True)
+        logger.error(
+            "Circuit-breaker status unavailable: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "circuit_breaker_unavailable",
+                "message": "Circuit-breaker state missing in Redis (fail-closed for safety)",
                 "fail_closed": True,
             },
         ) from e
