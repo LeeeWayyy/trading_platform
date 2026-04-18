@@ -50,11 +50,8 @@ def resolve_context_links(
     links: list[tuple[str, str]] = []
     if show_strategy_link:
         links.append(("Strategies", "/strategies"))
-    if show_model_link:
-        if feature_research_workspace_enabled:
-            links.append(("Research Promote", "/research?tab=promote"))
-        else:
-            links.append(("Models", "/models"))
+    if show_model_link and feature_research_workspace_enabled:
+        links.append(("Research Promote", "/research?tab=promote"))
     return links
 
 

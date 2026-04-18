@@ -447,11 +447,12 @@ def resolve_workspace_quick_links(
             continue
         visible_links.append((label, path))
 
-    if feature_model_registry_enabled and can_view_models:
-        if feature_research_workspace_enabled:
-            visible_links.append(("Promote", "/research?tab=promote"))
-        else:
-            visible_links.append(("Models", "/models"))
+    if (
+        feature_model_registry_enabled
+        and can_view_models
+        and feature_research_workspace_enabled
+    ):
+        visible_links.append(("Promote", "/research?tab=promote"))
     return visible_links
 
 

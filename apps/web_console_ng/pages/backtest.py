@@ -30,7 +30,7 @@ from nicegui import run, ui
 from psycopg import errors as pg_errors
 
 from apps.web_console_ng import config
-from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.auth.middleware import requires_auth
 from apps.web_console_ng.components.backtest_comparison_chart import (
     build_comparison_metrics,
     render_comparison_equity_curves,
@@ -44,7 +44,7 @@ from apps.web_console_ng.components.config_editor import (
     render_config_editor,
 )
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
-from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
+from apps.web_console_ng.core.dependencies import get_sync_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.request_query import (
     get_query_param_from_raw_query,
@@ -527,68 +527,15 @@ def _verify_job_ownership(job_id: str, user_id: str, db_pool: ConnectionPool) ->
 @requires_auth
 @main_layout
 async def backtest_page() -> None:
-    """Backtest Manager page."""
-    if config.FEATURE_RESEARCH_WORKSPACE:
-        try:
-            request = ui.context.client.request
-        except Exception:
-            request = None
-        raw_query = b""
-        if request is not None:
-            raw_query = request.scope.get("query_string", b"")
-        ui.navigate.to(_build_research_validate_redirect_url(raw_query))
-        return
-
-    user = get_current_user()
-    prefill = _get_backtest_prefill_from_request()
-    requested_tab = _get_requested_backtest_tab()
-
-    # Feature flag check
-    if not config.FEATURE_BACKTEST_MANAGER:
-        ui.label("Backtest Manager feature is disabled.").classes("text-lg")
-        ui.label("Set FEATURE_BACKTEST_MANAGER=true to enable.").classes("text-gray-500")
-        return
-
-    # Permission check
-    if not has_permission(user, Permission.VIEW_PNL):
-        ui.label("Permission denied: VIEW_PNL required").classes("text-red-500 text-lg")
-        return
-
-    # Get sync infrastructure
+    """Legacy route alias for Validate tab in consolidated Research Workspace."""
     try:
-        db_pool = get_sync_db_pool()
-        redis_client = get_sync_redis_client()
-    except RuntimeError as e:
-        ui.label(f"Infrastructure unavailable: {e}").classes("text-red-500")
-        return
-
-    # Page title
-    ui.label("Backtest Manager").classes("text-2xl font-bold mb-4")
-
-    # Tabs
-    with ui.tabs().classes("w-full") as tabs:
-        tab_new = ui.tab("New Backtest")
-        tab_running = ui.tab("Running Jobs")
-        tab_results = ui.tab("Results")
-    tab_map = {
-        BACKTEST_TAB_NEW: tab_new,
-        BACKTEST_TAB_RUNNING: tab_running,
-        BACKTEST_TAB_RESULTS: tab_results,
-    }
-    selected_tab = tab_map.get(requested_tab, tab_new)
-
-    with ui.tab_panels(tabs, value=selected_tab).classes("w-full"):
-        # === NEW BACKTEST TAB ===
-        with ui.tab_panel(tab_new):
-            await _render_new_backtest_form(user, prefill=prefill)
-
-        # === RUNNING JOBS TAB ===
-        with ui.tab_panel(tab_running):
-            await _render_running_jobs(user, db_pool, redis_client)
-
-        # === RESULTS TAB ===
-        with ui.tab_panel(tab_results):
-            await _render_backtest_results(user, db_pool, redis_client)
+        request = ui.context.client.request
+    except Exception:
+        request = None
+    raw_query = b""
+    if request is not None:
+        raw_query = request.scope.get("query_string", b"")
+    ui.navigate.to(_build_research_validate_redirect_url(raw_query))
 
 
 async def _render_new_backtest_form(

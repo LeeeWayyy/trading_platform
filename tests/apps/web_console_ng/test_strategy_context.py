@@ -83,9 +83,9 @@ def test_resolve_context_links_respects_flags() -> None:
     ) == []
 
 
-def test_resolve_context_links_falls_back_to_models_when_workspace_disabled() -> None:
+def test_resolve_context_links_hides_model_link_when_workspace_disabled() -> None:
     assert resolve_context_links(
         show_strategy_link=False,
         show_model_link=True,
         feature_research_workspace_enabled=False,
-    ) == [("Models", "/models")]
+    ) == []
