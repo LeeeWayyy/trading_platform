@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import os
 import sys
 from types import SimpleNamespace
@@ -46,14 +45,6 @@ class DummyService:
     def compute_correlation(self, signal_ids: list[str]):
         self.compute_calls.append(signal_ids)
         return pd.DataFrame([[1.0, 0.2], [0.2, 1.0]], columns=signal_ids, index=signal_ids)
-
-
-def test_alpha_explorer_redirects_to_research_discover() -> None:
-    """Legacy alpha page should redirect to consolidated Discover tab."""
-    source = inspect.getsource(alpha_module.alpha_explorer_page)
-
-    assert 'ui.navigate.to("/research?tab=discover")' in source
-    assert '"/research?tab=discover"' in source
 
 
 @pytest.fixture()
@@ -136,6 +127,41 @@ async def test_export_metrics_button_triggers_download(
     assert dummy_ui.downloads
     _, filename = dummy_ui.downloads[-1]
     assert filename.startswith("alpha_signal_sig-1_metrics")
+
+
+@pytest.mark.asyncio()
+async def test_launch_backtest_navigates_to_research_validate(
+    dummy_ui: DummyUI, io_bound_passthrough: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = DummyService()
+    signal = SimpleNamespace(signal_id="sig-1", display_name="Signal 1")
+    navigations: list[str] = []
+
+    monkeypatch.setattr(alpha_module, "render_ic_chart", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(alpha_module, "render_decay_curve", lambda *_args, **_kwargs: None)
+
+    async def fake_corr_section(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(alpha_module, "_render_correlation_section", fake_corr_section)
+    dummy_ui.navigate = SimpleNamespace(to=lambda path: navigations.append(path))
+
+    await alpha_module._render_signal_details(service, signal, [signal])
+
+    launch_buttons = [b for b in dummy_ui.buttons if b.text == "Launch Backtest"]
+    assert launch_buttons
+    launch_btn = launch_buttons[0]
+    assert launch_btn.on_click_cb is not None
+    launch_btn.on_click_cb()
+
+    assert navigations == [
+        "/research?tab=validate&backtest_tab=new&signal_id=sig-1&source=alpha_explorer"
+    ]
+
+
+def test_legacy_alpha_explorer_route_handler_removed() -> None:
+    """Legacy /alpha-explorer route handler should no longer be defined."""
+    assert not hasattr(alpha_module, "alpha_explorer_page")
 
 
 @pytest.mark.asyncio()

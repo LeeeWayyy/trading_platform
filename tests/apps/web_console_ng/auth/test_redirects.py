@@ -22,3 +22,9 @@ def test_sanitize_redirect_path_rejects_invalid(path):
 @pytest.mark.parametrize("path", sorted(ALLOWED_REDIRECT_PATHS))
 def test_sanitize_redirect_path_allows_allowlist(path):
     assert sanitize_redirect_path(path) == path
+
+
+@pytest.mark.parametrize("path", ["/alpha-explorer", "/backtest", "/models"])
+def test_legacy_compat_paths_remain_allowlisted(path):
+    assert path in ALLOWED_REDIRECT_PATHS
+    assert sanitize_redirect_path(path) == path
