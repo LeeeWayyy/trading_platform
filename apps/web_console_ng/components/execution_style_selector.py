@@ -15,6 +15,7 @@ class ExecutionStyleSelector:
         self._toggle: ui.toggle | None = None
         self._disabled_hint: ui.label | None = None
         self._value = "instant"
+        self._suppress_change_events = False
 
     def create(self) -> ui.row:
         """Create the selector UI."""
@@ -27,6 +28,8 @@ class ExecutionStyleSelector:
 
     def _handle_change(self, value: str) -> None:
         self._value = str(value)
+        if self._suppress_change_events:
+            return
         self._on_change(self._value)
 
     def value(self) -> str:
@@ -35,9 +38,15 @@ class ExecutionStyleSelector:
 
     def set_value(self, value: str) -> None:
         """Update selector value."""
+        if value == self._value:
+            return
         self._value = value
         if self._toggle:
-            self._toggle.value = value
+            self._suppress_change_events = True
+            try:
+                self._toggle.value = value
+            finally:
+                self._suppress_change_events = False
 
     def set_disabled(self, disabled: bool, reason: str | None = None) -> None:
         """Enable/disable selector with optional reason hint."""
