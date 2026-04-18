@@ -160,7 +160,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Trade", "/trade", "candlestick_chart", None),
                     ("Research Workspace", "/research", "hub", None),
                     ("Manual Controls", "/manual-order", "edit", None),
-                    ("Position Mgmt", "/position-management", "swap_vert", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
@@ -194,7 +193,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_groups: list[tuple[str, list[str]]] = [
                     (
                         "Execute",
-                        ["/", "/trade", "/manual-order", "/position-management", "/circuit-breaker"],
+                        ["/", "/trade", "/manual-order", "/circuit-breaker"],
                     ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
@@ -365,10 +364,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         not config.FEATURE_ALERTS
                         or not has_permission(user, Permission.VIEW_ALERTS)
                     ):
-                        return False
-
-                    # Position management is unavailable for viewer role.
-                    if path == "/position-management" and user_role == "viewer":
                         return False
 
                     return True

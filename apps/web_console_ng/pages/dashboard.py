@@ -429,7 +429,6 @@ def resolve_workspace_quick_links(
     """Return workspace quick-link routes visible for the current user context."""
     base_links = [
         ("Manual", "/manual-order"),
-        ("Positions", "/position-management"),
         ("Circuit", "/circuit-breaker"),
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
@@ -439,8 +438,6 @@ def resolve_workspace_quick_links(
     ]
     visible_links: list[tuple[str, str]] = []
     for label, path in base_links:
-        if path == "/position-management" and user_role == "viewer":
-            continue
         if path == "/alerts" and (not feature_alerts_enabled or not can_view_alerts):
             continue
         if path == "/strategies" and (

@@ -312,7 +312,6 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
     expected_paths = [
         "/",
         "/manual-order",
-        "/position-management",
         "/circuit-breaker",
         "/health",
         "/risk",

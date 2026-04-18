@@ -326,7 +326,6 @@ def test_navigation_item_structure() -> None:
         ("Trade", "/trade", "candlestick_chart", None),
         ("Research Workspace", "/research", "hub", None),
         ("Manual Controls", "/manual-order", "edit", None),
-        ("Position Mgmt", "/position-management", "swap_vert", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
