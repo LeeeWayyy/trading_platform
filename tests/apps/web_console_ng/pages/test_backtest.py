@@ -365,25 +365,6 @@ def test_get_backtest_prefill_from_request_parses_query(
     assert result == {"signal_id": "sig-123", "source": "alpha_explorer"}
 
 
-def test_build_research_validate_redirect_url_maps_legacy_query() -> None:
-    """Legacy /backtest deep-links should map to /research Validate query params."""
-    result = backtest_module._build_research_validate_redirect_url(
-        b"tab=running&signal_id=sig-123&source=alpha_explorer"
-    )
-
-    assert (
-        result
-        == "/research?tab=validate&backtest_tab=running&signal_id=sig-123&source=alpha_explorer"
-    )
-
-
-def test_build_research_validate_redirect_url_defaults_on_invalid_tab() -> None:
-    """Invalid legacy tab query should fail open to Validate/New."""
-    result = backtest_module._build_research_validate_redirect_url(b"tab=unknown")
-
-    assert result == "/research?tab=validate"
-
-
 def test_probe_cost_summary_column_uses_search_path_schemas() -> None:
     """Schema probe should cover schemas visible in the current search_path."""
     source = inspect.getsource(backtest_module._probe_cost_summary_column_uncached)
@@ -404,10 +385,9 @@ def test_probe_cost_summary_column_requires_context_manager_protocol() -> None:
         backtest_module._probe_cost_summary_column_uncached(_BrokenPool())  # type: ignore[arg-type]
 
 
-def test_legacy_backtest_page_omits_research_workspace_banner_when_feature_disabled() -> None:
-    """Legacy backtest view should not advertise /research when workspace is disabled."""
-    source = inspect.getsource(backtest_module.backtest_page)
-    assert "Legacy page: use Research Workspace" not in source
+def test_legacy_backtest_route_handler_removed() -> None:
+    """Legacy /backtest route handler should no longer be defined."""
+    assert not hasattr(backtest_module, "backtest_page")
 
 
 def test_get_backtest_prefill_from_request_handles_missing_request(

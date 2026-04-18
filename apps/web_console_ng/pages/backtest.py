@@ -21,7 +21,6 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode
 from weakref import WeakKeyDictionary
 
 import plotly.graph_objects as go
@@ -30,7 +29,6 @@ from nicegui import run, ui
 from psycopg import errors as pg_errors
 
 from apps.web_console_ng import config
-from apps.web_console_ng.auth.middleware import requires_auth
 from apps.web_console_ng.components.backtest_comparison_chart import (
     build_comparison_metrics,
     render_comparison_equity_curves,
@@ -47,11 +45,21 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.dependencies import get_sync_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.request_query import (
-    get_query_param_from_raw_query,
     get_request_query_param,
 )
+from apps.web_console_ng.pages.backtest_tabs import (
+    BACKTEST_TAB_NEW as _SHARED_BACKTEST_TAB_NEW,
+)
+from apps.web_console_ng.pages.backtest_tabs import (
+    BACKTEST_TAB_RESULTS as _SHARED_BACKTEST_TAB_RESULTS,
+)
+from apps.web_console_ng.pages.backtest_tabs import (
+    BACKTEST_TAB_RUNNING as _SHARED_BACKTEST_TAB_RUNNING,
+)
+from apps.web_console_ng.pages.backtest_tabs import (
+    VALID_BACKTEST_TABS as _SHARED_VALID_BACKTEST_TABS,
+)
 from apps.web_console_ng.ui.helpers import safe_classes
-from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
@@ -87,14 +95,10 @@ POLL_INTERVALS = {
 
 # Valid job statuses
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
-BACKTEST_TAB_NEW = "new"
-BACKTEST_TAB_RUNNING = "running"
-BACKTEST_TAB_RESULTS = "results"
-VALID_BACKTEST_TABS = {
-    BACKTEST_TAB_NEW,
-    BACKTEST_TAB_RUNNING,
-    BACKTEST_TAB_RESULTS,
-}
+BACKTEST_TAB_NEW = _SHARED_BACKTEST_TAB_NEW
+BACKTEST_TAB_RUNNING = _SHARED_BACKTEST_TAB_RUNNING
+BACKTEST_TAB_RESULTS = _SHARED_BACKTEST_TAB_RESULTS
+VALID_BACKTEST_TABS = _SHARED_VALID_BACKTEST_TABS
 
 # Symbol validation pattern: must start with letter, then alphanumeric/dots/hyphens (e.g., BRK.A, KHC)
 # Prevents injection via malicious symbol names and enforces exchange naming conventions
@@ -187,28 +191,6 @@ def _get_backtest_prefill_from_request() -> dict[str, str | None]:
 def get_backtest_prefill_from_request() -> dict[str, str | None]:
     """Public wrapper for query-param prefill extraction used by /research."""
     return _get_backtest_prefill_from_request()
-
-
-def _build_research_validate_redirect_url(query_string: bytes | str | None) -> str:
-    """Build redirect URL from legacy /backtest query params."""
-    target: dict[str, str] = {"tab": "validate"}
-    raw_tab = get_query_param_from_raw_query(
-        raw_query=query_string,
-        key="tab",
-        default=BACKTEST_TAB_NEW,
-    )
-    normalized_tab = str(raw_tab or BACKTEST_TAB_NEW).strip().lower()
-    if normalized_tab in VALID_BACKTEST_TABS:
-        target["backtest_tab"] = normalized_tab
-
-    signal_id = get_query_param_from_raw_query(raw_query=query_string, key="signal_id")
-    source = get_query_param_from_raw_query(raw_query=query_string, key="source")
-    if signal_id:
-        target["signal_id"] = str(signal_id).strip()
-    if source:
-        target["source"] = str(source).strip()
-
-    return f"/research?{urlencode(target)}"
 
 
 def _get_requested_backtest_tab(*, query_param: str = "tab") -> str:
@@ -521,21 +503,6 @@ def _verify_job_ownership(job_id: str, user_id: str, db_pool: ConnectionPool) ->
     if not row:
         return False
     return str(row.get("created_by") or "") == str(user_id)
-
-
-@ui.page("/backtest")
-@requires_auth
-@main_layout
-async def backtest_page() -> None:
-    """Legacy route alias for Validate tab in consolidated Research Workspace."""
-    try:
-        request = ui.context.client.request
-    except Exception:
-        request = None
-    raw_query = b""
-    if request is not None:
-        raw_query = request.scope.get("query_string", b"")
-    ui.navigate.to(_build_research_validate_redirect_url(raw_query))
 
 
 async def _render_new_backtest_form(
@@ -2383,7 +2350,6 @@ async def render_backtest_results(
 
 
 __all__ = [
-    "backtest_page",
     "get_backtest_prefill_from_request",
     "render_new_backtest_form",
     "render_running_jobs",

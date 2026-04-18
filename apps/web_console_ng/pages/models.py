@@ -16,8 +16,6 @@ import psycopg
 from nicegui import app, ui
 
 from apps.web_console_ng import config
-from apps.web_console_ng.auth.middleware import requires_auth
-from apps.web_console_ng.ui.layout import main_layout
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -96,14 +94,6 @@ def _summarize_metrics(metrics: Any) -> str:
     if isinstance(win_rate, int | float):
         snippets.append(f"WR {win_rate:.1%}")
     return " · ".join(snippets) if snippets else "Metrics"
-
-
-@ui.page("/models")
-@requires_auth
-@main_layout
-async def models_page() -> None:
-    """Legacy route alias for Promote tab in consolidated Research Workspace."""
-    ui.navigate.to("/research?tab=promote")
 
 
 async def _render_strategy_models(
