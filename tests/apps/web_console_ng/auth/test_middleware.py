@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from starlette.requests import Request
@@ -20,17 +21,20 @@ def make_request() -> callable:
     def _make_request(
         *,
         path: str = "/",
+        query: str = "",
         headers: list[tuple[bytes, bytes]] | None = None,
         client: tuple[str, int] = ("203.0.113.10", 1234),
         cookies: dict[str, str] | None = None,
+        root_path: str = "",
     ) -> Request:
         scope = {
             "type": "http",
             "headers": headers or [],
             "client": client,
             "path": path,
+            "root_path": root_path,
             "scheme": "http",
-            "query_string": b"",
+            "query_string": query.encode(),
         }
         req = Request(scope)
         # Inject cookies if provided
@@ -76,6 +80,19 @@ def test_get_request_from_storage_prefers_contextvar(
     monkeypatch.setattr(nicegui, "ui", dummy_ui, raising=False)
 
     assert middleware_module._get_request_from_storage() is request
+
+
+def test_auth_middleware_exempt_path_uses_segment_boundaries() -> None:
+    assert middleware_module.AuthMiddleware._is_exempt_path("/login")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/login/reset")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/mfa-verify/submit")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/auth/login/callback")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/_nicegui/socket.io/")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/_nicegui_ws/socket.io/")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/favicon.ico")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/metrics")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/metrics.prom")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/login-admin")
 
 
 def test_get_request_from_storage_falls_back_in_debug(
@@ -644,6 +661,12 @@ class TestAuthMiddleware:
         mock_cookie_cfg.domain = None
         mock_cookie_cfg.httponly = True
         mock_cookie_cfg.samesite = "lax"
+        mock_cookie_cfg.get_cookie_flags.return_value = {
+            "path": "/",
+            "secure": True,
+            "httponly": True,
+            "samesite": "lax",
+        }
 
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
@@ -654,6 +677,449 @@ class TestAuthMiddleware:
 
         assert response.status_code == 302
         assert "/login?next=" in response.headers.get("location", "")
+        assert any("trading_session=" in cookie and "Path=/" in cookie for cookie in response.headers.getlist("set-cookie"))
+
+    @pytest.mark.parametrize(
+        ("legacy_path", "expected_marker"),
+        [
+            ("/manual-order", "manual-order"),
+            ("/position-management", "position-management"),
+            ("/manual-order/", "manual-order"),
+            ("/position-management/", "position-management"),
+        ],
+    )
+    @pytest.mark.asyncio()
+    async def test_dispatch_legacy_trade_paths_require_auth(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+        legacy_path: str,
+        expected_marker: str,
+    ) -> None:
+        """Legacy trade redirects remain protected by AuthMiddleware."""
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        headers = [(b"accept", b"text/html")]
+        request = make_request(path=legacy_path, headers=headers)
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.path = "/"
+        mock_cookie_cfg.domain = None
+        mock_cookie_cfg.httponly = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 302
+        location = response.headers.get("location")
+        assert location is not None
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/login"
+        assert params.get("next") == ["/trade"]
+        set_cookies = response.headers.getlist("set-cookie")
+        expected_cookie = f"legacy_trade_from={expected_marker}"
+        assert any(cookie.startswith(f"{expected_cookie};") for cookie in set_cookies)
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_legacy_trade_paths_require_auth_preserves_prefill_query(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        headers = [(b"accept", b"text/html")]
+        request = make_request(path="/manual-order", query="symbol=SPY&qty=10&drop=1", headers=headers)
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.path = "/"
+        mock_cookie_cfg.domain = None
+        mock_cookie_cfg.httponly = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 302
+        location = response.headers.get("location")
+        assert location is not None
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/login"
+        assert params.get("next") == ["/trade?symbol=SPY&qty=10"]
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_legacy_trade_paths_persist_redirect_state_in_storage(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+        storage_data: dict[str, str] = {}
+        monkeypatch.setattr(
+            middleware_module,
+            "app",
+            SimpleNamespace(storage=SimpleNamespace(user=storage_data)),
+        )
+
+        headers = [(b"accept", b"text/html")]
+        request = make_request(path="/manual-order", query="symbol=SPY&qty=10&drop=1", headers=headers)
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.path = "/"
+        mock_cookie_cfg.domain = None
+        mock_cookie_cfg.httponly = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 302
+        assert storage_data.get("redirect_after_login") == "/trade?symbol=SPY&qty=10"
+        assert storage_data.get("legacy_trade_from") == "manual-order"
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_legacy_trade_cookie_respects_root_path(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        headers = [(b"accept", b"text/html")]
+        request = make_request(path="/manual-order", headers=headers, root_path="/console")
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.path = "/"
+        mock_cookie_cfg.domain = None
+        mock_cookie_cfg.httponly = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(cookie.startswith("legacy_trade_from=manual-order;") for cookie in set_cookies)
+        assert any("Path=/console" in cookie for cookie in set_cookies)
+        location = response.headers.get("location")
+        assert location is not None
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/console/login"
+        assert params.get("next") == ["/trade"]
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_legacy_trade_cookie_respects_root_path_when_scope_path_prefixed(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        headers = [(b"accept", b"text/html")]
+        request = make_request(path="/console/manual-order", headers=headers, root_path="/console")
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.path = "/"
+        mock_cookie_cfg.domain = None
+        mock_cookie_cfg.httponly = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(cookie.startswith("legacy_trade_from=manual-order;") for cookie in set_cookies)
+        assert any("Path=/console" in cookie for cookie in set_cookies)
+        location = response.headers.get("location")
+        assert location is not None
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/console/login"
+        assert params.get("next") == ["/trade"]
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_consumes_legacy_trade_cookie_on_trade_page(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/trade",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "manual-order"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) == "manual-order"
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(
+            "legacy_trade_from=" in cookie and "Path=/" in cookie and "Max-Age=0" in cookie
+            for cookie in set_cookies
+        )
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_consumes_legacy_trade_cookie_on_root_trade_alias(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "manual-order"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) == "manual-order"
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(
+            "legacy_trade_from=" in cookie and "Path=/" in cookie and "Max-Age=0" in cookie
+            for cookie in set_cookies
+        )
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_preserves_valid_legacy_trade_cookie_on_non_workspace_path(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/dashboard",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "manual-order"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) is None
+        set_cookies = response.headers.getlist("set-cookie")
+        assert not any("legacy_trade_from=" in cookie and "Max-Age=0" in cookie for cookie in set_cookies)
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_consumes_legacy_trade_cookie_with_root_path(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/trade",
+            root_path="/console",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "position-management"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) == "position-management"
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(
+            "legacy_trade_from=" in cookie
+            and "Path=/console" in cookie
+            and "Max-Age=0" in cookie
+            for cookie in set_cookies
+        )
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_consumes_legacy_trade_cookie_with_prefixed_scope_path(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/console/trade",
+            root_path="/console",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "position-management"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.samesite = "lax"
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) == "position-management"
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(
+            "legacy_trade_from=" in cookie
+            and "Path=/console" in cookie
+            and "Max-Age=0" in cookie
+            for cookie in set_cookies
+        )
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_ignores_forged_legacy_trade_cookie(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/trade",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "../admin"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) is None
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any("legacy_trade_from=" in cookie and "Max-Age=0" in cookie for cookie in set_cookies)
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_clears_forged_legacy_trade_cookie_on_non_trade_path(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/dashboard",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "../admin"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) is None
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any("legacy_trade_from=" in cookie and "Max-Age=0" in cookie for cookie in set_cookies)
+
+    @pytest.mark.asyncio()
+    async def test_dispatch_ignores_forged_legacy_trade_cookie_with_root_path(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(
+            path="/console/trade",
+            root_path="/console",
+            headers=[(b"accept", b"text/html")],
+            cookies={"legacy_trade_from": "../admin"},
+        )
+        request.state.user = {"user_id": "u1", "role": "trader"}
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert getattr(request.state, "legacy_trade_from", None) is None
+        set_cookies = response.headers.getlist("set-cookie")
+        assert any(
+            "legacy_trade_from=" in cookie and "Path=/console" in cookie and "Max-Age=0" in cookie
+            for cookie in set_cookies
+        )
 
 
 class TestSessionMiddleware:
