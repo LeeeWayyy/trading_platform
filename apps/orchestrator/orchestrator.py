@@ -250,6 +250,11 @@ class TradingOrchestrator:
         # retry amplification when Redis is degraded.
         self._redis_unavailable: bool = False
 
+        # Symbols already attempted via batch MGET in _prefetch_prices.
+        # _get_current_price skips individual Redis GETs for these symbols
+        # to avoid redundant calls when prefetch already confirmed no fresh data.
+        self._prefetch_attempted: set[str] = set()
+
         # M1 Fix: Validate and normalize price_cache to ensure all values are Decimal
         self.price_cache: dict[str, Decimal] = {}
         # Tracks when each cached price was fetched for freshness revalidation
@@ -1126,7 +1131,7 @@ class TradingOrchestrator:
         """Build structured-log extra dict with strategy context."""
         extra: dict[str, Any] = {"symbol": symbol}
         if self._active_strategy_ids:
-            extra["strategy_id"] = ",".join(self._active_strategy_ids)
+            extra["strategy_ids"] = self._active_strategy_ids
         extra.update(kwargs)
         return extra
 
@@ -1158,6 +1163,12 @@ class TradingOrchestrator:
         if not needed:
             return
 
+        # Evict stale local cache entries before fetching from Redis,
+        # so a failed/missing Redis result won't leave stale data behind.
+        for sym in needed:
+            self.price_cache.pop(sym, None)
+            self._price_timestamps.pop(sym, None)
+
         try:
             keys = [RedisKeys.price(sym) for sym in needed]
             raw_values = await asyncio.to_thread(self.redis_client.mget, keys)
@@ -1165,6 +1176,9 @@ class TradingOrchestrator:
                 if raw is None:
                     continue
                 self._parse_and_cache_price(sym, raw)
+            # Track all attempted symbols so _get_current_price skips
+            # redundant individual Redis GETs for the same run.
+            self._prefetch_attempted.update(needed)
         except Exception as e:
             # Mark Redis as unavailable for this run to prevent per-symbol
             # GET retry amplification (each GET has its own retry/backoff).
@@ -1258,7 +1272,13 @@ class TradingOrchestrator:
         # Fetch from Redis market data cache (populated by market_data_service).
         # Skip if Redis was already found unavailable during batch prefetch
         # to avoid retry amplification (each GET has its own retry/backoff).
-        if self.redis_client is not None and not self._redis_unavailable:
+        # Also skip if _prefetch_prices already tried this symbol via MGET
+        # and didn't find fresh data — an individual GET would be redundant.
+        if (
+            self.redis_client is not None
+            and not self._redis_unavailable
+            and symbol not in self._prefetch_attempted
+        ):
             try:
                 # Use asyncio.to_thread to avoid blocking the event loop
                 # (RedisClient.get has retry/backoff that can sleep)
