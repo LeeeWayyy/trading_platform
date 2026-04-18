@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
-from nicegui import Client, events, ui
+from nicegui import Client, app, events, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -69,6 +69,7 @@ from apps.web_console_ng.components.tabbed_panel import (
     filter_items_by_symbol,
     filter_working_orders,
 )
+from apps.web_console_ng.core.audit import audit_log
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
@@ -102,6 +103,13 @@ logger = logging.getLogger(__name__)
 MAX_FILLS_ITEMS = 100
 # Workspace live-data staleness threshold before interaction lock
 WORKSPACE_DATA_STALE_THRESHOLD_S = 30.0
+# Deterministic reason templates for legacy manual-controls payload compatibility.
+CANCEL_ALL_REASON_TEMPLATE = "Trade workspace cancel-all for symbol {symbol}"
+FLATTEN_ALL_REASON_TEMPLATE = "Trade workspace flatten-all positions ({count} visible)"
+# Explicit UI allowlists prevent unknown roles from receiving bulk action controls.
+# Backend manual-controls endpoints remain the source of truth for authorization.
+_CANCEL_ALL_ALLOWED_ROLES = frozenset({"admin", "operator", "trader"})
+_FLATTEN_ALL_ALLOWED_ROLES = frozenset({"admin"})
 # Strategy resolution query lookback to keep orders scan bounded
 STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
 STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
@@ -451,6 +459,47 @@ def resolve_workspace_quick_links(
     return visible_links
 
 
+def build_cancel_all_orders_reason(symbol: str) -> str:
+    """Return deterministic reason text for cancel-all payloads."""
+    normalized_symbol = str(symbol).strip().upper() or "UNKNOWN"
+    return CANCEL_ALL_REASON_TEMPLATE.format(symbol=normalized_symbol)
+
+
+def build_flatten_all_positions_reason(*, positions_count: int) -> str:
+    """Return deterministic reason text for flatten-all payloads."""
+    safe_count = max(0, int(positions_count))
+    return FLATTEN_ALL_REASON_TEMPLATE.format(count=safe_count)
+
+
+def can_cancel_all_orders(*, user_role: str | None) -> bool:
+    """Return True when role is authorized to run per-symbol cancel-all."""
+    normalized_role = str(user_role or "").strip().lower()
+    return normalized_role in _CANCEL_ALL_ALLOWED_ROLES
+
+
+def can_flatten_all_positions(*, user_role: str | None) -> bool:
+    """Return True when role is authorized to run flatten-all."""
+    normalized_role = str(user_role or "").strip().lower()
+    return normalized_role in _FLATTEN_ALL_ALLOWED_ROLES
+
+
+def format_http_error_for_log(exc: httpx.HTTPStatusError) -> str:
+    """Return compact non-sensitive HTTP error string for structured logging."""
+    status_code = exc.response.status_code
+    try:
+        request_path = str(exc.request.url.path)
+    except Exception:
+        request_path = ""
+    if request_path:
+        return f"HTTP {status_code} {request_path}"
+    return f"HTTP {status_code}"
+
+
+def audit_http_status_details(exc: httpx.HTTPStatusError) -> dict[str, Any]:
+    """Return non-sensitive HTTP fields suitable for audit payloads."""
+    return {"status": int(exc.response.status_code)}
+
+
 def resolve_strategy_context_banner(
     *,
     strategy_status: str | None,
@@ -731,6 +780,26 @@ async def dashboard(client: Client) -> None:
                 return default
         return default
 
+    background_tasks: set[asyncio.Task[Any]] = set()
+
+    def _handle_dashboard_task_done(task: asyncio.Task[Any]) -> None:
+        background_tasks.discard(task)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception(
+                "dashboard_background_task_failed",
+                extra={"client_id": client_id},
+            )
+
+    def _schedule_dashboard_task(task_coro: Coroutine[Any, Any, None]) -> None:
+        """Track fire-and-forget UI tasks to prevent premature GC cancellation."""
+        task = asyncio.create_task(task_coro)
+        background_tasks.add(task)
+        task.add_done_callback(_handle_dashboard_task_done)
+
     use_workspace_v2 = config.FEATURE_UNIFIED_EXECUTION_WORKSPACE
 
     order_flow_panel = OrderFlowPanel(max_rows=12)
@@ -741,6 +810,8 @@ async def dashboard(client: Client) -> None:
     workspace_overlay: Any | None = None
     workspace_overlay_title: ui.label | None = None
     workspace_overlay_detail: ui.label | None = None
+    cancel_symbol_orders_btn: ui.button | None = None
+    flatten_all_positions_btn: ui.button | None = None
     authorized_strategy_scope = [
         str(strategy).strip()
         for strategy in get_authorized_strategies(user)
@@ -842,6 +913,25 @@ async def dashboard(client: Client) -> None:
 
                     order_context.create_order_ticket()
 
+                    with ui.element("div").classes("workspace-v2-panel"):
+                        ui.label("Execution Actions").classes("workspace-v2-panel-title mb-1")
+                        ui.label("Bulk risk controls").classes("workspace-v2-kv mb-2")
+                        with ui.row().classes("w-full gap-2 flex-wrap"):
+                            cancel_symbol_orders_btn = ui.button(
+                                "Cancel Symbol Orders",
+                                on_click=lambda: _schedule_dashboard_task(
+                                    _show_cancel_symbol_orders_dialog()
+                                ),
+                                color="orange",
+                            ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-warning")
+                            flatten_all_positions_btn = ui.button(
+                                "Flatten All Positions",
+                                on_click=lambda: _schedule_dashboard_task(
+                                    _show_flatten_all_positions_dialog()
+                                ),
+                                color="red",
+                            ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-danger")
+
                     tabs_host = ui.column().classes("workspace-v2-tabs-area")
                     log_tail_host = ui.column().classes("shrink-0")
 
@@ -889,6 +979,22 @@ async def dashboard(client: Client) -> None:
             with ui.column().classes("gap-4"):
                 order_context.create_market_context()
                 order_context.create_order_ticket()
+                with compact_card("Execution Actions").classes("w-full"):
+                    with ui.row().classes("w-full gap-2 flex-wrap"):
+                        cancel_symbol_orders_btn = ui.button(
+                            "Cancel Symbol Orders",
+                            on_click=lambda: _schedule_dashboard_task(
+                                _show_cancel_symbol_orders_dialog()
+                            ),
+                            color="orange",
+                        ).classes("text-black")
+                        flatten_all_positions_btn = ui.button(
+                            "Flatten All Positions",
+                            on_click=lambda: _schedule_dashboard_task(
+                                _show_flatten_all_positions_dialog()
+                            ),
+                            color="red",
+                        ).classes("text-white")
 
     # Data Health Widget (P6T12.4) - in expandable card
     health_container = ui.expansion("Data Health", icon="monitor_heart").classes(
@@ -1093,6 +1199,48 @@ async def dashboard(client: Client) -> None:
     workspace_last_live_data_at: float | None = None
     workspace_connection_state = "CONNECTED"
     workspace_connection_read_only = False
+    bulk_action_in_progress = False
+    cancel_dialog_open = False
+    flatten_dialog_open = False
+
+    def _set_bulk_action_buttons_enabled(enabled: bool) -> None:
+        if cancel_symbol_orders_btn is not None:
+            cancel_enabled = (
+                enabled
+                and can_cancel_all_orders(user_role=user_role)
+                and not workspace_connection_read_only
+                and not cancel_dialog_open
+            )
+            if cancel_enabled:
+                cancel_symbol_orders_btn.enable()
+            else:
+                cancel_symbol_orders_btn.disable()
+        if flatten_all_positions_btn is not None:
+            flatten_enabled = (
+                enabled
+                and can_flatten_all_positions(user_role=user_role)
+                and not workspace_connection_read_only
+                and not flatten_dialog_open
+            )
+            if flatten_enabled:
+                flatten_all_positions_btn.enable()
+            else:
+                flatten_all_positions_btn.disable()
+
+    def _is_bulk_action_read_only(*, notify: bool = True) -> bool:
+        if workspace_connection_read_only:
+            if notify:
+                ui.notify("Read-only mode: connection lost", type="warning")
+            return True
+        return False
+
+    if cancel_symbol_orders_btn is None or flatten_all_positions_btn is None:
+        logger.error(
+            "dashboard_bulk_action_buttons_missing",
+            extra={"client_id": client_id},
+        )
+
+    _set_bulk_action_buttons_enabled(True)
 
     def _update_workspace_connection_pill() -> None:
         if not use_workspace_v2 or connection_status_pill is None:
@@ -1174,6 +1322,7 @@ async def dashboard(client: Client) -> None:
         workspace_connection_read_only = bool(is_read_only)
         _update_workspace_connection_pill()
         _evaluate_workspace_mask()
+        _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
 
     order_context.set_connection_state_callback(_on_workspace_connection_state)
     _update_workspace_connection_pill()
@@ -1494,6 +1643,406 @@ async def dashboard(client: Client) -> None:
         _update_workspace_circuit_breaker_pill()
 
     await check_initial_circuit_breaker()
+
+    async def _verify_kill_switch_disengaged_for_flatten() -> tuple[bool, str]:
+        """Fail-closed kill-switch check for flatten-all operations."""
+        nonlocal kill_switch_engaged, workspace_kill_switch_state
+        try:
+            ks_status = await trading_client.fetch_kill_switch_status(
+                user_id,
+                role=user_role,
+                strategies=user_strategies,
+            )
+            state = str(ks_status.get("state", "")).upper() or "UNKNOWN"
+            workspace_kill_switch_state = state
+            kill_switch_engaged = _parse_kill_switch_state(state)
+            _update_workspace_kill_switch_pill()
+            if state != "DISENGAGED":
+                return (False, "Cannot flatten: Kill Switch is not DISENGAGED")
+            return (True, "")
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            workspace_kill_switch_state = "UNKNOWN"
+            kill_switch_engaged = None
+            _update_workspace_kill_switch_pill()
+            logger.warning(
+                "flatten_all_kill_switch_check_failed",
+                extra={"user_id": user_id, "error": type(exc).__name__},
+            )
+            return (False, "Cannot verify kill switch status - action blocked")
+        except Exception as exc:
+            workspace_kill_switch_state = "UNKNOWN"
+            kill_switch_engaged = None
+            _update_workspace_kill_switch_pill()
+            logger.exception(
+                "flatten_all_kill_switch_check_unexpected_error",
+                extra={"user_id": user_id, "error": type(exc).__name__},
+            )
+            return (False, "Cannot verify kill switch status - action blocked")
+
+    async def _emit_audit_log(action: str, details: dict[str, Any]) -> None:
+        """Emit audit logs without blocking the event loop."""
+        await asyncio.to_thread(
+            audit_log,
+            action=action,
+            user_id=user_id,
+            details=details,
+        )
+
+    async def _emit_audit_log_safe(action: str, details: dict[str, Any]) -> None:
+        """Best-effort audit log emission; never interrupt trading action UX."""
+        try:
+            await _emit_audit_log(action, details)
+        except Exception:
+            logger.warning(
+                "dashboard_audit_log_emit_failed",
+                extra={"user_id": user_id, "action": action},
+                exc_info=True,
+            )
+
+    async def _add_activity_item_safe(item: dict[str, Any], *, event: str) -> None:
+        """Best-effort activity feed append; keep primary action flow resilient."""
+        try:
+            await activity_feed.add_item(item)
+        except Exception:
+            logger.warning(
+                "dashboard_activity_feed_add_failed",
+                extra={"user_id": user_id, "event": event},
+                exc_info=True,
+            )
+
+    async def _show_cancel_symbol_orders_dialog() -> None:
+        """Open confirmation dialog for per-symbol cancel-all action."""
+        nonlocal bulk_action_in_progress, cancel_dialog_open
+        if bulk_action_in_progress or cancel_dialog_open:
+            return
+        if not can_cancel_all_orders(user_role=user_role):
+            ui.notify("Role is not authorized to cancel orders", type="warning")
+            return
+        if _is_bulk_action_read_only():
+            return
+
+        selected_symbol = order_context.get_selected_symbol() or _current_symbol_filter()
+        symbol = str(selected_symbol or "").strip().upper()
+        if not symbol:
+            ui.notify("Select a symbol before cancelling orders", type="warning")
+            return
+
+        cancel_dialog_open = True
+        _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
+
+        with ui.dialog().props("persistent") as dialog, ui.card().classes("p-4 min-w-[430px]"):
+            def _on_dialog_close() -> None:
+                nonlocal cancel_dialog_open
+                if not cancel_dialog_open:
+                    return
+                cancel_dialog_open = False
+                _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
+
+                def _delete_dialog() -> None:
+                    try:
+                        dialog.delete()
+                    except Exception:
+                        logger.debug(
+                            "dashboard_cancel_dialog_delete_failed",
+                            extra={"client_id": client_id},
+                            exc_info=True,
+                        )
+
+                ui.timer(0, _delete_dialog, once=True)
+
+            dialog.on("hide", _on_dialog_close)
+            ui.label(f"Cancel all open orders for {symbol}?").classes("text-lg font-bold")
+            ui.label(
+                "All currently working orders for the selected symbol will be cancelled."
+            ).classes("text-sm text-slate-300")
+            ui.label(
+                "This is a risk-reducing action and does not place new orders."
+            ).classes("text-sm text-slate-400")
+
+            with ui.row().classes("gap-4 mt-4 justify-end"):
+
+                async def _confirm_cancel_all_symbol_orders() -> None:
+                    nonlocal bulk_action_in_progress
+                    if bulk_action_in_progress:
+                        return
+                    if _is_bulk_action_read_only(notify=False):
+                        return
+
+                    bulk_action_in_progress = True
+                    confirm_btn.disable()
+                    keep_orders_btn.disable()
+                    _set_bulk_action_buttons_enabled(False)
+                    requested_at = datetime.now(UTC).isoformat()
+                    reason = build_cancel_all_orders_reason(symbol)
+
+                    try:
+                        result = await trading_client.cancel_all_orders(
+                            symbol=symbol,
+                            reason=reason,
+                            requested_by=user_id,
+                            requested_at=requested_at,
+                            user_id=user_id,
+                            role=user_role,
+                            strategies=user_strategies,
+                        )
+                        cancelled_count = max(0, _coerce_int(result.get("cancelled_count"), 0))
+                        ui.notify(
+                            f"Cancelled {cancelled_count} order(s) for {symbol}",
+                            type="positive",
+                        )
+                        dialog.close()
+                        await _emit_audit_log_safe(
+                            "cancel_all_orders",
+                            {
+                                "symbol": symbol,
+                                "cancelled_count": cancelled_count,
+                                "reason": reason,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        await _add_activity_item_safe(
+                            {
+                                "timestamp": requested_at,
+                                "type": "orders",
+                                "status": "cancelled",
+                                "symbol": symbol,
+                                "message": f"Cancelled {cancelled_count} order(s) for {symbol}",
+                            },
+                            event="cancel_all_orders",
+                        )
+                        await load_initial_data()
+                    except httpx.HTTPStatusError as exc:
+                        http_error = format_http_error_for_log(exc)
+                        logger.warning(
+                            "dashboard_cancel_all_orders_failed",
+                            extra={
+                                "user_id": user_id,
+                                "symbol": symbol,
+                                "status": exc.response.status_code,
+                                "error": http_error,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        await _emit_audit_log_safe(
+                            "cancel_all_orders_failed",
+                            {
+                                "symbol": symbol,
+                                "reason": reason,
+                                "requested_at": requested_at,
+                                **audit_http_status_details(exc),
+                            },
+                        )
+                        ui.notify(
+                            f"Failed to cancel: HTTP {exc.response.status_code}",
+                            type="negative",
+                        )
+                    except httpx.RequestError as exc:
+                        logger.warning(
+                            "dashboard_cancel_all_orders_failed",
+                            extra={
+                                "user_id": user_id,
+                                "symbol": symbol,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        await _emit_audit_log_safe(
+                            "cancel_all_orders_failed",
+                            {
+                                "symbol": symbol,
+                                "error": type(exc).__name__,
+                                "reason": reason,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        ui.notify("Failed to cancel: network error", type="negative")
+                    finally:
+                        bulk_action_in_progress = False
+                        if cancel_dialog_open:
+                            confirm_btn.enable()
+                            keep_orders_btn.enable()
+                        _set_bulk_action_buttons_enabled(True)
+
+                confirm_btn = ui.button(
+                    "Cancel Orders",
+                    on_click=_confirm_cancel_all_symbol_orders,
+                    color="orange",
+                ).classes("text-black")
+                keep_orders_btn = ui.button("Keep Orders", on_click=dialog.close)
+
+        dialog.open()
+
+    async def _show_flatten_all_positions_dialog() -> None:
+        """Open confirmation dialog for global flatten-all action."""
+        nonlocal bulk_action_in_progress, flatten_dialog_open
+        if bulk_action_in_progress or flatten_dialog_open:
+            return
+        if not can_flatten_all_positions(user_role=user_role):
+            ui.notify("Admin permission required to flatten all positions", type="negative")
+            return
+        if _is_bulk_action_read_only():
+            return
+
+        flatten_dialog_open = True
+        _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
+
+        with ui.dialog().props("persistent") as dialog, ui.card().classes("p-4 min-w-[470px]"):
+            def _on_dialog_close() -> None:
+                nonlocal flatten_dialog_open
+                if not flatten_dialog_open:
+                    return
+                flatten_dialog_open = False
+                _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
+
+                def _delete_dialog() -> None:
+                    try:
+                        dialog.delete()
+                    except Exception:
+                        logger.debug(
+                            "dashboard_flatten_dialog_delete_failed",
+                            extra={"client_id": client_id},
+                            exc_info=True,
+                        )
+
+                ui.timer(0, _delete_dialog, once=True)
+
+            dialog.on("hide", _on_dialog_close)
+            ui.label("Flatten all positions?").classes("text-lg font-bold text-red-500")
+            ui.label(
+                "This will submit market close orders for all visible positions."
+            ).classes("text-sm text-slate-300")
+            ui.label("Type FLATTEN to confirm.").classes("text-sm text-slate-400 mt-2")
+            typed_confirm = ui.input("Type FLATTEN").classes("w-full font-mono")
+
+            with ui.row().classes("gap-4 mt-4 justify-end"):
+
+                async def _confirm_flatten_all_positions() -> None:
+                    nonlocal bulk_action_in_progress
+                    if bulk_action_in_progress:
+                        return
+                    if _is_bulk_action_read_only(notify=False):
+                        return
+                    if str(typed_confirm.value or "").strip() != "FLATTEN":
+                        ui.notify("Type FLATTEN exactly to proceed", type="warning")
+                        return
+
+                    id_token = app.storage.user.get("id_token")
+                    if not id_token:
+                        ui.notify(
+                            "Authentication token missing - please sign in again",
+                            type="negative",
+                        )
+                        return
+
+                    bulk_action_in_progress = True
+                    confirm_btn.disable()
+                    cancel_btn.disable()
+                    _set_bulk_action_buttons_enabled(False)
+                    safe_to_proceed, block_reason = await _verify_kill_switch_disengaged_for_flatten()
+                    if not safe_to_proceed:
+                        ui.notify(block_reason, type="negative")
+                        bulk_action_in_progress = False
+                        confirm_btn.enable()
+                        cancel_btn.enable()
+                        _set_bulk_action_buttons_enabled(True)
+                        return
+
+                    requested_at = datetime.now(UTC).isoformat()
+                    reason = build_flatten_all_positions_reason(
+                        positions_count=len(positions_snapshot)
+                    )
+
+                    try:
+                        result = await trading_client.flatten_all_positions(
+                            reason=reason,
+                            requested_by=user_id,
+                            requested_at=requested_at,
+                            id_token=str(id_token),
+                            user_id=user_id,
+                            role=user_role,
+                            strategies=user_strategies,
+                        )
+                        positions_closed = max(0, _coerce_int(result.get("positions_closed"), 0))
+                        ui.notify(
+                            f"Flattened {positions_closed} position(s)",
+                            type="positive",
+                        )
+                        dialog.close()
+                        await _emit_audit_log_safe(
+                            "flatten_all_positions",
+                            {
+                                "positions_closed": positions_closed,
+                                "reason": reason,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        await _add_activity_item_safe(
+                            {
+                                "timestamp": requested_at,
+                                "type": "position_update",
+                                "status": "flattened",
+                                "symbol": "--",
+                                "message": f"Flatten-all submitted ({positions_closed} closed)",
+                            },
+                            event="flatten_all_positions",
+                        )
+                        await load_initial_data()
+                    except httpx.HTTPStatusError as exc:
+                        http_error = format_http_error_for_log(exc)
+                        logger.warning(
+                            "dashboard_flatten_all_positions_failed",
+                            extra={
+                                "user_id": user_id,
+                                "status": exc.response.status_code,
+                                "error": http_error,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        await _emit_audit_log_safe(
+                            "flatten_all_positions_failed",
+                            {
+                                "reason": reason,
+                                "requested_at": requested_at,
+                                **audit_http_status_details(exc),
+                            },
+                        )
+                        ui.notify(
+                            f"Failed to flatten: HTTP {exc.response.status_code}",
+                            type="negative",
+                        )
+                    except httpx.RequestError as exc:
+                        logger.warning(
+                            "dashboard_flatten_all_positions_failed",
+                            extra={
+                                "user_id": user_id,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        await _emit_audit_log_safe(
+                            "flatten_all_positions_failed",
+                            {
+                                "error": type(exc).__name__,
+                                "reason": reason,
+                                "requested_at": requested_at,
+                            },
+                        )
+                        ui.notify("Failed to flatten: network error", type="negative")
+                    finally:
+                        bulk_action_in_progress = False
+                        if flatten_dialog_open:
+                            confirm_btn.enable()
+                            cancel_btn.enable()
+                        _set_bulk_action_buttons_enabled(True)
+
+                confirm_btn = ui.button(
+                    "Flatten All",
+                    on_click=_confirm_flatten_all_positions,
+                    color="red",
+                ).classes("text-white")
+                cancel_btn = ui.button("Cancel", on_click=dialog.close)
+
+        dialog.open()
 
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols, positions_snapshot
@@ -2314,8 +2863,18 @@ async def dashboard(client: Client) -> None:
                     exc_info=True,
                 )
 
+    async def cleanup_background_tasks() -> None:
+        if not background_tasks:
+            return
+        pending = list(background_tasks)
+        for task in pending:
+            task.cancel()
+        background_tasks.clear()
+        await asyncio.gather(*pending, return_exceptions=True)
+
     await lifecycle.register_cleanup_callback(client_id, cleanup_timers)
     await lifecycle.register_cleanup_callback(client_id, cleanup_strategy_context_task)
+    await lifecycle.register_cleanup_callback(client_id, cleanup_background_tasks)
     await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
 
     # Initialize OrderEntryContext AFTER UI creation (per spec lifecycle pattern)

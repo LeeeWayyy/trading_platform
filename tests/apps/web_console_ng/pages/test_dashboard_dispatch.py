@@ -6,6 +6,7 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from apps.web_console_ng.pages import dashboard as dashboard_module
@@ -399,6 +400,67 @@ def test_resolve_workspace_quick_links_hides_promote_when_workspace_disabled() -
     paths = {path for _, path in links}
     assert "/research?tab=promote" not in paths
     assert "/models" in paths
+
+
+def test_build_cancel_all_orders_reason_normalizes_symbol() -> None:
+    reason = dashboard_module.build_cancel_all_orders_reason(" spy ")
+    assert reason == "Trade workspace cancel-all for symbol SPY"
+    assert len(reason) >= 10
+
+
+def test_build_cancel_all_orders_reason_uses_unknown_for_blank_symbol() -> None:
+    reason = dashboard_module.build_cancel_all_orders_reason("   ")
+    assert reason == "Trade workspace cancel-all for symbol UNKNOWN"
+
+
+def test_build_flatten_all_positions_reason_clamps_count() -> None:
+    reason = dashboard_module.build_flatten_all_positions_reason(positions_count=-5)
+    assert reason == "Trade workspace flatten-all positions (0 visible)"
+    assert len(reason) >= 20
+
+
+def test_build_flatten_all_positions_reason_formats_positive_count() -> None:
+    reason = dashboard_module.build_flatten_all_positions_reason(positions_count=4)
+    assert reason == "Trade workspace flatten-all positions (4 visible)"
+
+
+def test_can_cancel_all_orders_role_allowlist() -> None:
+    assert dashboard_module.can_cancel_all_orders(user_role="admin")
+    assert dashboard_module.can_cancel_all_orders(user_role="operator")
+    assert dashboard_module.can_cancel_all_orders(user_role="trader")
+    assert not dashboard_module.can_cancel_all_orders(user_role="viewer")
+    assert not dashboard_module.can_cancel_all_orders(user_role=None)
+    assert not dashboard_module.can_cancel_all_orders(user_role="guest")
+
+
+def test_can_flatten_all_positions_role_allowlist() -> None:
+    assert dashboard_module.can_flatten_all_positions(user_role="admin")
+    assert dashboard_module.can_flatten_all_positions(user_role=" Admin ")
+    assert not dashboard_module.can_flatten_all_positions(user_role="operator")
+    assert not dashboard_module.can_flatten_all_positions(user_role="viewer")
+    assert not dashboard_module.can_flatten_all_positions(user_role=None)
+
+
+def test_format_http_error_for_log_includes_status_and_path_only() -> None:
+    request = httpx.Request("POST", "https://example.test/api/v1/orders/cancel-all")
+    response = httpx.Response(
+        422,
+        request=request,
+        text="  invalid payload: reason too short and contains forbidden characters  ",
+    )
+    exc = httpx.HTTPStatusError("bad request", request=request, response=response)
+
+    error = dashboard_module.format_http_error_for_log(exc)
+    assert error == "HTTP 422 /api/v1/orders/cancel-all"
+    assert "invalid payload" not in error
+
+
+def test_audit_http_status_details_only_includes_status_code() -> None:
+    request = httpx.Request("POST", "https://example.test/api/v1/positions/flatten-all")
+    response = httpx.Response(403, request=request, text='{"detail":"forbidden"}')
+    exc = httpx.HTTPStatusError("forbidden", request=request, response=response)
+
+    assert dashboard_module.audit_http_status_details(exc) == {"status": 403}
 
 
 def test_resolve_strategy_context_banner_healthy_for_ready_states() -> None:

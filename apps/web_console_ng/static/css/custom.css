@@ -754,6 +754,29 @@
     text-transform: uppercase;
 }
 
+.workspace-v2-bulk-btn {
+    border-radius: 8px;
+    flex: 1;
+    font-size: 0.72rem;
+    font-weight: 700;
+    height: 36px;
+    letter-spacing: 0.05em;
+    min-width: 148px;
+    text-transform: uppercase;
+}
+
+.workspace-v2-bulk-btn-warning {
+    background: linear-gradient(180deg, rgba(245, 158, 11, 0.26), rgba(180, 83, 9, 0.2));
+    border: 1px solid rgba(245, 158, 11, 0.46);
+    color: #fde68a;
+}
+
+.workspace-v2-bulk-btn-danger {
+    background: linear-gradient(180deg, rgba(251, 113, 133, 0.26), rgba(159, 18, 57, 0.2));
+    border: 1px solid rgba(251, 113, 133, 0.45);
+    color: #fecdd3;
+}
+
 .workspace-v2-pill {
     border: 1px solid rgba(71, 85, 105, 0.72);
     border-radius: 999px;
@@ -914,7 +937,8 @@
     }
 
     .workspace-v2-action-btn,
-    .workspace-v2-clear-btn {
+    .workspace-v2-clear-btn,
+    .workspace-v2-bulk-btn {
         height: 44px;
         min-height: 44px;
     }
