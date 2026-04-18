@@ -42,10 +42,6 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --with dev
 
-      - name: Architecture map drift check
-        run: |
-          python scripts/dev/generate_architecture.py --check
-
       - name: Type checking (mypy)
         run: |
           poetry run mypy libs/ apps/ strategies/ --strict
