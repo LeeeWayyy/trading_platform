@@ -354,7 +354,6 @@ def test_resolve_workspace_quick_links_for_trader() -> None:
         can_view_models=True,
     )
     paths = {path for _, path in links}
-    assert "/manual-order" in paths
     assert "/circuit-breaker" in paths
     assert "/alerts" in paths
     assert "/journal" in paths

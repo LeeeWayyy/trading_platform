@@ -2,8 +2,11 @@ from __future__ import annotations
 
 ALLOWED_REDIRECT_PATHS = {
     "/",
-    "/manual",
-    "/kill-switch",
+    "/trade",
+    "/research",
+    "/manual-order",
+    "/position-management",
+    "/circuit-breaker",
     "/risk",
     "/backtest",
     "/admin",

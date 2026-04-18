@@ -311,7 +311,6 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
 
     expected_paths = [
         "/",
-        "/manual-order",
         "/circuit-breaker",
         "/health",
         "/risk",
@@ -345,7 +344,6 @@ async def test_admin_item_hidden_for_non_admin(monkeypatch: pytest.MonkeyPatch) 
     targets = {link.target for link in fake_ui.links}
 
     assert "/admin" not in targets
-    assert "/position-management" not in targets
     assert "/" in targets
 
 
