@@ -15,6 +15,16 @@ from apps.web_console_ng.auth import routes
 from apps.web_console_ng.auth.auth_result import AuthResult
 
 
+def _get_set_cookie_headers(headers: object) -> list[str]:
+    get_list = getattr(headers, "get_list", None)
+    if callable(get_list):
+        return list(get_list("set-cookie"))
+    getlist = getattr(headers, "getlist", None)
+    if callable(getlist):
+        return list(getlist("set-cookie"))
+    raise TypeError("Unsupported headers object: missing get_list/getlist")
+
+
 @dataclass(frozen=True)
 class _DummyCookieConfig:
     cookie_name: str = "test_session"
@@ -139,10 +149,11 @@ async def test_login_post_success_sets_cookies_and_redirects(
         )
 
     assert response.status_code == 303
-    assert response.headers.get("location") == "/manual-order"
-    cookies = response.headers.get_list("set-cookie")
+    assert response.headers.get("location") == "/trade"
+    cookies = _get_set_cookie_headers(response.headers)
     assert any(cookie_config.cookie_name in header for header in cookies)
     assert any("ng_csrf" in header for header in cookies)
+    assert any(header.startswith("legacy_trade_from=manual-order;") for header in cookies)
 
 
 @pytest.mark.asyncio()
@@ -173,9 +184,45 @@ async def test_login_post_requires_mfa_sets_pending_cookie(
     location = response.headers.get("location")
     assert location is not None
     assert location.startswith("/mfa-verify?")
-    cookies = response.headers.get_list("set-cookie")
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert params.get("next") == ["/trade"]
+    cookies = _get_set_cookie_headers(response.headers)
     assert any(cookie_config.cookie_name in header for header in cookies)
     assert all("ng_csrf" not in header for header in cookies)
+    assert any(header.startswith("legacy_trade_from=manual-order;") for header in cookies)
+
+
+@pytest.mark.asyncio()
+async def test_login_post_honors_root_path_in_redirect(
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI(root_path="/console")
+    app.include_router(routes.auth_api_router)
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                cookie_value="session-cookie",
+                csrf_token="csrf-token",
+                user_data={"user_id": "u1"},
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/manual-order"},
+        )
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/console/trade"
+    cookies = _get_set_cookie_headers(response.headers)
+    assert any(header.startswith("legacy_trade_from=manual-order;") for header in cookies)
 
 
 @pytest.mark.asyncio()
@@ -236,6 +283,57 @@ async def test_login_post_sanitizes_redirect_path(
 
 
 @pytest.mark.asyncio()
+async def test_login_post_rejects_disallowed_relative_redirect_path(
+    fastapi_app: FastAPI,
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(success=True, cookie_value="cookie", csrf_token="csrf")
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={"username": "u", "password": "p", "next": "/nope"},
+        )
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/"
+
+
+@pytest.mark.asyncio()
+async def test_login_post_sanitizes_legacy_redirect_query_to_trade(
+    fastapi_app: FastAPI,
+    cookie_config: _DummyCookieConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = SimpleNamespace(
+        authenticate=AsyncMock(
+            return_value=AuthResult(success=True, cookie_value="cookie", csrf_token="csrf")
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+
+    async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
+        response = await client.post(
+            "/auth/login",
+            data={
+                "username": "u",
+                "password": "p",
+                "next": "/manual-order?symbol=SPY&qty=3&drop=1",
+            },
+        )
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/trade?symbol=SPY&qty=3"
+
+
 @pytest.mark.asyncio()
 async def test_auth_callback_rate_limited_blocks(
     ui_spy: dict[str, list[str]],
@@ -291,9 +389,118 @@ async def test_auth_callback_rate_limiter_redis_error(
 
 
 @pytest.mark.asyncio()
+async def test_auth_callback_sets_legacy_trade_marker_cookie(
+    cookie_config: _DummyCookieConfig,
+    ui_spy: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = routes.Response(status_code=200)
+    request = SimpleNamespace(
+        headers={},
+        url=URL("http://testserver/auth/callback"),
+        client=SimpleNamespace(host="1.2.3.4"),
+        scope={"root_path": "/console"},
+        state=SimpleNamespace(response=response),
+    )
+    mock_contextvar = SimpleNamespace(get=lambda: request)
+    monkeypatch.setattr("nicegui.storage.request_contextvar", mock_contextvar)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+    monkeypatch.setattr(
+        routes,
+        "app",
+        SimpleNamespace(
+            storage=SimpleNamespace(
+                user={
+                    "redirect_after_login": "/trade",
+                    "legacy_trade_from": "manual-order",
+                }
+            )
+        ),
+    )
+
+    class _Limiter:
+        async def check_and_increment_ip(self, _ip: str):  # noqa: ANN001
+            return False, 0, "ok"
+
+    monkeypatch.setattr(routes, "AuthRateLimiter", _Limiter)
+
+    handler = SimpleNamespace(
+        handle_callback=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                cookie_value="session-cookie",
+                csrf_token="csrf-token",
+                user_data={"user_id": "u1"},
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+
+    await routes.auth_callback(code="abc", state="xyz")
+
+    assert ui_spy["navigations"] == ["/console/trade"]
+    assert "legacy_trade_from" not in routes.app.storage.user
+    set_cookies = _get_set_cookie_headers(response.headers)
+    assert any(cookie_config.cookie_name in header for header in set_cookies)
+    assert any(
+        header.startswith("legacy_trade_from=manual-order;")
+        for header in set_cookies
+    )
+
+
+@pytest.mark.asyncio()
+async def test_auth_callback_keeps_legacy_marker_when_response_unavailable(
+    ui_spy: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = SimpleNamespace(
+        headers={},
+        url=URL("http://testserver/auth/callback"),
+        client=SimpleNamespace(host="1.2.3.4"),
+        scope={"root_path": "/console"},
+        state=SimpleNamespace(),
+    )
+    mock_contextvar = SimpleNamespace(get=lambda: request)
+    monkeypatch.setattr("nicegui.storage.request_contextvar", mock_contextvar)
+    monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
+    monkeypatch.setattr(
+        routes,
+        "app",
+        SimpleNamespace(
+            storage=SimpleNamespace(
+                user={
+                    "redirect_after_login": "/trade",
+                    "legacy_trade_from": "manual-order",
+                }
+            )
+        ),
+    )
+
+    class _Limiter:
+        async def check_and_increment_ip(self, _ip: str):  # noqa: ANN001
+            return False, 0, "ok"
+
+    monkeypatch.setattr(routes, "AuthRateLimiter", _Limiter)
+
+    handler = SimpleNamespace(
+        handle_callback=AsyncMock(
+            return_value=AuthResult(
+                success=True,
+                cookie_value="session-cookie",
+                csrf_token="csrf-token",
+                user_data={"user_id": "u1"},
+            )
+        )
+    )
+    monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
+
+    await routes.auth_callback(code="abc", state="xyz")
+
+    assert ui_spy["navigations"] == ["/console/trade"]
+    assert routes.app.storage.user.get("legacy_trade_from") == "manual-order"
+
+
 # Additional comprehensive tests for login_post error paths and edge cases
-
-
 @pytest.mark.asyncio()
 async def test_login_post_lockout_message(
     fastapi_app: FastAPI,
@@ -454,7 +661,7 @@ async def test_login_post_success_without_csrf_token(
 
     assert response.status_code == 303
     assert response.headers.get("location") == "/"
-    cookies = response.headers.get_list("set-cookie")
+    cookies = _get_set_cookie_headers(response.headers)
     assert any(cookie_config.cookie_name in header for header in cookies)
     assert all("ng_csrf" not in header for header in cookies)
 
@@ -487,7 +694,7 @@ async def test_login_post_success_without_cookie_value(
 
     assert response.status_code == 303
     assert response.headers.get("location") == "/"
-    cookies = response.headers.get_list("set-cookie")
+    cookies = _get_set_cookie_headers(response.headers)
     assert all(cookie_config.cookie_name not in header for header in cookies)
     assert any("ng_csrf" in header for header in cookies)
 
@@ -521,7 +728,10 @@ async def test_login_post_mfa_without_cookie_value(
     location = response.headers.get("location")
     assert location is not None
     assert location.startswith("/mfa-verify?")
-    cookies = response.headers.get_list("set-cookie")
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert params.get("next") == ["/trade"]
+    cookies = _get_set_cookie_headers(response.headers)
     assert all(cookie_config.cookie_name not in header for header in cookies)
 
 

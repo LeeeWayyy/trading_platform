@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import html
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal, cast
 
 from nicegui import app, ui
 from starlette.requests import Request as StarletteRequest
@@ -11,10 +12,24 @@ from starlette.requests import Request as StarletteRequest
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_router import get_auth_handler
 from apps.web_console_ng.auth.cookie_config import CookieConfig
-from apps.web_console_ng.auth.redirects import sanitize_redirect_path
+from apps.web_console_ng.auth.redirects import (
+    normalize_legacy_trade_marker,
+    sanitize_redirect_path,
+    set_legacy_trade_marker_cookie,
+    with_root_path,
+    with_root_path_once,
+)
 from apps.web_console_ng.auth.session_store import SessionValidationError
 
 logger = logging.getLogger(__name__)
+
+
+def _storage_user_pop(key: str) -> None:
+    """Delete app.storage.user key safely when request context is unavailable."""
+    try:
+        app.storage.user.pop(key, None)
+    except RuntimeError as exc:
+        logger.debug("app.storage.user unavailable for pop", extra={"key": key, "error": str(exc)})
 
 
 def _get_request_from_storage(path: str) -> StarletteRequest:
@@ -52,19 +67,39 @@ def _get_redirect_destination(request: StarletteRequest) -> str:
     """Get redirect destination from query param, storage, or default to '/'."""
     from urllib.parse import parse_qs
 
+    root_path = str(request.scope.get("root_path", ""))
     # Check query parameter first (from AuthMiddleware redirect)
     query_string = request.scope.get("query_string", b"").decode("utf-8")
     query_params = parse_qs(query_string)
     next_param = query_params.get("next", [None])[0]
     if next_param:
-        return sanitize_redirect_path(next_param)
+        return sanitize_redirect_path(next_param, root_path=root_path)
 
     # Fall back to storage (from decorator redirect)
     stored_redirect = app.storage.user.get("redirect_after_login")
     if stored_redirect:
-        return sanitize_redirect_path(stored_redirect)
+        return sanitize_redirect_path(stored_redirect, root_path=root_path)
 
     return "/"
+
+
+def _get_legacy_trade_marker(request: StarletteRequest) -> str | None:
+    """Resolve legacy trade marker from query string or app storage."""
+    from urllib.parse import parse_qs
+
+    query_string = request.scope.get("query_string", b"").decode("utf-8")
+    query_params = parse_qs(query_string)
+    marker = normalize_legacy_trade_marker(query_params.get("legacy_trade_from", [None])[0])
+    if marker is not None:
+        return marker
+    try:
+        return normalize_legacy_trade_marker(app.storage.user.get("legacy_trade_from"))
+    except RuntimeError as exc:
+        logger.debug(
+            "app.storage.user unavailable for legacy_trade_from lookup",
+            extra={"error": str(exc)},
+        )
+        return None
 
 
 @ui.page("/login")
@@ -75,6 +110,9 @@ async def login_page() -> None:
 
     # Check for existing valid session via server-side validation
     request = _get_request_from_storage("/login")
+    root_path = str(request.scope.get("root_path", ""))
+    login_path = with_root_path("/login", root_path=root_path)
+    auth_login_path = with_root_path("/auth/login", root_path=root_path)
     cookie_cfg = CookieConfig.from_env()
     cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
 
@@ -86,14 +124,14 @@ async def login_page() -> None:
             session = await session_store.validate_session(cookie_value, client_ip, user_agent)
             if session:
                 # Already logged in with valid session
-                ui.navigate.to("/")
+                ui.navigate.to(with_root_path("/", root_path=root_path))
                 return
         except SessionValidationError:
             # Redis unavailable - show service unavailable message
             with ui.card().classes("w-96 mx-auto mt-16 p-8"):
                 ui.label("Service Temporarily Unavailable").classes("text-xl font-bold")
                 ui.label("Please try again in a few moments.").classes("text-gray-600")
-                ui.button("Retry", on_click=lambda: ui.navigate.to("/login")).classes("mt-4")
+                ui.button("Retry", on_click=lambda: ui.navigate.to(login_path)).classes("mt-4")
             return
 
     # Check for error message from POST endpoint (passed via query param)
@@ -128,6 +166,13 @@ async def login_page() -> None:
                             value=result.csrf_token,
                             **cookie_cfg.get_csrf_flags(),
                         )
+                    set_legacy_trade_marker_cookie(
+                        response,
+                        marker=_get_legacy_trade_marker(request),
+                        root_path=root_path,
+                        secure=cookie_cfg.secure,
+                        samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
+                    )
 
                 app.storage.user["logged_in"] = True
                 app.storage.user["user"] = result.user_data
@@ -141,9 +186,9 @@ async def login_page() -> None:
                     ui.notify(result.warning_message, type="warning", timeout=10000)
 
                 redirect_to = _get_redirect_destination(request)
-                if "redirect_after_login" in app.storage.user:
-                    del app.storage.user["redirect_after_login"]
-                ui.navigate.to(redirect_to)
+                _storage_user_pop("redirect_after_login")
+                _storage_user_pop("legacy_trade_from")
+                ui.navigate.to(with_root_path_once(redirect_to, root_path=root_path))
                 return
             else:
                 mtls_error = result.error_message
@@ -166,18 +211,22 @@ async def login_page() -> None:
     reason = app.storage.user.get("login_reason")
     if reason == "session_expired":
         ui.notify("Your session has expired. Please log in again.", type="warning")
-        if "login_reason" in app.storage.user:
-            del app.storage.user["login_reason"]
+        _storage_user_pop("login_reason")
 
     # Hidden form for HTTP POST login (cookies can only be set in HTTP responses)
     next_url = _get_redirect_destination(request)
+    legacy_trade_marker = _get_legacy_trade_marker(request) or ""
+    escaped_auth_login_path = html.escape(auth_login_path, quote=True)
+    escaped_next_url = html.escape(next_url, quote=True)
+    escaped_legacy_marker = html.escape(legacy_trade_marker, quote=True)
     ui.html(
         f"""
-        <form id="login-form" action="/auth/login" method="post" style="display:none">
+        <form id="login-form" action="{escaped_auth_login_path}" method="post" style="display:none">
             <input name="username" />
             <input name="password" />
             <input name="auth_type" />
-            <input name="next" value="{next_url}" />
+            <input name="next" value="{escaped_next_url}" />
+            <input name="legacy_trade_from" value="{escaped_legacy_marker}" />
         </form>
     """
     )

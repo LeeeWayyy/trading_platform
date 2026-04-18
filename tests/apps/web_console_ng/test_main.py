@@ -7,10 +7,13 @@ import sys
 from collections.abc import Callable
 from types import ModuleType, SimpleNamespace
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import PlainTextResponse, RedirectResponse
+
+from apps.web_console_ng.auth.redirects import LEGACY_TRADE_REDIRECT_QUERY_KEYS
 
 
 class _DummyApp:
@@ -218,8 +221,21 @@ def _install_dummy_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[_DummyApp, 
     auth_parent.routes = auth_routes_module
     auth_parent.logout = auth_logout_module
     monkeypatch.setitem(sys.modules, "apps.web_console_ng.auth", auth_parent)
+    pages_module = ModuleType("apps.web_console_ng.pages")
+    pages_module.__path__ = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "apps.web_console_ng.pages", pages_module)
+
+    # ``main.shutdown`` imports this symbol lazily; stub only the required module.
+    execution_quality_module = ModuleType("apps.web_console_ng.pages.execution_quality")
+
+    async def _close_shared_client() -> None:
+        return None
+
+    execution_quality_module.close_shared_client = _close_shared_client
     monkeypatch.setitem(
-        sys.modules, "apps.web_console_ng.pages", ModuleType("apps.web_console_ng.pages")
+        sys.modules,
+        "apps.web_console_ng.pages.execution_quality",
+        execution_quality_module,
     )
 
     dependencies_module = ModuleType("apps.web_console_ng.core.dependencies")
@@ -365,6 +381,126 @@ def test_socket_io_routes_registered(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert ("GET", "/socket.io/{path:path}") in module.app.routes
     assert ("POST", "/socket.io/{path:path}") in module.app.routes
+
+
+@pytest.mark.parametrize(
+    ("path", "query_string", "legacy_from"),
+    [
+        ("/manual-order", b"", "manual-order"),
+        ("/position-management", b"symbol=SPY&side=buy", "position-management"),
+        ("/manual-order/", b"", "manual-order"),
+        ("/manual-order", b"symbol=SPY&symbol=QQQ&legacy_from=spoof&unknown=value", "manual-order"),
+    ],
+)
+@pytest.mark.asyncio()
+async def test_legacy_trade_route_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    query_string: bytes,
+    legacy_from: str,
+) -> None:
+    module = _import_main(monkeypatch)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "query_string": query_string,
+            "headers": [],
+        }
+    )
+
+    response = await module.legacy_trade_route_redirect(request)
+
+    assert isinstance(response, RedirectResponse)
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/trade"
+    assert params.get("legacy_from") is None
+    if query_string:
+        original_params = parse_qs(query_string.decode("utf-8"))
+        for key, value in original_params.items():
+            if key in LEGACY_TRADE_REDIRECT_QUERY_KEYS:
+                assert params.get(key) == value
+            else:
+                assert params.get(key) is None
+    set_cookies = response.headers.getlist("set-cookie")
+    assert any(
+        cookie.startswith(f"legacy_trade_from={legacy_from};")
+        for cookie in set_cookies
+    )
+    assert response.status_code == 302
+
+
+@pytest.mark.asyncio()
+async def test_legacy_trade_route_redirect_honors_root_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _import_main(monkeypatch)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/manual-order",
+            "root_path": "/console",
+            "query_string": b"symbol=SPY",
+            "headers": [],
+        }
+    )
+
+    response = await module.legacy_trade_route_redirect(request)
+
+    assert isinstance(response, RedirectResponse)
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    params = parse_qs(parsed.query)
+    assert parsed.path == "/console/trade"
+    assert params.get("symbol") == ["SPY"]
+    assert params.get("legacy_from") is None
+    set_cookies = response.headers.getlist("set-cookie")
+    assert any(cookie.startswith("legacy_trade_from=manual-order;") for cookie in set_cookies)
+    assert any("Path=/console" in cookie for cookie in set_cookies)
+    assert response.status_code == 302
+
+
+@pytest.mark.asyncio()
+async def test_legacy_trade_route_redirect_handles_prefixed_scope_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _import_main(monkeypatch)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/console/manual-order",
+            "root_path": "/console",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+
+    response = await module.legacy_trade_route_redirect(request)
+
+    assert isinstance(response, RedirectResponse)
+    location = response.headers.get("location")
+    assert location is not None
+    parsed = urlparse(location)
+    assert parsed.path == "/console/trade"
+    set_cookies = response.headers.getlist("set-cookie")
+    assert any(cookie.startswith("legacy_trade_from=manual-order;") for cookie in set_cookies)
+
+
+def test_legacy_trade_routes_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_main(monkeypatch)
+
+    assert ("GET", "/manual-order") in module.app.routes
+    assert ("GET", "/position-management") in module.app.routes
 
 
 def test_exception_handler_registered(monkeypatch: pytest.MonkeyPatch) -> None:

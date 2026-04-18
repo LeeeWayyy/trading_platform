@@ -3,7 +3,6 @@
 Note: This module does not re-export page functions to avoid shadowing
 module names needed for testing. Import directly from submodules:
     from apps.web_console_ng.pages.dashboard import dashboard
-    from apps.web_console_ng.pages.legacy_trade_redirects import legacy_manual_order_redirect
 
 ⚠️ CRITICAL (P5T7): Import page modules here to trigger @ui.page decorator registration.
 Add imports as pages are implemented.
@@ -36,7 +35,6 @@ _PAGE_MODULES = (
     "apps.web_console_ng.pages.health",
     "apps.web_console_ng.pages.journal",
     "apps.web_console_ng.pages.legacy_research_redirects",
-    "apps.web_console_ng.pages.legacy_trade_redirects",
     "apps.web_console_ng.pages.login",
     "apps.web_console_ng.pages.mfa_verify",
     "apps.web_console_ng.pages.models",

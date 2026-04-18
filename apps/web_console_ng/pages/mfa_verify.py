@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from typing import cast
+from urllib.parse import parse_qs
 
 from nicegui import app, ui
 from starlette.requests import Request as StarletteRequest
@@ -12,6 +13,14 @@ from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.mfa import MFAHandler
 from apps.web_console_ng.auth.middleware import requires_auth
+from apps.web_console_ng.auth.redirects import (
+    legacy_cookie_security_attrs,
+    normalize_legacy_trade_marker,
+    sanitize_redirect_path,
+    set_legacy_trade_marker_cookie,
+    with_root_path,
+    with_root_path_once,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +40,49 @@ def _get_request_from_storage(path: str) -> StarletteRequest:
     return cast(StarletteRequest, request)
 
 
+def _storage_user_get(key: str) -> object | None:
+    """Read app.storage.user safely when request context is unavailable."""
+    try:
+        return app.storage.user.get(key)
+    except RuntimeError as exc:
+        logger.debug("app.storage.user unavailable for get", extra={"key": key, "error": str(exc)})
+        return None
+
+
+def _storage_user_pop(key: str) -> None:
+    """Delete app.storage.user key safely when request context is unavailable."""
+    try:
+        app.storage.user.pop(key, None)
+    except RuntimeError as exc:
+        logger.debug("app.storage.user unavailable for pop", extra={"key": key, "error": str(exc)})
+
+
+def _resolve_post_verify_redirect(request: StarletteRequest) -> str:
+    """Resolve and sanitize post-MFA redirect destination."""
+    root_path = str(request.scope.get("root_path", ""))
+    query_string = request.scope.get("query_string", b"").decode("utf-8")
+    query_params = parse_qs(query_string)
+    next_param = query_params.get("next", [None])[0]
+    if next_param:
+        return sanitize_redirect_path(next_param, root_path=root_path)
+    stored_redirect = _storage_user_get("redirect_after_login")
+    if stored_redirect is not None:
+        return sanitize_redirect_path(str(stored_redirect), root_path=root_path)
+    return "/"
+
+
 @ui.page("/mfa-verify")
 @requires_auth
 async def mfa_verify_page() -> None:
     """MFA verification step-up page."""
-    pending_cookie = app.storage.user.get("pending_mfa_cookie")
+    request = _get_request_from_storage("/mfa-verify")
+    root_path = str(request.scope.get("root_path", ""))
+    login_path = with_root_path("/login", root_path=root_path)
+    pending_cookie = _storage_user_get("pending_mfa_cookie")
     if not pending_cookie:
-        ui.navigate.to("/login")
+        ui.navigate.to(login_path)
         return
+    pending_cookie_value = str(pending_cookie)
 
     with ui.card().classes("absolute-center w-96 p-8"):
         ui.label("Two-Factor Authentication").classes("text-xl font-bold mb-4 w-full text-center")
@@ -53,11 +97,12 @@ async def mfa_verify_page() -> None:
             try:
                 # Get request context for session validation
                 request = _get_request_from_storage("/mfa-verify")
+                request_root_path = str(request.scope.get("root_path", ""))
                 client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
                 user_agent = request.headers.get("user-agent", "")
 
                 result = await handler.verify(
-                    pending_cookie,
+                    pending_cookie_value,
                     code_input.value,
                     client_ip=client_ip,
                     user_agent=user_agent,
@@ -66,6 +111,14 @@ async def mfa_verify_page() -> None:
                 if result.success:
                     # Finalize session - set cookies and CSRF token
                     cookie_cfg = CookieConfig.from_env()
+                    legacy_marker_raw = _storage_user_get("legacy_trade_from")
+                    legacy_trade_marker = normalize_legacy_trade_marker(
+                        str(legacy_marker_raw) if legacy_marker_raw is not None else None
+                    )
+                    legacy_secure, legacy_samesite = legacy_cookie_security_attrs(
+                        cookie_cfg.get_cookie_flags()
+                    )
+                    legacy_cookie_attached = False
                     if hasattr(request.state, "response"):
                         response = request.state.response
                         if result.cookie_value:
@@ -80,6 +133,18 @@ async def mfa_verify_page() -> None:
                                 value=result.csrf_token,
                                 **cookie_cfg.get_csrf_flags(),
                             )
+                        set_legacy_trade_marker_cookie(
+                            response,
+                            marker=legacy_trade_marker,
+                            root_path=request_root_path,
+                            secure=legacy_secure,
+                            samesite=legacy_samesite,
+                        )
+                        legacy_cookie_attached = legacy_trade_marker is not None
+                    else:
+                        logger.warning(
+                            "MFA verify: request.state.response not available for cookie setting"
+                        )
 
                     app.storage.user["logged_in"] = True
                     app.storage.user["user"] = result.user_data
@@ -88,11 +153,14 @@ async def mfa_verify_page() -> None:
                         app.storage.user["session_id"] = result.cookie_value
                         app.storage.user["last_validated_at"] = datetime.now(UTC).isoformat()
 
-                    if "pending_mfa_cookie" in app.storage.user:
-                        del app.storage.user["pending_mfa_cookie"]
+                    redirect_to = _resolve_post_verify_redirect(request)
+                    _storage_user_pop("pending_mfa_cookie")
+                    _storage_user_pop("redirect_after_login")
+                    if legacy_trade_marker is None or legacy_cookie_attached:
+                        _storage_user_pop("legacy_trade_from")
 
                     ui.notify("Verification successful", type="positive")
-                    ui.navigate.to("/")
+                    ui.navigate.to(with_root_path_once(redirect_to, root_path=request_root_path))
                 else:
                     ui.notify(result.error_message or "Invalid code", type="negative")
                     code_input.value = ""
@@ -115,6 +183,9 @@ async def mfa_verify_page() -> None:
 
         ui.button("Verify", on_click=verify).classes("w-full bg-blue-600 text-white")
 
-        ui.button("Back to Login", on_click=lambda: ui.navigate.to("/login")).classes(
+        ui.button(
+            "Back to Login",
+            on_click=lambda: ui.navigate.to(login_path),
+        ).classes(
             "w-full text-gray-600 mt-2"
         ).props("flat")

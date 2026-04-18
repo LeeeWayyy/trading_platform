@@ -41,6 +41,8 @@ class _DummyUI:
     def __init__(self) -> None:
         self.navigate = SimpleNamespace(to=MagicMock())
         self.notify = MagicMock()
+        self.button_handlers: dict[str, object] = {}
+        self.input_values: dict[str, str] = {}
 
     def card(self, *args, **kwargs) -> _DummyElement:
         return _DummyElement()
@@ -57,10 +59,15 @@ class _DummyUI:
     def column(self, *args, **kwargs) -> _DummyElement:
         return _DummyElement()
 
-    def input(self, *args, **kwargs) -> _DummyElement:
-        return _DummyElement()
+    def input(self, label: object, *args, **kwargs) -> _DummyElement:
+        element = _DummyElement()
+        element.value = self.input_values.get(str(label), "")
+        return element
 
-    def button(self, *args, **kwargs) -> _DummyElement:
+    def button(self, label: object, *args, **kwargs) -> _DummyElement:
+        on_click = kwargs.get("on_click")
+        if callable(on_click):
+            self.button_handlers[str(label)] = on_click
         return _DummyElement()
 
     def link(self, *args, **kwargs) -> _DummyElement:
@@ -154,3 +161,62 @@ async def test_mfa_page_redirects_if_no_pending_cookie() -> None:
         await mfa_verify_page()
 
         mock_navigate.assert_called_once_with("/login")
+
+
+@pytest.mark.asyncio()
+async def test_mfa_verify_sets_legacy_trade_cookie_and_clears_storage_marker() -> None:
+    storage_user: dict[str, object] = {
+        "pending_mfa_cookie": "pending_cookie",
+        "legacy_trade_from": "manual-order",
+        "redirect_after_login": "/trade",
+    }
+    mock_app = SimpleNamespace(storage=SimpleNamespace(user=storage_user, request=None))
+    response = MagicMock()
+    scope = {
+        "type": "http",
+        "headers": [],
+        "client": ("127.0.0.1", 0),
+        "path": "/mfa-verify",
+        "query_string": b"pending=mfa&next=%2Ftrade",
+    }
+    request = StarletteRequest(scope)
+    request.state.response = response
+    dummy_ui = _DummyUI()
+    dummy_ui.input_values["Authentication Code"] = "123456"
+    verify_result = SimpleNamespace(
+        success=True,
+        cookie_value="session_cookie",
+        csrf_token="csrf_token",
+        user_data={"username": "trader"},
+        error_message=None,
+    )
+    mock_handler = MagicMock()
+    mock_handler.verify = AsyncMock(return_value=verify_result)
+
+    with (
+        patch("apps.web_console_ng.pages.mfa_verify.app", mock_app),
+        patch("apps.web_console_ng.auth.middleware.app", mock_app),
+        patch(
+            "apps.web_console_ng.auth.middleware._validate_and_get_user_for_decorator",
+            new=AsyncMock(return_value=({"username": "trader"}, "session_cookie", False)),
+        ),
+        patch("apps.web_console_ng.pages.mfa_verify.ui", dummy_ui),
+        patch(
+            "apps.web_console_ng.pages.mfa_verify._get_request_from_storage",
+            return_value=request,
+        ),
+        patch("apps.web_console_ng.pages.mfa_verify.MFAHandler", return_value=mock_handler),
+    ):
+        await mfa_verify_page()
+        verify_handler = dummy_ui.button_handlers["Verify"]
+        await verify_handler()
+
+    legacy_cookie_calls = [
+        call
+        for call in response.set_cookie.call_args_list
+        if call.kwargs.get("key") == "legacy_trade_from"
+    ]
+    assert legacy_cookie_calls
+    assert legacy_cookie_calls[0].kwargs.get("path") == "/"
+    assert storage_user.get("legacy_trade_from") is None
+    dummy_ui.navigate.to.assert_called_once_with("/trade")
