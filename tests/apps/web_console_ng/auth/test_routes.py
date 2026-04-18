@@ -135,11 +135,11 @@ async def test_login_post_success_sets_cookies_and_redirects(
     async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
         response = await client.post(
             "/auth/login",
-            data={"username": "u", "password": "p", "next": "/manual"},
+            data={"username": "u", "password": "p", "next": "/manual-order"},
         )
 
     assert response.status_code == 303
-    assert response.headers.get("location") == "/manual"
+    assert response.headers.get("location") == "/manual-order"
     cookies = response.headers.get_list("set-cookie")
     assert any(cookie_config.cookie_name in header for header in cookies)
     assert any("ng_csrf" in header for header in cookies)
@@ -166,7 +166,7 @@ async def test_login_post_requires_mfa_sets_pending_cookie(
     async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
         response = await client.post(
             "/auth/login",
-            data={"username": "u", "password": "p", "next": "/manual"},
+            data={"username": "u", "password": "p", "next": "/manual-order"},
         )
 
     assert response.status_code == 303
@@ -514,7 +514,7 @@ async def test_login_post_mfa_without_cookie_value(
     async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
         response = await client.post(
             "/auth/login",
-            data={"username": "u", "password": "p", "next": "/manual"},
+            data={"username": "u", "password": "p", "next": "/manual-order"},
         )
 
     assert response.status_code == 303

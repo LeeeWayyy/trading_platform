@@ -428,7 +428,6 @@ def resolve_workspace_quick_links(
 ) -> list[tuple[str, str]]:
     """Return workspace quick-link routes visible for the current user context."""
     base_links = [
-        ("Manual", "/manual-order"),
         ("Circuit", "/circuit-breaker"),
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
