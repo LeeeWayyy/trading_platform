@@ -895,5 +895,5 @@ class TestNullableFeeContract:
         summary = data["summary"]
         # avg_fee_cost_bps should be a number or None, never raise
         assert summary["avg_fee_cost_bps"] is None or isinstance(
-            summary["avg_fee_cost_bps"], int | float
+            summary["avg_fee_cost_bps"], (int, float)
         )
