@@ -17,6 +17,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from research.strategies._feature_constants import FEATURE_EPSILON
 from research.strategies.momentum.features import (
     compute_adx,
     compute_macd,
@@ -267,6 +268,108 @@ class TestRateOfChange:
 
         assert null_count_7 < null_count_14
 
+    def test_roc_zero_price_emits_null_and_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test that ROC emits null and logs warning when price_n_ago is 0."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 10,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 10),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": [0.0] * 5 + [100.0] * 5,
+            }
+        )
+
+        with caplog.at_level("WARNING", logger="research.strategies.momentum.features"):
+            result = compute_rate_of_change(prices, period=5)
+
+        # Rows where price_n_ago=0 should have null ROC (not 0.0)
+        # Rows 5-9 have close=100 but price_n_ago=0 → ROC should be null
+        for i in range(5, 10):
+            assert result["roc"][i] is None, (
+                f"ROC at row {i} should be null when price_n_ago is 0, "
+                f"got {result['roc'][i]}"
+            )
+
+        # Verify structured warning was emitted with correct metadata
+        guard_records = [rec for rec in caplog.records if "ROC guard" in rec.message]
+        assert len(guard_records) > 0, (
+            "ROC guard should emit a warning when near-zero prices are encountered"
+        )
+        rec = guard_records[0]
+        assert hasattr(rec, "guard"), "Warning must include 'guard' extra field"
+        assert rec.guard == "roc_near_zero", "guard field must be 'roc_near_zero'"
+        assert hasattr(rec, "count"), "Warning must include 'count' extra field"
+        assert rec.count == 5, "count should be 5 (rows 5-9 have price_n_ago=0)"
+        assert hasattr(rec, "symbols"), "Warning must include 'symbols' extra field"
+        assert rec.symbols == ["TEST"], "symbols should list affected symbols (capped)"
+        assert hasattr(rec, "symbols_total"), "Warning must include 'symbols_total' extra field"
+        assert rec.symbols_total == 1, "symbols_total should be 1 for single-symbol input"
+        assert hasattr(rec, "strategy_id"), "Warning must include 'strategy_id' extra field"
+        assert rec.strategy_id == "momentum", "strategy_id field must be 'momentum'"
+
+    def test_roc_empty_dataframe_no_error(self) -> None:
+        """Test that ROC handles empty DataFrames without raising (regression guard)."""
+        empty_prices = pl.DataFrame(
+            schema={"symbol": pl.Utf8, "date": pl.Date, "close": pl.Float64}
+        )
+        result = compute_rate_of_change(empty_prices, period=5)
+        assert len(result) == 0, "Empty input should produce empty output"
+        assert "roc" in result.columns, "ROC column must be present even on empty input"
+
+    def test_roc_normal_data_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test that ROC does not emit warning on normal (non-zero) price data."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 10,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 10),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": [100.0 + i for i in range(10)],
+            }
+        )
+        with caplog.at_level("WARNING", logger="research.strategies.momentum.features"):
+            compute_rate_of_change(prices, period=5)
+
+        guard_records = [rec for rec in caplog.records if "ROC guard" in rec.message]
+        assert len(guard_records) == 0, "No warning should be emitted on normal price data"
+
+    def test_roc_many_symbols_caps_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test that ROC warning caps displayed symbols at 10 and includes suffix."""
+        # Create 15 symbols each with zero prices followed by non-zero
+        rows: dict[str, list[object]] = {"symbol": [], "date": [], "close": []}
+        for i in range(15):
+            sym = f"SYM{i:02d}"
+            dates = pl.date_range(
+                start=pl.date(2024, 1, 1),
+                end=pl.date(2024, 1, 10),
+                interval="1d",
+                eager=True,
+            ).to_list()
+            rows["symbol"].extend([sym] * 10)
+            rows["date"].extend(dates)
+            rows["close"].extend([0.0] * 5 + [100.0] * 5)
+
+        prices = pl.DataFrame(rows)
+
+        with caplog.at_level("WARNING", logger="research.strategies.momentum.features"):
+            compute_rate_of_change(prices, period=5)
+
+        guard_records = [rec for rec in caplog.records if "ROC guard" in rec.message]
+        assert len(guard_records) > 0, "Warning should be emitted with zero-price data"
+        rec = guard_records[0]
+        # symbols in extra should be capped at 10
+        assert len(rec.symbols) == 10, "symbols extra should be capped at 10"
+        assert rec.symbols_total == 15, "symbols_total should be 15 (all affected)"
+        # Message should contain suffix indicating more symbols
+        assert "+5 more" in rec.message, "Message should indicate truncated symbol list"
+
 
 class TestADX:
     """Tests for ADX (Average Directional Index)."""
@@ -495,7 +598,7 @@ class TestEdgeCases:
         assert result["ma_slow"].null_count() == 10
 
     def test_constant_prices(self) -> None:
-        """Test behavior with constant prices (no movement)."""
+        """Test that flat-price windows do not emit NaN or Inf (issue #173)."""
         prices = pl.DataFrame(
             {
                 "symbol": ["TEST"] * 30,
@@ -526,6 +629,120 @@ class TestEdgeCases:
 
         if len(roc_values) > 0:
             assert roc_values.abs().mean() < 0.1, "ROC should be near zero"
+
+        # ADX: atr=0 and DI sum=0 → should not emit NaN/Inf
+        result_adx = compute_adx(prices)
+        for col in ["adx", "plus_di", "minus_di"]:
+            vals = result_adx[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values for 30-row flat input"
+            assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
+            assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
+
+    def test_flat_window_combined_features_no_nan(self) -> None:
+        """Test that combined features pipeline emits no NaN/Inf on flat prices (#173)."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 30),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": [100.0] * 30,
+                "high": [100.0] * 30,
+                "low": [100.0] * 30,
+                "open": [100.0] * 30,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        result = compute_momentum_features(prices)
+        feature_cols = ["adx", "plus_di", "minus_di", "roc", "macd_line", "macd_hist"]
+        # Expected neutral values for each indicator on flat prices
+        expected_neutrals = {
+            "adx": 0.0,
+            "plus_di": 0.0,
+            "minus_di": 0.0,
+            "roc": 0.0,
+            "macd_line": 0.0,
+            "macd_hist": 0.0,
+        }
+        for col in feature_cols:
+            vals = result[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values for 30-row flat input"
+            assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
+            assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
+            expected = expected_neutrals[col]
+            assert (vals == expected).all(), (
+                f"{col} should be {expected} on flat prices, got {vals.unique().to_list()}"
+            )
+
+    @pytest.mark.parametrize(
+        ("delta", "description"),
+        [
+            (1e-14, "sub-epsilon spread triggers guard (neutral output)"),
+            (1e-10, "supra-epsilon spread bypasses guard (computed output)"),
+        ],
+    )
+    def test_near_epsilon_boundary_no_nan(self, delta: float, description: str) -> None:
+        """Test epsilon boundary: near-flat windows must never produce NaN/Inf."""
+        base = 100.0
+        # Alternate between base and base+delta to create a tiny but non-zero spread.
+        # high/low use a proportional spread so ADX sees real directional movement
+        # in the supra-epsilon case rather than constant high==low==close.
+        close_vals = [base + delta * (i % 2) for i in range(30)]
+        high_vals = [c + delta for c in close_vals]
+        low_vals = [c - delta for c in close_vals]
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1),
+                    end=pl.date(2024, 1, 30),
+                    interval="1d",
+                    eager=True,
+                ),
+                "close": close_vals,
+                "high": high_vals,
+                "low": low_vals,
+                "open": close_vals,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        # Collect non-null values for each indicator
+        result_adx = compute_adx(prices)
+        result_roc = compute_rate_of_change(prices)
+
+        indicators = {
+            "adx": result_adx["adx"].drop_nulls(),
+            "plus_di": result_adx["plus_di"].drop_nulls(),
+            "minus_di": result_adx["minus_di"].drop_nulls(),
+            "roc": result_roc["roc"].drop_nulls(),
+        }
+
+        for name, vals in indicators.items():
+            assert len(vals) > 0, f"{name} must produce non-null values ({description})"
+            assert not vals.is_nan().any(), f"{name} NaN with {description}"
+            assert not vals.is_infinite().any(), f"{name} Inf with {description}"
+
+        # Branch behavior: sub-epsilon should produce all-neutral (0.0); supra-epsilon
+        # should produce at least one non-neutral value proving the guard was bypassed.
+        is_sub_epsilon = delta < FEATURE_EPSILON
+        if is_sub_epsilon:
+            for name, vals in indicators.items():
+                assert (vals == 0.0).all(), (
+                    f"{name} should be 0.0 (neutral) with sub-epsilon delta"
+                )
+        else:
+            # ADX/DI should produce non-zero values with meaningful high/low spread
+            any_non_neutral = any(
+                not (vals == 0.0).all() for name, vals in indicators.items()
+            )
+            assert any_non_neutral, (
+                "At least one indicator must produce non-neutral values with supra-epsilon delta"
+            )
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

@@ -291,7 +291,7 @@ class MeanReversionConfig:
 
     # Strategy metadata
     strategy_name: str = "mean_reversion"
-    version: str = "0.1.0"
+    version: str = "0.2.0"  # 0.2.0: epsilon guards for near-zero denominators (#173)
 
 
 # Default configuration instance
