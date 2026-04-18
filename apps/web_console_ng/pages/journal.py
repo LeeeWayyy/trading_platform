@@ -672,7 +672,7 @@ async def _export_excel(
         from openpyxl import Workbook
     except ImportError as e:
         logger.warning("openpyxl is not installed; Excel export unavailable")
-        raise NotImplementedError(
+        raise ValueError(
             "Excel export requires openpyxl: pip install openpyxl"
         ) from e
 
