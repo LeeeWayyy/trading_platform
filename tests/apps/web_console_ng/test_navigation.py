@@ -847,10 +847,10 @@ async def test_research_link_hidden_when_workspace_flag_disabled(
 
 
 @pytest.mark.asyncio()
-async def test_legacy_research_links_visible_when_workspace_flag_disabled(
+async def test_legacy_research_links_hidden_when_workspace_flag_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Legacy research routes remain visible during workspace rollback."""
+    """Legacy research routes stay hidden after consolidated workspace migration."""
     monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", False)
     monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
 
@@ -858,6 +858,6 @@ async def test_legacy_research_links_visible_when_workspace_flag_disabled(
 
     targets = {link.target for link in fake_ui.links}
     assert "/research" not in targets
-    assert "/alpha-explorer" in targets
-    assert "/backtest" in targets
-    assert "/models" in targets
+    assert "/alpha-explorer" not in targets
+    assert "/backtest" not in targets
+    assert "/models" not in targets
