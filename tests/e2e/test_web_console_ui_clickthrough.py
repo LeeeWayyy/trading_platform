@@ -69,7 +69,6 @@ SEED_PATHS = [
     "/risk/exposure",
     "/attribution",
     "/tax-lots",
-    "/position-management",
     "/manual-order",
     "/circuit-breaker",
     "/risk",
