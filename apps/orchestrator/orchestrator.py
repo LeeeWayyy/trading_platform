@@ -29,6 +29,8 @@ from apps.orchestrator.schemas import (
     SignalOrderMapping,
     SignalServiceResponse,
 )
+from libs.core.redis_client import RedisClient, RedisKeys
+from libs.data.market_data.types import parse_redis_price_json
 from libs.trading.allocation import MultiAlphaAllocator
 from libs.trading.allocation.multi_alpha import AllocMethod
 
@@ -206,6 +208,8 @@ class TradingOrchestrator:
         price_cache: dict[str, Decimal] | None = None,
         allocation_method: AllocMethod = "rank_aggregation",
         per_strategy_max: float = 0.40,
+        redis_client: RedisClient | None = None,
+        max_price_age_seconds: int = 30,
     ):
         """
         Initialize Trading Orchestrator.
@@ -218,6 +222,10 @@ class TradingOrchestrator:
             price_cache: Optional dict of symbol -> price for testing
             allocation_method: Method for multi-alpha allocation ('rank_aggregation', 'inverse_vol', 'equal_weight')
             per_strategy_max: Maximum allocation to any single strategy (default 0.40 = 40%)
+            redis_client: Optional Redis client for fetching live prices from market data cache
+            max_price_age_seconds: Maximum age in seconds for Redis price data before
+                treating as stale. Should match execution-gateway's
+                FAT_FINGER_MAX_PRICE_AGE_SECONDS for consistency (default: 30)
         """
         self.signal_client = SignalServiceClient(signal_service_url)
         self.execution_client = ExecutionGatewayClient(execution_gateway_url)
@@ -225,12 +233,38 @@ class TradingOrchestrator:
         self.max_position_size = max_position_size
         self.allocation_method = allocation_method
         self.per_strategy_max = per_strategy_max
+        self.redis_client = redis_client
+        if max_price_age_seconds <= 0:
+            raise ValueError(
+                f"max_price_age_seconds must be > 0, got {max_price_age_seconds}"
+            )
+        self.max_price_age_seconds = max_price_age_seconds
+
+        # Active strategy context for structured logging (set by run()).
+        # NOTE: TradingOrchestrator is created per-request (see main.py
+        # create_orchestrator / run_orchestration) so this is not shared
+        # across concurrent runs.
+        self._active_strategy_ids: list[str] = []
+
+        # Set to True when batch MGET fails, to prevent per-symbol GET
+        # retry amplification when Redis is degraded.
+        self._redis_unavailable: bool = False
+
+        # Symbols already attempted via batch MGET in _prefetch_prices.
+        # _get_current_price skips individual Redis GETs for these symbols
+        # to avoid redundant calls when prefetch already confirmed no fresh data.
+        self._prefetch_attempted: set[str] = set()
 
         # M1 Fix: Validate and normalize price_cache to ensure all values are Decimal
         self.price_cache: dict[str, Decimal] = {}
+        # Tracks when each cached price was fetched for freshness revalidation
+        self._price_timestamps: dict[str, datetime] = {}
         if price_cache:
+            # Test-provided prices use current timestamp so they pass freshness checks
+            cache_ts = datetime.now(UTC)
             for symbol, price in price_cache.items():
                 self.price_cache[symbol] = self._normalize_price(symbol, price)
+                self._price_timestamps[symbol] = cache_ts
 
         # Validate allocation method configuration
         if allocation_method == "inverse_vol":
@@ -339,7 +373,12 @@ class TradingOrchestrator:
 
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
+        if not strategy_ids:
+            raise ValueError("strategy_id must be a non-empty string or list of strings")
         is_multi_strategy = len(strategy_ids) > 1
+
+        # Set strategy context for structured logging in downstream methods
+        self._active_strategy_ids = strategy_ids
 
         logger.info(
             f"Starting orchestration run {run_id}",
@@ -368,7 +407,11 @@ class TradingOrchestrator:
             else:
                 # Single strategy: use signals directly (backward compatible)
                 signal_response = await self._fetch_signals(
-                    symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+                    symbols=symbols,
+                    as_of_date=as_of_date,
+                    top_n=top_n,
+                    bottom_n=bottom_n,
+                    strategy_id=strategy_ids[0],
                 )
                 final_signals = signal_response.signals
                 validated_as_of_date = signal_response.metadata.as_of_date
@@ -660,20 +703,22 @@ class TradingOrchestrator:
             httpx.HTTPError: If Signal Service request fails
 
         Notes:
-            - In single-strategy mode, strategy_id is None and default model is used
+            - In single-strategy mode, strategy_id identifies the single active strategy
             - In multi-strategy mode, strategy_id differentiates signal sources
-            - TODO: Pass strategy_id to signal_client once it supports multiple strategies
+            - strategy_id is forwarded to SignalServiceClient for S2S auth context;
+              signal service model routing by strategy is not yet implemented
         """
         logger.info(
-            f"Fetching signals for {len(symbols)} symbols"
-            + (f" (strategy: {strategy_id})" if strategy_id else "")
+            f"Fetching signals for {len(symbols)} symbols",
+            extra={"strategy_id": strategy_id} if strategy_id else {},
         )
 
-        # TODO: Once SignalServiceClient supports strategy_id parameter, pass it here
-        # For MVP, all strategies use the same signal service endpoint
-        # In production, this would route to different strategy services or pass strategy_id
         signal_response = await self.signal_client.fetch_signals(
-            symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+            symbols=symbols,
+            as_of_date=as_of_date,
+            top_n=top_n,
+            bottom_n=bottom_n,
+            strategy_id=strategy_id,
         )
 
         logger.info(
@@ -847,6 +892,10 @@ class TradingOrchestrator:
             Order: BUY 222 AAPL @ market
         """
         logger.info(f"Mapping {len(signals)} signals to orders")
+
+        # Batch pre-fetch prices from Redis (O(1) network round-trip via MGET)
+        signal_symbols = list(dict.fromkeys(s.symbol for s in signals if s.target_weight != 0))
+        await self._prefetch_prices(signal_symbols)
 
         mappings = []
 
@@ -1086,12 +1135,110 @@ class TradingOrchestrator:
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"unexpected_error: {str(e)}"
 
+    def _log_extra(self, symbol: str, **kwargs: Any) -> dict[str, Any]:
+        """Build structured-log extra dict with strategy context."""
+        extra: dict[str, Any] = {"symbol": symbol}
+        if self._active_strategy_ids:
+            extra["strategy_ids"] = self._active_strategy_ids
+        extra.update(kwargs)
+        return extra
+
+    async def _prefetch_prices(self, symbols: list[str]) -> None:
+        """
+        Batch-fetch prices from Redis for all symbols using MGET.
+
+        Populates the in-memory price_cache so that subsequent
+        ``_get_current_price`` calls are served from memory without
+        individual Redis round-trips.
+
+        Args:
+            symbols: List of stock symbols to pre-fetch prices for
+        """
+        if self.redis_client is None or not symbols:
+            return
+
+        # Filter to symbols not already cached (or cached but stale)
+        now = datetime.now(UTC)
+        needed: list[str] = []
+        for sym in symbols:
+            if sym not in self.price_cache:
+                needed.append(sym)
+            else:
+                cached_ts = self._price_timestamps.get(sym)
+                if cached_ts is None or (now - cached_ts).total_seconds() > self.max_price_age_seconds:
+                    needed.append(sym)
+
+        if not needed:
+            return
+
+        # Evict stale local cache entries before fetching from Redis,
+        # so a failed/missing Redis result won't leave stale data behind.
+        for sym in needed:
+            self.price_cache.pop(sym, None)
+            self._price_timestamps.pop(sym, None)
+
+        try:
+            keys = [RedisKeys.price(sym) for sym in needed]
+            raw_values = await asyncio.to_thread(self.redis_client.mget, keys)
+            for sym, raw in zip(needed, raw_values, strict=True):
+                if raw is None:
+                    continue
+                self._parse_and_cache_price(sym, raw)
+            # Track all attempted symbols so _get_current_price skips
+            # redundant individual Redis GETs for the same run.
+            self._prefetch_attempted.update(needed)
+        except Exception as e:
+            # Mark Redis as unavailable for this run to prevent per-symbol
+            # GET retry amplification (each GET has its own retry/backoff).
+            self._redis_unavailable = True
+            logger.warning(
+                "Batch price pre-fetch from Redis failed; "
+                "skipping per-symbol Redis lookups for this run",
+                extra=self._log_extra(
+                    symbol=",".join(needed),
+                    error=str(e),
+                    error_type=type(e).__name__,
+                ),
+                exc_info=True,
+            )
+
+    def _parse_and_cache_price(self, symbol: str, raw: str) -> Decimal | None:
+        """
+        Parse a Redis price JSON payload and cache in-memory if valid.
+
+        Delegates parsing and validation to the shared
+        ``parse_redis_price_json`` utility to keep staleness, symbol
+        mismatch, and sanity checks consistent across services.
+
+        Returns:
+            Parsed mid price as Decimal, or None if invalid/stale.
+        """
+        result = parse_redis_price_json(
+            raw,
+            expected_symbol=symbol,
+            max_price_age_seconds=self.max_price_age_seconds,
+            log_extra=self._log_extra(symbol=symbol),
+        )
+        if result is None:
+            return None
+
+        # Cache locally with timestamp for freshness revalidation
+        self.price_cache[symbol] = result.mid
+        self._price_timestamps[symbol] = result.timestamp
+        logger.debug(
+            "Price fetched from Redis",
+            extra=self._log_extra(symbol=symbol, mid_price=str(result.mid)),
+        )
+        return result.mid
+
     async def _get_current_price(self, symbol: str) -> Decimal:
         """
         Get current market price for symbol.
 
-        C2 Fix: Raises PriceUnavailableError if price not in cache.
-        In production, would fetch from market data API.
+        Resolution order:
+            1. In-memory price_cache (if entry exists and is still fresh)
+            2. Redis market data cache (populated by market_data_service)
+            3. Raise PriceUnavailableError
 
         Args:
             symbol: Stock symbol
@@ -1100,22 +1247,75 @@ class TradingOrchestrator:
             Current price as Decimal
 
         Raises:
-            PriceUnavailableError: If price is not available in cache
+            PriceUnavailableError: If price is not available from any source
 
         Example:
             >>> price = await orchestrator._get_current_price("AAPL")
             >>> print(price)
             Decimal('150.00')
         """
-        # Check cache first
+        # Check in-memory cache first, with freshness revalidation
         if symbol in self.price_cache:
-            return self.price_cache[symbol]
+            cached_ts = self._price_timestamps.get(symbol)
+            if cached_ts is not None:
+                age_seconds = (datetime.now(UTC) - cached_ts).total_seconds()
+                if age_seconds <= self.max_price_age_seconds:
+                    return self.price_cache[symbol]
+                # Stale cached entry — evict and fall through to Redis
+                del self.price_cache[symbol]
+                del self._price_timestamps[symbol]
+                logger.debug(
+                    "Evicted stale cached price for %s",
+                    symbol,
+                    extra=self._log_extra(
+                        symbol=symbol,
+                        price_age_seconds=max(age_seconds, 0),
+                        max_price_age_seconds=self.max_price_age_seconds,
+                    ),
+                )
+            else:
+                # No timestamp (shouldn't happen, but be safe) — evict
+                del self.price_cache[symbol]
+
+        # Fetch from Redis market data cache (populated by market_data_service).
+        # Skip if Redis was already found unavailable during batch prefetch
+        # to avoid retry amplification (each GET has its own retry/backoff).
+        # Also skip if _prefetch_prices already tried this symbol via MGET
+        # and didn't find fresh data — an individual GET would be redundant.
+        if (
+            self.redis_client is not None
+            and not self._redis_unavailable
+            and symbol not in self._prefetch_attempted
+        ):
+            try:
+                # Use asyncio.to_thread to avoid blocking the event loop
+                # (RedisClient.get has retry/backoff that can sleep)
+                raw = await asyncio.to_thread(self.redis_client.get, RedisKeys.price(symbol))
+                if raw is not None:
+                    mid = self._parse_and_cache_price(symbol, raw)
+                    if mid is not None:
+                        return mid
+            except Exception as e:
+                # Mark Redis as unavailable for this run to prevent
+                # retry amplification on subsequent symbols (each GET
+                # has its own retry/backoff).
+                self._redis_unavailable = True
+                logger.warning(
+                    "Failed to fetch price from Redis; "
+                    "disabling per-symbol Redis lookups for this run",
+                    extra=self._log_extra(
+                        symbol=symbol,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    ),
+                    exc_info=True,
+                )
 
         # C2 Fix: Raise error instead of using dangerous $100 default
-        # Using a hardcoded price would cause wrong position sizing
-        # (e.g., if real price is $500, we'd buy 5x too many shares)
-        # TODO: Fetch from Alpaca market data API or use last close price
-        logger.error(f"Price unavailable for {symbol} - no fallback allowed")
+        logger.error(
+            "Price unavailable - no cache or Redis data",
+            extra=self._log_extra(symbol=symbol),
+        )
         raise PriceUnavailableError(symbol)
 
 

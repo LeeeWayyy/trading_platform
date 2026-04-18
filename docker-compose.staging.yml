@@ -67,6 +67,11 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     networks:
       - staging_network
@@ -85,7 +90,7 @@ services:
       - ./infra/grafana:/etc/grafana/provisioning
     depends_on:
       prometheus:
-        condition: service_started
+        condition: service_healthy
       loki_server:
         condition: service_healthy
     restart: unless-stopped
@@ -94,7 +99,7 @@ services:
 
   loki_server:
     image: grafana/loki:3.0.0
-    container_name: staging_loki
+    container_name: staging_loki_server
     ports:
       - "3100:3100"
     volumes:

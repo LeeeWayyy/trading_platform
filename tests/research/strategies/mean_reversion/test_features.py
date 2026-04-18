@@ -16,6 +16,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from research.strategies._feature_constants import FEATURE_EPSILON
 from research.strategies.mean_reversion.features import (
     compute_bollinger_bands,
     compute_mean_reversion_features,
@@ -383,7 +384,7 @@ class TestEdgeCases:
         assert result["rsi"].null_count() == 10
 
     def test_constant_prices(self) -> None:
-        """Test behavior with constant prices (no movement)."""
+        """Test that flat-price windows do not emit NaN or Inf (issue #173)."""
         prices = pl.DataFrame(
             {
                 "symbol": ["TEST"] * 30,
@@ -398,16 +399,133 @@ class TestEdgeCases:
             }
         )
 
-        # Bollinger Bands width should be ~0 (no volatility)
+        # RSI: avg_loss=0 and avg_gain=0 → should be 50 (neutral), never NaN/Inf
+        result_rsi = compute_rsi(prices)
+        rsi_vals = result_rsi["rsi"].drop_nulls()
+        assert len(rsi_vals) > 0, "RSI must produce non-null values for 30-row flat input"
+        assert not rsi_vals.is_nan().any(), "RSI must not contain NaN on flat prices"
+        assert not rsi_vals.is_infinite().any(), "RSI must not contain Inf on flat prices"
+        assert (rsi_vals == 50.0).all(), "RSI should be 50 (neutral) when prices are flat"
+
+        # Bollinger %B: bb_upper == bb_lower → should be 0.5, never NaN/Inf
         result_bb = compute_bollinger_bands(prices)
-
-        # Note: RSI with constant prices produces NaN due to division by zero
-        # This is expected behavior - we only test Bollinger width here
-
-        # Check Bollinger width is small (near zero volatility)
+        bb_pct = result_bb["bb_pct"].drop_nulls()
+        assert len(bb_pct) > 0, "bb_pct must produce non-null values for 30-row flat input"
+        assert not bb_pct.is_nan().any(), "bb_pct must not contain NaN on flat prices"
+        assert not bb_pct.is_infinite().any(), "bb_pct must not contain Inf on flat prices"
+        assert (bb_pct == 0.5).all(), "bb_pct should be 0.5 (neutral) when prices are flat"
         bb_width = result_bb["bb_width"].drop_nulls()
         if len(bb_width) > 0:
             assert bb_width.mean() < 1.0, "Bollinger width should be small with constant prices"
+
+        # Stochastic %K: period_high == period_low → should be 50, never NaN/Inf
+        result_stoch = compute_stochastic_oscillator(prices)
+        stoch_k = result_stoch["stoch_k"].drop_nulls()
+        assert len(stoch_k) > 0, "stoch_k must produce non-null values for 30-row flat input"
+        assert not stoch_k.is_nan().any(), "stoch_k must not contain NaN on flat prices"
+        assert not stoch_k.is_infinite().any(), "stoch_k must not contain Inf on flat prices"
+        assert (stoch_k == 50.0).all(), "stoch_k should be 50 (neutral) when prices are flat"
+
+        # Z-Score: rolling_std=0 → should be 0, never NaN/Inf
+        result_zs = compute_price_zscore(prices)
+        zscore = result_zs["price_zscore"].drop_nulls()
+        assert len(zscore) > 0, "price_zscore must produce non-null values for 30-row flat input"
+        assert not zscore.is_nan().any(), "price_zscore must not contain NaN on flat prices"
+        assert not zscore.is_infinite().any(), "price_zscore must not contain Inf on flat prices"
+        assert (zscore == 0.0).all(), "price_zscore should be 0 when prices are flat"
+
+    def test_flat_window_combined_features_no_nan(self) -> None:
+        """Test that combined features pipeline emits no NaN/Inf on flat prices (#173)."""
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 30), interval="1d", eager=True
+                ),
+                "close": [100.0] * 30,
+                "high": [100.0] * 30,
+                "low": [100.0] * 30,
+                "open": [100.0] * 30,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        result = compute_mean_reversion_features(prices)
+        feature_cols = ["rsi", "bb_pct", "bb_width", "stoch_k", "stoch_d", "price_zscore"]
+        # Expected neutral values for each indicator on flat prices
+        expected_neutrals = {
+            "rsi": 50.0,
+            "bb_pct": 0.5,
+            "bb_width": 0.0,
+            "stoch_k": 50.0,
+            "stoch_d": 50.0,
+            "price_zscore": 0.0,
+        }
+        for col in feature_cols:
+            vals = result[col].drop_nulls()
+            assert len(vals) > 0, f"{col} must produce non-null values for 30-row flat input"
+            assert not vals.is_nan().any(), f"{col} must not contain NaN on flat prices"
+            assert not vals.is_infinite().any(), f"{col} must not contain Inf on flat prices"
+            expected = expected_neutrals[col]
+            assert (vals == expected).all(), (
+                f"{col} should be {expected} on flat prices, got {vals.unique().to_list()}"
+            )
+
+    @pytest.mark.parametrize(
+        ("delta", "description"),
+        [
+            (1e-14, "sub-epsilon spread triggers guard (neutral output)"),
+            (1e-10, "supra-epsilon spread bypasses guard (computed output)"),
+        ],
+    )
+    def test_near_epsilon_boundary_no_nan(self, delta: float, description: str) -> None:
+        """Test epsilon boundary: near-flat windows must never produce NaN/Inf."""
+        base = 100.0
+        # Alternate between base and base+delta to create a tiny but non-zero spread
+        close_vals = [base + delta * (i % 2) for i in range(30)]
+        prices = pl.DataFrame(
+            {
+                "symbol": ["TEST"] * 30,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 30), interval="1d", eager=True
+                ),
+                "close": close_vals,
+                "high": [max(close_vals[i], base + delta) for i in range(30)],
+                "low": [min(close_vals[i], base) for i in range(30)],
+                "open": close_vals,
+                "volume": [1000000] * 30,
+            }
+        )
+
+        # Collect non-null values for each indicator
+        rsi_vals = compute_rsi(prices)["rsi"].drop_nulls()
+        bb_pct = compute_bollinger_bands(prices)["bb_pct"].drop_nulls()
+        stoch_k = compute_stochastic_oscillator(prices)["stoch_k"].drop_nulls()
+        zscore = compute_price_zscore(prices)["price_zscore"].drop_nulls()
+
+        indicators = {"rsi": rsi_vals, "bb_pct": bb_pct, "stoch_k": stoch_k, "price_zscore": zscore}
+        neutrals = {"rsi": 50.0, "bb_pct": 0.5, "stoch_k": 50.0, "price_zscore": 0.0}
+
+        for name, vals in indicators.items():
+            assert len(vals) > 0, f"{name} must produce non-null values ({description})"
+            assert not vals.is_nan().any(), f"{name} NaN with {description}"
+            assert not vals.is_infinite().any(), f"{name} Inf with {description}"
+
+        # Branch behavior: sub-epsilon should produce all-neutral; supra-epsilon should
+        # produce at least one non-neutral value proving the guard was bypassed.
+        is_sub_epsilon = delta < FEATURE_EPSILON
+        if is_sub_epsilon:
+            for name, vals in indicators.items():
+                assert (vals == neutrals[name]).all(), (
+                    f"{name} should be neutral ({neutrals[name]}) with sub-epsilon delta"
+                )
+        else:
+            any_non_neutral = any(
+                not (vals == neutrals[name]).all() for name, vals in indicators.items()
+            )
+            assert any_non_neutral, (
+                "At least one indicator must produce non-neutral values with supra-epsilon delta"
+            )
 
     def test_missing_required_columns(self) -> None:
         """Test error handling when required columns are missing."""

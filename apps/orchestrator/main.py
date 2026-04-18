@@ -80,6 +80,29 @@ ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 
+# Price staleness threshold (shared with execution-gateway for consistency)
+_MAX_PRICE_AGE_SECONDS_DEFAULT = 30
+_MAX_PRICE_AGE_SECONDS_RAW = os.getenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS")
+if _MAX_PRICE_AGE_SECONDS_RAW is None:
+    MAX_PRICE_AGE_SECONDS = _MAX_PRICE_AGE_SECONDS_DEFAULT
+else:
+    try:
+        MAX_PRICE_AGE_SECONDS = int(_MAX_PRICE_AGE_SECONDS_RAW)
+    except ValueError:
+        logger.warning(
+            "Invalid int for FAT_FINGER_MAX_PRICE_AGE_SECONDS=%s; using default=%s",
+            _MAX_PRICE_AGE_SECONDS_RAW,
+            _MAX_PRICE_AGE_SECONDS_DEFAULT,
+        )
+        MAX_PRICE_AGE_SECONDS = _MAX_PRICE_AGE_SECONDS_DEFAULT
+
+if MAX_PRICE_AGE_SECONDS <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_PRICE_AGE_SECONDS must be > 0; using default=%s",
+        _MAX_PRICE_AGE_SECONDS_DEFAULT,
+    )
+    MAX_PRICE_AGE_SECONDS = _MAX_PRICE_AGE_SECONDS_DEFAULT
+
 # Redis configuration (for kill-switch)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -176,6 +199,8 @@ def create_orchestrator() -> TradingOrchestrator:
         execution_gateway_url=EXECUTION_GATEWAY_URL,
         capital=CAPITAL,
         max_position_size=MAX_POSITION_SIZE,
+        redis_client=redis_client,
+        max_price_age_seconds=MAX_PRICE_AGE_SECONDS,
     )
 
 
@@ -666,6 +691,8 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
             execution_gateway_url=EXECUTION_GATEWAY_URL,
             capital=capital,
             max_position_size=max_position_size,
+            redis_client=redis_client,
+            max_price_age_seconds=MAX_PRICE_AGE_SECONDS,
         )
 
         try:

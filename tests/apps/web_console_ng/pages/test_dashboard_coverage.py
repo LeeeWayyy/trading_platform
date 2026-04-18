@@ -89,6 +89,27 @@ async def test_market_price_cache_ttl_within_threshold(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio()
+async def test_market_price_cache_freshness_reports_true_for_success_and_ttl_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    client.fetch_market_prices = AsyncMock(return_value=[{"symbol": "AAPL", "price": 150.0}])
+
+    monkeypatch.setattr(dashboard_module.time, "time", lambda: 1000.0)
+    _, first_is_fresh = await dashboard_module.MarketPriceCache.get_prices_with_freshness(
+        client, user_id="user1", role="admin", strategies=["strat1"]
+    )
+    assert first_is_fresh
+
+    monkeypatch.setattr(dashboard_module.time, "time", lambda: 1001.0)
+    _, second_is_fresh = await dashboard_module.MarketPriceCache.get_prices_with_freshness(
+        client, user_id="user1", role="admin", strategies=["strat1"]
+    )
+    assert second_is_fresh
+    assert client.fetch_market_prices.call_count == 1
+
+
+@pytest.mark.asyncio()
 async def test_market_price_cache_ttl_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test MarketPriceCache refetches after TTL expires."""
     client = AsyncMock()
@@ -346,6 +367,26 @@ async def test_market_price_cache_returns_stale_on_request_error(
 
     # Should return stale cached data
     assert prices2 == [{"symbol": "AAPL", "price": 150.0}]
+
+
+@pytest.mark.asyncio()
+async def test_market_price_cache_freshness_reports_false_when_falling_back_to_stale_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    client.fetch_market_prices = AsyncMock(return_value=[{"symbol": "AAPL", "price": 150.0}])
+
+    monkeypatch.setattr(dashboard_module.time, "time", lambda: 1000.0)
+    await dashboard_module.MarketPriceCache.get_prices(
+        client, user_id="user1", role="admin", strategies=["strat1"]
+    )
+
+    client.fetch_market_prices = AsyncMock(side_effect=httpx.RequestError("Network error"))
+    monkeypatch.setattr(dashboard_module.time, "time", lambda: 1005.0)
+    _, is_fresh = await dashboard_module.MarketPriceCache.get_prices_with_freshness(
+        client, user_id="user1", role="admin", strategies=["strat1"]
+    )
+    assert not is_fresh
 
 
 # === Helper Function Tests ===

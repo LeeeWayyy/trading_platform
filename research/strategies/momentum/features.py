@@ -23,6 +23,8 @@ from typing import Any
 
 import polars as pl
 
+from research.strategies._feature_constants import FEATURE_EPSILON as _EPSILON
+
 logger = logging.getLogger(__name__)
 
 
@@ -241,6 +243,10 @@ def compute_rate_of_change(
         - ROC < 0: Price lower than n periods ago (bearish)
         - Magnitude indicates strength of momentum
         - Extreme values may signal overbought/oversold conditions
+        - Near-zero-price guard: When abs(price_n_ago) < _EPSILON (invalid or
+          near-invalid data), ROC emits null and logs a structured warning to
+          surface data quality issues.  Validated pipelines reject zero prices
+          upstream via _validate_price_data.
 
     See Also:
         - https://www.investopedia.com/terms/r/rateofchange.asp
@@ -249,8 +255,50 @@ def compute_rate_of_change(
     df = prices.with_columns(pl.col(column).shift(period).over("symbol").alias("price_n_ago"))
 
     # Calculate ROC as percentage change
+    # Guard: when price_n_ago is near zero (invalid or near-invalid data that slipped
+    # past validation), emit null to surface data quality issues.  Uses abs() < _EPSILON
+    # for consistency with other epsilon guards in the codebase.
+    # Note: guard-hit detection uses expression-based filtering (not eager Series.abs())
+    # to avoid InvalidOperationError on empty frames with Null-typed columns.
+    # Uses any() for fast short-circuit; full count/filter only on the rare guard-hit path.
+    if len(df) > 0:
+        guard_hit_expr = (
+            pl.col("price_n_ago").is_not_null() & (pl.col("price_n_ago").abs() < _EPSILON)
+        )
+        has_guard_hits = df.select(guard_hit_expr.any()).item()
+        if has_guard_hits:
+            guard_hits = df.select(guard_hit_expr.sum()).item()
+            _MAX_LOG_SYMBOLS = 10
+            all_affected = (
+                df.filter(guard_hit_expr)["symbol"].unique().sort().to_list()
+            )
+            display_symbols = all_affected[:_MAX_LOG_SYMBOLS]
+            suffix = (
+                f" (+{len(all_affected) - _MAX_LOG_SYMBOLS} more)"
+                if len(all_affected) > _MAX_LOG_SYMBOLS
+                else ""
+            )
+            logger.warning(
+                "ROC guard: %d rows had near-zero price_n_ago (abs < %e), "
+                "emitting null; symbols=%s%s",
+                guard_hits,
+                _EPSILON,
+                display_symbols,
+                suffix,
+                extra={
+                    "guard": "roc_near_zero",
+                    "count": guard_hits,
+                    "symbols": display_symbols,
+                    "symbols_total": len(all_affected),
+                    "strategy_id": "momentum",
+                },
+            )
+
     df = df.with_columns(
-        ((pl.col(column) - pl.col("price_n_ago")) / pl.col("price_n_ago") * 100.0).alias("roc")
+        pl.when(pl.col("price_n_ago").abs() < _EPSILON)
+        .then(pl.lit(None, dtype=pl.Float64))
+        .otherwise((pl.col(column) - pl.col("price_n_ago")) / pl.col("price_n_ago") * 100.0)
+        .alias("roc")
     )
 
     # Drop intermediate column
@@ -302,6 +350,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
         - ADX < 20: Weak trend (avoid trend-following)
         - ADX direction: Rising ADX = strengthening trend
         - +DI/-DI crossover: Potential trend reversal
+        - Flat/near-flat windows: When ATR~0 (negligible price range), +DI
+          and -DI=0. When +DI + -DI ~ 0, DX=0. ADX then smooths to 0.
 
     See Also:
         - https://www.investopedia.com/terms/a/adx.asp
@@ -360,20 +410,33 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     )
 
     # Calculate +DI and -DI
+    # Guard: when atr is near zero (flat or near-flat window, negligible range),
+    # the division would be unstable → emit 0.0 for DI values.
     df = df.with_columns(
         [
-            ((pl.col("plus_dm_smooth") / pl.col("atr")) * 100.0).alias("plus_di"),
-            ((pl.col("minus_dm_smooth") / pl.col("atr")) * 100.0).alias("minus_di"),
+            pl.when(pl.col("atr") < _EPSILON)
+            .then(0.0)
+            .otherwise((pl.col("plus_dm_smooth") / pl.col("atr")) * 100.0)
+            .alias("plus_di"),
+            pl.when(pl.col("atr") < _EPSILON)
+            .then(0.0)
+            .otherwise((pl.col("minus_dm_smooth") / pl.col("atr")) * 100.0)
+            .alias("minus_di"),
         ]
     )
 
     # Calculate DX
+    # Guard: when plus_di + minus_di is near zero (flat or near-flat window),
+    # the division would be unstable → emit 0.0.
     df = df.with_columns(
-        (
+        pl.when((pl.col("plus_di") + pl.col("minus_di")) < _EPSILON)
+        .then(0.0)
+        .otherwise(
             (pl.col("plus_di") - pl.col("minus_di")).abs()
             / (pl.col("plus_di") + pl.col("minus_di"))
             * 100.0
-        ).alias("dx")
+        )
+        .alias("dx")
     )
 
     # Calculate ADX (smoothed DX using Wilder's smoothing for consistency)

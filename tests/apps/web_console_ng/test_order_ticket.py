@@ -8,6 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from apps.web_console_ng.components.execution_context import (
+    build_execution_context_snapshot,
+)
 from apps.web_console_ng.components.order_ticket import (
     BUYING_POWER_STALE_THRESHOLD_S,
     LIMITS_STALE_THRESHOLD_S,
@@ -261,6 +264,163 @@ class TestOrderTicketSafetyChecks:
         assert "Risk limits loading" in reason
 
 
+class TestStrategyModelExecutionGate:
+    """Tests for strategy/model execution gating."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create component with all pre-gate safety checks satisfied."""
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=[],
+        )
+        now = datetime.now(UTC)
+        comp._safety_state_loaded = True
+        comp._connection_read_only = False
+        comp._kill_switch_engaged = False
+        comp._circuit_breaker_tripped = False
+        comp._state.symbol = "AAPL"
+        comp._state.quantity = 10
+        comp._state.side = "buy"
+        comp._position_last_updated = now
+        comp._price_last_updated = now
+        comp._buying_power_last_updated = now
+        comp._limits_loaded = True
+        comp._limits_last_updated = now
+        return comp
+
+    def test_blocks_risk_increasing_orders_when_context_unsafe(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Unsafe strategy/model blocks risk-increasing submissions."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="inactive",
+            model_status="active",
+            gate_enabled=True,
+            gate_reason="strategy paused",
+        )
+        component.set_execution_context_snapshot(
+            build_execution_context_snapshot(
+                symbol="AAPL",
+                strategy_id="alpha_1",
+                strategy_status="inactive",
+                model_status="active",
+                model_version="v1",
+                signal_id="sig-1",
+                data_freshness_s=1.0,
+                gate_reason="strategy paused",
+                freshness_threshold_s=30.0,
+            )
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert "Execution context blocked" in reason
+
+    def test_allows_risk_reducing_orders_when_context_unsafe(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Unsafe context still allows strict exposure-reducing exits."""
+        component._current_position = 100
+        component._state.side = "sell"
+        component._state.quantity = 40
+        component.set_strategy_model_context(
+            strategy_status="inactive",
+            model_status="failed",
+            gate_enabled=True,
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_gate_disabled_does_not_block_on_unsafe_context(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Unsafe status does not gate execution when feature is disabled."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="inactive",
+            model_status="failed",
+            gate_enabled=False,
+            gate_reason="status mismatch",
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_ready_statuses_allow_risk_increasing_orders(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """READY status is treated as healthy by execution gate checks."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="ready",
+            model_status="ready",
+            gate_enabled=True,
+        )
+        component.set_execution_context_snapshot(
+            build_execution_context_snapshot(
+                symbol="AAPL",
+                strategy_id="alpha_1",
+                strategy_status="ready",
+                model_status="ready",
+                model_version="v1",
+                signal_id="sig-1",
+                data_freshness_s=1.0,
+                gate_reason=None,
+                freshness_threshold_s=30.0,
+            )
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_blocks_risk_increasing_orders_when_context_stale(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Stale execution context blocks risk-increasing submissions."""
+        component._current_position = 0
+        component.set_strategy_model_context(
+            strategy_status="active",
+            model_status="active",
+            gate_enabled=True,
+        )
+        component.set_execution_context_snapshot(
+            build_execution_context_snapshot(
+                symbol="AAPL",
+                strategy_id="alpha_1",
+                strategy_status="active",
+                model_status="active",
+                model_version="v1",
+                signal_id="sig-1",
+                data_freshness_s=90.0,
+                gate_reason=None,
+                freshness_threshold_s=30.0,
+            )
+        )
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert "market data stale" in reason
+
+
 class TestOrderTicketStalenessChecks:
     """Tests for data staleness checks."""
 
@@ -491,6 +651,7 @@ class TestOrderTicketPositionLimits:
 
         assert result is not None
         assert "position limit" in result.lower()
+        assert result.endswith("shares)")
 
     def test_sell_within_position_limit(self, component: OrderTicketComponent) -> None:
         """No violation when sell stays within limit."""
@@ -739,6 +900,27 @@ class TestOrderTicketStateCallbacks:
         assert component._last_price is None
         assert component._current_position == 0
 
+    @pytest.mark.asyncio()
+    async def test_on_symbol_changed_resets_execution_context_to_fail_closed(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component.set_strategy_model_context(
+            strategy_status="active",
+            model_status="active",
+            gate_enabled=True,
+            gate_reason=None,
+        )
+
+        await component.on_symbol_changed("NVDA")
+
+        assert component._state.symbol == "NVDA"
+        assert component._execution_gate_enabled is True
+        assert component._strategy_status == "unknown"
+        assert component._model_status == "unknown"
+        assert component._execution_gate_reason == (
+            "Refreshing strategy/model execution context for selected symbol"
+        )
+
 
 class TestOrderTicketExposureLimits:
     """Tests for total exposure limit enforcement."""
@@ -853,7 +1035,7 @@ class TestOrderTicketBuyingPowerImpact:
         assert result["notional"] == Decimal("5000")
         assert result["percentage"] == Decimal("50")  # 5000/10000 * 100
         assert result["remaining"] == Decimal("5000")  # 10000 - 5000
-        assert result["warning"] is False  # 50% is not > 50%
+        assert result["warning"] is True  # 50% is warning threshold
 
     def test_impact_warning_over_50_percent(self, component: OrderTicketComponent) -> None:
         """Impact warns when over 50% of buying power."""
@@ -874,6 +1056,225 @@ class TestOrderTicketBuyingPowerImpact:
         assert result["notional"] == Decimal("5000")
         assert result["percentage"] is None
         assert result["warning"] is True
+
+    def test_impact_exposure_limit_missing_snapshot_is_unavailable(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Impact is unavailable when exposure limit exists but current exposure is missing."""
+        component._state.quantity = 50
+        component._max_total_exposure = Decimal("100000")
+        component._current_total_exposure = None
+
+        result = component._calculate_buying_power_impact()
+
+        assert result["percentage"] is None
+        assert result["status"] == "unavailable"
+        assert result["warning"] is True
+
+
+class TestOrderTicketDomSettle:
+    """Tests for DOM click settle-window button behavior."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=[],
+        )
+        comp._connection_read_only = False
+        comp._kill_switch_engaged = False
+        comp._circuit_breaker_tripped = False
+        comp._safety_state_loaded = True
+        comp._buy_action_button = MagicMock()
+        comp._sell_action_button = MagicMock()
+        return comp
+
+    def test_finish_dom_settle_keeps_actions_disabled_when_form_incomplete(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._state.symbol = "AAPL"
+        component._state.quantity = None
+
+        component._finish_dom_settle()
+
+        component._buy_action_button.set_enabled.assert_called_with(False)
+        component._sell_action_button.set_enabled.assert_called_with(False)
+
+    def test_finish_dom_settle_keeps_actions_disabled_when_connection_locked(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._connection_read_only = True
+
+        component._finish_dom_settle()
+
+        component._buy_action_button.set_enabled.assert_called_with(False)
+        component._sell_action_button.set_enabled.assert_called_with(False)
+
+
+class TestOrderTicketClosePreset:
+    """Tests for CLOSE preset behavior."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=[],
+        )
+        comp._position_last_updated = datetime.now(UTC)
+        comp._quantity_input = MagicMock()
+        comp._side_toggle = MagicMock()
+        return comp
+
+    def test_close_prefill_for_long_position(self, component: OrderTicketComponent) -> None:
+        component._current_position = 125
+
+        component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 125
+        component._quantity_input.set_value.assert_called_once_with(125)
+        component._side_toggle.set_value.assert_called_once_with("sell")
+
+    def test_close_prefill_for_short_position(self, component: OrderTicketComponent) -> None:
+        component._current_position = -40
+
+        component._on_close_preset_selected()
+
+        assert component._state.side == "buy"
+        assert component._state.quantity == 40
+        component._quantity_input.set_value.assert_called_once_with(40)
+        component._side_toggle.set_value.assert_called_once_with("buy")
+
+    def test_close_prefill_handles_missing_position_state(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = None  # type: ignore[assignment]
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.quantity is None
+        assert component._state.side == "buy"
+        notify.assert_called_once_with("No open position to close", type="warning")
+
+    def test_close_prefill_blocks_on_stale_position(self, component: OrderTicketComponent) -> None:
+        component._current_position = 100
+        component._position_last_updated = datetime.now(UTC) - timedelta(
+            seconds=POSITION_STALE_THRESHOLD_S + 1
+        )
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.quantity is None
+        assert component._state.side == "buy"
+        notify.assert_called_once()
+
+    def test_close_prefill_notification_uses_quantity_unit(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = 7
+        component._qty_unit = "contracts"
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        notify.assert_called_once_with(
+            "CLOSE prefill ready: SELL 7 contracts (preview required)",
+            type="info",
+        )
+
+    def test_close_prefill_prefers_exact_quantity_with_step_warning(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = 125
+        component._qty_step = 100
+        component._min_qty = 100
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 125
+        notify.assert_any_call(
+            "CLOSE prefill uses exact 125 shares (off-step for 100 shares increments)",
+            type="warning",
+        )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 125 shares (preview required)",
+            type="info",
+        )
+        assert notify.call_count == 2
+
+    def test_close_prefill_allows_exact_quantity_below_symbol_minimum(
+        self, component: OrderTicketComponent
+    ) -> None:
+        component._current_position = 50
+        component._qty_step = 100
+        component._min_qty = 100
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 50
+        notify.assert_any_call(
+            "CLOSE prefill uses exact 50 shares (below symbol minimum 100 shares; off-step for 100 shares increments)",
+            type="warning",
+        )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 50 shares (preview required)",
+            type="info",
+        )
+        assert notify.call_count == 2
+
+    def test_close_prefill_preserves_full_flatten_for_odd_lot_positions(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Odd-lot CLOSE prefill keeps exact share flatten via canonical override."""
+        component._current_position = 150
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots", qty_unit_size=100)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_close_preset_selected()
+
+        assert component._state.side == "sell"
+        assert component._state.quantity == 150
+        assert component._state_quantity_canonical_override == 150
+        notify.assert_any_call(
+            "CLOSE prefill uses exact 150 shares (using share precision to flatten odd-lot residual)",
+            type="warning",
+        )
+        notify.assert_any_call(
+            "CLOSE prefill ready: SELL 150 shares (preview required)",
+            type="info",
+        )
 
 
 class TestOrderTicketIdempotency:
@@ -1405,10 +1806,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "limit",
             "limit_price": "150.00",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is True
@@ -1427,10 +1834,47 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",  # Original
             "side": "buy",
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "market",
             "limit_price": "",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
+        }
+
+        assert component._validate_preview_snapshot() is False
+
+    def test_quantity_unit_context_changed_returns_false(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Validation fails when canonical quantity mapping changes after preview."""
+        component._state.symbol = "AAPL"
+        component._state.side = "buy"
+        component._state.quantity = 1
+        component._state.order_type = "market"
+        component._state.limit_price = None
+        component._state.stop_price = None
+        component._state.time_in_force = "day"
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
+
+        component._preview_snapshot = {
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": 1,
+            "canonical_quantity": 1,  # stale mapping from preview time
+            "order_type": "market",
+            "limit_price": "",
+            "stop_price": "",
+            "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "lots",
+            "qty_unit_size": 1,  # stale mapping from preview time
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1449,10 +1893,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",
             "quantity": 100,  # Original
+            "canonical_quantity": 100,
             "order_type": "market",
             "limit_price": "",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1471,10 +1921,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",  # Original
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "market",
             "limit_price": "",
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1493,10 +1949,16 @@ class TestOrderTicketPreviewSnapshot:
             "symbol": "AAPL",
             "side": "buy",
             "quantity": 100,
+            "canonical_quantity": 100,
             "order_type": "limit",
             "limit_price": "150.00",  # Original
             "stop_price": "",
             "time_in_force": "day",
+            "qty_step": 1,
+            "min_qty": 1,
+            "qty_unit": "shares",
+            "qty_unit_size": 1,
+            "quantity_canonical_override": None,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1580,3 +2042,226 @@ class TestOrderTicketUIDisable:
         component._set_ui_disabled(False, "")
 
         component._disabled_banner.classes.assert_called_with(add="hidden")
+
+
+class TestOrderTicketQuantityRules:
+    """Tests for symbol-aware quantity stepping behavior."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create test component."""
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=["alpha"],
+        )
+        return comp
+
+    def test_set_quantity_rules_updates_ui_constraints(self, component: OrderTicketComponent) -> None:
+        """Quantity rules update internal state and input metadata."""
+        component._quantity_label = MagicMock()
+        component._quantity_input = MagicMock()
+        component._quantity_presets = MagicMock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        assert component._qty_step == 100
+        assert component._min_qty == 100
+        assert component._qty_unit == "lots"
+        assert component._qty_unit_size == 1
+        component._quantity_label.set_text.assert_called_once_with("QTY (LOTS)")
+        component._quantity_input.props.assert_called_with("min=100 step=100")
+        component._quantity_presets.set_presets.assert_called_with([100])
+
+    def test_set_quantity_rules_aligns_min_qty_to_step(self, component: OrderTicketComponent) -> None:
+        """Unaligned metadata minimum is rounded up to the nearest step."""
+        component._quantity_input = MagicMock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=150, qty_unit="lots")
+
+        assert component._min_qty == 200
+        component._quantity_input.props.assert_called_with("min=200 step=100")
+
+    def test_set_quantity_rules_uses_contract_preset_profile(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Contract unit uses compact 1/5/10-style presets."""
+        component._quantity_presets = MagicMock()
+
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="contracts")
+
+        component._quantity_presets.set_presets.assert_called_with([1, 5, 10])
+
+    def test_set_quantity_rules_defaults_lot_size_for_small_lot_units(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Small lot-unit rules use default 100-share canonical multiplier."""
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
+
+        assert component._qty_unit_size == 100
+        assert component._canonical_quantity(1) == 100
+
+    def test_position_display_keeps_canonical_share_units(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Position label remains in canonical units even when order entry uses lots."""
+        component._position_label = MagicMock()
+        component._state.symbol = "AAPL"
+        component._current_position = 200
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        component._update_position_display()
+
+        component._position_label.set_text.assert_called_with("+200 shares")
+
+    def test_quantity_input_keeps_typed_value_during_edit(self, component: OrderTicketComponent) -> None:
+        """Manual quantity entry should not snap while user is still typing."""
+        component._quantity_input = MagicMock()
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        component._on_quantity_changed(250.0)
+
+        assert component._state.quantity == 250
+        component._quantity_input.set_value.assert_not_called()
+
+    def test_set_quantity_rules_noop_when_rules_unchanged(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Repeated identical rules should not trigger UI churn."""
+        component._apply_quantity_rules_to_ui = MagicMock()
+        component._refresh_quantity_preset_profile = MagicMock()
+        component._update_buying_power_impact = MagicMock()
+        component._update_quantity_presets_context = MagicMock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._apply_quantity_rules_to_ui.reset_mock()
+        component._refresh_quantity_preset_profile.reset_mock()
+        component._update_buying_power_impact.reset_mock()
+        component._update_quantity_presets_context.reset_mock()
+
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+
+        component._apply_quantity_rules_to_ui.assert_not_called()
+        component._refresh_quantity_preset_profile.assert_not_called()
+        component._update_buying_power_impact.assert_not_called()
+        component._update_quantity_presets_context.assert_not_called()
+
+    def test_submission_blocks_invalid_step_quantity(self, component: OrderTicketComponent) -> None:
+        """Submission is blocked when qty does not match symbol step rules."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._state.quantity = 150
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._state.quantity = 150
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert reason == "Quantity must increment by 100 shares (lots)"
+
+    def test_submission_allows_risk_reducing_exit_below_minimum(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Risk-reducing exits bypass min qty gate so residuals can be flattened."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._state.side = "sell"
+        component._state.quantity = 50
+        component._current_position = 50
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._state.quantity = 50
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_submission_allows_risk_reducing_exit_off_step(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Risk-reducing exits bypass step gate when the full position is irregular."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._state.side = "sell"
+        component._state.quantity = 150
+        component._current_position = 150
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component.set_quantity_rules(qty_step=100, min_qty=100, qty_unit="lots")
+        component._state.quantity = 150
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_submission_step_check_uses_minimum_baseline(self, component: OrderTicketComponent) -> None:
+        """Step validation remains correct even when legacy state has unaligned minimum."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._limits_loaded = True
+        component._state.symbol = "AAPL"
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_last_updated = now
+        component._qty_step = 100
+        component._min_qty = 150
+        component._qty_unit = "lots"
+        component._state.quantity = 250
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is False
+        assert reason == ""
+
+    def test_position_limit_check_uses_canonical_qty_for_lot_units(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Lot-unit entry is converted to canonical shares for exposure checks."""
+        component._state.symbol = "AAPL"
+        component._state.side = "buy"
+        component._state.quantity = 1  # 1 lot
+        component._max_position_per_symbol = 50
+        component.set_quantity_rules(qty_step=1, min_qty=1, qty_unit="lots")
+
+        violation = component._check_position_limits()
+
+        assert violation is not None
+        assert "Order exceeds position limit" in violation

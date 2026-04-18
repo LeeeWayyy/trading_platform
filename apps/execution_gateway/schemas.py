@@ -7,6 +7,7 @@ and validation at the API boundary.
 
 import math
 import os
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -66,9 +67,12 @@ class OrderRequest(BaseModel):
     """
     Request to submit a new order.
 
-    The order will be assigned a deterministic client_order_id based on
-    the order parameters and current date. This ensures idempotency - the
-    same order submitted multiple times will have the same ID.
+    By default the order is assigned a deterministic client_order_id
+    derived from the order parameters and current date, ensuring
+    idempotency (the same order submitted multiple times gets the same
+    ID).  Callers may supply an explicit ``client_order_id`` to
+    disambiguate repeat orders that share identical parameters on the
+    same day.
 
     Examples:
         Market buy order:
@@ -119,6 +123,37 @@ class OrderRequest(BaseModel):
         default=None,
         description="Optional scheduled start time (UTC) for TWAP execution",
     )
+    client_order_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=24,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        description=(
+            "Optional caller-supplied order ID. Must be globally unique across "
+            "all strategies. Supply a unique value to place a distinct repeat "
+            "order with otherwise identical parameters on the same day. If "
+            "omitted, a deterministic ID is generated from the order "
+            "parameters and date."
+        ),
+    )
+
+    # ---- field-level validators ------------------------------------------------
+
+    @field_validator("client_order_id")
+    @classmethod
+    def client_order_id_charset(cls, v: str | None) -> str | None:
+        """Reject control characters and non-printable content.
+
+        Only ASCII alphanumerics, hyphens, and underscores are accepted.
+        This prevents log-injection, broker-API rejection, and ensures
+        safe storage/transmission.
+        """
+        if v is not None and not re.fullmatch(r"[A-Za-z0-9_-]+", v):
+            raise ValueError(
+                "client_order_id must contain only ASCII alphanumerics, "
+                "hyphens, and underscores"
+            )
+        return v
 
     @field_validator("symbol")
     @classmethod
@@ -251,11 +286,11 @@ class OrderResponse(BaseModel):
     """
     Response after submitting an order.
 
-    Contains the deterministic client_order_id, current status, and
-    broker_order_id (if submitted to broker).
+    Contains the client_order_id (deterministic or caller-supplied),
+    current status, and broker_order_id (if submitted to broker).
 
     Attributes:
-        client_order_id: Deterministic ID for idempotency
+        client_order_id: Order ID (deterministic or caller-supplied)
         status: Current order status
         broker_order_id: Alpaca's order ID (null for dry_run)
         symbol: Stock symbol

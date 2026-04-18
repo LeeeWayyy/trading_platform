@@ -18,6 +18,7 @@ aiofiles==25.1.0
 # Database
 psycopg[binary,pool]==3.2.10
 redis==5.3.1
+sqlalchemy==2.0.48
 
 # Data Validation
 pydantic==2.12.2
@@ -45,11 +46,14 @@ jupyterlab==4.3.5
 croniter==2.0.5
 structlog==24.4.0
 rq==1.16.2
+aiosmtplib==3.0.2
+twilio==8.13.0
 
 # Data Processing (for analytics pages)
 pandas==2.2.3
 numpy==2.2.1
 polars==1.30.0
+exchange-calendars==4.6
 
 # Legacy shared libs dependencies (libs/risk, libs/web_console_services)
 scipy==1.14.1

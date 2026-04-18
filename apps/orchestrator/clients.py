@@ -295,6 +295,7 @@ class SignalServiceClient:
                 "as_of_date": payload.get("as_of_date"),
                 "top_n": top_n,
                 "bottom_n": bottom_n,
+                "strategy_id": strategy_id,
             },
         )
 
@@ -317,7 +318,7 @@ class SignalServiceClient:
         if response.status_code != 200:
             logger.error(
                 f"Signal Service returned error: {response.status_code}",
-                extra={"response": response.text},
+                extra={"response": response.text, "strategy_id": strategy_id},
             )
             response.raise_for_status()
 

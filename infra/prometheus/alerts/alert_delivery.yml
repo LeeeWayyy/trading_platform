@@ -23,32 +23,8 @@ groups:
       # ============================================================================
       # Poison Queue Monitoring
       # ============================================================================
-
-      - alert: AlertPoisonQueueHigh
-        expr: alert_poison_queue_size > 10
-        for: 1m
-        labels:
-          severity: page
-          team: platform
-          component: alerting
-        annotations:
-          summary: "Alert poison queue size exceeds threshold"
-          description: |
-            The alert delivery poison queue has {{ $value }} items.
-            This indicates failed deliveries requiring manual review.
-
-            **Threshold:** 10 items
-            **Current:** {{ $value }} items
-
-            **Impact:** Users may not receive critical notifications.
-
-            **Next Steps:**
-            1. Review poison queue in database: SELECT * FROM alert_deliveries WHERE status='poison'
-            2. Check error_message for failure reasons
-            3. Fix underlying issues (provider down, invalid recipients, etc.)
-            4. Use resolve() to mark items as handled
-
-            **Runbook:** docs/RUNBOOKS/alert-delivery-failures.md
+      # AlertPoisonQueueHigh is defined in track7_sla.yml (with sla: track7
+      # label) to avoid duplicate PagerDuty incidents from two routes.
 
       # ============================================================================
       # Delivery Latency SLA
@@ -58,15 +34,17 @@ groups:
         expr: |
           histogram_quantile(0.95,
             sum(rate(alert_delivery_latency_seconds_bucket[5m]))
-            by (le)
+            by (le, channel)
           ) > 60
         for: 5m
         labels:
           severity: warning
           team: platform
           component: alerting
+          sla: track7
         annotations:
           summary: "Alert delivery P95 latency exceeds 60s SLA"
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md#alert-troubleshooting"
           description: |
             P95 alert delivery latency is {{ $value | printf "%.1f" }}s.
 

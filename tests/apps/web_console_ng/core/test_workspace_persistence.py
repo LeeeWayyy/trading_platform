@@ -5,11 +5,13 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from psycopg import errors as pg_errors
 
 from apps.web_console_ng.core import workspace_persistence
 from apps.web_console_ng.core.workspace_persistence import (
     DatabaseUnavailableError,
     WorkspacePersistenceService,
+    WorkspaceSchemaUnavailableError,
     get_workspace_service,
 )
 
@@ -87,6 +89,19 @@ async def test_save_grid_state_success(service: WorkspacePersistenceService, mon
 
 
 @pytest.mark.asyncio()
+async def test_save_grid_state_missing_table_raises_schema_unavailable(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable('relation "workspace_state" does not exist')
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.save_grid_state("user-1", "grid-1", {"columns": []})
+
+
+@pytest.mark.asyncio()
 async def test_save_panel_state_success(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()
     pool = _make_pool(cursor)
@@ -113,6 +128,19 @@ async def test_load_grid_state_missing(service: WorkspacePersistenceService, mon
     monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
 
     assert await service.load_grid_state("user", "grid") is None
+
+
+@pytest.mark.asyncio()
+async def test_load_grid_state_missing_table_raises_schema_unavailable(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable('relation "workspace_state" does not exist')
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.load_grid_state("user", "grid")
 
 
 @pytest.mark.asyncio()
@@ -211,6 +239,32 @@ async def test_load_grid_state_invalid_dict_type(
 
 
 @pytest.mark.asyncio()
+async def test_load_grid_state_missing_table_raises_schema_unavailable_legacy_case(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable("relation \"workspace_state\" does not exist")
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.load_grid_state("user", "grid")
+
+
+@pytest.mark.asyncio()
+async def test_save_grid_state_missing_table_raises_schema_unavailable_legacy_case(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable("relation \"workspace_state\" does not exist")
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.save_grid_state("user", "grid", {"a": 1})
+
+
+@pytest.mark.asyncio()
 async def test_reset_workspace_specific(service: WorkspacePersistenceService, monkeypatch) -> None:
     cursor = AsyncMock()
     pool = _make_pool(cursor)
@@ -236,6 +290,21 @@ async def test_reset_workspace_all(service: WorkspacePersistenceService, monkeyp
         "DELETE FROM workspace_state WHERE user_id = %s",
         ("user-1",),
     )
+
+
+@pytest.mark.asyncio()
+async def test_reset_workspace_missing_table_raises_schema_unavailable(
+    service: WorkspacePersistenceService, monkeypatch
+) -> None:
+    cursor = AsyncMock()
+    cursor.execute.side_effect = pg_errors.UndefinedTable('relation "workspace_state" does not exist')
+    pool = _make_pool(cursor)
+    monkeypatch.setattr(workspace_persistence, "get_db_pool", Mock(return_value=pool))
+
+    with pytest.raises(WorkspaceSchemaUnavailableError):
+        await service.reset_workspace("user-1")
+
+    cursor.execute.assert_called_once()
 
 
 def test_get_workspace_service_singleton() -> None:

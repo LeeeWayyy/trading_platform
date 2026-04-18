@@ -13,6 +13,8 @@ This module provides:
 - DataProvider: Protocol for data provider implementations
 """
 
+import logging as _logging
+
 from libs.data.data_providers.compustat_local_provider import (
     AmbiguousGVKEYError,
     CompustatLocalProvider,
@@ -51,7 +53,6 @@ from libs.data.data_providers.protocols import (
     ProviderUnavailableError,
     YFinanceDataProviderAdapter,
 )
-from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 from libs.data.data_providers.unified_fetcher import (
     FetcherConfig,
     ProviderType,
@@ -62,13 +63,57 @@ from libs.data.data_providers.universe import (
     ForwardReturnsProvider,
     UniverseProvider,
 )
-from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 from libs.data.data_providers.yfinance_provider import (
     DriftDetectedError,
     ProductionGateError,
     YFinanceError,
     YFinanceProvider,
 )
+
+_dp_logger = _logging.getLogger(__name__)
+
+# Known optional third-party packages that data-provider submodules may
+# depend on.  If these are absent we degrade gracefully; any *other*
+# missing module is a genuine regression and must fail fast.
+_OPTIONAL_PACKAGES = frozenset({
+    "wrds",       # WRDS database driver
+    "sas7bdat",   # SAS file reader
+    "saspy",      # SAS scripting
+    "paramiko",   # SSH transport for WRDS
+})
+
+
+def _is_optional_dep(exc: ModuleNotFoundError) -> bool:
+    """Return True when *exc* is caused by a known optional package."""
+    return exc.name is not None and any(
+        exc.name == pkg or exc.name.startswith(f"{pkg}.")
+        for pkg in _OPTIONAL_PACKAGES
+    )
+
+
+try:
+    from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
+except ModuleNotFoundError as _exc:
+    if _is_optional_dep(_exc):
+        _dp_logger.info(
+            "sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name
+        )
+        SyncManager = None  # type: ignore[assignment,misc]
+        SyncProgress = None  # type: ignore[assignment,misc]
+    else:
+        raise
+
+try:
+    from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
+except ModuleNotFoundError as _exc:
+    if _is_optional_dep(_exc):
+        _dp_logger.info(
+            "wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name
+        )
+        WRDSClient = None  # type: ignore[assignment,misc]
+        WRDSConfig = None  # type: ignore[assignment,misc]
+    else:
+        raise
 
 __all__ = [
     # CRSP Local Provider

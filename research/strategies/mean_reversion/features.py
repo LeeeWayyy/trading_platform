@@ -22,6 +22,8 @@ from typing import Any
 
 import polars as pl
 
+from research.strategies._feature_constants import FEATURE_EPSILON as _EPSILON
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +63,10 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
         - RSI < 30: Oversold (potential buy signal)
         - First `period` rows will have null RSI values
         - Uses Exponential Moving Average (EMA) for smoothing gains and losses
+        - Flat/near-flat windows: When avg_gain + avg_loss < _EPSILON (both
+          negligible), RSI=50 (neutral).  When avg_loss is near zero but
+          avg_gain is meaningfully positive (sum >= _EPSILON), RSI trends
+          toward 100 via the normal formula.
 
     See Also:
         - https://www.investopedia.com/terms/r/rsi.asp
@@ -103,13 +109,20 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
         ]
     )
 
-    # Calculate RS (Relative Strength) and RSI
-    df = df.with_columns((pl.col("avg_gain") / pl.col("avg_loss")).alias("rs"))
-
-    df = df.with_columns((100.0 - (100.0 / (1.0 + pl.col("rs")))).alias("rsi"))
+    # Calculate RSI using simplified formula: RSI = 100 * avg_gain / (avg_gain + avg_loss).
+    # This avoids the intermediate RS division and naturally handles avg_loss=0 (RSI=100).
+    # Guard: when the denominator (avg_gain + avg_loss) is near zero (flat or near-flat
+    # price window), the division would produce NaN or an extreme outlier → emit 50.0
+    # (neutral).  Uses _EPSILON threshold for numerical stability.
+    df = df.with_columns(
+        pl.when((pl.col("avg_gain") + pl.col("avg_loss")) < _EPSILON)
+        .then(50.0)
+        .otherwise(100.0 * pl.col("avg_gain") / (pl.col("avg_gain") + pl.col("avg_loss")))
+        .alias("rsi")
+    )
 
     # Drop intermediate columns
-    return df.drop(["price_change", "gain", "loss", "avg_gain", "avg_loss", "rs"])
+    return df.drop(["price_change", "gain", "loss", "avg_gain", "avg_loss"])
 
 
 def compute_bollinger_bands(
@@ -161,6 +174,10 @@ def compute_bollinger_bands(
         - Price touching lower band: Potential buy signal
         - Bollinger Squeeze (narrow bands): Volatility breakout may be imminent
         - First `period` rows will have null values
+        - Flat/near-flat windows: When bb_upper ~= bb_lower (near-zero std),
+          bb_pct=0.5 (neutral, price at mid-band). bb_width uses a simple
+          difference (upper - lower) rather than normalized bandwidth for
+          consistency with the mean-reversion signal thresholds.
 
     See Also:
         - https://www.investopedia.com/terms/b/bollingerbands.asp
@@ -192,10 +209,15 @@ def compute_bollinger_bands(
     # %B > 1: Price above upper band
     # %B < 0: Price below lower band
     # %B = 0.5: Price at middle band
+    # Guard: when bb_upper and bb_lower are within _EPSILON (near-zero std on flat or
+    # near-flat windows), the division would be unstable → emit 0.5 (neutral).
     df = df.with_columns(
-        ((pl.col(column) - pl.col("bb_lower")) / (pl.col("bb_upper") - pl.col("bb_lower"))).alias(
-            "bb_pct"
+        pl.when((pl.col("bb_upper") - pl.col("bb_lower")).abs() < _EPSILON)
+        .then(0.5)
+        .otherwise(
+            (pl.col(column) - pl.col("bb_lower")) / (pl.col("bb_upper") - pl.col("bb_lower"))
         )
+        .alias("bb_pct")
     )
 
     # Drop intermediate column
@@ -250,6 +272,7 @@ def compute_stochastic_oscillator(
         - < 20: Oversold (potential buy signal)
         - %K crossing above %D: Bullish crossover
         - %K crossing below %D: Bearish crossover
+        - Flat/near-flat windows: When period_high ~= period_low, %K=50 (neutral).
 
     See Also:
         - https://www.investopedia.com/terms/s/stochasticoscillator.asp
@@ -264,12 +287,17 @@ def compute_stochastic_oscillator(
     )
 
     # Calculate %K (fast stochastic)
+    # Guard: when period_high and period_low are within _EPSILON (flat or near-flat
+    # window), the division would be unstable → emit 50.0 (neutral).
     df = df.with_columns(
-        (
+        pl.when((pl.col("period_high") - pl.col("period_low")).abs() < _EPSILON)
+        .then(50.0)
+        .otherwise(
             100.0
             * (pl.col("close") - pl.col("period_low"))
             / (pl.col("period_high") - pl.col("period_low"))
-        ).alias("stoch_k")
+        )
+        .alias("stoch_k")
     )
 
     # Calculate %D (slow stochastic - SMA of %K) per-symbol
@@ -319,6 +347,7 @@ def compute_price_zscore(
         - Z-score < -2: Price is 2 std devs below mean (oversold)
         - Z-score near 0: Price close to mean (no clear signal)
         - First `period` rows will have null values
+        - Flat/near-flat windows: When rolling_std~0, z-score=0 (price at mean).
 
     See Also:
         - https://www.investopedia.com/terms/z/zscore.asp
@@ -333,8 +362,13 @@ def compute_price_zscore(
     )
 
     # Calculate Z-score
+    # Guard: when rolling_std is near zero (flat or near-flat window), the division
+    # would produce extreme outliers → emit 0.0 (price at mean).
     df = df.with_columns(
-        ((pl.col(column) - pl.col("rolling_mean")) / pl.col("rolling_std")).alias("price_zscore")
+        pl.when(pl.col("rolling_std") < _EPSILON)
+        .then(0.0)
+        .otherwise((pl.col(column) - pl.col("rolling_mean")) / pl.col("rolling_std"))
+        .alias("price_zscore")
     )
 
     # Drop intermediate columns

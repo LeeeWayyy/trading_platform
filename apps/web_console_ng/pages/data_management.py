@@ -116,6 +116,7 @@ def _get_user_id_safe(user: Any) -> str | None:
     return str(val) if val is not None else None
 
 
+@ui.page("/data/management")
 @ui.page("/data")
 @requires_auth
 @main_layout

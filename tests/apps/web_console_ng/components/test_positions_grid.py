@@ -35,8 +35,9 @@ class DummyGrid:
         """Mock update method for NiceGUI aggrid."""
         pass
 
-    def run_grid_method(self, method: str, payload: object, timeout: float = 5) -> None:
+    def run_grid_method(self, method: str, *args: object, timeout: float = 5) -> None:
         """Mock run_grid_method - sync to capture fire-and-forget calls."""
+        payload: object = args[0] if len(args) == 1 else args
         self.calls.append((method, payload))
 
 
@@ -109,7 +110,8 @@ async def test_update_positions_grid_add_update_remove(dummy_ui: None) -> None:
 
     symbols = await grid_module.update_positions_grid(grid, first_positions)
     assert symbols == {"AAPL", "MSFT"}
-    assert grid.calls[-1][0] == "setRowData"
+    assert grid.calls[-1][0] == "setGridOption"
+    assert grid.calls[-1][1][0] == "rowData"
 
     next_positions = [
         {"symbol": "AAPL", "qty": 12},
@@ -143,8 +145,9 @@ async def test_update_positions_grid_filters_malformed_entries(
     symbols = await grid_module.update_positions_grid(grid, positions)
     assert symbols == {"AAPL"}
 
-    assert grid.calls[-1][0] == "setRowData"
-    assert grid.calls[-1][1] == [{"symbol": "AAPL", "qty": 10}]
+    assert grid.calls[-1][0] == "setGridOption"
+    assert grid.calls[-1][1][0] == "rowData"
+    assert grid.calls[-1][1][1] == [{"symbol": "AAPL", "qty": 10}]
 
     # Verify warning was logged
     assert any(
@@ -525,8 +528,8 @@ async def test_update_positions_grid_before_ready(monkeypatch: pytest.MonkeyPatc
     # Should update via options, not run_grid_method
     assert symbols == {"AAPL"}
     assert grid.options["rowData"] == positions
-    # No run_grid_method calls for setRowData
-    assert not any(call[0] == "setRowData" for call in grid.calls)
+    # No run_grid_method calls for setGridOption
+    assert not any(call[0] == "setGridOption" for call in grid.calls)
 
 
 @pytest.mark.asyncio()
@@ -551,9 +554,10 @@ async def test_update_positions_grid_calculates_unrealized_plpc(dummy_ui) -> Non
     # Verify the calculation: unrealized_pl / (avg_entry * abs(qty))
     # 50.0 / (100.0 * 10) = 0.05 (5%)
     method, payload = grid.calls[-1]
-    assert method == "setRowData"
-    assert len(payload) == 1
-    assert payload[0]["unrealized_plpc"] == pytest.approx(0.05)
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
+    assert len(payload[1]) == 1
+    assert payload[1][0]["unrealized_plpc"] == pytest.approx(0.05)
 
 
 @pytest.mark.asyncio()
@@ -576,10 +580,11 @@ async def test_update_positions_grid_preserves_existing_unrealized_plpc(dummy_ui
     assert symbols == {"AAPL"}
 
     method, payload = grid.calls[-1]
-    assert method == "setRowData"
-    assert len(payload) == 1
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
+    assert len(payload[1]) == 1
     # Should preserve the original value, not recalculate (would be 0.05 if recalculated)
-    assert payload[0]["unrealized_plpc"] == 0.10
+    assert payload[1][0]["unrealized_plpc"] == 0.10
 
 
 @pytest.mark.asyncio()
@@ -606,10 +611,11 @@ async def test_update_positions_grid_skips_calculation_with_zero_values(dummy_ui
     assert symbols == {"AAPL", "MSFT"}
 
     method, payload = grid.calls[-1]
-    assert method == "setRowData"
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
     # unrealized_plpc should not be added (no calculation happened)
-    assert "unrealized_plpc" not in payload[0]
-    assert "unrealized_plpc" not in payload[1]
+    assert "unrealized_plpc" not in payload[1][0]
+    assert "unrealized_plpc" not in payload[1][1]
 
 
 @pytest.mark.asyncio()
@@ -636,10 +642,11 @@ async def test_update_positions_grid_skips_calculation_with_invalid_values(dummy
     assert symbols == {"AAPL", "MSFT"}
 
     method, payload = grid.calls[-1]
-    assert method == "setRowData"
+    assert method == "setGridOption"
+    assert payload[0] == "rowData"
     # unrealized_plpc should not be added (calculation skipped due to errors)
-    assert "unrealized_plpc" not in payload[0]
-    assert "unrealized_plpc" not in payload[1]
+    assert "unrealized_plpc" not in payload[1][0]
+    assert "unrealized_plpc" not in payload[1][1]
 
 
 @pytest.mark.asyncio()

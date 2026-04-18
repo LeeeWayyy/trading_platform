@@ -22,22 +22,34 @@ Usage:
     await stream.start()
 """
 
-from libs.data.market_data.alpaca_stream import AlpacaMarketDataStream
+try:
+    from libs.data.market_data.alpaca_stream import AlpacaMarketDataStream
+except ImportError:
+    AlpacaMarketDataStream = None  # type: ignore[assignment,misc]
+
 from libs.data.market_data.exceptions import (
     ConnectionError,
     MarketDataError,
     SubscriptionError,
 )
 from libs.data.market_data.provider import MarketDataProvider
-from libs.data.market_data.types import ADVData, PriceData, QuoteData
+from libs.data.market_data.types import (
+    ADVData,
+    ParsedPrice,
+    PriceData,
+    QuoteData,
+    parse_redis_price_json,
+)
 
 __all__ = [
     "AlpacaMarketDataStream",
     "MarketDataProvider",
     "ADVData",
+    "ParsedPrice",
     "PriceData",
     "QuoteData",
     "MarketDataError",
     "ConnectionError",
     "SubscriptionError",
+    "parse_redis_price_json",
 ]

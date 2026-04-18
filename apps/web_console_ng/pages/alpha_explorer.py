@@ -19,7 +19,6 @@ MODEL_REGISTRY_DIR configuration.
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,7 +30,11 @@ from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.correlation_matrix import render_correlation_matrix
 from apps.web_console_ng.components.decay_curve import render_decay_curve
 from apps.web_console_ng.components.ic_chart import render_ic_chart
-from apps.web_console_ng.config import FEATURE_ALPHA_EXPLORER
+from apps.web_console_ng.config import (
+    FEATURE_ALPHA_EXPLORER,
+    FEATURE_RESEARCH_WORKSPACE,
+    MODEL_REGISTRY_DIR,
+)
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
@@ -59,7 +62,7 @@ def _get_alpha_service() -> AlphaExplorerService | None:
         from libs.trading.alpha.metrics import AlphaMetricsAdapter
         from libs.web_console_services.alpha_explorer_service import AlphaExplorerService
 
-        registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
+        registry_dir = Path(MODEL_REGISTRY_DIR)
         registry = ModelRegistry(registry_dir=registry_dir)
         metrics_adapter = AlphaMetricsAdapter()
         return AlphaExplorerService(registry, metrics_adapter)
@@ -86,15 +89,21 @@ def _get_alpha_service() -> AlphaExplorerService | None:
         return None
 
 
+def get_alpha_service() -> AlphaExplorerService | None:
+    """Public wrapper for reusable alpha-service resolution."""
+    return _get_alpha_service()
+
+
 @ui.page("/alpha-explorer")
 @requires_auth
 @main_layout
 async def alpha_explorer_page() -> None:
-    """Alpha Signal Explorer page."""
-    user = get_current_user()
+    """Legacy route alias for Discover tab in consolidated Research Workspace."""
+    if FEATURE_RESEARCH_WORKSPACE:
+        ui.navigate.to("/research?tab=discover")
+        return
 
-    # Page title
-    ui.label("Alpha Signal Explorer").classes("text-2xl font-bold mb-4")
+    user = get_current_user()
 
     # Feature flag check
     if not FEATURE_ALPHA_EXPLORER:
@@ -357,7 +366,9 @@ async def _render_signal_details(
 
             # Launch backtest button
             def launch_backtest() -> None:
-                ui.navigate.to(f"/backtest?signal={selected.signal_id}")
+                ui.navigate.to(
+                    f"/backtest?signal_id={selected.signal_id}&source=alpha_explorer"
+                )
 
             ui.button("Launch Backtest", icon="play_arrow", on_click=launch_backtest).classes(
                 "w-full mb-2"

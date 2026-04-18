@@ -13,6 +13,7 @@ from apps.web_console_ng.api import workspace as workspace_api
 from apps.web_console_ng.core.workspace_persistence import (
     MAX_STATE_SIZE,
     DatabaseUnavailableError,
+    WorkspaceSchemaUnavailableError,
 )
 
 
@@ -259,6 +260,32 @@ async def test_save_grid_state_db_unavailable(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio()
+async def test_save_grid_state_schema_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _StubWorkspaceService(
+        save_exc=WorkspaceSchemaUnavailableError(
+            "save_grid_state",
+            "grid.positions_grid",
+        )
+    )
+    app = _build_app(monkeypatch, service)
+
+    async def _noop_csrf(_request: Request) -> None:
+        return None
+
+    monkeypatch.setattr(workspace_api, "verify_csrf_token", _noop_csrf)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/workspace/grid/positions_grid",
+            json={"columns": []},
+            headers={"X-CSRF-Token": "token"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Workspace schema unavailable"
+
+
+@pytest.mark.asyncio()
 async def test_load_grid_state_success(monkeypatch: pytest.MonkeyPatch) -> None:
     service = _StubWorkspaceService(load_result={"columns": [{"id": "col"}]})
     app = _build_app(monkeypatch, service)
@@ -269,6 +296,23 @@ async def test_load_grid_state_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.status_code == 200
     assert response.json() == {"columns": [{"id": "col"}]}
     assert service.load_calls == [("user-1", "positions_grid")]
+
+
+@pytest.mark.asyncio()
+async def test_load_grid_state_schema_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _StubWorkspaceService(
+        load_exc=WorkspaceSchemaUnavailableError(
+            "load_grid_state",
+            "grid.positions_grid",
+        )
+    )
+    app = _build_app(monkeypatch, service)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/workspace/grid/positions_grid")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Workspace schema unavailable"
 
 
 @pytest.mark.asyncio()
@@ -290,3 +334,28 @@ async def test_reset_grid_state_success(monkeypatch: pytest.MonkeyPatch) -> None
     assert response.status_code == 200
     assert response.json() == {"success": True}
     assert service.reset_calls == [("user-1", "grid.positions_grid")]
+
+
+@pytest.mark.asyncio()
+async def test_reset_grid_state_schema_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _StubWorkspaceService(
+        reset_exc=WorkspaceSchemaUnavailableError(
+            "reset_workspace",
+            "grid.positions_grid",
+        )
+    )
+    app = _build_app(monkeypatch, service)
+
+    async def _noop_csrf(_request: Request) -> None:
+        return None
+
+    monkeypatch.setattr(workspace_api, "verify_csrf_token", _noop_csrf)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete(
+            "/api/workspace/grid/positions_grid",
+            headers={"X-CSRF-Token": "token"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Workspace schema unavailable"

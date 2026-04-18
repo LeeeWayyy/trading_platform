@@ -31,16 +31,16 @@ See REFACTOR_EXECUTION_GATEWAY_TASK.md Phase 1 for design decisions.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException, status
 from redis.exceptions import RedisError
 
 from libs.core.redis_client import RedisKeys
+from libs.data.market_data.types import parse_redis_price_json
 
 if TYPE_CHECKING:
     from apps.execution_gateway.app_context import RedisClientProtocol
@@ -207,7 +207,12 @@ async def resolve_fat_finger_context(
         elif order.stop_price is not None:
             price = order.stop_price
         else:
-            realtime_prices = batch_fetch_realtime_prices_from_redis([order.symbol], redis_client)
+            realtime_prices = await asyncio.to_thread(
+                batch_fetch_realtime_prices_from_redis,
+                [order.symbol],
+                redis_client,
+                {"symbol": order.symbol},
+            )
             price, price_timestamp = realtime_prices.get(order.symbol, (None, None))
             if price is not None:
                 if price_timestamp is None:
@@ -274,7 +279,9 @@ def create_fat_finger_thresholds_snapshot(
 
 
 def batch_fetch_realtime_prices_from_redis(
-    symbols: list[str], redis_client: RedisClientProtocol | None
+    symbols: list[str],
+    redis_client: RedisClientProtocol | None,
+    log_extra: dict[str, Any] | None = None,
 ) -> dict[str, tuple[Decimal | None, datetime | None]]:
     """Batch fetch real-time prices from Redis for multiple symbols.
 
@@ -284,6 +291,8 @@ def batch_fetch_realtime_prices_from_redis(
     Args:
         symbols: List of stock symbols to fetch
         redis_client: Redis client instance
+        log_extra: Optional structured logging context (e.g. strategy_id)
+            forwarded to ``parse_redis_price_json`` for traceability
 
     Returns:
         Dictionary mapping symbol to (price, timestamp) tuple.
@@ -312,6 +321,8 @@ def batch_fetch_realtime_prices_from_redis(
     if not redis_client or not symbols:
         return dict.fromkeys(symbols, (None, None))
 
+    _extra = log_extra or {}
+
     try:
         # Build Redis keys for batch fetch
         price_keys = [RedisKeys.price(symbol) for symbol in symbols]
@@ -324,24 +335,31 @@ def batch_fetch_realtime_prices_from_redis(
             symbols, (None, None)
         )
 
-        # Parse results and update dictionary for symbols with valid data
+        # Parse results using shared parser for consistent validation
         for symbol, price_json in zip(symbols, price_values, strict=False):
             if not price_json:
                 continue  # Skip symbols not found in cache (already (None, None))
 
-            try:
-                price_data = json.loads(price_json)
-                price = Decimal(str(price_data["mid"]))
-                timestamp = datetime.fromisoformat(price_data["timestamp"])
-                result[symbol] = (price, timestamp)
-                logger.debug(f"Batch fetched price for {symbol}: ${price}")
-            except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
-                # Log error but no need to set result[symbol] - already (None, None)
-                logger.warning(f"Failed to parse price for {symbol} from batch fetch: {e}")
+            # No staleness check here — caller handles that via max_price_age_seconds
+            parsed = parse_redis_price_json(
+                price_json,
+                expected_symbol=symbol,
+                max_price_age_seconds=None,
+                log_extra={**_extra, "symbol": symbol},
+            )
+            if parsed is not None:
+                result[symbol] = (parsed.mid, parsed.timestamp)
+                logger.debug(
+                    "Batch fetched price for symbol",
+                    extra={**_extra, "symbol": symbol, "mid_price": str(parsed.mid)},
+                )
 
         return result
 
     except RedisError as e:
         # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
-        logger.warning(f"Failed to batch fetch prices for {len(symbols)} symbols: {e}")
+        logger.warning(
+            "Failed to batch fetch prices from Redis",
+            extra={**_extra, "symbol_count": len(symbols), "error": str(e)},
+        )
         return dict.fromkeys(symbols, (None, None))

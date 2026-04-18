@@ -216,7 +216,7 @@ async def update_positions_grid(
 
     if previous_symbols is None:
         # Fire-and-forget to avoid UI timeouts when the browser is busy.
-        grid.run_grid_method("setRowData", valid_positions, timeout=5)
+        grid.run_grid_method("setGridOption", "rowData", valid_positions, timeout=5)
         return current_symbols
 
     added_positions = [p for p in valid_positions if p["symbol"] not in previous_symbols]

@@ -23,7 +23,19 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nicegui import ui
 
+from apps.web_console_ng import config
 from apps.web_console_ng.components.action_button import ActionButton
+from apps.web_console_ng.components.execution_context import (
+    EXECUTION_CONTEXT_READY,
+    EXECUTION_CONTEXT_STALE,
+    ExecutionContextSnapshot,
+    format_execution_context_ribbon,
+)
+from apps.web_console_ng.components.execution_gate import (
+    is_model_execution_safe,
+    is_strategy_execution_safe,
+    normalize_execution_status,
+)
 from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
 from apps.web_console_ng.utils.time import parse_iso_timestamp, validate_and_normalize_symbol
 
@@ -67,6 +79,18 @@ class OrderTicketComponent:
 
     # Configuration
     QUANTITY_PRESETS = [100, 500, 1000]
+    UNIT_PRESET_PROFILES: dict[str, list[int]] = {
+        "shares": [100, 500, 1000],
+        "lots": [1, 5, 10],
+        "contracts": [1, 5, 10],
+    }
+    DEFAULT_QTY_STEP = 1
+    DEFAULT_MIN_QTY = 1
+    DEFAULT_QTY_UNIT = "shares"
+    DEFAULT_LOT_SIZE = 100
+    POSITION_DISPLAY_UNIT = "shares"
+    IMPACT_WARNING_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_WARNING_RATIO))
+    IMPACT_DANGER_RATIO = Decimal(str(config.WORKSPACE_BP_IMPACT_DANGER_RATIO))
 
     def __init__(
         self,
@@ -106,7 +130,10 @@ class OrderTicketComponent:
         # UI elements (bound after create())
         self._symbol_input: ui.input | None = None
         self._side_toggle: ui.toggle | None = None
+        self._buy_action_button: ui.button | None = None
+        self._sell_action_button: ui.button | None = None
         self._quantity_input: ui.number | None = None
+        self._quantity_label: ui.label | None = None
         self._order_type_select: ui.select | None = None
         self._limit_price_input: ui.number | None = None
         self._stop_price_input: ui.number | None = None
@@ -117,6 +144,10 @@ class OrderTicketComponent:
         self._position_label: ui.label | None = None
         self._buying_power_label: ui.label | None = None
         self._impact_label: ui.label | None = None
+        self._impact_status_label: ui.label | None = None
+        self._impact_bar_fill: ui.element | None = None
+        self._execution_context_label: ui.label | None = None
+        self._execution_context_state_label: ui.label | None = None
         self._quantity_presets: QuantityPresetsComponent | None = None
 
         # State
@@ -125,6 +156,11 @@ class OrderTicketComponent:
         self._buying_power: Decimal | None = None
         self._last_price: Decimal | None = None
         self._pending_client_order_id: str | None = None
+        self._qty_step: int = self.DEFAULT_QTY_STEP
+        self._min_qty: int = self.DEFAULT_MIN_QTY
+        self._qty_unit: str = self.DEFAULT_QTY_UNIT
+        self._qty_unit_size: int = 1
+        self._state_quantity_canonical_override: int | None = None
 
         # Safety state (FAIL-CLOSED defaults)
         self._kill_switch_engaged: bool = True  # Default: engaged (unsafe)
@@ -153,6 +189,8 @@ class OrderTicketComponent:
         # Task tracking for periodic refresh
         self._position_refresh_task: asyncio.Task[None] | None = None
         self._buying_power_refresh_task: asyncio.Task[None] | None = None
+        self._price_pulse_timer: ui.timer | None = None
+        self._dom_settle_timer: ui.timer | None = None
         self._disposed: bool = False
 
         # Tab session ID for cross-tab isolation
@@ -160,6 +198,13 @@ class OrderTicketComponent:
 
         # Order snapshot for idempotency validation (set at preview time)
         self._preview_snapshot: dict[str, Any] | None = None
+
+        # Strategy/model execution context (default monitor-only)
+        self._execution_gate_enabled: bool = False
+        self._strategy_status: str = "unknown"
+        self._model_status: str = "unknown"
+        self._execution_gate_reason: str | None = None
+        self._execution_context_snapshot: ExecutionContextSnapshot | None = None
 
     async def initialize(self, timer_tracker: Callable[[ui.timer], None]) -> None:
         """Initialize with timer tracking.
@@ -177,76 +222,83 @@ class OrderTicketComponent:
 
     def create(self) -> ui.card:
         """Create and return the order ticket UI."""
-        with ui.card().classes("p-4 w-full") as card:
-            # Disabled banner (hidden by default)
+        with ui.card().classes("workspace-v2-panel workspace-v2-ticket") as card:
             self._disabled_banner = ui.label("").classes(
-                "hidden bg-red-900 text-white p-2 rounded text-center font-bold w-full mb-2"
+                "hidden workspace-v2-banner workspace-v2-banner-negative"
             )
 
-            ui.label("Order Ticket").classes("text-lg font-bold mb-2")
+            with ui.row().classes("w-full items-center justify-between gap-2"):
+                ui.label("Order Ticket").classes("workspace-v2-panel-title")
+                ui.label("EXECUTION").classes("workspace-v2-kv workspace-v2-data-mono")
 
-            # Symbol input
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Symbol:").classes("w-16")
-                self._symbol_input = ui.input(
-                    placeholder="e.g., AAPL",
-                    on_change=self._on_symbol_input_changed,
-                ).classes("flex-1")
+            with ui.row().classes("w-full gap-2 items-end"):
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("SYMBOL").classes("workspace-v2-field-label")
+                    self._symbol_input = ui.input(
+                        placeholder="e.g., AAPL",
+                        on_change=self._on_symbol_input_changed,
+                    ).classes("workspace-v2-input")
 
-            # Position display
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Position:").classes("w-16")
-                self._position_label = ui.label("--").classes("flex-1")
-
-            # Buying power display
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Buying Power:").classes("w-16")
-                self._buying_power_label = ui.label("--").classes("flex-1")
-
-            # Side toggle
-            with ui.row().classes("w-full gap-2 items-center mt-2"):
-                ui.label("Side:").classes("w-16")
+                # Keep hidden toggle for compatibility with existing state sync/tests.
                 self._side_toggle = ui.toggle(
                     ["buy", "sell"],
                     value="buy",
                     on_change=lambda e: self._on_side_changed(e.value),
-                ).classes("flex-1")
+                ).classes("hidden")
 
-            # Quantity input with presets
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Qty:").classes("w-16")
-                self._quantity_input = ui.number(
-                    value=None,
-                    min=1,
-                    step=1,
-                    on_change=lambda e: self._on_quantity_changed(e.value),
-                ).classes("w-24")
+            with ui.row().classes("w-full gap-2 mt-2 items-center"):
+                with ui.column().classes("flex-1 gap-0"):
+                    ui.label("POSITION").classes("workspace-v2-field-label")
+                    self._position_label = ui.label("--").classes("workspace-v2-data-mono text-sm")
+                with ui.column().classes("flex-1 gap-0"):
+                    ui.label("BUYING POWER").classes("workspace-v2-field-label")
+                    self._buying_power_label = ui.label("--").classes("workspace-v2-data-mono text-sm")
 
-                # Quantity presets
-                self._quantity_presets = QuantityPresetsComponent(
-                    on_preset_selected=self._on_preset_selected,
-                    presets=self.QUANTITY_PRESETS,
-                )
-                self._quantity_presets.create()
+            with ui.row().classes("w-full gap-2 mt-2 items-end"):
+                with ui.column().classes("w-[132px] gap-1"):
+                    self._quantity_label = ui.label(self._format_quantity_label()).classes(
+                        "workspace-v2-field-label"
+                    )
+                    self._quantity_input = ui.number(
+                        value=None,
+                        min=self._min_qty,
+                        step=self._qty_step,
+                        on_change=lambda e: self._on_quantity_changed(e.value),
+                    ).classes("workspace-v2-input workspace-v2-input-qty")
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("QUICK SIZE").classes("workspace-v2-field-label")
+                    self._quantity_presets = QuantityPresetsComponent(
+                        on_preset_selected=self._on_preset_selected,
+                        presets=self._resolve_quantity_presets(),
+                        on_close_selected=self._on_close_preset_selected,
+                        show_close=True,
+                    )
+                    self._quantity_presets.create()
 
-            # Order type
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("Type:").classes("w-16")
-                self._order_type_select = ui.select(
-                    ["market", "limit", "stop", "stop_limit"],
-                    value="market",
-                    on_change=lambda e: self._on_order_type_changed(e.value),
-                ).classes("w-32")
+            with ui.row().classes("w-full gap-2 mt-2 items-end"):
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label("ORDER TYPE").classes("workspace-v2-field-label")
+                    self._order_type_select = ui.select(
+                        ["market", "limit", "stop", "stop_limit"],
+                        value="market",
+                        on_change=lambda e: self._on_order_type_changed(e.value),
+                    ).classes("workspace-v2-input")
+                with ui.column().classes("w-[120px] gap-1"):
+                    ui.label("TIF").classes("workspace-v2-field-label")
+                    self._time_in_force_select = ui.select(
+                        ["day", "gtc", "ioc", "fok"],
+                        value="day",
+                        on_change=lambda e: setattr(self._state, "time_in_force", e.value),
+                    ).classes("workspace-v2-input")
 
-            # Price inputs (hidden by default for market orders)
-            with ui.row().classes("w-full gap-2 items-center"):
+            with ui.row().classes("w-full gap-2 mt-2 items-end"):
                 self._limit_price_input = ui.number(
                     label="Limit Price",
                     format="%.2f",
                     min=0.01,
                     step=0.01,
                     on_change=lambda e: self._on_limit_price_changed(e.value),
-                ).classes("w-32 hidden")
+                ).classes("workspace-v2-input workspace-v2-price-input hidden")
 
                 self._stop_price_input = ui.number(
                     label="Stop Price",
@@ -254,36 +306,55 @@ class OrderTicketComponent:
                     min=0.01,
                     step=0.01,
                     on_change=lambda e: self._on_stop_price_changed(e.value),
-                ).classes("w-32 hidden")
+                ).classes("workspace-v2-input hidden")
 
-            # Time in force
-            with ui.row().classes("w-full gap-2 items-center"):
-                ui.label("TIF:").classes("w-16")
-                self._time_in_force_select = ui.select(
-                    ["day", "gtc", "ioc", "fok"],
-                    value="day",
-                    on_change=lambda e: setattr(self._state, "time_in_force", e.value),
-                ).classes("w-24")
-
-            # Impact display
-            with ui.row().classes("w-full gap-2 items-center mt-2"):
-                ui.label("Impact:").classes("w-16")
-                self._impact_label = ui.label("--").classes("flex-1")
-
-            # Submit button
-            with ui.row().classes("w-full gap-2 mt-4"):
-                self._submit_button = ActionButton(
-                    label="Preview Order",
-                    on_click=self._handle_submit,
-                    icon="send",
-                    color="primary",
-                    manual_lifecycle=True,
+            with ui.row().classes("w-full items-center justify-between mt-2"):
+                self._impact_label = ui.label("--").classes("workspace-v2-kv workspace-v2-data-mono")
+                self._impact_status_label = ui.label("UNAVAILABLE").classes(
+                    "workspace-v2-pill workspace-v2-pill-warning"
                 )
-                self._submit_button.create()
 
+            with ui.row().classes("w-full items-center justify-between mt-1"):
+                self._execution_context_label = ui.label("Context: --").classes(
+                    "workspace-v2-kv workspace-v2-data-mono"
+                )
+                self._execution_context_state_label = ui.label("BLOCKED").classes(
+                    "workspace-v2-pill workspace-v2-pill-warning"
+                )
+
+            with ui.element("div").classes("workspace-v2-impact-track"):
+                self._impact_bar_fill = ui.element("div").classes(
+                    "workspace-v2-impact-fill workspace-v2-impact-fill-unavailable"
+                )
+
+            with ui.row().classes("w-full gap-2 mt-3"):
+                async def _preview_buy() -> None:
+                    await self._handle_side_preview("buy")
+
+                async def _preview_sell() -> None:
+                    await self._handle_side_preview("sell")
+
+                self._buy_action_button = ui.button(
+                    "BUY",
+                    on_click=_preview_buy,
+                ).classes("workspace-v2-action-btn workspace-v2-action-buy")
+                self._sell_action_button = ui.button(
+                    "SELL",
+                    on_click=_preview_sell,
+                ).classes("workspace-v2-action-btn workspace-v2-action-sell")
                 self._clear_button = ui.button("Clear", on_click=self._clear_form).classes(
-                    "bg-gray-600"
+                    "workspace-v2-clear-btn"
                 )
+
+            # Keep ActionButton object for backward compatibility with tests/mocks.
+            self._submit_button = ActionButton(
+                label="Preview Order",
+                on_click=self._handle_submit,
+                icon="send",
+                color="primary",
+                manual_lifecycle=True,
+            )
+            self._update_side_action_styles()
 
         return card
 
@@ -347,6 +418,8 @@ class OrderTicketComponent:
         if self._limit_price_input is not None:
             self._limit_price_input.set_value(float(price_value))
         self._on_limit_price_changed(float(price_value))
+        self._run_dom_price_pulse(side)
+        self._start_dom_settle_window()
 
     async def _on_symbol_input_changed(self, e: Any) -> None:
         """Handle symbol input change."""
@@ -374,12 +447,15 @@ class OrderTicketComponent:
         """Handle side toggle change."""
         if side in ("buy", "sell"):
             self._state.side = side  # type: ignore[assignment]
+            self._update_side_action_styles()
             self._update_buying_power_impact()
             self._update_quantity_presets_context()
 
     def _on_quantity_changed(self, value: float | None) -> None:
         """Handle quantity input change."""
+        self._state_quantity_canonical_override = None
         if value is not None and value > 0:
+            # Keep raw typed value during editing; enforce rule compatibility on submit.
             self._state.quantity = int(value)
         else:
             self._state.quantity = None
@@ -387,10 +463,152 @@ class OrderTicketComponent:
 
     def _on_preset_selected(self, preset: int) -> None:
         """Handle quantity preset selection."""
-        self._state.quantity = preset
+        self._state_quantity_canonical_override = None
+        normalized_qty = self._normalize_quantity(preset)
+        self._state.quantity = normalized_qty
         if self._quantity_input:
-            self._quantity_input.set_value(preset)
+            self._quantity_input.set_value(normalized_qty)
         self._update_buying_power_impact()
+
+    def set_quantity_rules(
+        self,
+        *,
+        qty_step: int | None,
+        min_qty: int | None,
+        qty_unit: str | None,
+        qty_unit_size: int | None = None,
+    ) -> None:
+        """Update quantity stepping/minimum rules for selected symbol."""
+        next_qty_step = max(1, int(qty_step)) if qty_step is not None else self.DEFAULT_QTY_STEP
+        raw_min = max(1, int(min_qty)) if min_qty is not None else self.DEFAULT_MIN_QTY
+        next_min_qty = self._align_min_qty_to_step(raw_min, next_qty_step)
+        next_qty_unit = self._normalize_qty_unit(qty_unit)
+        next_qty_unit_size = self._resolve_qty_unit_size(
+            qty_unit=next_qty_unit,
+            qty_step=next_qty_step,
+            min_qty=next_min_qty,
+            qty_unit_size=qty_unit_size,
+        )
+
+        if (
+            next_qty_step == self._qty_step
+            and next_min_qty == self._min_qty
+            and next_qty_unit == self._qty_unit
+            and next_qty_unit_size == self._qty_unit_size
+        ):
+            return
+
+        self._qty_step = next_qty_step
+        self._min_qty = next_min_qty
+        self._qty_unit = next_qty_unit
+        self._qty_unit_size = next_qty_unit_size
+        self._state_quantity_canonical_override = None
+        self._apply_quantity_rules_to_ui()
+        self._refresh_quantity_preset_profile()
+
+        if self._state.quantity is not None:
+            normalized_qty = self._normalize_quantity(self._state.quantity)
+            self._state.quantity = normalized_qty
+            if self._quantity_input:
+                self._quantity_input.set_value(normalized_qty)
+
+        self._update_buying_power_impact()
+        self._update_quantity_presets_context()
+
+    def reset_quantity_rules(self) -> None:
+        """Reset quantity rules to safe defaults."""
+        self.set_quantity_rules(qty_step=None, min_qty=None, qty_unit=None, qty_unit_size=None)
+
+    def _on_close_preset_selected(self) -> None:
+        """Prefill quantity/side to close open position (never auto-submit)."""
+        if self._is_position_data_stale():
+            ui.notify("Cannot prefill CLOSE: position data stale", type="warning")
+            return
+
+        try:
+            current_position = int(self._current_position)
+        except (TypeError, ValueError):
+            current_position = 0
+
+        if current_position == 0:
+            ui.notify("No open position to close", type="warning")
+            return
+
+        close_side = "sell" if current_position > 0 else "buy"
+        raw_close_qty = abs(current_position)
+        qty_unit_size = max(1, self._qty_unit_size)
+        qty_step = max(1, self._qty_step)
+        min_qty = max(qty_step, self._min_qty)
+        close_qty = raw_close_qty
+        unit_label = self._qty_unit
+        self._state_quantity_canonical_override = None
+        if qty_unit_size > 1:
+            if raw_close_qty % qty_unit_size == 0:
+                close_qty = raw_close_qty // qty_unit_size
+            else:
+                # Preserve full flatten behavior for odd-lot residuals by using
+                # an explicit canonical-quantity override for this prefill state.
+                close_qty = raw_close_qty
+                unit_label = self.POSITION_DISPLAY_UNIT
+                self._state_quantity_canonical_override = raw_close_qty
+
+        if close_qty <= 0:
+            return
+
+        rule_notes: list[str] = []
+        if close_qty < min_qty:
+            rule_notes.append(f"below symbol minimum {min_qty} {unit_label}")
+        if close_qty % qty_step != 0:
+            rule_notes.append(f"off-step for {qty_step} {unit_label} increments")
+        if self._state_quantity_canonical_override is not None:
+            rule_notes.append("using share precision to flatten odd-lot residual")
+
+        if rule_notes:
+            ui.notify(
+                (
+                    f"CLOSE prefill uses exact {close_qty} {unit_label} "
+                    f"({'; '.join(rule_notes)})"
+                ),
+                type="warning",
+            )
+
+        self._state.quantity = close_qty
+        self._state.side = close_side  # type: ignore[assignment]
+
+        if self._quantity_input:
+            self._quantity_input.set_value(close_qty)
+        if self._side_toggle:
+            self._side_toggle.set_value(close_side)
+
+        self._update_side_action_styles()
+        self._update_buying_power_impact()
+        self._update_quantity_presets_context()
+        ui.notify(
+            f"CLOSE prefill ready: {close_side.upper()} {close_qty} {unit_label} (preview required)",
+            type="info",
+        )
+
+    async def _handle_side_preview(self, side: str) -> None:
+        """Set side from action button and open preview flow."""
+        if side not in {"buy", "sell"}:
+            return
+        if self._side_toggle:
+            self._side_toggle.set_value(side)
+        self._on_side_changed(side)
+        await self._handle_submit()
+
+    def _update_side_action_styles(self) -> None:
+        """Reflect selected side in action button emphasis."""
+        if self._buy_action_button is not None:
+            if self._state.side == "buy":
+                self._buy_action_button.classes(add="workspace-v2-action-active")
+            else:
+                self._buy_action_button.classes(remove="workspace-v2-action-active")
+        if self._sell_action_button is not None:
+            if self._state.side == "sell":
+                self._sell_action_button.classes(add="workspace-v2-action-active")
+            else:
+                self._sell_action_button.classes(remove="workspace-v2-action-active")
 
     def _on_order_type_changed(self, order_type: str) -> None:
         """Handle order type selection change."""
@@ -449,6 +667,55 @@ class OrderTicketComponent:
         else:
             self._state.stop_price = None
         self._update_buying_power_impact()
+
+    def _run_dom_price_pulse(self, side: str) -> None:
+        """Apply short pulse animation on limit price input after DOM click."""
+        if self._limit_price_input is None:
+            return
+        pulse_class = (
+            "workspace-v2-price-pulse-buy" if side == "buy" else "workspace-v2-price-pulse-sell"
+        )
+        self._limit_price_input.classes(
+            add=f"workspace-v2-price-input {pulse_class}",
+            remove="workspace-v2-price-pulse-buy workspace-v2-price-pulse-sell",
+        )
+
+        if self._price_pulse_timer is not None:
+            self._price_pulse_timer.cancel()
+        self._price_pulse_timer = ui.timer(
+            0.4,
+            lambda: self._limit_price_input
+            and self._limit_price_input.classes(
+                remove="workspace-v2-price-pulse-buy workspace-v2-price-pulse-sell"
+            ),
+            once=True,
+        )
+        if self._timer_tracker and self._price_pulse_timer is not None:
+            self._timer_tracker(self._price_pulse_timer)
+
+    def _start_dom_settle_window(self) -> None:
+        """Temporarily disable trade action buttons after rapid DOM click updates."""
+        for button in (self._buy_action_button, self._sell_action_button):
+            if button is not None:
+                button.set_enabled(False)
+
+        if self._dom_settle_timer is not None:
+            self._dom_settle_timer.cancel()
+        self._dom_settle_timer = ui.timer(0.15, self._finish_dom_settle, once=True)
+        if self._timer_tracker and self._dom_settle_timer is not None:
+            self._timer_tracker(self._dom_settle_timer)
+
+    def _finish_dom_settle(self) -> None:
+        """Re-evaluate action button availability after DOM settle debounce."""
+        disabled, _reason = self._should_disable_submission()
+        enabled = not disabled
+        for button in (self._buy_action_button, self._sell_action_button):
+            if button is not None:
+                button.set_enabled(enabled)
+
+    def _is_trade_action_locked(self) -> bool:
+        """Return whether action buttons must stay disabled due global safety state."""
+        return self._connection_read_only or self._kill_switch_engaged or self._circuit_breaker_tripped
 
     # ================= Safety State Callbacks =================
 
@@ -544,9 +811,38 @@ class OrderTicketComponent:
         """
         self._current_total_exposure = current_total_exposure
 
+    def set_strategy_model_context(
+        self,
+        *,
+        strategy_status: str | None,
+        model_status: str | None,
+        gate_enabled: bool,
+        gate_reason: str | None = None,
+    ) -> None:
+        """Update strategy/model execution context used by submit safety gate.
+
+        Args:
+            strategy_status: Strategy runtime status (active/idle/ready/inactive/unknown).
+            model_status: Model runtime status (active/testing/ready/failed/inactive/unknown).
+            gate_enabled: Whether strategy/model gating should be enforced.
+            gate_reason: Optional reason produced by upstream context resolver.
+        """
+        self._strategy_status = normalize_execution_status(strategy_status)
+        self._model_status = normalize_execution_status(model_status)
+        self._execution_gate_enabled = bool(gate_enabled)
+        self._execution_gate_reason = str(gate_reason) if gate_reason else None
+        self._update_execution_context_ribbon()
+
+    def set_execution_context_snapshot(self, snapshot: ExecutionContextSnapshot | None) -> None:
+        """Set latest execution-context snapshot shown in ribbon and gate checks."""
+        self._execution_context_snapshot = snapshot
+        self._update_execution_context_ribbon()
+
     async def on_symbol_changed(self, symbol: str | None) -> None:
         """Called by OrderEntryContext when selected symbol changes externally."""
         self._state.symbol = symbol
+        self._state_quantity_canonical_override = None
+        self.reset_quantity_rules()
 
         # Reset symbol-scoped state only - NOT risk limits
         # Risk limits are global (not per-symbol), so keep them intact
@@ -554,6 +850,37 @@ class OrderTicketComponent:
         self._price_last_updated = None
         self._current_position = 0
         self._position_last_updated = None
+        # Fail-closed symbol handoff: clear prior strategy/model state so
+        # submissions cannot inherit authorization from the previous symbol.
+        should_fail_closed_gate = (
+            self._execution_gate_enabled
+            or self._strategy_status != "unknown"
+            or self._model_status != "unknown"
+        )
+        self._execution_gate_enabled = should_fail_closed_gate
+        self._strategy_status = "unknown"
+        self._model_status = "unknown"
+        self._execution_gate_reason = (
+            "Refreshing strategy/model execution context for selected symbol"
+            if should_fail_closed_gate
+            else None
+        )
+        self._execution_context_snapshot = (
+            ExecutionContextSnapshot(
+                symbol=symbol.strip().upper() if symbol else None,
+                strategy_id=None,
+                strategy_status=self._strategy_status,
+                model_status=self._model_status,
+                model_version=None,
+                signal_id=None,
+                data_freshness_s=None,
+                risk_gate_state=EXECUTION_CONTEXT_STALE,
+                updated_at=datetime.now(UTC),
+                gate_reason=self._execution_gate_reason,
+            )
+            if should_fail_closed_gate
+            else None
+        )
         # DO NOT reset _limits_loaded/_limits_last_updated - limits are global
 
         if self._symbol_input and self._symbol_input.value != symbol:
@@ -563,11 +890,117 @@ class OrderTicketComponent:
 
     # ================= UI Updates =================
 
+    def _format_quantity_label(self) -> str:
+        """Return uppercase quantity label based on unit."""
+        return f"QTY ({self._qty_unit.upper()})"
+
+    def _normalize_qty_unit(self, qty_unit: str | None) -> str:
+        """Normalize quantity unit to safe labels."""
+        candidate = str(qty_unit or "").strip().lower()
+        if candidate in {"shares", "lots", "contracts"}:
+            return candidate
+        return self.DEFAULT_QTY_UNIT
+
+    def _resolve_qty_unit_size(
+        self,
+        *,
+        qty_unit: str,
+        qty_step: int,
+        min_qty: int,
+        qty_unit_size: int | None,
+    ) -> int:
+        """Resolve canonical-unit multiplier for entered quantity units."""
+        if qty_unit_size is not None:
+            return max(1, int(qty_unit_size))
+        if qty_unit == "lots" and qty_step <= 10 and min_qty <= 10:
+            return self.DEFAULT_LOT_SIZE
+        return 1
+
+    def _normalize_quantity(self, qty: int) -> int:
+        """Clamp quantity to configured min/step constraints."""
+        if qty <= 0:
+            return self._min_qty
+        clamped = max(self._min_qty, qty)
+        if self._qty_step <= 1:
+            return clamped
+        return self._min_qty + ((clamped - self._min_qty) // self._qty_step) * self._qty_step
+
+    def _raw_quantity(self, qty: int | None) -> int | None:
+        """Parse positive quantity in the currently displayed ticket unit."""
+        if qty is None:
+            return None
+        raw = int(qty)
+        if raw <= 0:
+            return None
+        return raw
+
+    def _canonical_quantity(self, qty: int | None) -> int | None:
+        """Return quantity in canonical position units (shares/contracts)."""
+        raw_quantity = self._raw_quantity(qty)
+        if raw_quantity is None:
+            return None
+        canonical = raw_quantity * max(1, self._qty_unit_size)
+        if canonical <= 0:
+            return None
+        return canonical
+
+    def _state_canonical_quantity(self) -> int | None:
+        """Return canonical quantity for current state (with close-flow override)."""
+        raw_quantity = self._raw_quantity(self._state.quantity)
+        if raw_quantity is None:
+            return None
+        if self._state_quantity_canonical_override is not None:
+            override = int(self._state_quantity_canonical_override)
+            return override if override > 0 else None
+        return self._canonical_quantity(raw_quantity)
+
+    def _format_quantity_limit(self, qty: int) -> str:
+        """Format quantity limits with canonical units and optional ticket-unit hint."""
+        if self._qty_unit == self.POSITION_DISPLAY_UNIT:
+            return f"{qty} {self.POSITION_DISPLAY_UNIT}"
+        return f"{qty} {self.POSITION_DISPLAY_UNIT} ({self._qty_unit})"
+
+    def _align_min_qty_to_step(self, min_qty: int, qty_step: int) -> int:
+        """Align minimum quantity upward to the nearest step-compatible value."""
+        if qty_step <= 1:
+            return max(1, min_qty)
+        return max(qty_step, ((min_qty + qty_step - 1) // qty_step) * qty_step)
+
+    def _apply_quantity_rules_to_ui(self) -> None:
+        """Apply quantity rules to UI controls."""
+        if self._quantity_label:
+            self._quantity_label.set_text(self._format_quantity_label())
+        if self._quantity_input:
+            self._quantity_input.props(f"min={self._min_qty} step={self._qty_step}")
+
+    def _resolve_quantity_presets(self) -> list[int]:
+        """Resolve contextual quick-size presets for current unit/rules."""
+        base_presets = self.UNIT_PRESET_PROFILES.get(self._qty_unit, self.QUANTITY_PRESETS)
+        resolved: list[int] = []
+        seen: set[int] = set()
+        for preset in base_presets:
+            normalized = self._normalize_quantity(int(preset))
+            if normalized <= 0 or normalized in seen:
+                continue
+            seen.add(normalized)
+            resolved.append(normalized)
+
+        if not resolved:
+            return [self._min_qty]
+        return resolved
+
+    def _refresh_quantity_preset_profile(self) -> None:
+        """Recompute and apply contextual quick-size presets."""
+        if self._quantity_presets:
+            self._quantity_presets.set_presets(self._resolve_quantity_presets())
+
     def _update_position_display(self) -> None:
         """Update position label."""
         if self._position_label:
             if self._state.symbol:
-                self._position_label.set_text(f"{self._current_position:+d} shares")
+                self._position_label.set_text(
+                    f"{self._current_position:+d} {self.POSITION_DISPLAY_UNIT}"
+                )
             else:
                 self._position_label.set_text("--")
 
@@ -584,36 +1017,126 @@ class OrderTicketComponent:
         impact = self._calculate_buying_power_impact()
         if self._impact_label:
             if impact["notional"] is not None and impact["percentage"] is not None:
-                warning_class = "text-yellow-500" if impact["warning"] else ""
                 self._impact_label.set_text(
-                    f"${impact['notional']:,.2f} ({impact['percentage']:.1f}% of BP)"
+                    f"${impact['notional']:,.2f} ({impact['percentage']:.1f}% of limit)"
                 )
-                if warning_class:
-                    self._impact_label.classes(add=warning_class)
-                else:
-                    self._impact_label.classes(remove="text-yellow-500")
             else:
-                self._impact_label.set_text("--")
+                self._impact_label.set_text("-- (risk limit unavailable)")
+
+        status = str(impact.get("status") or "unavailable").upper()
+        if self._impact_status_label:
+            self._impact_status_label.text = status
+            self._impact_status_label.classes(
+                remove=(
+                    "workspace-v2-pill-positive "
+                    "workspace-v2-pill-warning "
+                    "workspace-v2-pill-negative "
+                    "workspace-v2-pill-muted"
+                )
+            )
+            if status == "NORMAL":
+                self._impact_status_label.classes(add="workspace-v2-pill-positive")
+            elif status == "WARNING":
+                self._impact_status_label.classes(add="workspace-v2-pill-warning")
+            elif status == "DANGER":
+                self._impact_status_label.classes(add="workspace-v2-pill-negative")
+            else:
+                self._impact_status_label.classes(add="workspace-v2-pill-muted")
+
+        self._update_impact_gauge(impact)
+
+    def _update_impact_gauge(self, impact: dict[str, Any]) -> None:
+        """Update visual gauge width and severity class."""
+        if self._impact_bar_fill is None:
+            return
+
+        ratio = impact.get("ratio")
+        if not isinstance(ratio, Decimal):
+            self._impact_bar_fill.style("width: 0%")
+            self._impact_bar_fill.classes(
+                remove="workspace-v2-impact-fill-normal workspace-v2-impact-fill-warning workspace-v2-impact-fill-danger",
+                add="workspace-v2-impact-fill-unavailable",
+            )
+            return
+
+        clamped = max(Decimal("0"), min(Decimal("1"), ratio))
+        pct = float(clamped * Decimal(100))
+        self._impact_bar_fill.style(f"width: {pct:.1f}%")
+        status = str(impact.get("status") or "unavailable")
+        self._impact_bar_fill.classes(
+            remove="workspace-v2-impact-fill-unavailable workspace-v2-impact-fill-normal workspace-v2-impact-fill-warning workspace-v2-impact-fill-danger"
+        )
+        if status == "normal":
+            self._impact_bar_fill.classes(add="workspace-v2-impact-fill-normal")
+        elif status == "warning":
+            self._impact_bar_fill.classes(add="workspace-v2-impact-fill-warning")
+        else:
+            self._impact_bar_fill.classes(add="workspace-v2-impact-fill-danger")
 
     def _update_quantity_presets_context(self) -> None:
         """Update quantity presets with current context."""
         if self._quantity_presets:
+            qty_unit_size = max(1, self._qty_unit_size)
+            current_price = self._last_price
+            effective_price = self._state.limit_price or self._state.stop_price
+            current_position = self._current_position
+            max_position_per_symbol = self._max_position_per_symbol
+            if qty_unit_size > 1:
+                unit_size_decimal = Decimal(qty_unit_size)
+                current_price = (
+                    (self._last_price * unit_size_decimal)
+                    if self._last_price is not None
+                    else None
+                )
+                effective_price = (
+                    effective_price * unit_size_decimal
+                    if effective_price is not None
+                    else None
+                )
+                current_position = int(self._current_position / qty_unit_size)
+                if self._max_position_per_symbol is not None:
+                    max_position_per_symbol = int(self._max_position_per_symbol / qty_unit_size)
             self._quantity_presets.update_context(
                 buying_power=self._buying_power,
-                current_price=self._last_price,
-                current_position=self._current_position,
-                max_position_per_symbol=self._max_position_per_symbol,
+                current_price=current_price,
+                current_position=current_position,
+                max_position_per_symbol=max_position_per_symbol,
                 max_notional_per_order=self._max_notional_per_order,
                 side=self._state.side,
-                effective_price=self._state.limit_price or self._state.stop_price,
+                effective_price=effective_price,
+                qty_step=self._qty_step,
+                min_qty=self._min_qty,
             )
 
     def _update_ui_from_state(self) -> None:
         """Update all UI elements from internal state."""
+        self._update_side_action_styles()
         self._update_position_display()
         self._update_buying_power_display()
         self._update_buying_power_impact()
+        self._update_execution_context_ribbon()
         self._update_quantity_presets_context()
+
+    def _update_execution_context_ribbon(self) -> None:
+        """Refresh compact execution-context ribbon above action buttons."""
+        text, tone = format_execution_context_ribbon(self._execution_context_snapshot)
+        if self._execution_context_label is not None:
+            self._execution_context_label.set_text(text)
+        if self._execution_context_state_label is not None:
+            state_text = (
+                self._execution_context_snapshot.risk_gate_state
+                if self._execution_context_snapshot is not None
+                else "BLOCKED"
+            )
+            self._execution_context_state_label.set_text(state_text)
+            if tone == "normal":
+                self._execution_context_state_label.classes(
+                    replace="workspace-v2-pill workspace-v2-pill-positive"
+                )
+            else:
+                self._execution_context_state_label.classes(
+                    replace="workspace-v2-pill workspace-v2-pill-warning"
+                )
 
     def _sync_inputs_from_state(self) -> None:
         """Sync all input controls from internal state.
@@ -695,6 +1218,12 @@ class OrderTicketComponent:
         if self._submit_button and self._submit_button._button:
             self._submit_button._button.set_enabled(not disabled)
 
+        # Disable split action buttons
+        if self._buy_action_button:
+            self._buy_action_button.set_enabled(not disabled)
+        if self._sell_action_button:
+            self._sell_action_button.set_enabled(not disabled)
+
         # Disable Clear button
         if self._clear_button:
             self._clear_button.set_enabled(not disabled)
@@ -737,8 +1266,25 @@ class OrderTicketComponent:
         if not self._state.symbol:
             return (True, "Select a symbol")
 
-        if not self._state.quantity or self._state.quantity <= 0:
+        raw_quantity = self._raw_quantity(self._state.quantity)
+        quantity = self._state_canonical_quantity()
+        if raw_quantity is None or quantity is None:
             return (True, "Enter quantity")
+
+        # Safety policy: permit strict risk-reducing exits even below lot min/step
+        # so operators can flatten residual risk during stressed conditions.
+        if not self._is_risk_reducing_order():
+            if raw_quantity < self._min_qty:
+                minimum_display_qty = self._canonical_quantity(self._min_qty) or self._min_qty
+                return (True, f"Minimum quantity is {self._format_quantity_limit(minimum_display_qty)}")
+
+            normalized_quantity = self._normalize_quantity(raw_quantity)
+            if normalized_quantity != raw_quantity:
+                step_display_qty = self._canonical_quantity(self._qty_step) or self._qty_step
+                return (
+                    True,
+                    f"Quantity must increment by {self._format_quantity_limit(step_display_qty)}",
+                )
 
         if self._is_position_data_stale():
             return (True, "Position data stale")
@@ -748,6 +1294,10 @@ class OrderTicketComponent:
 
         if self._is_buying_power_stale():
             return (True, "Buying power data stale")
+
+        gate_block_reason = self._get_execution_gate_block_reason()
+        if gate_block_reason:
+            return (True, gate_block_reason)
 
         price_error = self._validate_order_type_prices()
         if price_error:
@@ -764,6 +1314,56 @@ class OrderTicketComponent:
             return (True, limit_violation)
 
         return (False, "")
+
+    def _get_execution_gate_block_reason(self) -> str | None:
+        """Return strategy/model gate block reason for risk-increasing orders."""
+        if not self._execution_gate_enabled:
+            return None
+
+        if self._execution_context_snapshot is None:
+            if self._is_risk_reducing_order():
+                return None
+            return "Execution context blocked: unavailable"
+
+        if self._execution_context_snapshot.risk_gate_state != EXECUTION_CONTEXT_READY:
+            if self._is_risk_reducing_order():
+                return None
+            snapshot_reason = self._execution_context_snapshot.gate_reason
+            if snapshot_reason:
+                return f"Execution context blocked: {snapshot_reason}"
+            return (
+                "Execution context blocked: "
+                f"{self._execution_context_snapshot.risk_gate_state}"
+            )
+
+        strategy_safe = is_strategy_execution_safe(self._strategy_status)
+        model_safe = is_model_execution_safe(self._model_status)
+        if strategy_safe and model_safe:
+            return None
+
+        # Safety policy: allow risk-reducing orders even when context is unsafe.
+        if self._is_risk_reducing_order():
+            return None
+
+        if self._execution_gate_reason:
+            return f"Execution gated: {self._execution_gate_reason}"
+        if not strategy_safe:
+            return f"Execution gated: strategy is {self._strategy_status.upper()}"
+        if not model_safe:
+            return f"Execution gated: model is {self._model_status.upper()}"
+        return "Execution gated: strategy/model context unavailable"
+
+    def _is_risk_reducing_order(self) -> bool:
+        """Return True only when order strictly reduces current open exposure."""
+        qty = self._state_canonical_quantity()
+        if qty is None:
+            return False
+
+        if self._current_position > 0 and self._state.side == "sell":
+            return qty <= self._current_position
+        if self._current_position < 0 and self._state.side == "buy":
+            return qty <= abs(self._current_position)
+        return False
 
     def _is_position_data_stale(self) -> bool:
         """Check if position data is too old for safe trading."""
@@ -806,10 +1406,16 @@ class OrderTicketComponent:
             "symbol": self._state.symbol,
             "side": self._state.side,
             "quantity": self._state.quantity,
+            "canonical_quantity": self._state_canonical_quantity(),
             "order_type": self._state.order_type,
             "limit_price": str(self._state.limit_price or ""),
             "stop_price": str(self._state.stop_price or ""),
             "time_in_force": self._state.time_in_force,
+            "qty_step": self._qty_step,
+            "min_qty": self._min_qty,
+            "qty_unit": self._qty_unit,
+            "qty_unit_size": self._qty_unit_size,
+            "quantity_canonical_override": self._state_quantity_canonical_override,
         }
 
         return current == self._preview_snapshot
@@ -862,10 +1468,11 @@ class OrderTicketComponent:
 
     def _check_position_limits(self) -> str | None:
         """Check if proposed order violates position limits."""
-        if not self._state.symbol or not self._state.quantity:
+        if not self._state.symbol:
             return None
-
-        proposed_qty = self._state.quantity
+        proposed_qty = self._state_canonical_quantity()
+        if proposed_qty is None:
+            return None
         if self._state.side == "sell":
             proposed_position = self._current_position - proposed_qty
         else:
@@ -873,7 +1480,10 @@ class OrderTicketComponent:
 
         if self._max_position_per_symbol is not None:
             if abs(proposed_position) > self._max_position_per_symbol:
-                return f"Order exceeds position limit ({self._max_position_per_symbol} shares)"
+                return (
+                    "Order exceeds position limit "
+                    f"({self._format_quantity_limit(self._max_position_per_symbol)})"
+                )
 
         effective_price = self._get_effective_order_price()
         order_notional: Decimal | None = None
@@ -897,9 +1507,9 @@ class OrderTicketComponent:
             )
 
             if self._state.side == "buy":
-                proposed_symbol_pos = self._current_position + self._state.quantity
+                proposed_symbol_pos = self._current_position + proposed_qty
             else:
-                proposed_symbol_pos = self._current_position - self._state.quantity
+                proposed_symbol_pos = self._current_position - proposed_qty
 
             proposed_symbol_notional = abs(
                 Decimal(proposed_symbol_pos) * (effective_price or self._last_price or Decimal(0))
@@ -943,26 +1553,96 @@ class OrderTicketComponent:
 
     def _calculate_buying_power_impact(self) -> dict[str, Any]:
         """Calculate order's impact on buying power."""
-        if not self._state.quantity:
-            return {"notional": None, "percentage": None, "remaining": None, "warning": False}
+        quantity = self._state_canonical_quantity()
+        if quantity is None:
+            return {
+                "notional": None,
+                "percentage": None,
+                "remaining": None,
+                "warning": False,
+                "ratio": None,
+                "status": "unavailable",
+                "effective_limit": None,
+            }
 
         effective_price = self._get_effective_order_price()
         if effective_price is None:
-            return {"notional": None, "percentage": None, "remaining": None, "warning": False}
+            return {
+                "notional": None,
+                "percentage": None,
+                "remaining": None,
+                "warning": False,
+                "ratio": None,
+                "status": "unavailable",
+                "effective_limit": None,
+            }
 
-        notional = effective_price * Decimal(self._state.quantity)
+        notional = effective_price * Decimal(quantity)
+        effective_limits: list[Decimal] = []
 
-        if self._buying_power is None or self._buying_power <= 0:
-            return {"notional": notional, "percentage": None, "remaining": None, "warning": True}
+        if self._buying_power is not None and self._buying_power > 0:
+            effective_limits.append(self._buying_power)
+        if self._max_notional_per_order is not None and self._max_notional_per_order > 0:
+            effective_limits.append(self._max_notional_per_order)
 
-        percentage = (notional / self._buying_power) * 100
-        remaining = self._buying_power - notional
+        if self._max_total_exposure is not None and self._max_total_exposure > 0:
+            if self._current_total_exposure is None:
+                return {
+                    "notional": notional,
+                    "percentage": None,
+                    "remaining": None,
+                    "warning": True,
+                    "ratio": None,
+                    "status": "unavailable",
+                    "effective_limit": None,
+                }
+            headroom = self._max_total_exposure - self._current_total_exposure
+            effective_limits.append(max(Decimal("0"), headroom))
+
+        if not effective_limits:
+            return {
+                "notional": notional,
+                "percentage": None,
+                "remaining": None,
+                "warning": True,
+                "ratio": None,
+                "status": "unavailable",
+                "effective_limit": None,
+            }
+
+        effective_limit = min(effective_limits)
+        if effective_limit <= 0:
+            return {
+                "notional": notional,
+                "percentage": None,
+                "remaining": Decimal("0"),
+                "warning": True,
+                "ratio": Decimal("1"),
+                "status": "danger",
+                "effective_limit": effective_limit,
+            }
+
+        ratio = notional / effective_limit
+        percentage = ratio * 100
+        remaining = effective_limit - notional
+
+        warning_ratio = self.IMPACT_WARNING_RATIO
+        danger_ratio = self.IMPACT_DANGER_RATIO
+
+        status = "normal"
+        if ratio >= danger_ratio:
+            status = "danger"
+        elif ratio >= warning_ratio:
+            status = "warning"
 
         return {
             "notional": notional,
             "percentage": percentage,
             "remaining": remaining,
-            "warning": percentage > 50,
+            "warning": ratio >= warning_ratio,
+            "ratio": ratio,
+            "status": status,
+            "effective_limit": effective_limit,
         }
 
     # ================= Order Submission =================
@@ -981,10 +1661,16 @@ class OrderTicketComponent:
             "symbol": self._state.symbol,
             "side": self._state.side,
             "quantity": self._state.quantity,
+            "canonical_quantity": self._state_canonical_quantity(),
             "order_type": self._state.order_type,
             "limit_price": str(self._state.limit_price or ""),
             "stop_price": str(self._state.stop_price or ""),
             "time_in_force": self._state.time_in_force,
+            "qty_step": self._qty_step,
+            "min_qty": self._min_qty,
+            "qty_unit": self._qty_unit,
+            "qty_unit_size": self._qty_unit_size,
+            "quantity_canonical_override": self._state_quantity_canonical_override,
         }
 
         await self._show_preview_dialog()
@@ -1083,10 +1769,15 @@ class OrderTicketComponent:
             return False
 
         # Build order data
+        canonical_quantity = self._state_canonical_quantity()
+        if canonical_quantity is None:
+            ui.notify("Cannot submit: Enter quantity", type="negative")
+            return False
+
         order_data: dict[str, Any] = {
             "symbol": normalized_symbol,
             "side": self._state.side,
-            "qty": self._state.quantity,
+            "qty": canonical_quantity,
             "order_type": self._state.order_type,
             "time_in_force": self._state.time_in_force,
             "client_order_id": self._pending_client_order_id,
@@ -1227,7 +1918,8 @@ class OrderTicketComponent:
                 if not raw or not isinstance(raw, str):
                     return None
                 try:
-                    return validate_and_normalize_symbol(raw)
+                    normalized = validate_and_normalize_symbol(raw)
+                    return str(normalized)
                 except ValueError:
                     return None
 
@@ -1245,6 +1937,7 @@ class OrderTicketComponent:
                         "time_in_force", {"day", "gtc", "ioc", "fok"}, "day"
                     ),
                 )
+                self._state_quantity_canonical_override = None
                 self._pending_client_order_id = form_data.get("client_order_id")
                 self._sync_inputs_from_state()
                 self._update_ui_from_state()
@@ -1253,11 +1946,13 @@ class OrderTicketComponent:
                 logger.warning(f"Failed to restore pending form: {exc}")
                 await self._state_manager.clear_pending_form(form_key)
                 self._state = OrderTicketState()
+                self._state_quantity_canonical_override = None
                 self._pending_client_order_id = None
 
     async def _clear_form(self) -> None:
         """Clear the order form."""
         self._state = OrderTicketState()
+        self._state_quantity_canonical_override = None
         self._pending_client_order_id = None
 
         if self._symbol_input:
@@ -1378,7 +2073,9 @@ class OrderTicketComponent:
         timestamp_str = positions_resp.get("timestamp")
         if timestamp_str:
             try:
-                return parse_iso_timestamp(timestamp_str)
+                parsed = parse_iso_timestamp(timestamp_str)
+                if isinstance(parsed, datetime):
+                    return parsed
             except (ValueError, TypeError):
                 pass
 
@@ -1400,7 +2097,9 @@ class OrderTicketComponent:
         timestamp_str = account_resp.get("timestamp")
         if timestamp_str:
             try:
-                return parse_iso_timestamp(timestamp_str)
+                parsed = parse_iso_timestamp(timestamp_str)
+                if isinstance(parsed, datetime):
+                    return parsed
             except (ValueError, TypeError):
                 pass
 
@@ -1409,7 +2108,9 @@ class OrderTicketComponent:
             alt_timestamp = account_resp.get(alt_field)
             if alt_timestamp:
                 try:
-                    return parse_iso_timestamp(str(alt_timestamp))
+                    parsed_alt = parse_iso_timestamp(str(alt_timestamp))
+                    if isinstance(parsed_alt, datetime):
+                        return parsed_alt
                 except (ValueError, TypeError):
                     continue
         return None
@@ -1424,6 +2125,10 @@ class OrderTicketComponent:
             self._position_timer.cancel()
         if self._buying_power_timer:
             self._buying_power_timer.cancel()
+        if self._price_pulse_timer:
+            self._price_pulse_timer.cancel()
+        if self._dom_settle_timer:
+            self._dom_settle_timer.cancel()
 
         for task in [self._position_refresh_task, self._buying_power_refresh_task]:
             if task and not task.done():
