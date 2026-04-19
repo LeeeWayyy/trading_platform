@@ -34,7 +34,6 @@ _PAGE_MODULES = (
     "apps.web_console_ng.pages.forgot_password",
     "apps.web_console_ng.pages.health",
     "apps.web_console_ng.pages.journal",
-    "apps.web_console_ng.pages.legacy_research_redirects",
     "apps.web_console_ng.pages.login",
     "apps.web_console_ng.pages.mfa_verify",
     "apps.web_console_ng.pages.models",

@@ -32,6 +32,7 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.formatters import safe_float
 from libs.core.common.validators import validate_overview_metrics
 from libs.platform.web_console_auth.permissions import (
@@ -100,7 +101,7 @@ async def risk_dashboard(client: Client) -> None:
     # Validate user_id
     if not user_id:
         ui.notify("Session error: missing user ID. Please re-authenticate.", type="negative")
-        ui.navigate.to("/login")
+        ui.navigate.to(resolve_rooted_path_from_ui("/login", ui_module=ui))
         return
 
     # === DATA STATE ===

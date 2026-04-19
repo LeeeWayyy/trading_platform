@@ -27,6 +27,7 @@ from nicegui import run, ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -247,7 +248,9 @@ async def _render_reports_page(
                         try:
                             await service.run_now(selected.id)
                             ui.notify("Report generated", type="positive")
-                            ui.navigate.to("/reports")
+                            ui.navigate.to(
+                                resolve_rooted_path_from_ui("/reports", ui_module=ui)
+                            )
                         except (ConnectionError, OSError) as exc:
                             logger.error(
                                 "schedule_run_now_db_connection_failed",
@@ -268,7 +271,9 @@ async def _render_reports_page(
                             deleted = await service.delete_schedule(selected.id)
                             if deleted:
                                 ui.notify("Schedule deleted", type="positive")
-                                ui.navigate.to("/reports")
+                                ui.navigate.to(
+                                    resolve_rooted_path_from_ui("/reports", ui_module=ui)
+                                )
                             else:
                                 ui.notify("Schedule not found", type="warning")
                         except (ConnectionError, OSError) as exc:
@@ -527,7 +532,7 @@ async def _render_schedule_form(
                         user.get("user_id", "unknown"),
                     )
                     ui.notify("Schedule created", type="positive")
-                ui.navigate.to("/reports")
+                ui.navigate.to(resolve_rooted_path_from_ui("/reports", ui_module=ui))
             except (ConnectionError, OSError) as exc:
                 logger.error(
                     "schedule_save_db_connection_failed",
