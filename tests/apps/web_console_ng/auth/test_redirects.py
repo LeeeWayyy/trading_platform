@@ -2,10 +2,7 @@ import pytest
 
 from apps.web_console_ng.auth.redirects import (
     ALLOWED_REDIRECT_PATHS,
-    LEGACY_REDIRECT_REMAP,
-    LEGACY_TRADE_REDIRECT_QUERY_KEYS,
-    legacy_trade_marker_from_redirect_path,
-    normalize_legacy_trade_marker,
+    TRADE_REDIRECT_QUERY_KEYS,
     sanitize_redirect_path,
 )
 
@@ -34,23 +31,9 @@ def test_sanitize_redirect_path_allows_allowlist(path):
     assert sanitize_redirect_path(path) == path
 
 
-@pytest.mark.parametrize("path", ["/alpha-explorer", "/backtest", "/models"])
-def test_legacy_compat_paths_remain_allowlisted(path):
-    assert path in ALLOWED_REDIRECT_PATHS
-    assert sanitize_redirect_path(path) == path
-
-
-@pytest.mark.parametrize("path", sorted(LEGACY_REDIRECT_REMAP))
-def test_legacy_trade_paths_remap_to_trade(path):
-    assert path not in ALLOWED_REDIRECT_PATHS
-    assert sanitize_redirect_path(path) == "/trade"
-
-
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("/manual-order/", "/trade"),
-        ("/position-management/", "/trade"),
         ("/trade/", "/trade"),
         ("/admin/", "/admin"),
     ],
@@ -60,23 +43,13 @@ def test_sanitize_redirect_path_normalizes_trailing_slash(path, expected):
 
 
 def test_sanitize_redirect_path_trade_query_preserves_allowlisted_keys():
-    allowlisted_key = next(iter(LEGACY_TRADE_REDIRECT_QUERY_KEYS))
+    allowlisted_key = next(iter(TRADE_REDIRECT_QUERY_KEYS))
     path = f"/trade?{allowlisted_key}=x&drop=1"
     assert sanitize_redirect_path(path) == f"/trade?{allowlisted_key}=x"
 
 
-def test_sanitize_redirect_path_legacy_query_is_remapped_and_filtered():
-    path = "/manual-order?symbol=SPY&qty=5&drop=1"
-    assert sanitize_redirect_path(path) == "/trade?symbol=SPY&qty=5"
-
-
 def test_sanitize_redirect_path_non_trade_query_is_filtered_by_allowlist():
     assert sanitize_redirect_path("/admin?user_id=123&foo=bar") == "/admin?user_id=123"
-
-
-def test_sanitize_redirect_path_backtest_query_preserves_known_context_keys():
-    path = "/backtest?signal_id=s1&source=alpha_explorer&drop=1"
-    assert sanitize_redirect_path(path) == "/backtest?signal_id=s1&source=alpha_explorer"
 
 
 def test_sanitize_redirect_path_mfa_query_preserves_pending_and_next():
@@ -94,21 +67,82 @@ def test_sanitize_redirect_path_with_root_path_allows_unprefixed_path():
     assert sanitize_redirect_path(path, root_path="/console") == "/trade?symbol=SPY"
 
 
+def test_sanitize_redirect_path_with_root_path_sanitizes_research_query() -> None:
+    path = "/console/research?tab=validate&backtest_tab=compare&drop=1"
+    assert (
+        sanitize_redirect_path(path, root_path="/console")
+        == "/research?tab=validate&backtest_tab=results"
+    )
+
+
 @pytest.mark.parametrize(
-    ("path", "root_path", "expected"),
+    "legacy_path",
     [
-        ("/manual-order", None, "manual-order"),
-        ("/manual-order?symbol=SPY", None, "manual-order"),
-        ("/console/manual-order", "/console", "manual-order"),
-        ("/position-management", None, "position-management"),
-        ("/trade", None, None),
-        ("/admin", None, None),
-        ("https://evil.test/manual-order", None, None),
+        "/manual-order",
+        "/position-management",
+        "/alpha-explorer",
+        "/alpha-explorer?signal_id=sig-1",
+        "/backtest",
+        "/models",
     ],
 )
-def test_legacy_trade_marker_from_redirect_path(path, root_path, expected):
-    assert legacy_trade_marker_from_redirect_path(path, root_path=root_path) == expected
+def test_sanitize_redirect_path_rejects_retired_legacy_routes(legacy_path: str) -> None:
+    assert sanitize_redirect_path(legacy_path) == "/"
 
 
-def test_normalize_legacy_trade_marker_accepts_leading_slash():
-    assert normalize_legacy_trade_marker("/manual-order") == "manual-order"
+def test_allowlist_excludes_retired_legacy_routes() -> None:
+    assert "/manual-order" not in ALLOWED_REDIRECT_PATHS
+    assert "/position-management" not in ALLOWED_REDIRECT_PATHS
+    assert "/alpha-explorer" not in ALLOWED_REDIRECT_PATHS
+    assert "/backtest" not in ALLOWED_REDIRECT_PATHS
+    assert "/models" not in ALLOWED_REDIRECT_PATHS
+
+
+def test_sanitize_redirect_path_research_query_keeps_backtest_context() -> None:
+    path = "/research?tab=validate&backtest_tab=running&backtest_job_id=job-1&id=abc&view=summary&drop=1"
+    assert (
+        sanitize_redirect_path(path)
+        == "/research?tab=validate&backtest_tab=running&backtest_job_id=job-1&id=abc&view=summary"
+    )
+
+
+def test_sanitize_redirect_path_research_drops_backtest_tab_without_validate() -> None:
+    path = "/research?backtest_tab=running&signal_id=sig-1&source=alpha_explorer"
+    assert sanitize_redirect_path(path) == "/research?signal_id=sig-1&source=alpha_explorer"
+
+
+def test_sanitize_redirect_path_research_drops_backtest_tab_for_discover_tab() -> None:
+    path = "/research?tab=discover&backtest_tab=running&signal_id=sig-1"
+    assert sanitize_redirect_path(path) == "/research?tab=discover&signal_id=sig-1"
+
+
+def test_sanitize_redirect_path_research_drops_validate_only_params_for_discover_tab() -> None:
+    path = (
+        "/research?tab=discover&backtest_tab=running&backtest_job_id=job-1&id=res-1&signal_id=sig-1"
+    )
+    assert sanitize_redirect_path(path) == "/research?tab=discover&signal_id=sig-1"
+
+
+def test_sanitize_redirect_path_research_drops_validate_only_params_without_tab() -> None:
+    path = "/research?backtest_job_id=job-1&id=res-1&signal_id=sig-1"
+    assert sanitize_redirect_path(path) == "/research?signal_id=sig-1"
+
+
+def test_sanitize_redirect_path_research_normalizes_compare_alias_for_validate() -> None:
+    path = "/research?tab=validate&backtest_tab=compare&signal_id=sig-1"
+    assert sanitize_redirect_path(path) == "/research?tab=validate&backtest_tab=results&signal_id=sig-1"
+
+
+def test_sanitize_redirect_path_research_invalid_backtest_tab_is_dropped() -> None:
+    path = "/research?tab=validate&backtest_tab=unknown&signal_id=sig-1"
+    assert sanitize_redirect_path(path) == "/research?tab=validate&signal_id=sig-1"
+
+
+def test_sanitize_redirect_path_research_uses_first_valid_tab_when_multiple_present() -> None:
+    path = "/research?tab=unknown&tab=validate&backtest_tab=running&signal_id=sig-1"
+    assert sanitize_redirect_path(path) == "/research?tab=validate&backtest_tab=running&signal_id=sig-1"
+
+
+def test_sanitize_redirect_path_research_drops_invalid_tab_values() -> None:
+    path = "/research?tab=unknown&signal_id=sig-1"
+    assert sanitize_redirect_path(path) == "/research?signal_id=sig-1"
