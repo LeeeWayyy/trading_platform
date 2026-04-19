@@ -668,7 +668,13 @@ async def _export_excel(
     filters: dict[str, Any],
 ) -> tuple[bytes, int]:
     """Export trades to Excel using streaming write mode."""
-    from openpyxl import Workbook
+    try:
+        from openpyxl import Workbook
+    except ImportError as e:
+        logger.warning("openpyxl is not installed; Excel export unavailable")
+        raise ValueError(
+            "Excel export requires openpyxl: pip install openpyxl"
+        ) from e
 
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Trades")
@@ -693,8 +699,8 @@ async def _export_excel(
         )
         row_count += 1
 
-    # Offload CPU-intensive workbook save to process pool
-    content = await run.cpu_bound(_save_workbook_to_bytes, wb)
+    # Offload workbook save to thread pool (Workbook is not picklable)
+    content = await run.io_bound(_save_workbook_to_bytes, wb)
     return content, row_count
 
 

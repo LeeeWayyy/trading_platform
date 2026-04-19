@@ -895,6 +895,6 @@ make kill-switch # Emergency stop
 
 ---
 
-**Document Version:** 2.3 (AI Context Optimization — cross-platform skills & context)
+**Document Version:** 2.4 (Refresh for source directory changes)
 **Last Updated:** 2026-04-06
 **Maintained By:** Development Team

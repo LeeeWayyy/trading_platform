@@ -1,16 +1,14 @@
 # Docker Compose configuration for STAGING environment
 # CRITICAL: This configuration is for PAPER TRADING ONLY
 #
-# Safety features:
+# Safety:
 # - DRY_RUN=true enforced for all trading services
 # - ALPACA_PAPER=true for paper trading mode
 # - No live API keys should ever be used
 #
-# Usage:
-#   docker-compose -f docker-compose.staging.yml up -d
-#   docker-compose -f docker-compose.staging.yml down
-
-version: "3.9"
+# Usage (requires Docker Compose V2):
+#   docker compose -f docker-compose.staging.yml up -d
+#   docker compose -f docker-compose.staging.yml down
 
 services:
   # =============================================================================
@@ -69,6 +67,11 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     networks:
       - staging_network
@@ -86,15 +89,17 @@ services:
       - staging_grafanadata:/var/lib/grafana
       - ./infra/grafana:/etc/grafana/provisioning
     depends_on:
-      - prometheus
-      - loki
+      prometheus:
+        condition: service_healthy
+      loki_server:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - staging_network
 
-  loki:
-    image: grafana/loki:2.9.0
-    container_name: staging_loki
+  loki_server:
+    image: grafana/loki:3.0.0
+    container_name: staging_loki_server
     ports:
       - "3100:3100"
     volumes:
@@ -111,7 +116,7 @@ services:
       - staging_network
 
   promtail:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.0.0
     container_name: staging_promtail
     volumes:
       - ./infra/promtail:/etc/promtail
@@ -119,7 +124,8 @@ services:
       - staging_promtaildata:/tmp
     command: -config.file=/etc/promtail/promtail-config.yml
     depends_on:
-      - loki
+      loki_server:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - staging_network

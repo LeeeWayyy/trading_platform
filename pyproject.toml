@@ -196,7 +196,7 @@ module = "nest_asyncio"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "openpyxl.*"
+module = ["openpyxl", "openpyxl.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
