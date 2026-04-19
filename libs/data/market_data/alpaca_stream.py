@@ -13,6 +13,7 @@ from typing import Any
 
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
+from prometheus_client import Counter
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 
@@ -49,6 +50,8 @@ class AlpacaMarketDataStream:
         redis_client: RedisClient,
         event_publisher: EventPublisher,
         price_ttl: int = 300,  # 5 minutes
+        messages_received_counter: Counter | None = None,
+        reconnect_attempts_counter: Counter | None = None,
     ):
         """
         Initialize Alpaca market data stream.
@@ -59,12 +62,18 @@ class AlpacaMarketDataStream:
             redis_client: Redis client for price caching
             event_publisher: Event publisher for price updates
             price_ttl: TTL for price cache in seconds (default: 5 minutes)
+            messages_received_counter: Optional Prometheus Counter incremented per
+                received WebSocket message. Must declare a ``message_type`` label.
+            reconnect_attempts_counter: Optional Prometheus Counter incremented once
+                per WebSocket reconnection attempt (no labels).
         """
         self.api_key = api_key
         self.secret_key = secret_key
         self.redis = redis_client
         self.publisher = event_publisher
         self.price_ttl = price_ttl
+        self._messages_received_counter = messages_received_counter
+        self._reconnect_attempts_counter = reconnect_attempts_counter
 
         # Initialize Alpaca WebSocket client
         self.stream = StockDataStream(api_key, secret_key)
@@ -247,6 +256,14 @@ class AlpacaMarketDataStream:
             - This prevents individual quote errors from crashing the WebSocket stream
             - Failed quotes are logged with full traceback for debugging
         """
+        # Record receipt of the message before any processing so the counter
+        # reflects inbound WebSocket volume even if parsing/validation fails.
+        if self._messages_received_counter is not None:
+            try:
+                self._messages_received_counter.labels(message_type="quote").inc()
+            except Exception:  # pragma: no cover - defensive: never let metrics break the stream
+                logger.debug("Failed to increment websocket_messages_received_total", exc_info=True)
+
         try:
             # Convert Alpaca Quote to our QuoteData model
             symbol = quote["symbol"] if isinstance(quote, Mapping) else quote.symbol
@@ -375,6 +392,13 @@ class AlpacaMarketDataStream:
             except Exception as e:
                 self._connected = False
                 self._reconnect_attempts += 1
+
+                # Record reconnect attempt for Prometheus alerting/dashboards.
+                if self._reconnect_attempts_counter is not None:
+                    try:
+                        self._reconnect_attempts_counter.inc()
+                    except Exception:  # pragma: no cover - defensive
+                        logger.debug("Failed to increment reconnect_attempts_total", exc_info=True)
 
                 if self._reconnect_attempts >= self._max_reconnect_attempts:
                     logger.error("Max reconnection attempts reached. Giving up.")
