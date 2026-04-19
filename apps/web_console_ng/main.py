@@ -10,7 +10,7 @@ from typing import Any, cast
 from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, RedirectResponse, Response
+from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from apps.web_console_ng import config
@@ -24,16 +24,7 @@ app.config.tailwind = True
 app.config.prod_js = not config.DEBUG
 app.config.reconnect_timeout = 3.0
 from apps.web_console_ng.auth.audit import AuthAuditLogger
-from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.middleware import AuthMiddleware, SessionMiddleware
-from apps.web_console_ng.auth.redirects import (
-    legacy_cookie_security_attrs,
-    legacy_trade_marker_from_redirect_path,
-    normalize_legacy_trade_marker,
-    sanitize_redirect_path,
-    set_legacy_trade_marker_cookie,
-    with_root_path_once,
-)
 from apps.web_console_ng.auth.session_store import get_session_store
 from apps.web_console_ng.core.admission import AdmissionControlMiddleware
 from apps.web_console_ng.core.client import AsyncTradingClient
@@ -205,49 +196,6 @@ async def socket_io_redirect(path: str = "") -> dict[str, str]:
         "message": "Please refresh your browser (Ctrl+Shift+R) to clear cache",
         "new_path": "/_nicegui_ws/socket.io/",
     }
-
-
-async def legacy_trade_route_redirect(
-    request: Request,
-    *,
-    legacy_from: str | None = None,
-) -> RedirectResponse:
-    """Compatibility redirect for retired trade routes."""
-    raw_path = request.scope.get("path", request.url.path)
-    path = str(raw_path).rstrip("/") or "/"
-    root_path = str(request.scope.get("root_path", ""))
-    request_target = "/trade" if not request.url.query else f"/trade?{request.url.query}"
-    target_path = sanitize_redirect_path(request_target, root_path=root_path)
-    target_url = with_root_path_once(target_path, root_path=root_path)
-    marker = normalize_legacy_trade_marker(legacy_from)
-    if marker is None:
-        marker = legacy_trade_marker_from_redirect_path(path, root_path=root_path)
-
-    # AuthMiddleware enforces session validation before this route handler executes.
-    cookie_cfg = CookieConfig.from_env()
-    response = RedirectResponse(
-        url=target_url,
-        status_code=302,
-    )
-    legacy_secure, legacy_samesite = legacy_cookie_security_attrs(cookie_cfg.get_cookie_flags())
-    set_legacy_trade_marker_cookie(
-        response,
-        marker=marker,
-        root_path=root_path,
-        secure=legacy_secure,
-        samesite=legacy_samesite,
-    )
-    return response
-
-
-@app.get("/manual-order")
-async def legacy_manual_order_redirect(request: Request) -> RedirectResponse:
-    return await legacy_trade_route_redirect(request, legacy_from="manual-order")
-
-
-@app.get("/position-management")
-async def legacy_position_management_redirect(request: Request) -> RedirectResponse:
-    return await legacy_trade_route_redirect(request, legacy_from="position-management")
 
 
 async def startup() -> None:
