@@ -1019,3 +1019,48 @@ async def test_rate_limit_production_warning(redis_client: FakeRedis) -> None:
         # Verify warning was logged
         mock_logger.warning.assert_called_once()
         assert "Rate limit fallback" in mock_logger.warning.call_args[0][0]
+
+
+@pytest.mark.asyncio()
+async def test_validate_session_invalid_token_returns_none(
+    session_store: ServerSessionStore,
+    redis_client: FakeRedis,
+) -> None:
+    """Regression for #175: corrupt/stale ciphertext must return None, not raise.
+
+    A Fernet InvalidToken exception (e.g. ciphertext encrypted with a
+    different key, or truncated garbage) should be handled like other
+    decrypt failures: invalidate the session and return None so callers
+    produce a clean logout flow instead of a 503.
+    """
+    session_id = "session-invalid-token"
+    cookie_value = session_store._build_cookie_value(session_id)
+
+    # Encrypt payload with a DIFFERENT Fernet key — decryption with the
+    # store's key will raise cryptography.fernet.InvalidToken.
+    foreign_fernet = Fernet(Fernet.generate_key())
+    foreign_ciphertext = foreign_fernet.encrypt(b'{"user_id": "user-1"}')
+    await redis_client.setex(f"{session_store.session_prefix}{session_id}", 60, foreign_ciphertext)
+
+    result = await session_store.validate_session(cookie_value, "10.0.0.1", "ua")
+    assert result is None
+    # Session should have been invalidated (deleted from Redis).
+    assert await redis_client.get(f"{session_store.session_prefix}{session_id}") is None
+
+
+@pytest.mark.asyncio()
+async def test_rotate_session_invalid_token_returns_none(
+    session_store: ServerSessionStore,
+    redis_client: FakeRedis,
+) -> None:
+    """Regression for #175: corrupt ciphertext during rotation must return None."""
+    session_id = "session-rotate-invalid-token"
+
+    foreign_fernet = Fernet(Fernet.generate_key())
+    foreign_ciphertext = foreign_fernet.encrypt(b'{"user_id": "user-1"}')
+    await redis_client.setex(
+        f"{session_store.session_prefix}{session_id}", 3600, foreign_ciphertext
+    )
+
+    result = await session_store.rotate_session(session_id)
+    assert result is None
