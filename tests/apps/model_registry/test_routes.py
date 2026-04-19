@@ -10,11 +10,13 @@ from fastapi.testclient import TestClient
 
 from apps.model_registry import routes
 from apps.model_registry.auth import ServiceToken
+from apps.model_registry.error_handlers import install_error_handlers
 from apps.model_registry.schemas import (
     ERROR_CHECKSUM_MISMATCH,
     ERROR_MODEL_NOT_FOUND,
     ERROR_REGISTRY_LOCKED,
     ERROR_VALIDATION_FAILED,
+    ErrorResponse,
 )
 from libs.models.models import (
     IntegrityError,
@@ -60,6 +62,9 @@ def _build_metadata(version: str = "v1.0.0") -> ModelMetadata:
 
 def _client_with_registry(registry: MagicMock) -> TestClient:
     app = FastAPI()
+    # Install flattening error handlers so tests observe the same payload
+    # shape as production (see issue #166).
+    install_error_handlers(app)
     app.include_router(routes.router)
     app.dependency_overrides[routes.verify_read_scope] = lambda: ServiceToken(
         scopes=("model:read",), auth_role="svc"
@@ -69,6 +74,20 @@ def _client_with_registry(registry: MagicMock) -> TestClient:
     )
     app.dependency_overrides[routes.get_registry] = lambda: registry
     return TestClient(app)
+
+
+def _assert_error_response_shape(payload: dict, expected_code: str) -> None:
+    """Assert that ``payload`` conforms to :class:`ErrorResponse` and has the expected code.
+
+    Regression lock for issue #166: the response body must be flat
+    ``{"detail": str, "code": str}``, not the doubly-nested shape FastAPI
+    produces when a dict is passed to ``HTTPException.detail``.
+    """
+    assert (
+        payload == ErrorResponse.model_validate(payload).model_dump()
+    ), "Payload must contain exactly the ErrorResponse fields and nothing else"
+    assert isinstance(payload["detail"], str)
+    assert payload["code"] == expected_code
 
 
 def test_get_registry_raises_when_uninitialized() -> None:
@@ -105,9 +124,7 @@ def _assert_auth_role_in_logs(
         for r in caplog.records
         if r.levelno == logging.INFO and expected_message in r.getMessage()
     ]
-    assert len(matching) >= 1, (
-        f"Expected INFO record containing '{expected_message}'"
-    )
+    assert len(matching) >= 1, f"Expected INFO record containing '{expected_message}'"
     for record in matching:
         assert hasattr(record, "auth_role"), "Log record must include auth_role"
         assert record.auth_role == "svc"
@@ -196,7 +213,7 @@ def test_get_current_model_handles_lock_error() -> None:
     response = client.get("/api/v1/models/risk_model/current")
 
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == ERROR_REGISTRY_LOCKED
+    _assert_error_response_shape(response.json(), ERROR_REGISTRY_LOCKED)
 
 
 def test_get_current_model_missing_returns_404() -> None:
@@ -207,7 +224,7 @@ def test_get_current_model_missing_returns_404() -> None:
     response = client.get("/api/v1/models/risk_model/current")
 
     assert response.status_code == 404
-    assert response.json()["detail"]["code"] == ERROR_MODEL_NOT_FOUND
+    _assert_error_response_shape(response.json(), ERROR_MODEL_NOT_FOUND)
 
 
 def test_get_model_metadata_requires_db_info() -> None:
@@ -219,7 +236,7 @@ def test_get_model_metadata_requires_db_info() -> None:
     response = client.get("/api/v1/models/risk_model/v1.0.0")
 
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == ERROR_CHECKSUM_MISMATCH
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
 
 
 def test_get_model_metadata_success() -> None:
@@ -256,7 +273,7 @@ def test_validate_model_missing_returns_404() -> None:
     response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
 
     assert response.status_code == 404
-    assert response.json()["detail"]["code"] == ERROR_MODEL_NOT_FOUND
+    _assert_error_response_shape(response.json(), ERROR_MODEL_NOT_FOUND)
 
 
 def test_validate_model_checksum_failure_returns_422() -> None:
@@ -273,7 +290,7 @@ def test_validate_model_checksum_failure_returns_422() -> None:
     response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
 
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == ERROR_CHECKSUM_MISMATCH
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
 
 
 def test_validate_model_load_failure_returns_422() -> None:
@@ -290,7 +307,7 @@ def test_validate_model_load_failure_returns_422() -> None:
     response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
 
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == ERROR_VALIDATION_FAILED
+    _assert_error_response_shape(response.json(), ERROR_VALIDATION_FAILED)
 
 
 def test_validate_model_success() -> None:
@@ -349,7 +366,7 @@ def test_list_models_missing_db_info_returns_503() -> None:
     response = client.get("/api/v1/models/risk_model")
 
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == ERROR_CHECKSUM_MISMATCH
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
 
 
 def test_list_models_handles_integrity_error() -> None:
@@ -360,4 +377,126 @@ def test_list_models_handles_integrity_error() -> None:
     response = client.get("/api/v1/models/risk_model")
 
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == ERROR_CHECKSUM_MISMATCH
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
+
+
+# =============================================================================
+# Issue #166 regression: every error path must return the flat ErrorResponse
+# shape declared in the OpenAPI contract (``{"detail": str, "code": str}``)
+# rather than the doubly-nested shape FastAPI produces by default when a dict
+# is passed to ``HTTPException.detail``.
+# =============================================================================
+
+
+def test_error_response_flat_shape_registry_uninitialized() -> None:
+    """Regression: the 503 raised by get_registry flattens to ErrorResponse."""
+    app = FastAPI()
+    install_error_handlers(app)
+    app.include_router(routes.router)
+    app.dependency_overrides[routes.verify_read_scope] = lambda: ServiceToken(
+        scopes=("model:read",), auth_role="svc"
+    )
+    # Intentionally no get_registry override -- force the uninitialized path.
+    routes._registry = None
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get("/api/v1/models/risk_model/current")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_REGISTRY_LOCKED)
+
+
+def test_error_response_flat_shape_integrity_error_on_current() -> None:
+    registry = MagicMock()
+    registry.get_current_production.side_effect = IntegrityError("corrupt")
+    client = _client_with_registry(registry)
+
+    response = client.get("/api/v1/models/risk_model/current")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
+
+
+def test_error_response_flat_shape_integrity_error_on_metadata() -> None:
+    registry = MagicMock()
+    registry.get_model_metadata.side_effect = IntegrityError("corrupt")
+    client = _client_with_registry(registry)
+
+    response = client.get("/api/v1/models/risk_model/v1.0.0")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
+
+
+def test_error_response_flat_shape_lock_error_on_metadata() -> None:
+    registry = MagicMock()
+    registry.get_model_metadata.side_effect = RegistryLockError("locked")
+    client = _client_with_registry(registry)
+
+    response = client.get("/api/v1/models/risk_model/v1.0.0")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_REGISTRY_LOCKED)
+
+
+def test_error_response_flat_shape_metadata_not_found() -> None:
+    registry = MagicMock()
+    registry.get_model_metadata.return_value = None
+    client = _client_with_registry(registry)
+
+    response = client.get("/api/v1/models/risk_model/v1.0.0")
+
+    assert response.status_code == 404
+    _assert_error_response_shape(response.json(), ERROR_MODEL_NOT_FOUND)
+
+
+def test_error_response_flat_shape_lock_error_on_validate() -> None:
+    registry = MagicMock()
+    registry.validate_model.side_effect = RegistryLockError("locked")
+    client = _client_with_registry(registry)
+
+    response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_REGISTRY_LOCKED)
+
+
+def test_error_response_flat_shape_integrity_error_on_validate() -> None:
+    registry = MagicMock()
+    registry.validate_model.side_effect = IntegrityError("corrupt")
+    client = _client_with_registry(registry)
+
+    response = client.post("/api/v1/models/risk_model/v1.0.0/validate")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_CHECKSUM_MISMATCH)
+
+
+def test_error_response_flat_shape_lock_error_on_list() -> None:
+    registry = MagicMock()
+    registry.list_models.side_effect = RegistryLockError("locked")
+    client = _client_with_registry(registry)
+
+    response = client.get("/api/v1/models/risk_model")
+
+    assert response.status_code == 503
+    _assert_error_response_shape(response.json(), ERROR_REGISTRY_LOCKED)
+
+
+def test_flatten_handler_preserves_string_detail() -> None:
+    """Plain string details (no dict) must still go through the default handler unchanged."""
+    from fastapi import HTTPException as FastAPIHTTPException
+
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.get("/string-error")
+    def _string_error() -> None:
+        raise FastAPIHTTPException(status_code=418, detail="i am a teapot")
+
+    client = TestClient(app)
+    response = client.get("/string-error")
+
+    assert response.status_code == 418
+    # Default FastAPI behaviour: ``{"detail": "i am a teapot"}`` — unchanged.
+    assert response.json() == {"detail": "i am a teapot"}
