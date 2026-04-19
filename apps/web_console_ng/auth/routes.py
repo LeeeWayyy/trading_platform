@@ -17,11 +17,7 @@ from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.rate_limiter import AuthRateLimiter
 from apps.web_console_ng.auth.redirects import (
-    legacy_cookie_security_attrs,
-    legacy_trade_marker_from_redirect_path,
-    normalize_legacy_trade_marker,
     sanitize_redirect_path,
-    set_legacy_trade_marker_cookie,
     with_root_path,
     with_root_path_once,
 )
@@ -46,14 +42,6 @@ def _storage_user_get(key: str) -> object | None:
     except RuntimeError as exc:
         logger.debug("app.storage.user unavailable for get", extra={"key": key, "error": str(exc)})
         return None
-
-
-def _storage_user_set(key: str, value: object) -> None:
-    """Write app.storage.user safely when NiceGUI request context is unavailable."""
-    try:
-        app.storage.user[key] = value
-    except RuntimeError as exc:
-        logger.debug("app.storage.user unavailable for set", extra={"key": key, "error": str(exc)})
 
 
 def _storage_user_pop(key: str) -> None:
@@ -96,7 +84,6 @@ async def login_post(request: Request) -> Response:
     password = form_data.get("password", "")
     auth_type_raw = form_data.get("auth_type", config.AUTH_TYPE)
     next_url_raw = form_data.get("next", "/")
-    legacy_trade_marker_raw = form_data.get("legacy_trade_from")
     root_path = str(request.scope.get("root_path", ""))
 
     # Ensure string types for form values (form can return UploadFile for file fields)
@@ -104,22 +91,6 @@ async def login_post(request: Request) -> Response:
     next_url = str(next_url_raw) if next_url_raw else "/"
     sanitized_next_url = sanitize_redirect_path(next_url, root_path=root_path)
     login_path = with_root_path("/login", root_path=root_path)
-    marker_candidate = legacy_trade_marker_raw if isinstance(legacy_trade_marker_raw, str) else None
-    legacy_trade_marker = normalize_legacy_trade_marker(
-        marker_candidate
-    )
-    if legacy_trade_marker is None:
-        stored_marker = _storage_user_get("legacy_trade_from")
-        legacy_trade_marker = normalize_legacy_trade_marker(
-            str(stored_marker) if stored_marker is not None else None
-        )
-    if legacy_trade_marker is None:
-        legacy_trade_marker = legacy_trade_marker_from_redirect_path(
-            next_url,
-            root_path=root_path,
-        )
-    if legacy_trade_marker is not None:
-        _storage_user_set("legacy_trade_from", legacy_trade_marker)
 
     client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
     user_agent = request.headers.get("user-agent", "")
@@ -156,21 +127,14 @@ async def login_post(request: Request) -> Response:
             # Set pending MFA session cookie so /mfa-verify can validate the user
             cookie_cfg = CookieConfig.from_env()
             cookie_flags = cookie_cfg.get_cookie_flags()
-            legacy_secure, legacy_samesite = legacy_cookie_security_attrs(cookie_flags)
             if result.cookie_value:
                 response.set_cookie(
                     key=cookie_cfg.get_cookie_name(),
                     value=result.cookie_value,
                     **cookie_flags,
                 )
-            set_legacy_trade_marker_cookie(
-                response,
-                marker=legacy_trade_marker,
-                root_path=root_path,
-                secure=legacy_secure,
-                samesite=legacy_samesite,
-            )
             # Note: CSRF token set after MFA verification completes
+            _storage_user_pop("legacy_trade_from")
             logger.info("MFA required for user: %s, redirecting to /mfa-verify", username)
             return response
 
@@ -181,7 +145,6 @@ async def login_post(request: Request) -> Response:
         # Set session cookie
         cookie_cfg = CookieConfig.from_env()
         cookie_flags = cookie_cfg.get_cookie_flags()
-        legacy_secure, legacy_samesite = legacy_cookie_security_attrs(cookie_flags)
         if result.cookie_value:
             response.set_cookie(
                 key=cookie_cfg.get_cookie_name(),
@@ -194,15 +157,8 @@ async def login_post(request: Request) -> Response:
                 value=result.csrf_token,
                 **cookie_cfg.get_csrf_flags(),
             )
-        set_legacy_trade_marker_cookie(
-            response,
-            marker=legacy_trade_marker,
-            root_path=root_path,
-            secure=legacy_secure,
-            samesite=legacy_samesite,
-        )
-        _storage_user_pop("legacy_trade_from")
 
+        _storage_user_pop("legacy_trade_from")
         logger.info("Login successful for user: %s", username)
         return response
     else:
@@ -266,14 +222,6 @@ async def auth_callback(code: str, state: str) -> None:
     if result.success:
         # Set cookies
         cookie_cfg = CookieConfig.from_env()
-        legacy_secure, legacy_samesite = legacy_cookie_security_attrs(
-            cookie_cfg.get_cookie_flags()
-        )
-        stored_marker = _storage_user_get("legacy_trade_from")
-        legacy_trade_marker = normalize_legacy_trade_marker(
-            str(stored_marker) if stored_marker is not None else None
-        )
-        legacy_cookie_attached = False
 
         if hasattr(request.state, "response"):
             response = request.state.response
@@ -291,14 +239,6 @@ async def auth_callback(code: str, state: str) -> None:
                     value=result.csrf_token,
                     **cookie_cfg.get_csrf_flags(),
                 )
-            set_legacy_trade_marker_cookie(
-                response,
-                marker=legacy_trade_marker,
-                root_path=root_path,
-                secure=legacy_secure,
-                samesite=legacy_samesite,
-            )
-            legacy_cookie_attached = legacy_trade_marker is not None
         else:
             logger.warning(
                 "OAuth2 callback: request.state.response not available for cookie setting"
@@ -316,8 +256,7 @@ async def auth_callback(code: str, state: str) -> None:
             str(redirect_after_login) if redirect_after_login is not None else None,
             root_path=root_path,
         )
-        if legacy_trade_marker is None or legacy_cookie_attached:
-            _storage_user_pop("legacy_trade_from")
+        _storage_user_pop("legacy_trade_from")
         _storage_user_pop("redirect_after_login")
         ui.navigate.to(with_root_path_once(redirect_to, root_path=root_path))
     else:
