@@ -168,7 +168,7 @@ def _get_taq_provider() -> Any | None:
 # COMPATIBILITY: If external consumers are added, introduce /api/v2/tca with a
 # backwards-compatible default (e.g., 0.0 instead of None) and a deprecation
 # period for v1.  See schemas.py TCAAnalysisSummary / TCAOrderDetail docstrings.
-# TODO: Create ADR-0040 documenting this breaking API contract change.
+# See docs/ADRs/ADR-0040-tca-nullable-fee-fields.md for the decision record.
 router = APIRouter(prefix="/api/v1/tca", tags=["TCA"])
 
 # TCA auth dependency - requires VIEW_TCA permission
