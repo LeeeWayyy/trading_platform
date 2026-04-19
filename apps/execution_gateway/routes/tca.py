@@ -598,13 +598,14 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     # Note: vwap_benchmark is set to arrival_price below to match this calculation
     vwap_slippage_bps = price_shortfall_bps  # Same without market data
 
-    # Fee cost and total_fees - fail closed when currencies are mixed or non-USD.
+    # Fee cost and total_fees - fail closed when currencies are mixed or non-USD,
+    # or when the raw aggregate is NaN (e.g., a fill had a non-numeric fee).
     # Summing fees across different currencies is arithmetically invalid.
     fee_cost_bps: float | None
     total_fees: float | None
     has_mixed = fill_batch.has_mixed_currencies
     has_non_usd = fill_batch.has_non_usd_fees
-    if has_mixed or has_non_usd:
+    if has_mixed or has_non_usd or math.isnan(raw_total_fees):
         fee_cost_bps = None
         total_fees = None
     else:
@@ -619,8 +620,9 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     opportunity_cost_bps = unfilled_fraction * FALLBACK_OPPORTUNITY_COST_BPS
 
     # Total IS - weight filled components by fill_rate (matching ExecutionQualityAnalyzer)
-    # Exclude fee_cost_bps from total when untrusted (None)
-    effective_fee_bps = 0.0 if fee_cost_bps is None else fee_cost_bps
+    # Exclude fee_cost_bps from total when untrusted (None or NaN); NaN defense
+    # is belt-and-suspenders since the fail-closed branch above already maps NaN to None.
+    effective_fee_bps = 0.0 if fee_cost_bps is None or math.isnan(fee_cost_bps) else fee_cost_bps
     total_cost_bps = (price_shortfall_bps + effective_fee_bps) * fill_rate + opportunity_cost_bps
 
     # Build warnings list
@@ -649,7 +651,11 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
         implementation_shortfall_bps=round(total_cost_bps, 2),
         price_shortfall_bps=round(price_shortfall_bps, 2),
         vwap_slippage_bps=round(vwap_slippage_bps, 2),
-        fee_cost_bps=round(fee_cost_bps, 2) if fee_cost_bps is not None else None,
+        fee_cost_bps=(
+            round(fee_cost_bps, 2)
+            if fee_cost_bps is not None and not math.isnan(fee_cost_bps)
+            else None
+        ),
         opportunity_cost_bps=round(opportunity_cost_bps, 2),
         market_impact_bps=0.0,  # Cannot compute without TAQ
         timing_cost_bps=0.0,  # Cannot compute without TAQ
@@ -833,7 +839,13 @@ def _avg_fee_cost_bps(orders: list[TCAOrderDetail]) -> float | None:
     """
     if not orders:
         return None
-    valid = [o.fee_cost_bps for o in orders if o.fee_cost_bps is not None]
+    # Defense-in-depth: filter NaN in addition to None. _result_to_order_detail
+    # should already have converted NaN -> None, but aggregates must never emit NaN.
+    valid = [
+        o.fee_cost_bps
+        for o in orders
+        if o.fee_cost_bps is not None and not math.isnan(o.fee_cost_bps)
+    ]
     if not valid:
         return None
     return sum(valid) / len(orders)

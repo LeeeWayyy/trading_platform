@@ -336,7 +336,7 @@ def _generate_demo_data(
     notional_values = [o["total_notional"] for o in orders]
     filled_qty_values = [o["filled_qty"] for o in orders]
     price_values = [o["price_shortfall_bps"] for o in orders]
-    fee_values = [o["fee_cost_bps"] for o in orders if o["fee_cost_bps"] is not None]
+    fee_values = [o["fee_cost_bps"] for o in orders if _is_numeric(o.get("fee_cost_bps"))]
     opp_values = [o["opportunity_cost_bps"] for o in orders]
     timing_values = [o["timing_cost_bps"] for o in orders]
 
@@ -759,7 +759,7 @@ async def _render_tca_dashboard(
                             }
                         date_data[d]["price"] += order.get("price_shortfall_bps", 0)
                         fee_val = order.get("fee_cost_bps")
-                        if fee_val is not None:
+                        if _is_numeric(fee_val):
                             date_data[d]["fee"] += fee_val
                             date_data[d]["has_fee"] = 1
                         date_data[d]["opportunity"] += order.get("opportunity_cost_bps", 0)
